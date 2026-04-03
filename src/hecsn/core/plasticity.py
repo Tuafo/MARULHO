@@ -1,0 +1,306 @@
+from __future__ import annotations
+
+import math
+from typing import Any
+
+import torch
+import torch.nn.functional as F
+
+
+def _normalize_nonnegative(signal: torch.Tensor) -> torch.Tensor:
+    signal = torch.clamp(signal.float(), min=0.0)
+    total = torch.clamp(signal.sum(), min=1e-8)
+    return signal / total
+
+
+def _normalize_columns(weights: torch.Tensor, target_norm: float) -> torch.Tensor:
+    return F.normalize(torch.clamp(weights, min=1e-6), dim=0) * float(target_norm)
+
+
+class LocalPlasticityCircuit:
+    """Local three-factor plasticity for the maintained competitive scaffold.
+
+    This circuit replaces the older ad hoc "spike eligibility" branch with one
+    stateful subsystem that owns:
+    - excitatory log-STDP-style eligibility traces,
+    - iSTDP-style inhibitory balancing via adaptive inhibitory tone,
+    - firing-rate-dependent synaptic scaling,
+    - plastic input and projection synapses.
+
+    It is still a columnar proxy rather than the paper's full recurrent AdEx
+    microcircuit, but it now exposes the paper-backed local learning motifs in
+    the executable path instead of only describing them in `hecsn.md`.
+    """
+
+    def __init__(
+        self,
+        *,
+        n_columns: int,
+        input_dim: int,
+        column_dim: int,
+        device: torch.device,
+        input_stdp_ltp: float,
+        input_stdp_ltd: float,
+        trace_tau: float,
+        eligibility_tau: float,
+        stdp_mu_plus: float,
+        stdp_mu_minus: float,
+        synaptic_scaling_alpha: float,
+        inhibitory_plasticity_lr: float,
+        inhibitory_decay: float,
+        target_firing_rate: float,
+        input_row_target: float,
+        projection_norm_target: float,
+        projection_plasticity_scale: float,
+        assembly_projection_plasticity_scale: float,
+    ) -> None:
+        self.n_columns = int(n_columns)
+        self.input_dim = int(input_dim)
+        self.column_dim = int(column_dim)
+        self.device = device
+
+        self.input_stdp_ltp = float(input_stdp_ltp)
+        self.input_stdp_ltd = float(input_stdp_ltd)
+        self.trace_tau = float(trace_tau)
+        self.eligibility_tau = float(eligibility_tau)
+        self.stdp_mu_plus = float(stdp_mu_plus)
+        self.stdp_mu_minus = float(stdp_mu_minus)
+        self.synaptic_scaling_alpha = float(synaptic_scaling_alpha)
+        self.inhibitory_plasticity_lr = float(inhibitory_plasticity_lr)
+        self.inhibitory_decay = float(inhibitory_decay)
+        self.target_firing_rate = float(target_firing_rate)
+        self.input_row_target = float(input_row_target)
+        self.projection_norm_target = float(projection_norm_target)
+        self.projection_plasticity_scale = float(projection_plasticity_scale)
+        self.assembly_projection_plasticity_scale = float(assembly_projection_plasticity_scale)
+
+        self.pre_trace = torch.zeros(self.input_dim, device=self.device)
+        self.post_trace = torch.zeros(self.n_columns, device=self.device)
+        self.projected_trace = torch.zeros(self.column_dim, device=self.device)
+        self.assembly_trace = torch.zeros(self.n_columns, device=self.device)
+
+        self.input_eligibility = torch.zeros(self.n_columns, self.input_dim, device=self.device)
+        self.projection_eligibility = torch.zeros(self.input_dim, self.column_dim, device=self.device)
+        self.assembly_projection_eligibility = torch.zeros(self.n_columns, self.column_dim, device=self.device)
+
+        self.firing_rate_ema = torch.full(
+            (self.n_columns,),
+            self.target_firing_rate,
+            device=self.device,
+        )
+        self.synaptic_scale = torch.ones(self.n_columns, device=self.device)
+        self.inhibitory_trace = torch.zeros(self.n_columns, device=self.device)
+        self.inhibitory_tone = torch.zeros(self.n_columns, device=self.device)
+
+    def _trace_decay(self) -> float:
+        return math.exp(-1.0 / max(self.trace_tau, 1e-6))
+
+    def _eligibility_decay(self) -> float:
+        return math.exp(-1.0 / max(self.eligibility_tau, 1e-6))
+
+    def inhibition(self, candidates: torch.Tensor | None = None) -> torch.Tensor:
+        if candidates is None:
+            return self.inhibitory_tone
+        return self.inhibitory_tone[candidates]
+
+    def _winner_activity(
+        self,
+        winner_indices: torch.Tensor,
+        winner_strengths: torch.Tensor | None,
+    ) -> torch.Tensor:
+        post_spikes = torch.zeros(self.n_columns, device=self.device)
+        winners = winner_indices.long()
+        if int(winners.numel()) == 0:
+            return post_spikes
+
+        if winner_strengths is None or int(winner_strengths.numel()) != int(winners.numel()):
+            strengths = torch.full(
+                (int(winners.numel()),),
+                1.0 / max(1, int(winners.numel())),
+                device=self.device,
+            )
+        else:
+            strengths = _normalize_nonnegative(winner_strengths.to(self.device))
+        post_spikes[winners] = strengths
+        return post_spikes
+
+    def _log_stdp_delta(
+        self,
+        *,
+        weights: torch.Tensor,
+        pre_signal: torch.Tensor,
+        post_signal: torch.Tensor,
+        pre_trace: torch.Tensor,
+        post_trace: torch.Tensor,
+    ) -> torch.Tensor:
+        ltp = (
+            self.input_stdp_ltp
+            * torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_plus)
+            * post_signal.unsqueeze(1)
+            * pre_trace.unsqueeze(0)
+        )
+        ltd = (
+            self.input_stdp_ltd
+            * torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_minus)
+            * post_trace.unsqueeze(1)
+            * pre_signal.unsqueeze(0)
+        )
+        return ltp - ltd
+
+    def _renormalize_input_rows(self, input_weights: torch.Tensor) -> torch.Tensor:
+        target = self.input_row_target * self.synaptic_scale.unsqueeze(1)
+        row_sums = torch.clamp(input_weights.sum(dim=1, keepdim=True), min=1e-8)
+        return torch.clamp(input_weights, min=1e-6) * (target / row_sums)
+
+    def apply(
+        self,
+        *,
+        input_weights: torch.Tensor,
+        projection_weights: torch.Tensor,
+        assembly_projection_weights: torch.Tensor,
+        input_pattern: torch.Tensor | None,
+        pre_synaptic_trace: torch.Tensor | None,
+        projected_input: torch.Tensor | None,
+        assembly: torch.Tensor,
+        routing_key: torch.Tensor,
+        winner_indices: torch.Tensor,
+        winner_strengths: torch.Tensor | None,
+        modulator: float,
+        lr: float,
+    ) -> dict[str, float]:
+        if input_pattern is None:
+            return {
+                "modulated_update_norm": 0.0,
+                "mean_inhibitory_tone": float(self.inhibitory_tone.mean().item()),
+                "mean_synaptic_scale": float(self.synaptic_scale.mean().item()),
+            }
+
+        pre_signal = _normalize_nonnegative(
+            pre_synaptic_trace.to(self.device) if pre_synaptic_trace is not None else input_pattern.to(self.device)
+        )
+        projected_signal = _normalize_nonnegative(
+            projected_input.to(self.device) if projected_input is not None else routing_key.to(self.device)
+        )
+        assembly_signal = _normalize_nonnegative(assembly.to(self.device))
+        routing_signal = _normalize_nonnegative(routing_key.to(self.device))
+        post_signal = self._winner_activity(winner_indices, winner_strengths)
+
+        trace_decay = self._trace_decay()
+        eligibility_decay = self._eligibility_decay()
+        self.pre_trace = self.pre_trace * trace_decay + pre_signal
+        self.post_trace = self.post_trace * trace_decay + post_signal
+        self.projected_trace = self.projected_trace * trace_decay + projected_signal
+        self.assembly_trace = self.assembly_trace * trace_decay + assembly_signal
+
+        input_delta = self._log_stdp_delta(
+            weights=input_weights,
+            pre_signal=pre_signal,
+            post_signal=post_signal,
+            pre_trace=self.pre_trace,
+            post_trace=self.post_trace,
+        )
+        self.input_eligibility = self.input_eligibility * eligibility_decay + input_delta
+
+        projection_delta = (
+            self.input_stdp_ltp
+            * torch.pow(torch.clamp(projection_weights, min=1e-6), self.stdp_mu_plus)
+            * self.pre_trace.unsqueeze(1)
+            * self.projected_trace.unsqueeze(0)
+            - self.input_stdp_ltd
+            * torch.pow(torch.clamp(projection_weights, min=1e-6), self.stdp_mu_minus)
+            * pre_signal.unsqueeze(1)
+            * projected_signal.unsqueeze(0)
+        )
+        self.projection_eligibility = self.projection_eligibility * eligibility_decay + projection_delta
+
+        assembly_projection_delta = (
+            self.input_stdp_ltp
+            * torch.pow(torch.clamp(assembly_projection_weights, min=1e-6), self.stdp_mu_plus)
+            * self.assembly_trace.unsqueeze(1)
+            * self.projected_trace.unsqueeze(0)
+            - self.input_stdp_ltd
+            * torch.pow(torch.clamp(assembly_projection_weights, min=1e-6), self.stdp_mu_minus)
+            * assembly_signal.unsqueeze(1)
+            * routing_signal.unsqueeze(0)
+        )
+        self.assembly_projection_eligibility = (
+            self.assembly_projection_eligibility * eligibility_decay + assembly_projection_delta
+        )
+
+        learning_signal = float(max(-1.0, min(1.0, modulator)))
+        input_weights.add_(lr * learning_signal * self.input_eligibility)
+        projection_weights.add_(lr * learning_signal * self.projection_plasticity_scale * self.projection_eligibility)
+        assembly_projection_weights.add_(
+            lr * learning_signal * self.assembly_projection_plasticity_scale * self.assembly_projection_eligibility
+        )
+
+        self.firing_rate_ema = 0.99 * self.firing_rate_ema + 0.01 * post_signal
+        scaling_ratio = torch.pow(
+            (self.target_firing_rate + 1e-6) / (self.firing_rate_ema + 1e-6),
+            self.synaptic_scaling_alpha,
+        )
+        self.synaptic_scale = torch.clamp(self.synaptic_scale * scaling_ratio, min=0.25, max=4.0)
+
+        self.inhibitory_trace = self.inhibitory_trace * self.inhibitory_decay + post_signal
+        rate_error = self.firing_rate_ema - self.target_firing_rate
+        self.inhibitory_tone = torch.clamp(
+            self.inhibitory_tone + self.inhibitory_plasticity_lr * rate_error * (1.0 + self.inhibitory_trace),
+            min=0.0,
+            max=1.5,
+        )
+
+        input_weights.copy_(self._renormalize_input_rows(input_weights))
+        projection_weights.copy_(_normalize_columns(projection_weights, self.projection_norm_target))
+        assembly_projection_weights.copy_(_normalize_columns(assembly_projection_weights, self.projection_norm_target))
+
+        return {
+            "modulated_update_norm": float((lr * learning_signal * self.input_eligibility).norm().item()),
+            "mean_inhibitory_tone": float(self.inhibitory_tone.mean().item()),
+            "mean_synaptic_scale": float(self.synaptic_scale.mean().item()),
+        }
+
+    def revive_columns(self, column_indices: torch.Tensor) -> None:
+        if int(column_indices.numel()) == 0:
+            return
+        indices = column_indices.long().to(self.device)
+        self.post_trace[indices] = 0.0
+        self.assembly_trace[indices] = 0.0
+        self.input_eligibility[indices] = 0.0
+        self.assembly_projection_eligibility[indices] = 0.0
+        self.firing_rate_ema[indices] = self.target_firing_rate
+        self.synaptic_scale[indices] = 1.0
+        self.inhibitory_trace[indices] = 0.0
+        self.inhibitory_tone[indices] = 0.0
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "pre_trace": self.pre_trace.detach().clone().cpu(),
+            "post_trace": self.post_trace.detach().clone().cpu(),
+            "projected_trace": self.projected_trace.detach().clone().cpu(),
+            "assembly_trace": self.assembly_trace.detach().clone().cpu(),
+            "input_eligibility": self.input_eligibility.detach().clone().cpu(),
+            "projection_eligibility": self.projection_eligibility.detach().clone().cpu(),
+            "assembly_projection_eligibility": self.assembly_projection_eligibility.detach().clone().cpu(),
+            "firing_rate_ema": self.firing_rate_ema.detach().clone().cpu(),
+            "synaptic_scale": self.synaptic_scale.detach().clone().cpu(),
+            "inhibitory_trace": self.inhibitory_trace.detach().clone().cpu(),
+            "inhibitory_tone": self.inhibitory_tone.detach().clone().cpu(),
+        }
+
+    def load_state_dict(self, snapshot: dict[str, Any]) -> None:
+        for attr in (
+            "pre_trace",
+            "post_trace",
+            "projected_trace",
+            "assembly_trace",
+            "input_eligibility",
+            "projection_eligibility",
+            "assembly_projection_eligibility",
+            "firing_rate_ema",
+            "synaptic_scale",
+            "inhibitory_trace",
+            "inhibitory_tone",
+        ):
+            value = snapshot.get(attr)
+            if isinstance(value, torch.Tensor):
+                setattr(self, attr, value.to(self.device))

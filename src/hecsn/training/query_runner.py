@@ -1,0 +1,439 @@
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+from typing import Any, Iterator, List, Optional
+
+import torch
+import torch.nn.functional as F
+
+from hecsn.data.rtf_encoder import RTFEncoder
+from hecsn.retrieval import NativeAssemblyDecoder
+from hecsn.reporting.io import write_json_file
+from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
+from hecsn.training.trainer import HECSNTrainer
+
+
+_NATIVE_DECODER = NativeAssemblyDecoder()
+
+
+def feature_label(index: int, representation: str, feature_dim: int) -> str:
+    if representation == "hashed_ngram" or feature_dim != 128:
+        return f"hash_{index}"
+    if index == 0:
+        return "<pad>"
+    ch = chr(index)
+    if ch == " ":
+        return "<space>"
+    if ch == "\t":
+        return "<tab>"
+    if ch == "\n":
+        return "<newline>"
+    if ch.isprintable():
+        return ch
+    return f"\\x{index:02x}"
+
+
+def text_pattern_stream(text: str, encoder: RTFEncoder, window_size: int) -> Iterator[tuple[str, torch.Tensor]]:
+    window_codes: List[int] = []
+    window_chars: List[str] = []
+    for ch in text:
+        code = ord(ch) if ord(ch) < 128 else 0
+        display = ch if ord(ch) < 128 else "?"
+        window_codes.append(code)
+        window_chars.append(display)
+        if len(window_codes) > window_size:
+            window_codes.pop(0)
+            window_chars.pop(0)
+        yield "".join(window_chars), encoder.feature_vector(window_codes)
+
+
+def top_feature_details(pattern: torch.Tensor, top_n: int, representation: str) -> list[dict[str, Any]]:
+    flat = pattern.detach().cpu().float()
+    count = min(max(1, int(top_n)), int(flat.numel()))
+    values, indices = torch.topk(flat, k=count)
+    features: list[dict[str, Any]] = []
+    for value, index in zip(values.tolist(), indices.tolist()):
+        if float(value) <= 0.0:
+            continue
+        label = feature_label(int(index), representation, int(flat.numel()))
+        item: dict[str, Any] = {
+            "index": int(index),
+            "char": label,
+            "weight": float(value),
+        }
+        if representation != "hashed_ngram" and int(flat.numel()) == 128:
+            item["ord"] = int(index)
+        features.append(item)
+    return features
+
+
+def cosine_similarity(left: torch.Tensor, right: torch.Tensor) -> float:
+    if left.numel() == 0 or right.numel() == 0:
+        return float("nan")
+    return float(F.cosine_similarity(left.unsqueeze(0), right.unsqueeze(0), dim=1).item())
+
+
+def feed_text(trainer: HECSNTrainer, encoder: RTFEncoder, text: str) -> dict[str, Any]:
+    last_metrics: dict[str, Any] | None = None
+    tokens = 0
+    for raw_window, pattern in text_pattern_stream(text, encoder, trainer.config.window_size):
+        last_metrics = trainer.train_step(pattern, raw_window=raw_window)
+        tokens += 1
+
+    return {
+        "tokens_processed": int(tokens),
+        "token_count": int(trainer.token_count),
+        "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
+        "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
+        "memory_buffer_size": int(len(trainer.model.memory_store.slow_buffer)),
+    }
+
+
+def prime_context(trainer: HECSNTrainer, encoder: RTFEncoder, text: str) -> int:
+    patterns = [pattern for _, pattern in text_pattern_stream(text, encoder, trainer.config.window_size)]
+    trainer.prime_context(patterns, update_weights=False)
+    return len(patterns)
+
+
+def candidate_details(trainer: HECSNTrainer, routing_key: torch.Tensor, top_k: int) -> list[dict[str, Any]]:
+    candidate_ids, _ = trainer.model.hnsw_index.search(routing_key.unsqueeze(0), k=max(1, int(top_k)))
+    row = candidate_ids[0] if candidate_ids else []
+    details: list[dict[str, Any]] = []
+    for column_id in row:
+        prototype = trainer.model.competitive.prototypes[int(column_id)].detach().cpu()
+        details.append(
+            {
+                "column_id": int(column_id),
+                "shard_id": int(column_id) % max(1, trainer.config.routing_shards),
+                "similarity": cosine_similarity(routing_key.detach().cpu(), prototype),
+            }
+        )
+    return details
+
+
+def memory_matches(
+    trainer: HECSNTrainer,
+    pattern_vec: torch.Tensor,
+    routing_key: torch.Tensor,
+    top_k: int,
+    top_chars: int,
+) -> list[dict[str, Any]]:
+    store = trainer.model.memory_store
+    representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
+    replay_scores = store.replay_scores(trainer.token_count)
+    matches: list[dict[str, Any]] = []
+    query_input = pattern_vec.detach().cpu()
+    query_key = routing_key.detach().cpu()
+    for idx in range(len(store.slow_buffer)):
+        ref_key = store.slow_routing_keys[idx]
+        ref_input = store.slow_input_patterns[idx]
+        if isinstance(ref_key, torch.Tensor):
+            similarity = cosine_similarity(query_key, ref_key.float())
+        elif isinstance(ref_input, torch.Tensor):
+            similarity = cosine_similarity(query_input, ref_input.float())
+        else:
+            similarity = cosine_similarity(query_input, store.slow_buffer[idx].float())
+
+        evidence_pattern = ref_input.float() if isinstance(ref_input, torch.Tensor) else store.slow_buffer[idx].float()
+        replay_entry = store.replay_entry(idx, current_token=trainer.token_count)
+        capture_tag = float(replay_entry.get("capture_tag", 0.0))
+        prp_level = float(replay_entry.get("prp_level", 0.0))
+        capture_strength = float(replay_entry.get("capture_strength", 0.0))
+        consolidation_level = float(replay_entry.get("consolidation_level", 0.0))
+        matches.append(
+            {
+                "memory_index": int(idx),
+                "similarity": float(similarity),
+                "bucket_id": None if store.slow_bucket_ids[idx] is None else int(store.slow_bucket_ids[idx]),
+                "raw_window": store.slow_raw_windows[idx],
+                "age_tokens": int(max(0, trainer.token_count - int(store.slow_entry_timestamps[idx]))),
+                "importance": float(store.slow_importance[idx]),
+                "tag_strength": float(capture_tag),
+                "capture_tag": float(capture_tag),
+                "prp_level": float(prp_level),
+                "capture_strength": float(capture_strength),
+                "consolidation_level": consolidation_level,
+                "consolidation_gap": float(max(0.0, 1.0 - consolidation_level)),
+                "replay_count": int(store.slow_replay_count[idx]),
+                "replay_priority": float(replay_scores[idx].item()) if idx < int(replay_scores.numel()) else 0.0,
+                "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
+            }
+        )
+
+    matches.sort(key=lambda item: float(item["similarity"]), reverse=True)
+    return matches[: max(1, int(top_k))]
+
+
+def read_text_argument(text: Optional[str], file_path: Optional[Path]) -> Optional[str]:
+    if text is not None:
+        return text
+    if file_path is not None:
+        return file_path.read_text(encoding="utf-8")
+    return None
+
+
+def build_context_comparison(
+    checkpoint: Path,
+    query_text: str,
+    feed_text_value: Optional[str],
+    context_a: str,
+    context_b: str,
+    top_k_candidates: int,
+    top_k_memories: int,
+    top_chars: int,
+) -> dict[str, Any]:
+    trainer, _ = load_trainer_checkpoint(checkpoint)
+    encoder = RTFEncoder.from_config(trainer.config)
+
+    if feed_text_value:
+        feed_text(trainer, encoder, feed_text_value)
+
+    query_examples = list(text_pattern_stream(query_text, encoder, trainer.config.window_size))
+    if not query_examples:
+        raise ValueError("Query text produced no patterns")
+    _, pattern_vec = query_examples[-1]
+
+    if trainer.model.context_layer is None:
+        return {
+            "supported": False,
+            "reason": "Checkpoint does not include a context layer",
+        }
+
+    comparisons: list[dict[str, Any]] = []
+    for label, context_value in (("context_a", context_a), ("context_b", context_b)):
+        primed = prime_context(trainer, encoder, context_value)
+        routing_key = trainer.routing_key_for_pattern(pattern_vec)
+        winner = trainer.contextual_winner_for_pattern(pattern_vec)
+        comparisons.append(
+            {
+                "label": label,
+                "context_text": context_value,
+                "primed_tokens": int(primed),
+                "winner_column": int(winner),
+                "winner_shard": int(winner % max(1, trainer.config.routing_shards)),
+                "context_state_norm": float(torch.norm(trainer.context_state().float()).item()),
+                "top_candidates": candidate_details(trainer, routing_key.detach().cpu(), top_k_candidates),
+                "memory_matches": memory_matches(trainer, pattern_vec, routing_key, top_k_memories, top_chars),
+            }
+        )
+
+    return {
+        "supported": True,
+        "query_text": query_text,
+        "winner_switch": bool(comparisons[0]["winner_column"] != comparisons[1]["winner_column"]),
+        "comparisons": comparisons,
+    }
+
+
+def build_query_result(
+    trainer: HECSNTrainer,
+    checkpoint: Path,
+    metadata: dict[str, Any],
+    encoder: RTFEncoder,
+    query_text_resolved: Optional[str],
+    feed_text_resolved: Optional[str],
+    context_text: Optional[str],
+    top_k_candidates: int,
+    top_k_memories: int,
+    top_chars: int,
+    compare_context_a: Optional[str],
+    compare_context_b: Optional[str],
+) -> dict[str, Any]:
+    trainer.reset_context_state()
+    representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
+    result: dict[str, Any] = {
+        "checkpoint": str(checkpoint),
+        "checkpoint_metadata": metadata,
+        "config": {
+            "n_columns": int(trainer.config.n_columns),
+            "column_latent_dim": int(trainer.config.column_latent_dim),
+            "routing_shards": int(trainer.config.routing_shards),
+            "k_routing": int(trainer.config.k_routing),
+            "memory_capacity": int(trainer.config.memory_capacity),
+            "input_representation": representation,
+        },
+        "feed_summary": None,
+        "context_summary": None,
+        "query_summary": None,
+        "context_comparison": None,
+    }
+
+    if feed_text_resolved:
+        result["feed_summary"] = feed_text(trainer, encoder, feed_text_resolved)
+
+    if context_text is not None:
+        primed = prime_context(trainer, encoder, context_text)
+        result["context_summary"] = {
+            "primed_tokens": int(primed),
+            "context_state_norm": float(torch.norm(trainer.context_state().float()).item()),
+            "context_supported": bool(trainer.model.context_layer is not None),
+        }
+
+    if query_text_resolved:
+        query_examples = list(text_pattern_stream(query_text_resolved, encoder, trainer.config.window_size))
+        if not query_examples:
+            raise ValueError("Query text produced no patterns")
+        query_window, pattern_vec = query_examples[-1]
+        routing_key = trainer.routing_key_for_pattern(pattern_vec)
+        winner = trainer.contextual_winner_for_pattern(pattern_vec) if trainer.model.context_layer is not None and context_text is not None else trainer.winner_for_pattern(pattern_vec)
+        recon_error = trainer.reconstruction_error(pattern_vec)
+        decode_matches = memory_matches(
+            trainer,
+            pattern_vec,
+            routing_key,
+            max(top_k_memories, 24),
+            top_chars,
+        )
+        result["query_summary"] = {
+            "query_text": query_text_resolved,
+            "query_window": query_window,
+            "reconstruction_error": float(recon_error),
+            "winner_column": int(winner),
+            "winner_shard": int(winner % max(1, trainer.config.routing_shards)),
+            "top_query_chars": top_feature_details(pattern_vec, top_chars, representation),
+            "top_candidates": candidate_details(trainer, routing_key.detach().cpu(), top_k_candidates),
+            "memory_matches": decode_matches[: max(1, int(top_k_memories))],
+            "native_decode": _NATIVE_DECODER.decode(
+                query_window=query_window,
+                winner_column=int(winner),
+                memory_matches=decode_matches,
+            ),
+        }
+
+    if compare_context_a is not None and compare_context_b is not None and query_text_resolved is not None:
+        result["context_comparison"] = build_context_comparison(
+            checkpoint=checkpoint,
+            query_text=query_text_resolved,
+            feed_text_value=feed_text_resolved,
+            context_a=compare_context_a,
+            context_b=compare_context_b,
+            top_k_candidates=top_k_candidates,
+            top_k_memories=top_k_memories,
+            top_chars=top_chars,
+        )
+
+    return result
+
+
+def run_query(
+    checkpoint: Path,
+    query_text: Optional[str],
+    query_file: Optional[Path],
+    feed_text_value: Optional[str],
+    feed_file: Optional[Path],
+    context_text: Optional[str],
+    top_k_candidates: int,
+    top_k_memories: int,
+    top_chars: int,
+    output_json: Optional[Path],
+    save_checkpoint_path: Optional[Path],
+    compare_context_a: Optional[str],
+    compare_context_b: Optional[str],
+) -> None:
+    trainer, metadata = load_trainer_checkpoint(checkpoint)
+    encoder = RTFEncoder.from_config(trainer.config)
+
+    feed_text_resolved = read_text_argument(feed_text_value, feed_file)
+    query_text_resolved = read_text_argument(query_text, query_file)
+
+    result = build_query_result(
+        trainer=trainer,
+        checkpoint=checkpoint,
+        metadata=metadata,
+        encoder=encoder,
+        query_text_resolved=query_text_resolved,
+        feed_text_resolved=feed_text_resolved,
+        context_text=context_text,
+        top_k_candidates=top_k_candidates,
+        top_k_memories=top_k_memories,
+        top_chars=top_chars,
+        compare_context_a=compare_context_a,
+        compare_context_b=compare_context_b,
+    )
+
+    if save_checkpoint_path is not None:
+        saved_path = save_trainer_checkpoint(save_checkpoint_path, trainer, metadata=metadata)
+        result["saved_checkpoint"] = str(saved_path)
+
+    if output_json is not None:
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        write_json_file(output_json, result)
+
+    print("HECSN query summary")
+    print(f"checkpoint={checkpoint}")
+    if result["feed_summary"] is not None:
+        print(f"feed_tokens_processed={result['feed_summary']['tokens_processed']}")
+        print(f"feed_last_winner={result['feed_summary']['last_winner']}")
+        print(f"feed_memory_buffer_size={result['feed_summary']['memory_buffer_size']}")
+    if result["context_summary"] is not None:
+        print(f"context_primed_tokens={result['context_summary']['primed_tokens']}")
+        print(f"context_state_norm={result['context_summary']['context_state_norm']:.6f}")
+    if result["query_summary"] is not None:
+        query_summary = result["query_summary"]
+        print(f"query_window={query_summary['query_window']}")
+        print(f"winner_column={query_summary['winner_column']}")
+        print(f"winner_shard={query_summary['winner_shard']}")
+        print(f"reconstruction_error={query_summary['reconstruction_error']:.6f}")
+        native_decode = query_summary.get("native_decode") or {}
+        if native_decode.get("available"):
+            print(f"native_decode_confidence={float(native_decode['confidence']):.6f}")
+            print(f"native_decode_text={native_decode['decoded_text']}")
+        if query_summary["top_candidates"]:
+            top_candidate = query_summary["top_candidates"][0]
+            print(f"top_candidate={top_candidate['column_id']} similarity={top_candidate['similarity']:.6f}")
+        if query_summary["memory_matches"]:
+            top_memory = query_summary["memory_matches"][0]
+            print(f"top_memory_similarity={top_memory['similarity']:.6f}")
+            print(f"top_memory_window={top_memory['raw_window']}")
+    if result["context_comparison"] is not None:
+        context_comparison = result["context_comparison"]
+        print(f"context_comparison_supported={context_comparison['supported']}")
+        if context_comparison["supported"]:
+            print(f"context_winner_switch={context_comparison['winner_switch']}")
+    if output_json is not None:
+        print(f"output_json={output_json}")
+    if save_checkpoint_path is not None:
+        print(f"saved_checkpoint={save_checkpoint_path}")
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Load a HECSN checkpoint, feed raw text, and retrieve matching memories")
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--query-text", type=str, default=None)
+    parser.add_argument("--query-file", type=Path, default=None)
+    parser.add_argument("--feed-text", type=str, default=None)
+    parser.add_argument("--feed-file", type=Path, default=None)
+    parser.add_argument("--context-text", type=str, default=None)
+    parser.add_argument("--top-k-candidates", type=int, default=5)
+    parser.add_argument("--top-k-memories", type=int, default=5)
+    parser.add_argument("--top-chars", type=int, default=6)
+    parser.add_argument("--output-json", type=Path, default=None)
+    parser.add_argument("--save-checkpoint", type=Path, default=None)
+    parser.add_argument("--compare-context-a", type=str, default=None)
+    parser.add_argument("--compare-context-b", type=str, default=None)
+    return parser
+
+
+def main() -> None:
+    parser = build_arg_parser()
+    args = parser.parse_args()
+    run_query(
+        checkpoint=args.checkpoint,
+        query_text=args.query_text,
+        query_file=args.query_file,
+        feed_text_value=args.feed_text,
+        feed_file=args.feed_file,
+        context_text=args.context_text,
+        top_k_candidates=args.top_k_candidates,
+        top_k_memories=args.top_k_memories,
+        top_chars=args.top_chars,
+        output_json=args.output_json,
+        save_checkpoint_path=args.save_checkpoint,
+        compare_context_a=args.compare_context_a,
+        compare_context_b=args.compare_context_b,
+    )
+
+
+if __name__ == "__main__":
+    main()
