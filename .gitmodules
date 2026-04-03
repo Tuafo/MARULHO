@@ -1,0 +1,3 @@
+[submodule "HECSN_UI"]
+	path = HECSN_UI
+	url = https://github.com/Tuafo/HECSN_UI.git
