@@ -54,6 +54,7 @@ class DualMemoryStore:
         self.slow_input_patterns: List[Optional[torch.Tensor]] = []
         self.slow_routing_keys: List[Optional[torch.Tensor]] = []
         self.slow_raw_windows: List[Optional[str]] = []
+        self.slow_texts: List[Optional[str]] = []
         self.slow_bucket_ids: List[Optional[int]] = []
         self.slow_importance: List[float] = []
         self.slow_capture_tag: List[float] = []
@@ -85,6 +86,7 @@ class DualMemoryStore:
         self.slow_input_patterns = []
         self.slow_routing_keys = []
         self.slow_raw_windows = []
+        self.slow_texts = []
         self.slow_bucket_ids = []
         self.slow_importance = []
         self.slow_capture_tag = []
@@ -285,6 +287,7 @@ class DualMemoryStore:
         stored_input: Optional[torch.Tensor],
         stored_routing: Optional[torch.Tensor],
         stored_window: Optional[str],
+        stored_text: Optional[str],
         bucket_id: Optional[int],
         importance: float,
         capture_value: float,
@@ -299,6 +302,7 @@ class DualMemoryStore:
         self.slow_input_patterns[index] = stored_input
         self.slow_routing_keys[index] = stored_routing
         self.slow_raw_windows[index] = stored_window
+        self.slow_texts[index] = stored_text
         self.slow_bucket_ids[index] = int(bucket_id) if bucket_id is not None else None
         self.slow_importance[index] = float(max(1e-6, importance))
         self.slow_capture_tag[index] = tag_value
@@ -320,13 +324,15 @@ class DualMemoryStore:
         input_pattern: Optional[torch.Tensor] = None,
         routing_key: Optional[torch.Tensor] = None,
         raw_window: Optional[str] = None,
+        text: Optional[str] = None,
         tag_strength: float = 0.0,
         capture_tag: float | None = None,
-    ) -> None:
+    ) -> int | None:
         x = assembly.detach().clone().cpu()
         stored_input = input_pattern.detach().clone().cpu() if input_pattern is not None else None
         stored_routing = routing_key.detach().clone().cpu() if routing_key is not None else None
         stored_window = None if raw_window is None else str(raw_window)
+        stored_text = None if text is None else str(text)
         token_marker = int(self.n_seen if token_count is None else token_count)
         capture_value = float(max(0.0, tag_strength if capture_tag is None else capture_tag))
 
@@ -347,6 +353,7 @@ class DualMemoryStore:
             self.slow_input_patterns.append(stored_input)
             self.slow_routing_keys.append(stored_routing)
             self.slow_raw_windows.append(stored_window)
+            self.slow_texts.append(stored_text)
             self.slow_bucket_ids.append(int(bucket_id) if bucket_id is not None else None)
             self.slow_importance.append(float(max(1e-6, importance)))
             self.slow_capture_tag.append(0.0)
@@ -364,13 +371,14 @@ class DualMemoryStore:
                 stored_input=stored_input,
                 stored_routing=stored_routing,
                 stored_window=stored_window,
+                stored_text=stored_text,
                 bucket_id=bucket_id,
                 importance=importance,
                 capture_value=capture_value,
                 token_marker=token_marker,
             )
             self._append_to_slow_mean(x)
-            return
+            return len(self.slow_buffer) - 1
 
         j = int(torch.randint(0, self.n_seen, (1,)).item())
         if j < self.capacity:
@@ -382,12 +390,15 @@ class DualMemoryStore:
                 stored_input=stored_input,
                 stored_routing=stored_routing,
                 stored_window=stored_window,
+                stored_text=stored_text,
                 bucket_id=bucket_id,
                 importance=importance,
                 capture_value=capture_value,
                 token_marker=token_marker,
             )
             self._replace_in_slow_mean(old, old_timestamp, x, token_marker)
+            return j
+        return None
 
     def replay_scores(self, current_token: int) -> torch.Tensor:
         if not self.slow_buffer:
@@ -467,6 +478,7 @@ class DualMemoryStore:
             "input_pattern": input_pattern.detach().clone() if isinstance(input_pattern, torch.Tensor) else None,
             "routing_key": routing_key.detach().clone() if isinstance(routing_key, torch.Tensor) else None,
             "raw_window": self.slow_raw_windows[idx],
+            "text": self.slow_texts[idx],
             "bucket_id": self.slow_bucket_ids[idx],
             "importance": float(self.slow_importance[idx]),
             "tag_strength": tag_strength,
@@ -668,6 +680,7 @@ class DualMemoryStore:
                 for value in self.slow_routing_keys
             ],
             "slow_raw_windows": list(self.slow_raw_windows),
+            "slow_texts": list(self.slow_texts),
             "slow_bucket_ids": list(self.slow_bucket_ids),
             "slow_importance": list(self.slow_importance),
             "slow_capture_tag": list(self.slow_capture_tag),
@@ -741,6 +754,7 @@ class DualMemoryStore:
             self.slow_routing_keys.extend([None] * (size - len(self.slow_routing_keys)))
         self.slow_routing_keys = self.slow_routing_keys[:size]
         self.slow_raw_windows = _pad(snapshot.get("slow_raw_windows"), None, size)
+        self.slow_texts = _pad(snapshot.get("slow_texts"), None, size)
         self.slow_bucket_ids = [None if value is None else int(value) for value in _pad(snapshot.get("slow_bucket_ids"), None, size)]
         self.slow_importance = [float(value) for value in _pad(snapshot.get("slow_importance"), 1.0, size)]
 

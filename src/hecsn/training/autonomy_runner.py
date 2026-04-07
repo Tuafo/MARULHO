@@ -16,6 +16,7 @@ from hecsn.data import expand_source_bank_specs
 from hecsn.data.corpus_loader import SourceType
 from hecsn.data.pattern_loader import load_probe_train_examples
 from hecsn.data.rtf_encoder import RTFEncoder
+from hecsn.gap_planner import bank_semantic_relevance_score
 from hecsn.reporting.autonomy import plot_autonomy_summary
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics.frontier import bank_gap_plan
@@ -55,8 +56,18 @@ class ProbeGapMetrics(TypedDict):
     semantic_follow_up_questions: list[str]
 
 
+class SourceSelectionFeedback(TypedDict):
+    episodes: int
+    gap_reduction_ema: float
+    gap_score_reduction_ema: float
+
+
 AUTONOMY_ABSOLUTE_IMPROVEMENT_TARGET = 0.01
 AUTONOMY_RELATIVE_IMPROVEMENT_FRACTION = 0.03
+AUTONOMY_SELECTION_FEEDBACK_ALPHA = 0.65
+AUTONOMY_SELECTION_FEEDBACK_WEIGHT = 0.08
+AUTONOMY_SELECTION_UNSEEN_BONUS = 0.04
+AUTONOMY_SELECTION_VISIT_PENALTY_EXPONENT = 0.5
 
 
 @dataclass
@@ -117,6 +128,73 @@ def autonomy_gap_improvement_target(round_robin_gap: float) -> float:
             AUTONOMY_RELATIVE_IMPROVEMENT_FRACTION * baseline_gap,
         )
     )
+
+
+def relative_improvement(before: float, after: float) -> float:
+    baseline = max(1e-8, abs(float(before)))
+    return clamp01(max(0.0, float(before) - float(after)) / baseline)
+
+
+def empirical_feedback_value(record: Mapping[str, object] | None) -> float:
+    if not record:
+        return 0.0
+    gap_value = float(record.get("gap_reduction_ema", 0.0))
+    gap_score_value = float(record.get("gap_score_reduction_ema", 0.0))
+    return clamp01(0.65 * gap_value + 0.35 * gap_score_value)
+
+
+def feedback_selection_bonus(
+    bank: "SourceBank",
+    feedback_state: Mapping[str, SourceSelectionFeedback] | None,
+) -> float:
+    if feedback_state is None:
+        return 0.0
+
+    record = feedback_state.get(bank.name)
+    if not record or int(record.get("episodes", 0)) <= 0:
+        return float(AUTONOMY_SELECTION_UNSEEN_BONUS / np.sqrt(1.0 + max(0, bank.visits)))
+
+    value = empirical_feedback_value(record)
+    uncertainty = float(1.0 / np.sqrt(1.0 + max(0, int(record.get("episodes", 0)))))
+    return float(
+        AUTONOMY_SELECTION_FEEDBACK_WEIGHT * value
+        + 0.5 * AUTONOMY_SELECTION_UNSEEN_BONUS * uncertainty
+    )
+
+
+def update_source_feedback(
+    feedback_state: dict[str, SourceSelectionFeedback],
+    *,
+    source_name: str,
+    gap_before: float,
+    gap_after: float,
+    gap_score_before: float,
+    gap_score_after: float,
+) -> SourceSelectionFeedback:
+    observed_gap_reduction = relative_improvement(gap_before, gap_after)
+    observed_gap_score_reduction = relative_improvement(gap_score_before, gap_score_after)
+    previous = feedback_state.get(source_name)
+    if previous is None:
+        updated: SourceSelectionFeedback = {
+            "episodes": 1,
+            "gap_reduction_ema": observed_gap_reduction,
+            "gap_score_reduction_ema": observed_gap_score_reduction,
+        }
+    else:
+        alpha = float(AUTONOMY_SELECTION_FEEDBACK_ALPHA)
+        updated = {
+            "episodes": int(previous.get("episodes", 0)) + 1,
+            "gap_reduction_ema": float(
+                alpha * observed_gap_reduction
+                + (1.0 - alpha) * float(previous.get("gap_reduction_ema", 0.0))
+            ),
+            "gap_score_reduction_ema": float(
+                alpha * observed_gap_score_reduction
+                + (1.0 - alpha) * float(previous.get("gap_score_reduction_ema", 0.0))
+            ),
+        }
+    feedback_state[source_name] = updated
+    return updated
 
 
 def _mean_signature(vectors: Sequence[torch.Tensor]) -> torch.Tensor | None:
@@ -308,9 +386,17 @@ def active_selection_score(
     gap_snapshot: Mapping[str, ProbeGapMetrics],
     min_visits: int,
     coverage_balance_penalty: float,
+    feedback_state: Mapping[str, SourceSelectionFeedback] | None = None,
 ) -> float:
-    coverage_penalty = float(max(0, bank.visits - min_visits) * coverage_balance_penalty)
-    return float(selection_metric(gap_snapshot[bank.name]) - coverage_penalty)
+    coverage_penalty = float(
+        np.power(max(0, bank.visits - min_visits), AUTONOMY_SELECTION_VISIT_PENALTY_EXPONENT)
+        * coverage_balance_penalty
+    )
+    return float(
+        selection_metric(gap_snapshot[bank.name])
+        + feedback_selection_bonus(bank, feedback_state)
+        - coverage_penalty
+    )
 
 
 def select_active_source(
@@ -318,6 +404,7 @@ def select_active_source(
     gap_snapshot: Mapping[str, ProbeGapMetrics],
     coverage_balance_penalty: float,
     gap_focus_margin: float,
+    feedback_state: Mapping[str, SourceSelectionFeedback] | None = None,
 ) -> tuple[SourceBank, dict[str, float]]:
     diagnostic_scores = {
         bank.name: float(selection_metric(gap_snapshot[bank.name]))
@@ -339,6 +426,7 @@ def select_active_source(
             gap_snapshot=gap_snapshot,
             min_visits=min_visits,
             coverage_balance_penalty=coverage_balance_penalty,
+            feedback_state=feedback_state,
         )
         for bank in available
     }
@@ -465,8 +553,13 @@ def load_source_banks(
     source_train_tokens: int,
     *,
     semantic_plan: Mapping[str, Any] | None = None,
+    metadata_prefilter: bool = False,
 ) -> list[SourceBank]:
-    resolved_specs = expand_source_bank_specs(source_bank_specs, semantic_plan=semantic_plan)
+    resolved_specs = expand_source_bank_specs(
+        source_bank_specs,
+        semantic_plan=semantic_plan,
+        metadata_prefilter=metadata_prefilter,
+    )
     banks: list[SourceBank] = []
     for spec in resolved_specs:
         source_type = cast(SourceType, spec.get("source_type", "auto"))
@@ -485,23 +578,48 @@ def load_source_banks(
             if isinstance(metadata, Mapping) and metadata.get("catalog_mode"):
                 continue
             raise ValueError(f"Source bank {spec['name']} did not produce enough patterns")
-        banks.append(
-            SourceBank(
-                name=str(spec["name"]),
-                source=str(spec["source"]),
-                source_type=str(source_type),
-                hf_config=spec.get("hf_config"),
-                text_field=str(spec.get("text_field", "text")),
-                probe_patterns=probe_patterns,
-                probe_raw_windows=probe_raw_windows,
-                train_patterns=train_patterns,
-                train_raw_windows=train_raw_windows,
-                metadata=dict(spec.get("metadata") or {}) or None,
-            )
+        bank = SourceBank(
+            name=str(spec["name"]),
+            source=str(spec["source"]),
+            source_type=str(source_type),
+            hf_config=spec.get("hf_config"),
+            text_field=str(spec.get("text_field", "text")),
+            probe_patterns=probe_patterns,
+            probe_raw_windows=probe_raw_windows,
+            train_patterns=train_patterns,
+            train_raw_windows=train_raw_windows,
+            metadata=dict(spec.get("metadata") or {}) or None,
         )
+        _refresh_loaded_bank_metadata(bank, semantic_plan)
+        banks.append(bank)
     if not banks:
         raise ValueError("Source bank expansion did not yield any usable sources")
     return banks
+
+
+def _normalize_optional_metadata_text(value: Any) -> str:
+    if value is None:
+        return ""
+    normalized = " ".join(str(value).split()).strip()
+    return "" if normalized.lower() == "none" else normalized
+
+
+def _refresh_loaded_bank_metadata(
+    bank: SourceBank,
+    semantic_plan: Mapping[str, Any] | None,
+) -> None:
+    metadata = dict(bank.metadata or {})
+    if not metadata:
+        return
+    for field in ("provider", "query_text"):
+        if field in metadata:
+            metadata[field] = _normalize_optional_metadata_text(metadata.get(field))
+    if semantic_plan:
+        metadata["semantic_relevance"] = max(
+            float(metadata.get("semantic_relevance") or 0.0),
+            float(bank_semantic_relevance_score(bank, semantic_plan)),
+        )
+    bank.metadata = metadata or None
 
 
 def next_round_robin_source(banks: list[SourceBank], start_idx: int) -> tuple[SourceBank, int]:
@@ -556,6 +674,7 @@ def run_policy(
                 }
             )
 
+    selection_feedback: dict[str, SourceSelectionFeedback] = {}
     for seek_idx in range(max(0, int(seek_episodes))):
         available = [bank for bank in banks if bank.remaining() > 0]
         if not available:
@@ -578,6 +697,7 @@ def run_policy(
                 gap_snapshot,
                 coverage_balance_penalty,
                 gap_focus_margin,
+                feedback_state=selection_feedback,
             )
         elif policy_name == "round_robin":
             selected, rr_index = next_round_robin_source(banks, rr_index)
@@ -599,6 +719,7 @@ def run_policy(
         gap_before = float(gap_snapshot[selected.name]["recon_error"])
         selected_gap_score_before = float(gap_snapshot[selected.name]["gap_score"])
         selected_diagnostic_gap_score_before = float(gap_snapshot[selected.name]["diagnostic_gap_score"])
+        selected_empirical_value_before = empirical_feedback_value(selection_feedback.get(selected.name))
         chunk = selected.next_chunk(episode_tokens)
         for raw_window, pattern in chunk:
             row = trainer.train_step(pattern, raw_window=raw_window)
@@ -616,6 +737,14 @@ def run_policy(
         gap_after = float(selected_after_metrics["recon_error"])
         selected_gap_score_after = float(selected_after_metrics["gap_score"])
         selected_diagnostic_gap_score_after = float(selected_after_metrics["diagnostic_gap_score"])
+        updated_feedback = update_source_feedback(
+            selection_feedback,
+            source_name=selected.name,
+            gap_before=gap_before,
+            gap_after=gap_after,
+            gap_score_before=selected_gap_score_before,
+            gap_score_after=selected_gap_score_after,
+        )
 
         episode_history.append(
             {
@@ -633,6 +762,8 @@ def run_policy(
                 "selected_diagnostic_gap_score_before": selected_diagnostic_gap_score_before,
                 "selected_diagnostic_gap_score_after": selected_diagnostic_gap_score_after,
                 "selected_diagnostic_gap_score_reduction": selected_diagnostic_gap_score_before - selected_diagnostic_gap_score_after,
+                "selected_empirical_value_before": selected_empirical_value_before,
+                "selected_empirical_value_after": empirical_feedback_value(updated_feedback),
                 "gap_snapshot": {
                     name: {
                         "recon_error": float(values["recon_error"]),
@@ -755,6 +886,14 @@ def run_policy(
         "final_mean_semantic_action": float(np.mean(list(final_semantic_action_by_source.values()))),
         "final_max_semantic_action": float(max(final_semantic_action_by_source.values())),
         "source_visit_counts": {bank.name: int(bank.visits) for bank in banks},
+        "source_empirical_value_by_source": {
+            bank.name: empirical_feedback_value(selection_feedback.get(bank.name))
+            for bank in banks
+        },
+        "source_feedback_observations_by_source": {
+            bank.name: int(selection_feedback.get(bank.name, {}).get("episodes", 0))
+            for bank in banks
+        },
         "mean_selected_gap_reduction": float(np.mean(selected_reductions)) if selected_reductions else float("nan"),
         "mean_selected_gap_score_reduction": float(np.mean(selected_gap_score_reductions)) if selected_gap_score_reductions else float("nan"),
         "episode_history": episode_history,

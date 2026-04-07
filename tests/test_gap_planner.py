@@ -9,6 +9,7 @@ from hecsn.gap_planner import (
     frontier_gap_terms,
     plan_query_gaps,
 )
+from hecsn.semantics.frontier import build_bank_query_text
 
 
 class _FakeMemoryStore:
@@ -37,6 +38,23 @@ class _FragmentMemoryStore:
         ]
         self.slow_importance = [0.8, 0.9, 0.7, 0.6]
         self.slow_capture_tag = [0.8, 0.9, 0.7, 0.6]
+        self.slow_consolidation_level = [0.1, 0.2, 0.3, 0.2]
+
+    def _effective_capture_strength(self, idx: int, current_token: int) -> float:
+        _ = current_token
+        return float(self.slow_capture_tag[idx])
+
+
+class _PrefixMemoryStore:
+    def __init__(self) -> None:
+        self.slow_raw_windows = [
+            "neut",
+            "neutr",
+            "neutra",
+            "neutral signal",
+        ]
+        self.slow_importance = [0.8, 0.9, 0.7, 1.0]
+        self.slow_capture_tag = [0.8, 0.9, 0.7, 1.0]
         self.slow_consolidation_level = [0.1, 0.2, 0.3, 0.2]
 
     def _effective_capture_strength(self, idx: int, current_token: int) -> float:
@@ -110,6 +128,31 @@ class GapPlannerTests(unittest.TestCase):
         self.assertTrue(any("short" in query for query in plan["retrieval_queries"]))
         self.assertFalse(any(query in {"rs", "rt", "ort"} for query in plan["retrieval_queries"]))
 
+    def test_frontier_gap_terms_filter_short_prefix_fragments(self) -> None:
+        terms = frontier_gap_terms(
+            memory_store=_FragmentMemoryStore(),
+            current_token=100,
+            limit=6,
+        )
+
+        ranked_terms = [item["term"] for item in terms]
+        self.assertTrue(ranked_terms)
+        self.assertIn("short", ranked_terms)
+        self.assertFalse(any(term in {"rs", "rt", "ort"} for term in ranked_terms))
+
+    def test_frontier_gap_terms_filter_prefix_chains_when_full_term_exists(self) -> None:
+        terms = frontier_gap_terms(
+            memory_store=_PrefixMemoryStore(),
+            current_token=100,
+            limit=6,
+        )
+
+        ranked_terms = [item["term"] for item in terms]
+        self.assertIn("neutral", ranked_terms)
+        self.assertNotIn("neut", ranked_terms)
+        self.assertNotIn("neutr", ranked_terms)
+        self.assertNotIn("neutra", ranked_terms)
+
     def test_bank_semantic_relevance_prefers_related_candidate(self) -> None:
         plan = {
             "gap_terms": [
@@ -163,6 +206,25 @@ class GapPlannerTests(unittest.TestCase):
 
         self.assertGreater(related_score, 0.0)
         self.assertGreater(related_score, unrelated_score)
+
+    def test_build_bank_query_text_filters_short_prefix_fragments(self) -> None:
+        bank = SimpleNamespace(
+            name="frontier",
+            probe_raw_windows=[
+                "wa wal wall street update",
+                "va val value signal",
+            ],
+        )
+
+        query_text = build_bank_query_text(bank)
+
+        self.assertIn("wall", query_text)
+        self.assertIn("street", query_text)
+        self.assertIn("value", query_text)
+        self.assertNotIn(" wa ", f" {query_text} ")
+        self.assertNotIn(" wal ", f" {query_text} ")
+        self.assertNotIn(" va ", f" {query_text} ")
+        self.assertNotIn(" val ", f" {query_text} ")
 
 
 if __name__ == "__main__":

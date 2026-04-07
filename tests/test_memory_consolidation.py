@@ -4,11 +4,122 @@ import unittest
 
 import torch
 
+from hecsn.config.model_config import HECSNConfig
 from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.consolidation.memory_store import DualMemoryStore
+from hecsn.training.runner_utils import set_seed
+from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
 
 
 class MemoryConsolidationTests(unittest.TestCase):
+    def test_memory_store_snapshot_preserves_text_contexts(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        pattern = torch.tensor([0.0, 1.0], dtype=torch.float32)
+        store.update(
+            assembly,
+            importance=1.0,
+            token_count=12,
+            bucket_id=1,
+            input_pattern=pattern,
+            raw_window="purrs safe.",
+            text="a cat purrs when it feels safe.",
+            capture_tag=0.4,
+        )
+
+        restored = DualMemoryStore(capacity=8)
+        restored.restore(store.snapshot())
+
+        replay_entry = restored.replay_entry(0, current_token=12)
+        self.assertEqual(replay_entry["raw_window"], "purrs safe.")
+        self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
+
+    def test_sleep_replay_skips_global_activity_state_updates(self) -> None:
+        layer = CompetitiveColumnLayer(
+            n_columns=2,
+            column_dim=2,
+            input_dim=2,
+            dead_column_steps=1,
+            device=torch.device("cpu"),
+        )
+        routing_key = torch.tensor([1.0, 0.0], dtype=torch.float32)
+        winner = torch.tensor([0], dtype=torch.long)
+        layer.last_input_pattern = routing_key.clone()
+        layer.steps_since_win = torch.ones_like(layer.steps_since_win)
+        thresholds_before = layer.thresholds.clone()
+        win_rate_before = layer.win_rate_ema.clone()
+        update_count_before = int(layer.update_count)
+
+        layer.process(
+            routing_key,
+            winner,
+            modulator=0.5,
+            update_global_state=False,
+        )
+
+        self.assertEqual(int(layer.update_count), update_count_before)
+        self.assertTrue(torch.equal(layer.steps_since_win, torch.ones_like(layer.steps_since_win)))
+        self.assertTrue(torch.equal(layer.thresholds, thresholds_before))
+        self.assertTrue(torch.equal(layer.win_rate_ema, win_rate_before))
+        self.assertEqual(int(layer.last_revived_indices.numel()), 0)
+
+    def test_deep_sleep_replay_preserves_recent_pattern_reconstruction(self) -> None:
+        set_seed(7)
+        cfg = HECSNConfig(
+            n_columns=12,
+            column_latent_dim=24,
+            bootstrap_tokens=0,
+            memory_capacity=96,
+            eta_competitive=0.05,
+            eta_decay=0.0,
+            input_weight_blend=0.0,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+            deep_sleep_replay_steps=24,
+            deep_sleep_candidate_pool=24,
+        )
+        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+
+        def pattern(*indices: int) -> torch.Tensor:
+            vec = torch.zeros(cfg.input_dim, dtype=torch.float32)
+            for idx in indices:
+                vec[idx] = 1.0
+            return vec / vec.sum()
+
+        task_a = [
+            ("alpha memory signal", pattern(1, 2, 3)),
+            ("alpha plastic trace", pattern(4, 5, 6)),
+            ("alpha stable concept", pattern(7, 8, 9)),
+        ]
+        task_b = [
+            ("beta routing context", pattern(20, 21, 22)),
+            ("beta semantic drift", pattern(23, 24, 25)),
+            ("beta retrieval anchor", pattern(26, 27, 28)),
+        ]
+
+        def mean_recon(items: list[tuple[str, torch.Tensor]]) -> float:
+            return sum(trainer.reconstruction_error(pattern_vec) for _, pattern_vec in items) / len(items)
+
+        for _ in range(18):
+            for raw_window, pattern_vec in task_a:
+                trainer.train_step(pattern_vec, raw_window=raw_window)
+        task_a_after_a = mean_recon(task_a)
+
+        trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+        trainer.capture_recent_memory_anchors(window_tokens=trainer.token_count, strength=8.0)
+        trainer.run_sleep_maintenance(mode="deep", cycles=2)
+
+        for _ in range(18):
+            for raw_window, pattern_vec in task_b:
+                trainer.train_step(pattern_vec, raw_window=raw_window)
+        task_a_after_b = mean_recon(task_a)
+
+        trainer.run_sleep_maintenance(mode="deep", cycles=4)
+        task_a_after_consolidation = mean_recon(task_a)
+
+        self.assertLessEqual(task_a_after_consolidation, task_a_after_b * 2.0)
+        self.assertLessEqual(task_a_after_consolidation, task_a_after_a * 5.0)
+
     def test_capture_tags_recruit_prp_and_raise_replay_priority(self) -> None:
         store = DualMemoryStore(
             capacity=4,

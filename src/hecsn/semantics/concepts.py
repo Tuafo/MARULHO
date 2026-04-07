@@ -1,71 +1,19 @@
 from __future__ import annotations
 
 import math
-import re
 from collections import Counter
 from typing import Any, Sequence
 
 import torch
 import torch.nn.functional as F
 
-
-_TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
-_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "been",
-    "being",
-    "by",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "this",
-    "to",
-    "was",
-    "were",
-    "what",
-    "when",
-    "where",
-    "which",
-    "who",
-    "why",
-    "with",
-}
+from .grounding_text import normalize_text as _normalize_text
+from .grounding_text import query_focused_text as _query_focused_text
+from .grounding_text import tokenize as _tokenize
 
 
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
-
-
-def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return " ".join(str(value).split()).strip()
-
-
-def _tokenize(text: str) -> list[str]:
-    tokens: list[str] = []
-    for match in _TOKEN_RE.findall(text.lower()):
-        if match in _STOPWORDS:
-            continue
-        if len(match) == 1 and not match.isdigit():
-            continue
-        tokens.append(match)
-    return tokens
-
 
 def _label_terms(tokens: Sequence[str], query_terms: set[str]) -> list[str]:
     seen: list[str] = []
@@ -150,7 +98,9 @@ class OnlineSlowFeatureMap:
         self.actual_output_dim = out_dim
         self.mean = torch.zeros(dim, dtype=torch.float32)
         self.var = torch.ones(dim, dtype=torch.float32)
-        basis = torch.randn(dim, out_dim, dtype=torch.float32)
+        generator = torch.Generator()
+        generator.manual_seed(7919 + dim * 131 + out_dim)
+        basis = torch.randn(dim, out_dim, dtype=torch.float32, generator=generator)
         q, _ = torch.linalg.qr(basis, mode="reduced")
         self.components = q.t().contiguous()
         self.last_whitened = None
@@ -281,11 +231,13 @@ def summarize_concepts(
     *,
     query_text: str,
     memory_matches: Sequence[dict[str, Any]],
+    memory_episodes: Sequence[dict[str, Any]] | None = None,
     limit: int = 6,
 ) -> dict[str, Any]:
     return ConceptStore().observe(
         query_text=query_text,
         memory_matches=memory_matches,
+        memory_episodes=memory_episodes,
         limit=limit,
     )
 
@@ -298,10 +250,14 @@ class ConceptStore:
         lexical_merge_threshold: float = 0.60,
         lexical_weight: float = 0.12,
         slow_feature_dim: int = 8,
+        min_lexical_overlap_for_merge: float = 0.20,
+        min_query_overlap_terms: int = 1,
     ) -> None:
         self._merge_similarity = float(merge_similarity)
         self._lexical_merge_threshold = float(lexical_merge_threshold)
         self._lexical_weight = float(lexical_weight)
+        self._min_lexical_overlap_for_merge = float(max(0.0, min_lexical_overlap_for_merge))
+        self._min_query_overlap_terms = int(max(0, min_query_overlap_terms))
         self._entries: dict[str, dict[str, Any]] = {}
         self._observations = 0
         self._episode_index = 0
@@ -318,6 +274,14 @@ class ConceptStore:
     def _memory_signature(self, memory_store: Any, memory_index: Any) -> torch.Tensor | None:
         if memory_store is None:
             return None
+        if isinstance(memory_index, Sequence) and not isinstance(memory_index, (str, bytes)):
+            signatures = [self._memory_signature(memory_store, value) for value in memory_index]
+            valid_signatures = [signature for signature in signatures if signature is not None]
+            if not valid_signatures:
+                return None
+            if len(valid_signatures) == 1:
+                return valid_signatures[0]
+            return _normalize_signature(torch.stack(valid_signatures, dim=0).mean(dim=0))
         try:
             index = int(memory_index)
         except (TypeError, ValueError):
@@ -427,7 +391,7 @@ class ConceptStore:
             best_slow >= self._merge_similarity
             or best_raw >= (self._merge_similarity + 0.05)
             or best_lexical >= self._lexical_merge_threshold
-        ):
+        ) and best_lexical >= self._min_lexical_overlap_for_merge:
             return best_id
 
         entry = self._new_entry(
@@ -563,6 +527,7 @@ class ConceptStore:
         *,
         query_text: str,
         memory_matches: Sequence[dict[str, Any]],
+        memory_episodes: Sequence[dict[str, Any]] | None = None,
         memory_store: Any | None = None,
         limit: int = 6,
     ) -> dict[str, Any]:
@@ -571,24 +536,57 @@ class ConceptStore:
         self._observations += 1
         self._episode_index += 1
 
-        ordered_matches = list(memory_matches)
-
-        def _age_sort_key(match: dict[str, Any]) -> tuple[float, float]:
-            age_value = match.get("age_tokens")
-            age = float(age_value) if isinstance(age_value, (int, float)) else 0.0
-            similarity = float(match.get("similarity", 0.0))
-            return (-age, -similarity)
-
-        ordered_matches.sort(key=_age_sort_key)
-
-        for match in ordered_matches:
-            raw_window = _normalize_text(match.get("raw_window") or match.get("text"))
-            if not raw_window:
+        evidence_sources = list(memory_episodes or memory_matches)
+        prepared_matches: list[dict[str, Any]] = []
+        for match in evidence_sources:
+            source_text = _normalize_text(match.get("text") or match.get("raw_window"))
+            focused_text = _query_focused_text(source_text, query_terms)
+            if not focused_text:
                 continue
 
-            tokens = _tokenize(raw_window)
+            tokens = _tokenize(focused_text)
             if not tokens:
                 continue
+
+            complete_sentence = int(focused_text.endswith((".", "!", "?")))
+            clipped_overlap = int(
+                bool(
+                    _normalize_text(match.get("raw_window"))
+                    and not complete_sentence
+                    and focused_text.lower() == _normalize_text(match.get("raw_window")).lower()
+                )
+            )
+            prepared_match = dict(match)
+            prepared_match["_focused_text"] = focused_text
+            prepared_match["_tokens"] = tokens
+            prepared_match["_query_overlap"] = len(query_terms & set(tokens))
+            prepared_match["_complete_sentence"] = complete_sentence
+            prepared_match["_clipped_overlap"] = clipped_overlap
+            prepared_matches.append(prepared_match)
+
+        overlapping_matches = [
+            match
+            for match in prepared_matches
+            if int(match.get("_query_overlap", 0)) >= self._min_query_overlap_terms
+        ]
+        if overlapping_matches:
+            prepared_matches = overlapping_matches
+
+        prepared_matches.sort(
+            key=lambda match: (
+                int(match.get("_query_overlap", 0)),
+                int(match.get("_complete_sentence", 0)),
+                -int(match.get("_clipped_overlap", 1)),
+                float(match.get("similarity", 0.0)),
+                float(match.get("importance", 0.0)),
+                -float(match.get("age_tokens", 0.0)),
+            ),
+            reverse=True,
+        )
+
+        for match in prepared_matches:
+            raw_window = _normalize_text(match.get("_focused_text") or match.get("text") or match.get("raw_window"))
+            tokens = list(match.get("_tokens") or ())
 
             memory_index = match.get("memory_index")
             try:
@@ -596,7 +594,11 @@ class ConceptStore:
             except (TypeError, ValueError):
                 normalized_index = None
 
-            raw_signature = self._memory_signature(memory_store, normalized_index)
+            signature_reference: Any = match.get("memory_indices")
+            if not isinstance(signature_reference, Sequence) or isinstance(signature_reference, (str, bytes)):
+                signature_reference = normalized_index
+
+            raw_signature = self._memory_signature(memory_store, signature_reference)
             slow_signature, temporal_change = self._slow_features.project(raw_signature, update=raw_signature is not None)
             concept_id = self._assign_concept(
                 tokens=tokens,
@@ -663,7 +665,7 @@ class ConceptStore:
             "concept_mode": "slow_feature_concept_memory",
             "query_terms": sorted(query_terms),
             "concept_count": int(len(concepts)),
-            "source_memory_count": int(len(memory_matches)),
+            "source_memory_count": int(len(evidence_sources)),
             "abstraction": self._slow_features.summary(),
             "concepts": concepts[: max(1, int(limit))],
         }

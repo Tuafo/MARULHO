@@ -43,6 +43,16 @@ _HTML_STRIP_PATTERNS = (
 )
 _HTML_BLOCK_TAG_RE = re.compile(r"</?(p|div|section|article|main|aside|li|ul|ol|h[1-6]|tr|td|th|br|hr)\b[^>]*>", flags=re.IGNORECASE)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_MEDIAWIKI_COMMENT_RE = re.compile(r"<!--.*?-->", flags=re.DOTALL)
+_MEDIAWIKI_REF_RE = re.compile(r"<ref\b[^>/]*/\s*>|<ref\b[^>]*>.*?</ref>", flags=re.IGNORECASE | re.DOTALL)
+_MEDIAWIKI_TEMPLATE_RE = re.compile(r"\{\{[^{}]*\}\}", flags=re.DOTALL)
+_MEDIAWIKI_MEDIA_LINE_RE = re.compile(r"^\s*\[\[(?:File|Image|Category):.*$", flags=re.IGNORECASE | re.MULTILINE)
+_MEDIAWIKI_INTERNAL_LINK_RE = re.compile(r"\[\[([^\[\]]+)\]\]")
+_MEDIAWIKI_EXTERNAL_LINK_RE = re.compile(r"\[(https?://[^\s\]]+)(?:\s+([^\]]+))?\]")
+_MEDIAWIKI_HEADING_RE = re.compile(r"^\s*=+\s*(.*?)\s*=+\s*$", flags=re.MULTILINE)
+_MEDIAWIKI_MAGIC_WORD_RE = re.compile(r"__[^_]+__")
+_MEDIAWIKI_LIST_PREFIX_RE = re.compile(r"^\s*[:*#;]+\s*", flags=re.MULTILINE)
+_MEDIAWIKI_TABLE_LINE_RE = re.compile(r"^\s*(?:\{\||\|\}|[|!].*)$", flags=re.MULTILINE)
 
 
 def _looks_like_url(source: str) -> bool:
@@ -64,6 +74,41 @@ def _normalize_plain_text(text: str, *, max_chars: int | None = None) -> str:
         lines.append(line)
     normalized = "\n".join(lines).strip()
     return normalized[:max_chars] if max_chars is not None else normalized
+
+
+def _looks_like_mediawiki_raw(payload: str, *, content_type: str | None = None) -> bool:
+    if content_type and "wiki" in content_type.lower():
+        return True
+    markers = sum(token in payload for token in ("[[", "{{", "==", "'''"))
+    return markers >= 2
+
+
+def _normalize_mediawiki_text(text: str, *, max_chars: int | None = None) -> str:
+    normalized = _MEDIAWIKI_COMMENT_RE.sub(" ", text)
+    normalized = _MEDIAWIKI_REF_RE.sub(" ", normalized)
+    for _ in range(12):
+        updated = _MEDIAWIKI_TEMPLATE_RE.sub(" ", normalized)
+        if updated == normalized:
+            break
+        normalized = updated
+    normalized = _MEDIAWIKI_MEDIA_LINE_RE.sub(" ", normalized)
+    normalized = _MEDIAWIKI_HEADING_RE.sub(lambda match: f"\n{match.group(1)}\n", normalized)
+
+    def replace_internal_link(match: re.Match[str]) -> str:
+        target = match.group(1)
+        parts = [part.strip() for part in target.split("|") if part.strip()]
+        if not parts:
+            return " "
+        return parts[-1].replace("_", " ")
+
+    normalized = _MEDIAWIKI_INTERNAL_LINK_RE.sub(replace_internal_link, normalized)
+    normalized = _MEDIAWIKI_EXTERNAL_LINK_RE.sub(lambda match: f" {(match.group(2) or '').strip()} ", normalized)
+    normalized = _MEDIAWIKI_MAGIC_WORD_RE.sub(" ", normalized)
+    normalized = re.sub(r"'{2,5}", "", normalized)
+    normalized = _MEDIAWIKI_TABLE_LINE_RE.sub(" ", normalized)
+    normalized = _MEDIAWIKI_LIST_PREFIX_RE.sub("", normalized)
+    normalized = _HTML_TAG_RE.sub(" ", normalized)
+    return _normalize_plain_text(unescape(normalized), max_chars=max_chars)
 
 
 class _VisibleTextExtractor(HTMLParser):
@@ -225,6 +270,8 @@ class _VisibleTextExtractor(HTMLParser):
 def extract_web_text(payload: str, *, content_type: str | None = None, max_chars: int | None = None) -> str:
     looks_like_html = bool(content_type and "html" in content_type.lower()) or bool(re.search(r"<\s*(html|body|main|article)\b", payload[:4096], flags=re.IGNORECASE))
     if not looks_like_html:
+        if _looks_like_mediawiki_raw(payload, content_type=content_type):
+            return _normalize_mediawiki_text(payload, max_chars=max_chars)
         return _normalize_plain_text(payload, max_chars=max_chars)
 
     primary_matches = [match[1] for match in _PRIMARY_SECTION_RE.findall(payload)]

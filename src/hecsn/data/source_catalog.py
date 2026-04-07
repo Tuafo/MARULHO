@@ -34,6 +34,8 @@ class CatalogEntry:
 
 
 def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
     return " ".join(str(value).split()).strip()
 
 
@@ -77,10 +79,14 @@ def _focus_plan(
 
 def _entry_windows(entry: Mapping[str, Any]) -> list[str]:
     windows: list[str] = []
-    for key in ("summary", "title", "description", "query_text"):
+    for key in ("summary", "title", "description"):
         value = _normalize_text(entry.get(key))
         if value and len(tokenize_terms(value)) >= 2:
             windows.append(value)
+
+    query_text = _normalize_text(entry.get("query_text"))
+    if query_text and not windows and len(tokenize_terms(query_text)) >= 2:
+        windows.append(query_text)
 
     tags = entry.get("tags")
     if isinstance(tags, Sequence) and not isinstance(tags, (str, bytes)):
@@ -130,6 +136,19 @@ def _plan_queries(plan: Mapping[str, Any] | None, spec: Mapping[str, Any], *, li
     if focus_text:
         queries.append(focus_text)
     return _dedupe_keep_order(queries)[: max(1, int(limit))]
+
+
+def _catalog_selection_limit(
+    spec: Mapping[str, Any],
+    *,
+    metadata_prefilter: bool,
+    default_limit: int,
+) -> int:
+    final_limit = max(1, int(spec.get("catalog_limit", default_limit)))
+    if not metadata_prefilter:
+        return final_limit
+    probe_pool_limit = int(spec.get("catalog_probe_pool_limit", final_limit))
+    return max(final_limit, probe_pool_limit)
 
 
 def _dedupe_keep_order(values: Sequence[str]) -> list[str]:
@@ -263,11 +282,16 @@ def _rank_catalog_entries(
     entries_raw: Sequence[Mapping[str, Any]],
     spec: Mapping[str, Any],
     semantic_plan: Mapping[str, Any] | None,
+    metadata_prefilter: bool = False,
 ) -> list[dict[str, Any]]:
     if not entries_raw:
         raise ValueError(f"{mode} catalog requires non-empty entries")
 
-    limit = max(1, int(spec.get("catalog_limit", len(entries_raw))))
+    limit = _catalog_selection_limit(
+        spec,
+        metadata_prefilter=metadata_prefilter,
+        default_limit=len(entries_raw),
+    )
     semantic_weight = float(spec.get("catalog_semantic_weight", 1.0))
     prior_weight_scale = float(spec.get("catalog_prior_weight", 1.0))
     diversity_weight = float(spec.get("catalog_diversity_weight", 0.20))
@@ -395,6 +419,7 @@ def select_catalog_source_specs(
     spec: Mapping[str, Any],
     *,
     semantic_plan: Mapping[str, Any] | None = None,
+    metadata_prefilter: bool = False,
 ) -> list[dict[str, Any]]:
     plan = _focus_plan(spec, semantic_plan)
     entries_raw = list(spec.get("catalog_entries") or [])
@@ -403,6 +428,7 @@ def select_catalog_source_specs(
         entries_raw=entries_raw,
         spec=spec,
         semantic_plan=plan,
+        metadata_prefilter=metadata_prefilter,
     )
 
 
@@ -410,6 +436,7 @@ def discover_remote_search_source_specs(
     spec: Mapping[str, Any],
     *,
     semantic_plan: Mapping[str, Any] | None = None,
+    metadata_prefilter: bool = False,
 ) -> list[dict[str, Any]]:
     plan = _focus_plan(spec, semantic_plan)
     queries = _plan_queries(
@@ -449,6 +476,7 @@ def discover_remote_search_source_specs(
         entries_raw=discovered_entries,
         spec=spec,
         semantic_plan=plan,
+        metadata_prefilter=metadata_prefilter,
     )
 
 
@@ -456,6 +484,7 @@ def expand_source_bank_specs(
     source_bank_specs: Sequence[Mapping[str, Any]],
     *,
     semantic_plan: Mapping[str, Any] | None = None,
+    metadata_prefilter: bool = False,
 ) -> list[dict[str, Any]]:
     expanded: list[dict[str, Any]] = []
     for raw_spec in source_bank_specs:
@@ -465,10 +494,22 @@ def expand_source_bank_specs(
             expanded.append(spec)
             continue
         if catalog_mode == "semantic_registry":
-            expanded.extend(select_catalog_source_specs(spec, semantic_plan=semantic_plan))
+            expanded.extend(
+                select_catalog_source_specs(
+                    spec,
+                    semantic_plan=semantic_plan,
+                    metadata_prefilter=metadata_prefilter,
+                )
+            )
             continue
         if catalog_mode == "live_remote_search":
-            expanded.extend(discover_remote_search_source_specs(spec, semantic_plan=semantic_plan))
+            expanded.extend(
+                discover_remote_search_source_specs(
+                    spec,
+                    semantic_plan=semantic_plan,
+                    metadata_prefilter=metadata_prefilter,
+                )
+            )
             continue
         raise ValueError(f"Unsupported catalog_mode: {catalog_mode}")
     return expanded

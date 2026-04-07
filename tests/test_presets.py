@@ -36,10 +36,11 @@ class AutonomyPresetTests(unittest.TestCase):
 
 
 class AcquisitionPresetTests(unittest.TestCase):
-    def test_public_acquisition_presets_match_maintained_hf_surface(self) -> None:
+    def test_public_acquisition_presets_match_maintained_surface(self) -> None:
         self.assertEqual(
             autonomy_acquisition_preset_names(),
             [
+                "autonomy_acquisition_curated_web_smoke",
                 "autonomy_acquisition_hf_allocation",
                 "autonomy_acquisition_hf_baseline",
                 "autonomy_acquisition_hf_catalog",
@@ -73,11 +74,42 @@ class AcquisitionPresetTests(unittest.TestCase):
         catalog_spec = preset["candidate_bank"][0]
         self.assertEqual(catalog_spec["catalog_mode"], "semantic_registry")
         self.assertTrue(all(entry["source_type"] != "file" for entry in catalog_spec["catalog_entries"]))
+        self.assertEqual(catalog_spec["catalog_limit"], 3)
+        self.assertEqual(catalog_spec["catalog_probe_pool_limit"], 4)
+        self.assertEqual(catalog_spec["catalog_probe_tokens"], 48)
+        self.assertEqual(catalog_spec["catalog_scout_tokens"], 192)
         for key in ("scout_commit_tokens", "scout_top_k"):
             self.assertNotIn(key, preset)
-        self.assertEqual(preset["semantic_shortlist_size"], 2)
+        self.assertEqual(preset["semantic_shortlist_size"], 0)
         self.assertEqual(preset["semantic_shortlist_gap_weight"], 0.35)
         self.assertEqual(preset["semantic_shortlist_affinity_weight"], 0.65)
+
+    def test_curated_web_smoke_preset_uses_pinned_wikipedia_revision_registry(self) -> None:
+        preset = get_autonomy_acquisition_preset("autonomy_acquisition_curated_web_smoke")
+
+        self.assertEqual([entry["name"] for entry in preset["seed_bank"]], ["wiki_neuroscience", "wiki_memory"])
+        self.assertTrue(all(entry["source_type"] == "web" for entry in preset["seed_bank"]))
+        self.assertTrue(all("oldid=" in entry["source"] and "action=raw" in entry["source"] for entry in preset["seed_bank"]))
+        self.assertEqual(len(preset["candidate_bank"]), 1)
+        catalog_spec = preset["candidate_bank"][0]
+        self.assertEqual(catalog_spec["catalog_mode"], "semantic_registry")
+        self.assertEqual(catalog_spec["catalog_limit"], 3)
+        self.assertEqual(catalog_spec["catalog_probe_pool_limit"], 5)
+        self.assertEqual(catalog_spec["catalog_probe_tokens"], 48)
+        self.assertEqual(catalog_spec["catalog_scout_tokens"], 192)
+        self.assertEqual(
+            [entry["name"] for entry in catalog_spec["catalog_entries"]],
+            [
+                "wiki_synaptic_plasticity",
+                "wiki_hebbian_theory",
+                "wiki_long_term_potentiation",
+                "wiki_long_term_depression",
+                "wiki_spike_timing_dependent_plasticity",
+            ],
+        )
+        self.assertTrue(all(entry["source_type"] == "web" for entry in catalog_spec["catalog_entries"]))
+        self.assertTrue(all("oldid=" in entry["source"] and "action=raw" in entry["source"] for entry in catalog_spec["catalog_entries"]))
+        self.assertTrue(all(entry["provider"] == "wikipedia_revision" for entry in catalog_spec["catalog_entries"]))
 
 
 if __name__ == "__main__":

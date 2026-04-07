@@ -11,12 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .manager import HECSNServiceManager, PUBLIC_ACQUISITION_PRESETS
+from .manager import HECSNServiceManager
 from .schemas import (
-    AcquisitionActionResponse,
-    AcquisitionPresetListResponse,
-    AcquisitionRunRequest,
-    BenchmarkReportsResponse,
     CheckpointActionResponse,
     CheckpointListResponse,
     CheckpointRecord,
@@ -29,9 +25,17 @@ from .schemas import (
     RespondRequest,
     ResponseBundle,
     StatusResponse,
+    TerminusConfigureRequest,
+    TerminusRuntimeResponse,
+    TerminusTickRequest,
     TraceHistoryResponse,
 )
-from .benchmark_reports import load_benchmark_reports
+
+
+def _model_to_dict(model: object) -> dict:
+    if hasattr(model, "model_dump"):
+        return getattr(model, "model_dump")()
+    return getattr(model, "dict")()
 
 
 def _cors_origins() -> list[str]:
@@ -66,9 +70,10 @@ def create_app(
     app = FastAPI(
         title="HECSN Local Service",
         version="0.1.0",
-        description="Strict-evidence local service for querying, feeding, and inspecting a checkpoint-backed HECSN runtime.",
+        description="Strict-evidence local service for querying and steering a checkpoint-backed HECSN Terminus runtime.",
     )
     app.state.hecsn_manager = manager
+    app.router.on_shutdown.append(manager.close)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -149,32 +154,46 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get("/acquisition/presets", response_model=AcquisitionPresetListResponse)
-    def acquisition_presets() -> AcquisitionPresetListResponse:
-        return AcquisitionPresetListResponse(presets=list(PUBLIC_ACQUISITION_PRESETS))
+    @app.get("/terminus", response_model=TerminusRuntimeResponse)
+    def terminus_status() -> TerminusRuntimeResponse:
+        return TerminusRuntimeResponse(**manager.terminus_status())
 
-    @app.post("/acquisition/run", response_model=AcquisitionActionResponse)
-    def acquisition_run(request: AcquisitionRunRequest) -> AcquisitionActionResponse:
+    @app.post("/terminus/configure", response_model=TerminusRuntimeResponse)
+    def terminus_configure(request: TerminusConfigureRequest) -> TerminusRuntimeResponse:
         try:
-            return AcquisitionActionResponse(
-                **manager.acquire(
-                    preset=request.preset,
-                    policy=request.policy,
-                    acquisition_slots=request.acquisition_slots,
-                    acquisition_tokens=request.acquisition_tokens,
-                    save_checkpoint_path=request.save_checkpoint_path,
+            return TerminusRuntimeResponse(
+                **manager.configure_terminus(
+                    source_bank=[_model_to_dict(item) for item in request.source_bank],
+                    tick_tokens=request.tick_tokens,
+                    sleep_interval_seconds=request.sleep_interval_seconds,
+                    repeat_sources=request.repeat_sources,
+                    autonomy=None if request.autonomy is None else _model_to_dict(request.autonomy),
                 )
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/terminus/start", response_model=TerminusRuntimeResponse)
+    def terminus_start() -> TerminusRuntimeResponse:
+        try:
+            return TerminusRuntimeResponse(**manager.start_terminus())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/terminus/stop", response_model=TerminusRuntimeResponse)
+    def terminus_stop() -> TerminusRuntimeResponse:
+        return TerminusRuntimeResponse(**manager.stop_terminus())
+
+    @app.post("/terminus/tick", response_model=TerminusRuntimeResponse)
+    def terminus_tick(request: TerminusTickRequest) -> TerminusRuntimeResponse:
+        try:
+            return TerminusRuntimeResponse(**manager.terminus_tick(steps=request.steps))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/traces", response_model=TraceHistoryResponse)
     def traces(limit: int = Query(20, ge=1, le=200)) -> TraceHistoryResponse:
         return TraceHistoryResponse(traces=manager.recent_traces(limit=limit))
-
-    @app.get("/reports/benchmarks", response_model=BenchmarkReportsResponse)
-    def benchmark_reports(max_points: int = Query(120, ge=20, le=400)) -> BenchmarkReportsResponse:
-        return BenchmarkReportsResponse(**load_benchmark_reports(max_points=max_points))
 
     @app.get("/stream/status")
     async def stream_status(interval: float = Query(1.0, ge=0.25, le=10.0)) -> StreamingResponse:

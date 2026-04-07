@@ -313,6 +313,7 @@ class CompetitiveColumnLayer:
         assembly_projection: Optional[torch.Tensor] = None,
         prototype_lr_scale: float = 1.0,
         input_lr_scale: float = 1.0,
+        update_global_state: bool = True,
     ) -> torch.Tensor:
         x = _normalize_positive_vector(routing_key.to(self.device).unsqueeze(0), dim=1).squeeze(0)
         winners = winner_indices.long()
@@ -371,47 +372,48 @@ class CompetitiveColumnLayer:
                 )
                 self.input_weights[winners] = winner_weights
 
-        self.steps_since_win += 1
-        self.steps_since_win[winners] = 0
         self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
+        if update_global_state:
+            self.steps_since_win += 1
+            self.steps_since_win[winners] = 0
 
-        activity = torch.zeros(self.n_columns, device=self.device)
-        activity[winners] = 1.0 / max(1, winners.numel())
-        self.win_rate_ema = (
-            (1.0 - self.homeostasis_beta) * self.win_rate_ema + self.homeostasis_beta * activity
-        )
-        self.thresholds = torch.clamp(
-            self.thresholds + self.homeostasis_lr * (self.win_rate_ema - self.target_firing_rate),
-            min=self.threshold_min,
-            max=self.threshold_max,
-        )
-
-        dead_mask = self.steps_since_win >= self.dead_column_steps
-        if bool(dead_mask.any()):
-            n_dead = int(dead_mask.sum().item())
-            revived_indices = torch.nonzero(dead_mask, as_tuple=False).squeeze(1)
-            noise = torch.rand(n_dead, self.column_dim, device=self.device) * self.dead_column_noise
-            revived = _normalize_positive_vector(x.unsqueeze(0) + noise, dim=1)
-            self.prototypes[dead_mask] = revived
-            self.prototype_velocity[dead_mask] = 0.0
-            if self.last_input_pattern is not None:
-                revived_weights = self.last_input_pattern.unsqueeze(0).repeat(n_dead, 1)
-            else:
-                revived_weights = torch.full((n_dead, self.input_dim), 1.0 / self.input_dim, device=self.device)
-            revived_weights = revived_weights + torch.rand_like(revived_weights) * self.dead_column_noise
-            revived_weights = torch.clamp(revived_weights, min=1e-6)
-            revived_weights = revived_weights * (
-                self.input_weight_row_target / (revived_weights.sum(dim=1, keepdim=True) + 1e-8)
+            activity = torch.zeros(self.n_columns, device=self.device)
+            activity[winners] = 1.0 / max(1, winners.numel())
+            self.win_rate_ema = (
+                (1.0 - self.homeostasis_beta) * self.win_rate_ema + self.homeostasis_beta * activity
             )
-            self.input_weights[dead_mask] = revived_weights
-            self.thresholds[dead_mask] = self.threshold_min
-            self.win_rate_ema[dead_mask] = self.target_firing_rate
-            self.steps_since_win[dead_mask] = 0
-            self.last_revived_indices = revived_indices.detach().clone()
-            if self.local_plasticity is not None:
-                self.local_plasticity.revive_columns(revived_indices)
+            self.thresholds = torch.clamp(
+                self.thresholds + self.homeostasis_lr * (self.win_rate_ema - self.target_firing_rate),
+                min=self.threshold_min,
+                max=self.threshold_max,
+            )
 
-        self.update_count += int(winners.numel())
+            dead_mask = self.steps_since_win >= self.dead_column_steps
+            if bool(dead_mask.any()):
+                n_dead = int(dead_mask.sum().item())
+                revived_indices = torch.nonzero(dead_mask, as_tuple=False).squeeze(1)
+                noise = torch.rand(n_dead, self.column_dim, device=self.device) * self.dead_column_noise
+                revived = _normalize_positive_vector(x.unsqueeze(0) + noise, dim=1)
+                self.prototypes[dead_mask] = revived
+                self.prototype_velocity[dead_mask] = 0.0
+                if self.last_input_pattern is not None:
+                    revived_weights = self.last_input_pattern.unsqueeze(0).repeat(n_dead, 1)
+                else:
+                    revived_weights = torch.full((n_dead, self.input_dim), 1.0 / self.input_dim, device=self.device)
+                revived_weights = revived_weights + torch.rand_like(revived_weights) * self.dead_column_noise
+                revived_weights = torch.clamp(revived_weights, min=1e-6)
+                revived_weights = revived_weights * (
+                    self.input_weight_row_target / (revived_weights.sum(dim=1, keepdim=True) + 1e-8)
+                )
+                self.input_weights[dead_mask] = revived_weights
+                self.thresholds[dead_mask] = self.threshold_min
+                self.win_rate_ema[dead_mask] = self.target_firing_rate
+                self.steps_since_win[dead_mask] = 0
+                self.last_revived_indices = revived_indices.detach().clone()
+                if self.local_plasticity is not None:
+                    self.local_plasticity.revive_columns(revived_indices)
+
+            self.update_count += int(winners.numel())
         return assembly
 
     def force_revive_dead_columns(self, routing_key: Optional[torch.Tensor] = None) -> int:

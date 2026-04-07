@@ -33,6 +33,26 @@ class CorpusLoaderTests(unittest.TestCase):
         self.assertNotIn("Donate", text)
         self.assertNotIn("Privacy policy", text)
 
+    def test_extract_web_text_normalizes_mediawiki_raw_revisions(self) -> None:
+        mediawiki = """
+        {{short description|Neuroscientific theory}}
+        '''Hebbian theory''' is a [[neuropsychological]] theory of [[learning]].
+        [[File:Hebb.jpg|thumb|Donald Hebb]]
+        == History ==
+        The rule was discussed in [https://example.com detail] and refined later.<ref>citation</ref>
+        [[Category:Neuroscience]]
+        """
+
+        text = extract_web_text(mediawiki, content_type="text/x-wiki")
+
+        self.assertIn("Hebbian theory is a neuropsychological theory of learning.", text)
+        self.assertIn("History", text)
+        self.assertIn("detail", text)
+        self.assertNotIn("short description", text)
+        self.assertNotIn("File:Hebb", text)
+        self.assertNotIn("Category:Neuroscience", text)
+        self.assertNotIn("https://example.com", text)
+
 
 if __name__ == "__main__":
     unittest.main()

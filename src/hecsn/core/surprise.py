@@ -59,6 +59,17 @@ class SurpriseMonitor:
         """
         return bool(self.norepinephrine > float(threshold))
 
+    def precision_weight(self, layer_name: str) -> float:
+        layer = self.layers.get(layer_name)
+        if layer is None:
+            return 1.0
+        errors = list(layer.get("errors") or [])
+        if len(errors) < 10:
+            return 1.0
+        raw_precision = float(layer.get("precision", 1.0))
+        weight = torch.sigmoid(torch.tensor(0.1 * (raw_precision - 10.0))).item()
+        return max(0.0, min(1.0, float(weight)))
+
     def get_modulator(self, layer_name: str) -> float:
         errors = list(self.layers[layer_name]["errors"])
         if len(errors) < 10:
@@ -68,8 +79,7 @@ class SurpriseMonitor:
         mean = sum(errors) / len(errors)
         surprise = recent - mean
 
-        raw_precision = float(self.layers[layer_name]["precision"])
-        precision_weight = torch.sigmoid(torch.tensor(0.1 * (raw_precision - 10.0))).item()
+        precision_weight = self.precision_weight(layer_name)
 
         dopamine_factor = self.dopamine * 2.0 - 1.0
         mod = surprise * precision_weight * dopamine_factor * self.acetylcholine

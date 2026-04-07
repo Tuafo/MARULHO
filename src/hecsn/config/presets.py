@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+from urllib.parse import quote
 
 
 def _preset(*parts: dict[str, Any]) -> dict[str, Any]:
@@ -9,6 +10,49 @@ def _preset(*parts: dict[str, Any]) -> dict[str, Any]:
     for part in parts:
         merged.update(deepcopy(part))
     return merged
+
+
+def _wikipedia_revision_url(title: str, *, oldid: int) -> str:
+    page_title = quote(title.replace(" ", "_"), safe="_")
+    return f"https://en.wikipedia.org/w/index.php?title={page_title}&oldid={int(oldid)}&action=raw"
+
+
+def _wikipedia_revision_source(
+    *,
+    name: str,
+    title: str,
+    oldid: int,
+    summary: str,
+    tags: list[str],
+    catalog_priority: float,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "source": _wikipedia_revision_url(title, oldid=oldid),
+        "source_type": "web",
+        "hf_config": None,
+        "text_field": "text",
+        "title": title,
+        "summary": summary,
+        "tags": [*tags, "wikipedia", "revision"],
+        "catalog_priority": catalog_priority,
+        "provider": "wikipedia_revision",
+    }
+
+
+def _wikipedia_revision_seed(
+    *,
+    name: str,
+    title: str,
+    oldid: int,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "source": _wikipedia_revision_url(title, oldid=oldid),
+        "source_type": "web",
+        "hf_config": None,
+        "text_field": "text",
+    }
 
 
 _WIKITEXT_HF_SOURCE = {
@@ -366,7 +410,80 @@ _AUTONOMY_ACQUISITION_HF_CATALOG_CANDIDATE_BANK: list[dict[str, Any]] = [
     {
         "catalog_mode": "semantic_registry",
         "catalog_entries": [entry for entry in _AUTONOMY_HF_SOURCE_REGISTRY if entry["name"] in {"yelp", "amazon", "dbpedia", "reviews"}],
-        "catalog_limit": 4,
+        "catalog_limit": 3,
+        "catalog_probe_pool_limit": 4,
+        "catalog_probe_tokens": 48,
+        "catalog_scout_tokens": 192,
+        "catalog_semantic_weight": 1.25,
+        "catalog_prior_weight": 1.0,
+        "catalog_diversity_weight": 0.20,
+    }
+]
+
+_AUTONOMY_CURATED_WEB_SOURCE_REGISTRY: list[dict[str, Any]] = [
+    _wikipedia_revision_source(
+        name="wiki_synaptic_plasticity",
+        title="Synaptic plasticity",
+        oldid=1341547585,
+        summary="Pinned Wikipedia revision covering synapse-level adaptation, learning, and memory consolidation.",
+        tags=["neuroscience", "plasticity", "learning", "memory"],
+        catalog_priority=0.92,
+    ),
+    _wikipedia_revision_source(
+        name="wiki_hebbian_theory",
+        title="Hebbian theory",
+        oldid=1335815717,
+        summary="Pinned Wikipedia revision covering associative learning, co-activation, and synaptic strengthening.",
+        tags=["hebbian", "learning", "associations", "synapses"],
+        catalog_priority=0.82,
+    ),
+    _wikipedia_revision_source(
+        name="wiki_long_term_potentiation",
+        title="Long-term potentiation",
+        oldid=1313766320,
+        summary="Pinned Wikipedia revision covering durable synaptic strengthening and hippocampal memory experiments.",
+        tags=["potentiation", "hippocampus", "memory", "plasticity"],
+        catalog_priority=0.78,
+    ),
+    _wikipedia_revision_source(
+        name="wiki_long_term_depression",
+        title="Long-term depression",
+        oldid=1343045585,
+        summary="Pinned Wikipedia revision covering durable synaptic weakening, plasticity tradeoffs, and memory updating.",
+        tags=["depression", "plasticity", "synapses", "memory"],
+        catalog_priority=0.76,
+    ),
+    _wikipedia_revision_source(
+        name="wiki_spike_timing_dependent_plasticity",
+        title="Spike-timing-dependent plasticity",
+        oldid=1319959459,
+        summary="Pinned Wikipedia revision covering spike-timing rules that link precise temporal structure to synaptic change.",
+        tags=["timing", "spikes", "plasticity", "learning"],
+        catalog_priority=0.74,
+    ),
+]
+
+_AUTONOMY_ACQUISITION_CURATED_WEB_SEED_BANK: list[dict[str, Any]] = [
+    _wikipedia_revision_seed(
+        name="wiki_neuroscience",
+        title="Neuroscience",
+        oldid=1344865459,
+    ),
+    _wikipedia_revision_seed(
+        name="wiki_memory",
+        title="Memory",
+        oldid=1345761939,
+    ),
+]
+
+_AUTONOMY_ACQUISITION_CURATED_WEB_CANDIDATE_BANK: list[dict[str, Any]] = [
+    {
+        "catalog_mode": "semantic_registry",
+        "catalog_entries": [entry for entry in _AUTONOMY_CURATED_WEB_SOURCE_REGISTRY],
+        "catalog_limit": 3,
+        "catalog_probe_pool_limit": 5,
+        "catalog_probe_tokens": 48,
+        "catalog_scout_tokens": 192,
         "catalog_semantic_weight": 1.25,
         "catalog_prior_weight": 1.0,
         "catalog_diversity_weight": 0.20,
@@ -424,7 +541,26 @@ _AUTONOMY_ACQUISITION_HF_CATALOG_PRESET: dict[str, Any] = _preset(
         "probe_tokens": 160,
         "acquisition_tokens": 1500,
         "acquisition_slots": 3,
-        "semantic_shortlist_size": 2,
+        "semantic_shortlist_size": 0,
+        "semantic_shortlist_gap_weight": 0.35,
+        "semantic_shortlist_affinity_weight": 0.65,
+    },
+)
+
+_AUTONOMY_ACQUISITION_CURATED_WEB_SMOKE_PRESET: dict[str, Any] = _preset(
+    {
+        "seed_bank": _AUTONOMY_ACQUISITION_CURATED_WEB_SEED_BANK,
+        "candidate_bank": _AUTONOMY_ACQUISITION_CURATED_WEB_CANDIDATE_BANK,
+    },
+    _BASE_CONTEXT_HECSN_PRESET,
+    _AUTONOMY_TUNING_PRESET,
+    {
+        "seed_train_tokens": 4000,
+        "candidate_train_tokens": 2000,
+        "probe_tokens": 96,
+        "acquisition_tokens": 800,
+        "acquisition_slots": 2,
+        "semantic_shortlist_size": 0,
         "semantic_shortlist_gap_weight": 0.35,
         "semantic_shortlist_affinity_weight": 0.65,
     },
@@ -477,6 +613,7 @@ AUTONOMY_PRESETS: dict[str, dict[str, Any]] = {
 
 
 AUTONOMY_ACQUISITION_PRESETS: dict[str, dict[str, Any]] = {
+    "autonomy_acquisition_curated_web_smoke": deepcopy(_AUTONOMY_ACQUISITION_CURATED_WEB_SMOKE_PRESET),
     "autonomy_acquisition_hf_baseline": deepcopy(_AUTONOMY_ACQUISITION_HF_PAIR_PRESET),  # Merged from _smoke (was identical)
     "autonomy_acquisition_hf_allocation": deepcopy(_AUTONOMY_ACQUISITION_HF_ALLOCATION_PRESET),
     "autonomy_acquisition_hf_catalog": deepcopy(_AUTONOMY_ACQUISITION_HF_CATALOG_PRESET),

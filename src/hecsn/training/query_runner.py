@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Iterator, List, Optional
+from typing import Any, Callable, Iterator, List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -10,12 +10,31 @@ import torch.nn.functional as F
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.retrieval import NativeAssemblyDecoder
 from hecsn.reporting.io import write_json_file
+from hecsn.semantics.grounding_text import TOKEN_RE
+from hecsn.semantics.grounding_text import match_terms
+from hecsn.semantics.grounding_text import query_focused_clauses
+from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 from hecsn.training.trainer import HECSNTrainer
 
 
 _NATIVE_DECODER = NativeAssemblyDecoder()
 
+
+def episode_quality(text: str, raw_window: str | None = None) -> tuple[int, int]:
+    normalized_text = str(text or "").strip()
+    normalized_window = str(raw_window or "").strip()
+    complete_sentence = int(normalized_text.endswith((".", "!", "?")))
+    clipped_overlap = 0
+    if normalized_text and not complete_sentence:
+        trailing_tokens = TOKEN_RE.findall(normalized_text.lower())
+        raw_tokens = TOKEN_RE.findall(normalized_window.lower()) if normalized_window else []
+        if trailing_tokens and (
+            len(normalized_text) < 48
+            or (raw_tokens and trailing_tokens[-1] == raw_tokens[-1] and len(normalized_text) <= len(normalized_window) + 8)
+        ):
+            clipped_overlap = 1
+    return complete_sentence, clipped_overlap
 
 def feature_label(index: int, representation: str, feature_dim: int) -> str:
     if representation == "hashed_ngram" or feature_dim != 128:
@@ -74,11 +93,19 @@ def cosine_similarity(left: torch.Tensor, right: torch.Tensor) -> float:
     return float(F.cosine_similarity(left.unsqueeze(0), right.unsqueeze(0), dim=1).item())
 
 
-def feed_text(trainer: HECSNTrainer, encoder: RTFEncoder, text: str) -> dict[str, Any]:
+def feed_text(
+    trainer: HECSNTrainer,
+    encoder: RTFEncoder,
+    text: str,
+    *,
+    on_step: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     last_metrics: dict[str, Any] | None = None
     tokens = 0
     for raw_window, pattern in text_pattern_stream(text, encoder, trainer.config.window_size):
         last_metrics = trainer.train_step(pattern, raw_window=raw_window)
+        if on_step is not None:
+            on_step(raw_window, last_metrics)
         tokens += 1
 
     return {
@@ -118,6 +145,7 @@ def memory_matches(
     routing_key: torch.Tensor,
     top_k: int,
     top_chars: int,
+    query_terms: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     store = trainer.model.memory_store
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
@@ -141,12 +169,18 @@ def memory_matches(
         prp_level = float(replay_entry.get("prp_level", 0.0))
         capture_strength = float(replay_entry.get("capture_strength", 0.0))
         consolidation_level = float(replay_entry.get("consolidation_level", 0.0))
+        text = replay_entry.get("text") or store.slow_raw_windows[idx]
+        raw_window = store.slow_raw_windows[idx]
+        complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
+        matched_query_terms = match_terms(query_terms or [], str(text or ""))
+        query_overlap = len(matched_query_terms)
         matches.append(
             {
                 "memory_index": int(idx),
                 "similarity": float(similarity),
                 "bucket_id": None if store.slow_bucket_ids[idx] is None else int(store.slow_bucket_ids[idx]),
-                "raw_window": store.slow_raw_windows[idx],
+                "raw_window": raw_window,
+                "text": text,
                 "age_tokens": int(max(0, trainer.token_count - int(store.slow_entry_timestamps[idx]))),
                 "importance": float(store.slow_importance[idx]),
                 "tag_strength": float(capture_tag),
@@ -158,11 +192,150 @@ def memory_matches(
                 "replay_count": int(store.slow_replay_count[idx]),
                 "replay_priority": float(replay_scores[idx].item()) if idx < int(replay_scores.numel()) else 0.0,
                 "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
+                "query_overlap": int(query_overlap),
+                "matched_query_terms": matched_query_terms,
+                "complete_sentence": int(complete_sentence),
+                "clipped_overlap": int(clipped_overlap),
             }
         )
 
-    matches.sort(key=lambda item: float(item["similarity"]), reverse=True)
-    return matches[: max(1, int(top_k))]
+    limit = max(1, int(top_k))
+    if not query_terms:
+        matches.sort(key=lambda item: float(item["similarity"]), reverse=True)
+        return matches[:limit]
+
+    similarity_ranked = sorted(
+        matches,
+        key=lambda item: (
+            float(item["similarity"]),
+            float(item["importance"]),
+            -int(item["age_tokens"]),
+        ),
+        reverse=True,
+    )
+    support_ranked = sorted(
+        matches,
+        key=lambda item: (
+            int(item.get("query_overlap", 0)),
+            int(item.get("complete_sentence", 0)),
+            -int(item.get("clipped_overlap", 0)),
+            float(item["similarity"]),
+            float(item["importance"]),
+            -int(item["age_tokens"]),
+        ),
+        reverse=True,
+    )
+
+    merged: list[dict[str, Any]] = []
+    seen_indices: set[int] = set()
+    term_support: list[dict[str, Any]] = []
+    for term in query_terms:
+        supporting = [
+            item
+            for item in matches
+            if term in {str(value) for value in item.get("matched_query_terms", [])}
+        ]
+        if not supporting:
+            continue
+        supporting.sort(
+            key=lambda item: (
+                int(item.get("complete_sentence", 0)),
+                -int(item.get("clipped_overlap", 0)),
+                int(item.get("query_overlap", 0)),
+                float(item["similarity"]),
+                float(item["importance"]),
+                -int(item["age_tokens"]),
+            ),
+            reverse=True,
+        )
+        term_support.append(supporting[0])
+
+    for item in term_support + support_ranked[: max(limit, 12)] + similarity_ranked[:limit]:
+        memory_index = int(item.get("memory_index", -1))
+        if memory_index in seen_indices:
+            continue
+        seen_indices.add(memory_index)
+        merged.append(item)
+        if len(merged) >= limit:
+            break
+
+    merged.sort(
+        key=lambda item: (
+            int(item.get("query_overlap", 0)),
+            int(item.get("complete_sentence", 0)),
+            -int(item.get("clipped_overlap", 0)),
+            float(item["similarity"]),
+            float(item["importance"]),
+            -int(item["age_tokens"]),
+        ),
+        reverse=True,
+    )
+    return merged[:limit]
+
+
+def build_memory_episodes(
+    memory_matches: list[dict[str, Any]],
+    *,
+    top_k: int,
+    query_terms: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for match in memory_matches:
+        source_text = str(match.get("text") or match.get("raw_window") or "").strip()
+        if not source_text:
+            continue
+        clause_candidates = query_focused_clauses(source_text, query_terms or [])
+        for text in clause_candidates:
+            if not text:
+                continue
+            key = text.lower()
+            entry = grouped.get(key)
+            if entry is None:
+                entry = {
+                    "text": text,
+                    "raw_window": match.get("raw_window"),
+                    "memory_index": int(match.get("memory_index", -1)),
+                    "memory_indices": [],
+                    "similarity": float(match.get("similarity", 0.0)),
+                    "importance": float(match.get("importance", 0.0)),
+                    "age_tokens": int(match.get("age_tokens", 0)),
+                    "match_count": 0,
+                    "query_overlap": 0,
+                    "complete_sentence": 0,
+                    "clipped_overlap": 1,
+                }
+                grouped[key] = entry
+                order.append(key)
+            entry["match_count"] += 1
+            entry["similarity"] = max(float(entry["similarity"]), float(match.get("similarity", 0.0)))
+            entry["importance"] = max(float(entry["importance"]), float(match.get("importance", 0.0)))
+            entry["age_tokens"] = min(int(entry["age_tokens"]), int(match.get("age_tokens", 0)))
+            complete_sentence, clipped_overlap = episode_quality(text, match.get("raw_window"))
+            entry["complete_sentence"] = max(int(entry["complete_sentence"]), int(complete_sentence))
+            entry["clipped_overlap"] = min(int(entry["clipped_overlap"]), int(clipped_overlap))
+            entry["query_overlap"] = max(int(entry["query_overlap"]), len(match_terms(query_terms or [], text)))
+            memory_index = int(match.get("memory_index", -1))
+            if memory_index >= 0 and memory_index not in entry["memory_indices"]:
+                entry["memory_indices"].append(memory_index)
+            if float(match.get("similarity", 0.0)) >= float(entry["similarity"]):
+                entry["memory_index"] = memory_index
+                if match.get("raw_window"):
+                    entry["raw_window"] = match.get("raw_window")
+
+    episodes = [grouped[key] for key in order]
+    episodes.sort(
+        key=lambda item: (
+            int(item.get("query_overlap", 0)),
+            int(item.get("complete_sentence", 0)),
+            -int(item.get("clipped_overlap", 0)),
+            float(item.get("similarity", 0.0)),
+            int(item.get("match_count", 0)),
+            float(item.get("importance", 0.0)),
+        ),
+        reverse=True,
+    )
+    return episodes[: max(1, int(top_k))]
 
 
 def read_text_argument(text: Optional[str], file_path: Optional[Path]) -> Optional[str]:
@@ -278,12 +451,14 @@ def build_query_result(
         routing_key = trainer.routing_key_for_pattern(pattern_vec)
         winner = trainer.contextual_winner_for_pattern(pattern_vec) if trainer.model.context_layer is not None and context_text is not None else trainer.winner_for_pattern(pattern_vec)
         recon_error = trainer.reconstruction_error(pattern_vec)
+        query_terms = salient_query_terms(query_text_resolved)
         decode_matches = memory_matches(
             trainer,
             pattern_vec,
             routing_key,
             max(top_k_memories, 24),
             top_chars,
+            query_terms=query_terms,
         )
         result["query_summary"] = {
             "query_text": query_text_resolved,
@@ -294,6 +469,11 @@ def build_query_result(
             "top_query_chars": top_feature_details(pattern_vec, top_chars, representation),
             "top_candidates": candidate_details(trainer, routing_key.detach().cpu(), top_k_candidates),
             "memory_matches": decode_matches[: max(1, int(top_k_memories))],
+            "memory_episodes": build_memory_episodes(
+                decode_matches,
+                top_k=max(1, min(int(top_k_memories), 8)),
+                query_terms=query_terms,
+            ),
             "native_decode": _NATIVE_DECODER.decode(
                 query_window=query_window,
                 winner_column=int(winner),

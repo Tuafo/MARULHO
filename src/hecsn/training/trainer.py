@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import re
 from typing import Any, Dict, Iterable, Optional
 import numpy as np
 import torch
@@ -211,6 +212,78 @@ class HECSNTrainer:
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
         self.encoder = RTFEncoder.from_config(self.config)
+        self._recent_stream_text = ""
+        self._last_raw_window_text: str | None = None
+
+    def _update_stream_text(self, raw_window: Optional[str]) -> Optional[str]:
+        if raw_window is None:
+            self._last_raw_window_text = None
+            self._recent_stream_text = ""
+            return None
+
+        current = str(raw_window)
+        if not current:
+            return None
+
+        previous = self._last_raw_window_text
+        if previous is None:
+            self._recent_stream_text = current
+            self._last_raw_window_text = current
+            return self._current_episode_text(current)
+
+        best_overlap = 0
+        max_overlap = min(len(previous), len(current))
+        for overlap in range(max_overlap, 0, -1):
+            if previous[-overlap:] == current[:overlap]:
+                best_overlap = overlap
+                break
+
+        required_overlap = max(1, min(len(previous), len(current)) - 2)
+        if best_overlap >= required_overlap:
+            appended = current[best_overlap:]
+            if appended:
+                self._recent_stream_text += appended
+        else:
+            self._recent_stream_text = current
+
+        self._last_raw_window_text = current
+        if len(self._recent_stream_text) > 512:
+            self._recent_stream_text = self._recent_stream_text[-512:]
+        return self._current_episode_text(current)
+
+    def _current_episode_text(self, raw_window: str) -> Optional[str]:
+        text = self._recent_stream_text.strip()
+        if not text:
+            return None
+
+        segments = [
+            segment.strip()
+            for segment in re.split(r"(?<=[.!?])\s+|\n+", text)
+            if segment and segment.strip()
+        ]
+        if segments:
+            window_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", raw_window)}
+            candidates = segments[-2:] if len(segments) > 1 else segments
+
+            def _segment_score(segment: str) -> tuple[int, int]:
+                segment_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", segment)}
+                overlap = len(window_terms & segment_terms)
+                if raw_window.lower() in segment.lower():
+                    overlap += len(raw_window)
+                completeness = int(segment.endswith((".", "!", "?")))
+                return (overlap, completeness)
+
+            current = max(candidates, key=_segment_score)
+            current_tokens = re.findall(r"[A-Za-z0-9']+", current)
+            if len(current_tokens) < 4 and not current.endswith((".", "!", "?")) and len(segments) > 1:
+                previous = segments[-2]
+                if _segment_score(previous) >= _segment_score(current):
+                    current = previous
+                else:
+                    current = f"{previous} {current}".strip()
+            return current[-240:]
+
+        return text[-240:]
 
     def _reset_drift_tracking(self) -> None:
         self.recent_drifts.clear()
@@ -324,6 +397,9 @@ class HECSNTrainer:
             )
         return context_prediction, routing_gain
 
+    def _context_precision_weight(self) -> float:
+        return float(self.model.surprise.precision_weight("competitive"))
+
     def _offline_context_source_and_gain(
         self,
         *,
@@ -416,21 +492,23 @@ class HECSNTrainer:
         replay_use_stored_bucket = True
         anchor_blend_scale = 0.05
         anchor_blend_cap = 0.35
-        prototype_lr_scale = 1.0
-        input_lr_scale = 1.0
 
         if mode == "micro":
             steps = self.config.micro_sleep_replay_steps
             candidate_pool = self.config.micro_sleep_candidate_pool
             memory_blend = self.config.micro_sleep_memory_blend
-            modulator = 0.15
+            modulator = 0.10
             protein_synthesis_level = 0.75
+            prototype_lr_scale = 0.25
+            input_lr_scale = 0.15
         elif mode == "deep":
             steps = self.config.deep_sleep_replay_steps
             candidate_pool = self.config.deep_sleep_candidate_pool
             memory_blend = self.config.deep_sleep_memory_blend
-            modulator = 0.25
+            modulator = 0.08
             protein_synthesis_level = 1.35
+            prototype_lr_scale = 0.10
+            input_lr_scale = 0.05
         else:
             raise ValueError(f"Unknown sleep mode: {mode}")
 
@@ -537,6 +615,7 @@ class HECSNTrainer:
                 assembly_projection=self.model.W_assembly_project,
                 prototype_lr_scale=prototype_lr_scale,
                 input_lr_scale=input_lr_scale,
+                update_global_state=False,
             )
             self._apply_column_anchors(
                 [int(winner.item())],
@@ -550,7 +629,11 @@ class HECSNTrainer:
                     context_prediction,
                     update_weights=True,
                 )
-                self.model.context_layer.observe(replay_assembly, update_weights=False)
+                self.model.context_layer.observe(
+                    replay_assembly,
+                    update_weights=False,
+                    precision_weight=self._context_precision_weight(),
+                )
             updated_ids.append(int(winner.item()))
             revived_ids = self.model.competitive.last_revived_indices.detach().cpu().tolist()
             updated_ids.extend(int(idx) for idx in revived_ids)
@@ -705,7 +788,11 @@ class HECSNTrainer:
         )
         self._apply_column_anchors(int(winner.item()) for winner in winners)
         if self.model.context_layer is not None:
-            self.model.context_layer.observe(assembly, update_weights=True)
+            self.model.context_layer.observe(
+                assembly,
+                update_weights=True,
+                precision_weight=self._context_precision_weight(),
+            )
 
         updated_indices = winners
         if int(self.model.competitive.last_revived_indices.numel()) > 0:
@@ -721,8 +808,10 @@ class HECSNTrainer:
         warm_started = self._maybe_warm_start_memory(next_token)
         winner_id = int(winners[0].item())
         capture_tag = max(0.0, float(recon_error))
+        text_context = self._update_stream_text(raw_window)
+        memory_index = None
         if self.memory_warm_started:
-            self.model.memory_store.update(
+            memory_index = self.model.memory_store.update(
                 assembly,
                 importance=max(1e-3, abs(modulator)),
                 token_count=next_token,
@@ -730,6 +819,7 @@ class HECSNTrainer:
                 input_pattern=x,
                 routing_key=routing_key,
                 raw_window=raw_window,
+                text=text_context,
                 capture_tag=capture_tag,
             )
         self.last_winner = winner_id
@@ -766,10 +856,16 @@ class HECSNTrainer:
         metrics["mean_memory_consolidation_level"] = float(memory_stats.get("mean_consolidation_level", 0.0))
         metrics["context_strength"] = float(context_prediction.sum().item()) if isinstance(context_prediction, torch.Tensor) else 0.0
         metrics["context_gain_mean"] = float(context_gain.mean().item()) if isinstance(context_gain, torch.Tensor) else 1.0
+        metrics["context_precision_weight"] = (
+            float(self.model.context_layer.last_precision_weight)
+            if self.model.context_layer is not None
+            else 1.0
+        )
         metrics["binding_strength"] = float(binding_strength)
         metrics["winner"] = int(winners[0].item())
         metrics["active_columns"] = int((assembly > 0).sum().item())
         metrics["sparsity"] = float((assembly > 0).float().mean().item())
+        metrics["memory_index"] = None if memory_index is None else int(memory_index)
         return metrics
 
     def reconstruction_error(self, pattern_vec: torch.Tensor) -> float:

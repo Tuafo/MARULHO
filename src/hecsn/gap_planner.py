@@ -1,68 +1,21 @@
 from __future__ import annotations
 
 import math
-import re
 from collections import Counter
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
 
-
-_TOKEN_RE = re.compile(r"[A-Za-z0-9']+")
-_STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "been",
-    "being",
-    "by",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "it",
-    "of",
-    "on",
-    "or",
-    "that",
-    "the",
-    "this",
-    "to",
-    "was",
-    "were",
-    "what",
-    "when",
-    "where",
-    "which",
-    "who",
-    "why",
-    "with",
-}
-
-
-def _normalize_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return " ".join(str(value).split()).strip()
-
+from hecsn.semantics.grounding_text import match_terms
+from hecsn.semantics.grounding_text import normalize_text as _normalize_text
+from hecsn.semantics.grounding_text import salient_query_terms
+from hecsn.semantics.grounding_text import tokenize
 
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
 
 
 def tokenize_terms(text: str) -> list[str]:
-    tokens: list[str] = []
-    for match in _TOKEN_RE.findall(text.lower()):
-        if match in _STOPWORDS:
-            continue
-        if len(match) == 1 and not match.isdigit():
-            continue
-        tokens.append(match)
-    return tokens
+    return tokenize(text)
 
 
 def _dedupe_keep_order(values: Sequence[str]) -> list[str]:
@@ -158,15 +111,15 @@ def _query_term_support(
         reverse=True,
     )[: max(1, int(max_matches))]
     for rank, match in enumerate(ranked):
-        text = _normalize_text(match.get("raw_window") or match.get("text"))
+        text = _normalize_text(match.get("text") or match.get("raw_window"))
         if not text:
             continue
-        match_terms = set(tokenize_terms(text))
-        if not match_terms:
+        supported_terms = set(match_terms(list(query_terms), text))
+        if not supported_terms:
             continue
         similarity = max(0.0, float(match.get("similarity", 0.0)))
         strength = similarity / math.sqrt(float(rank + 1))
-        for term in query_terms & match_terms:
+        for term in supported_terms:
             support[term] = max(float(support.get(term, 0.0)), strength)
     return support
 
@@ -181,7 +134,7 @@ def plan_query_gaps(
     max_queries: int = 4,
 ) -> dict[str, Any]:
     query_text_norm = _normalize_text(query_text)
-    query_terms = _dedupe_keep_order(tokenize_terms(query_text_norm))
+    query_terms = _dedupe_keep_order(salient_query_terms(query_text_norm))
     query_term_set = set(query_terms)
     query_summary = query_summary or {}
     concept_summary = concept_summary or {}
@@ -342,9 +295,17 @@ def frontier_gap_terms(
     if not scored_entries:
         return []
 
+    frontier_phrases = _merge_frontier_windows([text for _, text in scored_entries])
+    allowed_terms = {
+        term
+        for text in frontier_phrases
+        for term in _frontier_terms(text)
+    }
     counter: Counter[str] = Counter()
     for rank, (score, text) in enumerate(scored_entries):
-        for pos, term in enumerate(tokenize_terms(text)[:8]):
+        for pos, term in enumerate(_frontier_terms(text)[:8]):
+            if allowed_terms and term not in allowed_terms:
+                continue
             counter[term] += float(score) / (math.sqrt(float(rank + 1)) * float(pos + 1))
     return _top_term_payload(counter, limit)
 
@@ -438,6 +399,12 @@ def _add_weighted_terms(counter: Counter[str], texts: Sequence[str], *, scale: f
             )
 
 
+def _candidate_bank_field(bank: Any, key: str, default: Any) -> Any:
+    if isinstance(bank, Mapping):
+        return bank.get(key, default)
+    return getattr(bank, key, default)
+
+
 def candidate_bank_term_profile(
     bank: Any,
     *,
@@ -445,8 +412,8 @@ def candidate_bank_term_profile(
     max_windows: int = 96,
 ) -> dict[str, float]:
     counter: Counter[str] = Counter()
-    name = _normalize_text(getattr(bank, "name", ""))
-    source = _normalize_text(getattr(bank, "source", ""))
+    name = _normalize_text(_candidate_bank_field(bank, "name", ""))
+    source = _normalize_text(_candidate_bank_field(bank, "source", ""))
     for rank, term in enumerate(tokenize_terms(name)):
         counter[term] += 2.0 / float(rank + 1)
 
@@ -461,10 +428,10 @@ def candidate_bank_term_profile(
             for rank, term in enumerate(tokenize_terms(part)):
                 counter[term] += 1.0 / float(rank + 1)
 
-    probe_windows = list(getattr(bank, "probe_raw_windows", []) or [])
+    probe_windows = list(_candidate_bank_field(bank, "probe_raw_windows", []) or [])
     _add_weighted_terms(counter, probe_windows[: max(1, int(max_windows // 2))], scale=1.25)
 
-    windows = list(getattr(bank, "train_raw_windows", []) or [])
+    windows = list(_candidate_bank_field(bank, "train_raw_windows", []) or [])
     _add_weighted_terms(counter, windows[: max(1, int(max_windows))], scale=1.0)
 
     ranked = counter.most_common(max(1, int(max_terms)))

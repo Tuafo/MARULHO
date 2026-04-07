@@ -62,6 +62,7 @@ class ContextLayer:
         self.slow_state = torch.zeros(self.n_columns, device=self.device)
         self.inhibitory_state = torch.zeros(self.n_columns, device=self.device)
         self.state = torch.zeros(self.n_columns, device=self.device)
+        self.last_precision_weight = 1.0
 
         self.feedforward = torch.eye(self.n_columns, device=self.device)
         self.no_self_mask = 1.0 - torch.eye(self.n_columns, device=self.device)
@@ -125,7 +126,21 @@ class ContextLayer:
         gain = 1.0 + effective_strength * (centered / scale)
         return torch.clamp(gain, min=0.65, max=1.35)
 
-    def observe(self, assembly: torch.Tensor, update_weights: bool = True) -> torch.Tensor:
+    def _integration_scale(self, precision_weight: float | None) -> float:
+        if precision_weight is None:
+            self.last_precision_weight = 1.0
+            return 1.0
+        weight = max(0.0, min(1.0, float(precision_weight)))
+        self.last_precision_weight = weight
+        return 0.25 + 0.75 * weight
+
+    def observe(
+        self,
+        assembly: torch.Tensor,
+        update_weights: bool = True,
+        *,
+        precision_weight: float | None = None,
+    ) -> torch.Tensor:
         current = _normalize(assembly.to(self.device))
         previous_state = self.state.clone()
         if float(current.sum().item()) <= 0.0:
@@ -140,6 +155,11 @@ class ContextLayer:
         recurrent_medium = torch.mv(self.recurrent, self.medium_state)
         recurrent_slow = torch.mv(self.recurrent, self.slow_state)
         feedforward_drive = torch.mv(self.feedforward, current)
+        integration_scale = self._integration_scale(precision_weight)
+        fast_rate = min(1.0, self.fast_rate * integration_scale)
+        medium_rate = min(1.0, self.medium_rate * integration_scale)
+        slow_rate = min(1.0, self.slow_rate * integration_scale)
+        transition_lr = self.transition_lr * integration_scale
 
         mean_activity = (
             0.20 * self.fast_state.mean()
@@ -159,9 +179,9 @@ class ContextLayer:
             0.35 * feedforward_drive + 0.65 * recurrent_slow + 0.20 * recurrent_medium - 0.35 * self.inhibitory_state
         )
 
-        self.fast_state = _normalize((1.0 - self.fast_rate) * self.fast_state + self.fast_rate * fast_drive)
-        self.medium_state = _normalize(self.decay * self.medium_state + self.medium_rate * medium_drive)
-        self.slow_state = _normalize(self.decay * self.slow_state + self.slow_rate * slow_drive)
+        self.fast_state = _normalize((1.0 - fast_rate) * self.fast_state + fast_rate * fast_drive)
+        self.medium_state = _normalize(self.decay * self.medium_state + medium_rate * medium_drive)
+        self.slow_state = _normalize(self.decay * self.slow_state + slow_rate * slow_drive)
         self.state = _normalize(0.20 * self.fast_state + 0.35 * self.medium_state + 0.45 * self.slow_state)
 
         if not update_weights:
@@ -170,7 +190,7 @@ class ContextLayer:
             return self.state
 
         hebbian_update = torch.outer(previous_state, self.state) * self.recurrent_mask
-        updated = self.decay * self.recurrent + self.transition_lr * hebbian_update
+        updated = self.decay * self.recurrent + transition_lr * hebbian_update
         self.recurrent = _row_normalize(torch.clamp(updated, min=1e-6)) * self.recurrent_scale
         return self.state
 
@@ -184,6 +204,7 @@ class ContextLayer:
             "feedforward": self.feedforward.detach().clone().cpu(),
             "recurrent_mask": self.recurrent_mask.detach().clone().cpu(),
             "recurrent": self.recurrent.detach().clone().cpu(),
+            "last_precision_weight": float(self.last_precision_weight),
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:
@@ -200,6 +221,7 @@ class ContextLayer:
             value = snapshot.get(attr)
             if isinstance(value, torch.Tensor):
                 setattr(self, attr, value.to(self.device))
+        self.last_precision_weight = float(snapshot.get("last_precision_weight", 1.0))
 
 
 class BindingLayer:

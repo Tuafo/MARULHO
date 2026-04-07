@@ -5,7 +5,7 @@ import random
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 import numpy as np
 import torch
@@ -79,11 +79,89 @@ def acquisition_gate_from_comparison(comparison: dict[str, float]) -> dict[str, 
     }
 
 
+def _dedupe_keep_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        item = " ".join(str(value).split()).strip()
+        if not item:
+            continue
+        lowered = item.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        ordered.append(item)
+    return ordered
+
+
+def _merge_semantic_plans(*plans: Mapping[str, Any] | None) -> dict[str, Any]:
+    present_plans = [plan for plan in plans if plan]
+    if len(present_plans) == 1:
+        return deepcopy(dict(present_plans[0]))
+
+    gap_weights: dict[str, float] = {}
+    unsupported_weights: dict[str, float] = {}
+    query_terms: list[str] = []
+    retrieval_queries: list[str] = []
+    follow_up_questions: list[str] = []
+    planner_modes: list[str] = []
+
+    for plan in present_plans:
+        planner_mode = str(plan.get("planner_mode", "")).strip()
+        if planner_mode:
+            planner_modes.append(planner_mode)
+        for raw_gap in list(plan.get("gap_terms") or []):
+            if not isinstance(raw_gap, Mapping):
+                continue
+            term = str(raw_gap.get("term", "")).strip().lower()
+            if not term:
+                continue
+            gap_weights[term] = float(gap_weights.get(term, 0.0)) + max(0.0, float(raw_gap.get("weight", 0.0)))
+        for raw_term in list(plan.get("unsupported_terms") or []):
+            term = str(raw_term).strip().lower()
+            if not term:
+                continue
+            unsupported_weights[term] = float(unsupported_weights.get(term, 0.0)) + 1.0
+            gap_weights[term] = float(gap_weights.get(term, 0.0)) + 1.0
+        query_terms.extend(str(term).strip().lower() for term in list(plan.get("query_terms") or []) if str(term).strip())
+        retrieval_queries.extend(str(item) for item in list(plan.get("retrieval_queries") or []) if str(item).strip())
+        follow_up_questions.extend(str(item) for item in list(plan.get("follow_up_questions") or []) if str(item).strip())
+
+    if not gap_weights and not unsupported_weights and not retrieval_queries and not follow_up_questions:
+        return {}
+    return {
+        "planner_mode": "merged_semantic_plan" if len(planner_modes) > 1 else (planner_modes[0] if planner_modes else "semantic_plan"),
+        "query_terms": _dedupe_keep_order(query_terms)[:8],
+        "unsupported_terms": [
+            term
+            for term, _weight in sorted(
+                unsupported_weights.items(),
+                key=lambda item: (-float(item[1]), item[0]),
+            )[:8]
+        ],
+        "gap_terms": [
+            {"term": term, "weight": float(weight)}
+            for term, weight in sorted(
+                gap_weights.items(),
+                key=lambda item: (-float(item[1]), item[0]),
+            )[:8]
+        ],
+        "retrieval_queries": _dedupe_keep_order(retrieval_queries)[:4],
+        "follow_up_questions": _dedupe_keep_order(follow_up_questions)[:4],
+    }
+
+
 def _candidate_has_semantic_signal(bank: SourceBank) -> bool:
     metadata = bank.metadata or {}
     semantic_relevance = float(metadata.get("semantic_relevance") or 0.0)
     query_text = str(metadata.get("query_text") or "").strip().lower()
     return semantic_relevance > 0.0 or query_text not in {"", "none"}
+
+
+def _has_explicit_semantic_focus(plan: Mapping[str, Any] | None) -> bool:
+    if not plan:
+        return False
+    return bool(plan.get("gap_terms") or plan.get("unsupported_terms") or plan.get("retrieval_queries"))
 
 
 def candidate_gap_snapshot(
@@ -93,8 +171,12 @@ def candidate_gap_snapshot(
     gap_ambiguity_weight: float,
     gap_switch_weight: float,
     gap_margin_reference: float,
+    semantic_plan: Mapping[str, Any] | None = None,
 ) -> dict[str, ProbeGapMetrics]:
-    frontier_plan = frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4)
+    frontier_plan = _merge_semantic_plans(
+        semantic_plan,
+        frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
+    )
     snapshot = {
         bank.name: probe_gap(
             trainer,
@@ -127,13 +209,22 @@ def next_candidate_round_robin(candidates: list[SourceBank], start_idx: int) -> 
     raise RuntimeError("No candidate source has remaining tokens")
 
 
-def train_source_chunk(trainer: HECSNTrainer, bank: SourceBank, n_tokens: int, phase: str, metrics_rows: list[dict[str, Any]]) -> int:
+def train_source_chunk(
+    trainer: HECSNTrainer,
+    bank: SourceBank,
+    n_tokens: int,
+    phase: str,
+    metrics_rows: list[dict[str, Any]],
+    on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
+) -> int:
     chunk = bank.next_chunk(n_tokens)
     for raw_window, pattern in chunk:
         row = trainer.train_step(pattern, raw_window=raw_window)
         row["source_name"] = bank.name
         row["phase"] = phase
         metrics_rows.append(row)
+        if on_train_step is not None:
+            on_train_step(raw_window, row)
     return len(chunk)
 
 
@@ -164,6 +255,7 @@ def replay_source_chunk(
     chunk: list[tuple[str, torch.Tensor]],
     phase: str,
     metrics_rows: list[dict[str, Any]] | None,
+    on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> int:
     for raw_window, pattern in chunk:
         row = trainer.train_step(pattern, raw_window=raw_window)
@@ -171,6 +263,8 @@ def replay_source_chunk(
             row["source_name"] = bank.name
             row["phase"] = phase
             metrics_rows.append(row)
+        if on_train_step is not None:
+            on_train_step(raw_window, row)
     return len(chunk)
 
 
@@ -398,9 +492,69 @@ def select_projected_commit_target(
                 )
                 for bank in projected_candidates
             }
+            baseline_selected = min(
+                projected_candidates,
+                key=lambda bank: (
+                    float(projected_lookup[bank.name]["projected_final_mean_candidate_gap"]),
+                    float(projected_lookup[bank.name]["projected_final_max_candidate_gap"]),
+                    float(projected_lookup[bank.name].get("projected_final_mean_candidate_diagnostic_gap", float("inf"))),
+                    float(projected_lookup[bank.name].get("projected_final_max_candidate_diagnostic_gap", float("inf"))),
+                    -float(selection_metric(snapshot.get(bank.name, {}))),
+                    -max(0.0, float(projected_lookup[bank.name].get("diagnostic_gap_reduction", 0.0))),
+                    -max(0.0, float(projected_lookup[bank.name].get("gap_reduction", 0.0))),
+                ),
+            )
+            baseline_row = projected_lookup[baseline_selected.name]
+            semantic_tie_margin = float(
+                min(
+                    0.01,
+                    max(
+                        1e-6,
+                        0.05 * max(current_mean_gap, current_max_gap),
+                    ),
+                )
+            )
+            baseline_mean_gap = float(baseline_row["projected_final_mean_candidate_gap"])
+            baseline_max_gap = float(baseline_row["projected_final_max_candidate_gap"])
+            baseline_mean_diagnostic_gap = float(
+                baseline_row.get("projected_final_mean_candidate_diagnostic_gap", float("inf"))
+            )
+            baseline_max_diagnostic_gap = float(
+                baseline_row.get("projected_final_max_candidate_diagnostic_gap", float("inf"))
+            )
+
+            def _semantic_tie_priority(bank: SourceBank) -> tuple[int, float, float]:
+                row = projected_lookup[bank.name]
+                projected_mean_gap = float(row["projected_final_mean_candidate_gap"])
+                projected_max_gap = float(row["projected_final_max_candidate_gap"])
+                projected_mean_diagnostic_gap = float(
+                    row.get("projected_final_mean_candidate_diagnostic_gap", float("inf"))
+                )
+                projected_max_diagnostic_gap = float(
+                    row.get("projected_final_max_candidate_diagnostic_gap", float("inf"))
+                )
+                metrics = snapshot.get(bank.name, {})
+                diagnostic_gap_score = max(0.0, float(metrics.get("diagnostic_gap_score", 0.0)))
+                semantic_action_score = max(
+                    diagnostic_gap_score,
+                    float(metrics.get("semantic_action_score", selection_metric(metrics))),
+                )
+                semantic_drive = max(0.0, semantic_action_score - diagnostic_gap_score)
+                frontier_relevance = max(0.0, float(metrics.get("frontier_semantic_relevance", 0.0)))
+                near_tie = (
+                    projected_mean_gap <= baseline_mean_gap + semantic_tie_margin
+                    and projected_max_gap <= baseline_max_gap + semantic_tie_margin
+                    and projected_mean_diagnostic_gap <= baseline_mean_diagnostic_gap + 2.0 * semantic_tie_margin
+                    and projected_max_diagnostic_gap <= baseline_max_diagnostic_gap + 2.0 * semantic_tie_margin
+                )
+                if not near_tie or frontier_relevance < 0.10 or semantic_drive <= 0.0:
+                    return (1, 0.0, 0.0)
+                return (0, -frontier_relevance, -semantic_drive)
+
             selected = min(
                 projected_candidates,
                 key=lambda bank: (
+                    *_semantic_tie_priority(bank),
                     float(projected_lookup[bank.name]["projected_final_mean_candidate_gap"]),
                     float(projected_lookup[bank.name]["projected_final_max_candidate_gap"]),
                     float(projected_lookup[bank.name].get("projected_final_mean_candidate_diagnostic_gap", float("inf"))),
@@ -478,6 +632,7 @@ def semantic_shortlist(
     affinity_weight: float,
     coverage_balance_penalty: float,
     gap_focus_margin: float,
+    semantic_plan: Mapping[str, Any] | None = None,
 ) -> tuple[list[SourceBank], dict[str, float]]:
     if shortlist_size <= 0 or shortlist_size >= len(available):
         _, selection_scores = select_active_source(
@@ -491,7 +646,15 @@ def semantic_shortlist(
 
     context_signature = current_context_signature(trainer)
     signatures = {bank.name: candidate_semantic_signature(trainer, bank) for bank in available}
-    frontier_plan = frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4)
+    explicit_focus = _has_explicit_semantic_focus(semantic_plan)
+    frontier_plan = (
+        deepcopy(dict(semantic_plan))
+        if explicit_focus
+        else _merge_semantic_plans(
+            semantic_plan,
+            frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
+        )
+    )
     gap_values = [float(selection_metric(gap_snapshot[bank.name])) for bank in available]
     gap_min = min(gap_values)
     gap_max = max(gap_values)
@@ -508,7 +671,9 @@ def semantic_shortlist(
             context_affinity = float(torch.dot(context_signature, bank_signature).item())
         context_affinity_norm = max(0.0, 0.5 * (context_affinity + 1.0))
         planner_relevance = bank_semantic_relevance_score(bank, frontier_plan)
-        if frontier_plan.get("gap_terms") and context_signature is not None:
+        if explicit_focus:
+            affinity_norm = planner_relevance
+        elif frontier_plan.get("gap_terms") and context_signature is not None:
             affinity_norm = 0.5 * context_affinity_norm + 0.5 * planner_relevance
         elif frontier_plan.get("gap_terms"):
             affinity_norm = planner_relevance
@@ -573,6 +738,144 @@ def _merge_exclusions(*groups: list[str]) -> list[str]:
     return merged
 
 
+def _catalog_finalist_limit(spec: dict[str, Any]) -> int:
+    entries = list(spec.get("catalog_entries") or [])
+    return max(1, int(spec.get("catalog_limit", len(entries) or 1)))
+
+
+def _catalog_probe_pool_limit(spec: dict[str, Any]) -> int:
+    final_limit = _catalog_finalist_limit(spec)
+    return max(final_limit, int(spec.get("catalog_probe_pool_limit", final_limit)))
+
+
+def _catalog_probe_tokens(spec: dict[str, Any], default_probe_tokens: int) -> int:
+    default_tokens = max(1, int(default_probe_tokens))
+    return max(1, int(spec.get("catalog_probe_tokens", min(default_tokens, 64))))
+
+
+def _catalog_scout_tokens(
+    spec: dict[str, Any],
+    default_train_tokens: int,
+    scout_probe_tokens: int,
+) -> int:
+    default_tokens = max(1, int(default_train_tokens))
+    fallback_tokens = min(default_tokens, max(128, int(scout_probe_tokens)))
+    return max(1, int(spec.get("catalog_scout_tokens", fallback_tokens)))
+
+
+def _catalog_metadata_float(bank: SourceBank, key: str) -> float:
+    metadata = bank.metadata or {}
+    value = metadata.get(key, 0.0)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _catalog_probe_metric(metrics: dict[str, Any], key: str, default: float = 0.0) -> float:
+    value = metrics.get(key, default)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _catalog_finalist_spec(
+    bank: SourceBank,
+    *,
+    selection_score: float,
+    diagnostic_gap_score: float,
+    frontier_semantic_relevance: float,
+    rank: int,
+    pool_size: int,
+) -> dict[str, Any]:
+    metadata = deepcopy(bank.metadata) if bank.metadata else {}
+    if metadata is not None:
+        metadata["catalog_probe_selection_score"] = float(selection_score)
+        metadata["catalog_probe_diagnostic_gap_score"] = float(diagnostic_gap_score)
+        metadata["catalog_probe_frontier_semantic_relevance"] = float(frontier_semantic_relevance)
+        metadata["catalog_probe_rank"] = int(rank)
+        metadata["catalog_probe_pool_size"] = int(pool_size)
+    return {
+        "name": bank.name,
+        "source": bank.source,
+        "source_type": bank.source_type,
+        "hf_config": bank.hf_config,
+        "text_field": bank.text_field,
+        "metadata": metadata or None,
+    }
+
+
+def _probe_first_catalog_finalists(
+    *,
+    trainer: HECSNTrainer,
+    encoder: RTFEncoder,
+    spec: dict[str, Any],
+    candidate_discovery_plan: dict[str, Any],
+    candidate_train_tokens: int,
+    probe_tokens: int,
+    gap_exploration_bonus: float,
+    gap_ambiguity_weight: float,
+    gap_switch_weight: float,
+    gap_margin_reference: float,
+) -> list[dict[str, Any]]:
+    scout_probe_tokens = _catalog_probe_tokens(spec, probe_tokens)
+    scout_train_tokens = _catalog_scout_tokens(spec, candidate_train_tokens, scout_probe_tokens)
+    scout_banks = load_source_banks(
+        [spec],
+        encoder,
+        trainer.config.window_size,
+        scout_probe_tokens,
+        scout_train_tokens,
+        semantic_plan=candidate_discovery_plan,
+        metadata_prefilter=True,
+    )
+    scout_snapshot = candidate_gap_snapshot(
+        trainer,
+        scout_banks,
+        gap_exploration_bonus,
+        gap_ambiguity_weight,
+        gap_switch_weight,
+        gap_margin_reference,
+        semantic_plan=candidate_discovery_plan,
+    )
+    selection_scores = {
+        bank.name: float(selection_metric(scout_snapshot[bank.name]))
+        for bank in scout_banks
+    }
+    ranked_banks = sorted(
+        scout_banks,
+        key=lambda bank: (
+            -selection_scores[bank.name],
+            -_catalog_probe_metric(scout_snapshot[bank.name], "diagnostic_gap_score"),
+            -_catalog_probe_metric(scout_snapshot[bank.name], "frontier_semantic_relevance"),
+            -_catalog_metadata_float(bank, "semantic_relevance"),
+            -_catalog_metadata_float(bank, "combined_score"),
+            bank.name,
+        ),
+    )
+    final_limit = min(_catalog_finalist_limit(spec), len(ranked_banks))
+    return [
+        _catalog_finalist_spec(
+            bank,
+            selection_score=selection_scores[bank.name],
+            diagnostic_gap_score=_catalog_probe_metric(scout_snapshot[bank.name], "diagnostic_gap_score"),
+            frontier_semantic_relevance=_catalog_probe_metric(scout_snapshot[bank.name], "frontier_semantic_relevance"),
+            rank=idx + 1,
+            pool_size=len(ranked_banks),
+        )
+        for idx, bank in enumerate(ranked_banks[:final_limit])
+    ]
+
+
 def refresh_candidate_catalog_state(
     *,
     trainer: HECSNTrainer,
@@ -580,11 +883,19 @@ def refresh_candidate_catalog_state(
     candidate_bank_specs: list[dict[str, Any]],
     candidate_train_tokens: int,
     probe_tokens: int,
+    gap_exploration_bonus: float,
+    gap_ambiguity_weight: float,
+    gap_switch_weight: float,
+    gap_margin_reference: float,
     excluded_names: list[str] | None = None,
     excluded_sources: list[str] | None = None,
+    semantic_plan: Mapping[str, Any] | None = None,
 ) -> tuple[list[SourceBank], dict[str, Any]]:
-    candidate_discovery_plan = frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4)
-    resolved_specs: list[dict[str, Any]] = []
+    candidate_discovery_plan = _merge_semantic_plans(
+        semantic_plan,
+        frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
+    )
+    finalist_specs: list[dict[str, Any]] = []
     for raw_spec in candidate_bank_specs:
         spec = dict(raw_spec)
         if spec.get("catalog_mode"):
@@ -596,10 +907,26 @@ def refresh_candidate_catalog_state(
                 list(spec.get("catalog_exclude_sources") or []),
                 list(excluded_sources or []),
             )
-        resolved_specs.append(spec)
+            if _catalog_probe_pool_limit(spec) > _catalog_finalist_limit(spec):
+                finalist_specs.extend(
+                    _probe_first_catalog_finalists(
+                        trainer=trainer,
+                        encoder=encoder,
+                        spec=spec,
+                        candidate_discovery_plan=candidate_discovery_plan,
+                        candidate_train_tokens=int(candidate_train_tokens),
+                        probe_tokens=int(probe_tokens),
+                        gap_exploration_bonus=float(gap_exploration_bonus),
+                        gap_ambiguity_weight=float(gap_ambiguity_weight),
+                        gap_switch_weight=float(gap_switch_weight),
+                        gap_margin_reference=float(gap_margin_reference),
+                    )
+                )
+                continue
+        finalist_specs.append(spec)
 
     candidate_state = load_source_banks(
-        resolved_specs,
+        finalist_specs,
         encoder,
         trainer.config.window_size,
         probe_tokens,
@@ -679,6 +1006,87 @@ def select_projected_active_source(
     return selected, selection_scores, projected_rows, projected_chunks
 
 
+def projected_active_stop_decision(
+    selected: SourceBank,
+    selection_scores: dict[str, float],
+    projected_rows: list[dict[str, Any]],
+    snapshot: dict[str, ProbeGapMetrics],
+) -> dict[str, Any] | None:
+    def _read_metric(metrics: Mapping[str, object], key: str, default: float = 0.0) -> float:
+        value = metrics.get(key, default)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return float(default)
+        return float(default)
+
+    projected_lookup = {
+        str(row["source"]): row
+        for row in projected_rows
+        if np.isfinite(float(row.get("projected_final_mean_candidate_gap", float("nan"))))
+    }
+    selected_projection = projected_lookup.get(selected.name)
+    if selected_projection is None:
+        return None
+
+    projected_score = float(selection_scores.get(selected.name, 0.0))
+    if projected_score > 0.0:
+        return None
+
+    current_gap_values = [float(values["recon_error"]) for values in snapshot.values()]
+    current_mean_gap = float(np.mean(current_gap_values)) if current_gap_values else 0.0
+    current_max_gap = float(max(current_gap_values)) if current_gap_values else 0.0
+    selected_metrics = snapshot.get(selected.name, {})
+    frontier_relevance = max(0.0, _read_metric(selected_metrics, "frontier_semantic_relevance"))
+    diagnostic_gap_score = max(0.0, _read_metric(selected_metrics, "diagnostic_gap_score"))
+    semantic_action_score = max(diagnostic_gap_score, selection_metric(selected_metrics))
+    semantic_drive = max(0.0, semantic_action_score - diagnostic_gap_score)
+    semantic_commit_margin = 0.0
+    if frontier_relevance >= 0.10 and semantic_drive > 0.0:
+        semantic_commit_margin = float(
+            min(
+                0.02,
+                max(
+                    1e-6,
+                    0.05 * max(current_mean_gap, current_max_gap) + 0.50 * semantic_drive,
+                ),
+            )
+        )
+    projected_final_mean = float(selected_projection["projected_final_mean_candidate_gap"])
+    projected_final_max = float(selected_projection["projected_final_max_candidate_gap"])
+    if (
+        semantic_commit_margin > 0.0
+        and projected_score > -semantic_commit_margin
+        and projected_final_mean <= current_mean_gap + semantic_commit_margin
+        and projected_final_max <= current_max_gap + semantic_commit_margin
+    ):
+        return None
+
+    return {
+        "selected_source": selected.name,
+        "selection_score": projected_score,
+        "current_mean_candidate_gap": current_mean_gap,
+        "current_max_candidate_gap": current_max_gap,
+        "projected_final_mean_candidate_gap": projected_final_mean,
+        "projected_final_max_candidate_gap": projected_final_max,
+        "projected_final_mean_candidate_diagnostic_gap": float(
+            selected_projection.get("projected_final_mean_candidate_diagnostic_gap", float("nan"))
+        ),
+        "projected_final_max_candidate_diagnostic_gap": float(
+            selected_projection.get("projected_final_max_candidate_diagnostic_gap", float("nan"))
+        ),
+        "frontier_semantic_relevance": frontier_relevance,
+        "diagnostic_gap_score": diagnostic_gap_score,
+        "semantic_action_score": semantic_action_score,
+        "semantic_drive": semantic_drive,
+        "semantic_commit_margin": semantic_commit_margin,
+        "reason": "best_projected_frontier_non_positive",
+    }
+
+
 def execute_acquisition_policy(
     *,
     trainer: HECSNTrainer,
@@ -705,6 +1113,8 @@ def execute_acquisition_policy(
     semantic_shortlist_size: int = 0,
     semantic_shortlist_gap_weight: float = 0.5,
     semantic_shortlist_affinity_weight: float = 0.5,
+    semantic_plan: Mapping[str, Any] | None = None,
+    on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     if policy_name not in {"active", "round_robin", "scout_commit"}:
         raise ValueError(f"Unknown acquisition policy: {policy_name}")
@@ -721,6 +1131,7 @@ def execute_acquisition_policy(
     acquired_names: list[str] = []
     acquired_sources: list[str] = []
     candidate_discovery_history: list[dict[str, Any]] = []
+    stop_decisions: list[dict[str, Any]] = []
     discovered_candidate_sources: dict[str, dict[str, Any]] = {
         str(item["name"]): item
         for item in describe_source_banks(current_candidate_state)
@@ -736,8 +1147,13 @@ def execute_acquisition_policy(
                 candidate_bank_specs=list(candidate_bank_specs or []),
                 candidate_train_tokens=int(candidate_train_tokens),
                 probe_tokens=int(probe_tokens),
+                gap_exploration_bonus=float(gap_exploration_bonus),
+                gap_ambiguity_weight=float(gap_ambiguity_weight),
+                gap_switch_weight=float(gap_switch_weight),
+                gap_margin_reference=float(gap_margin_reference),
                 excluded_names=list(acquired_names),
                 excluded_sources=list(acquired_sources),
+                semantic_plan=semantic_plan,
             )
             last_candidate_discovery_plan = current_discovery_plan
             discovery_sources = describe_source_banks(current_candidate_state)
@@ -762,6 +1178,7 @@ def execute_acquisition_policy(
             gap_ambiguity_weight,
             gap_switch_weight,
             gap_margin_reference,
+            semantic_plan=semantic_plan,
         )
         shortlist = available
         shortlist_scores: dict[str, float] = {}
@@ -780,6 +1197,7 @@ def execute_acquisition_policy(
                 float(semantic_shortlist_affinity_weight),
                 coverage_balance_penalty,
                 gap_focus_margin,
+                semantic_plan=semantic_plan,
             )
             if not shortlist:
                 shortlist = available
@@ -798,14 +1216,47 @@ def execute_acquisition_policy(
                 coverage_balance_penalty,
                 gap_focus_margin,
             )
+            stop_decision = projected_active_stop_decision(
+                selected,
+                selection_scores,
+                projected_rows,
+                snapshot,
+            )
+            if stop_decision is not None:
+                stop_decision.update(
+                    {
+                        "slot": slot_idx + 1,
+                        "candidate_shortlist": [bank.name for bank in shortlist],
+                        "candidate_shortlist_scores": {name: float(score) for name, score in shortlist_scores.items()},
+                        "selection_actions": projected_rows,
+                        "candidate_discovery_plan": current_discovery_plan,
+                        "candidate_catalog_candidates": [bank.name for bank in current_candidate_state],
+                    }
+                )
+                stop_decisions.append(stop_decision)
+                break
             gap_before = float(snapshot[selected.name]["recon_error"])
             diagnostic_gap_before = float(snapshot[selected.name]["diagnostic_gap_score"])
             preview_chunk = projected_chunks.get(selected.name, [])
             if preview_chunk:
                 committed_chunk = consume_previewed_chunk(selected, preview_chunk)
-                tokens_trained = replay_source_chunk(trainer, selected, committed_chunk, acquisition_phase, metrics_rows)
+                tokens_trained = replay_source_chunk(
+                    trainer,
+                    selected,
+                    committed_chunk,
+                    acquisition_phase,
+                    metrics_rows,
+                    on_train_step=on_train_step,
+                )
             else:
-                tokens_trained = train_source_chunk(trainer, selected, acquisition_tokens, acquisition_phase, metrics_rows)
+                tokens_trained = train_source_chunk(
+                    trainer,
+                    selected,
+                    acquisition_tokens,
+                    acquisition_phase,
+                    metrics_rows,
+                    on_train_step=on_train_step,
+                )
             after = probe_gap(
                 trainer,
                 selected,
@@ -844,7 +1295,14 @@ def execute_acquisition_policy(
             gap_before = float(snapshot[selected.name]["recon_error"])
             diagnostic_gap_before = float(snapshot[selected.name]["diagnostic_gap_score"])
             selection_scores = {bank.name: float(selection_metric(snapshot[bank.name])) for bank in available}
-            tokens_trained = train_source_chunk(trainer, selected, acquisition_tokens, acquisition_phase, metrics_rows)
+            tokens_trained = train_source_chunk(
+                trainer,
+                selected,
+                acquisition_tokens,
+                acquisition_phase,
+                metrics_rows,
+                on_train_step=on_train_step,
+            )
             after = probe_gap(
                 trainer,
                 selected,
@@ -875,7 +1333,10 @@ def execute_acquisition_policy(
                 acquired_sources.append(selected.source)
             continue
 
-        frontier_plan = frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4)
+        frontier_plan = _merge_semantic_plans(
+            semantic_plan,
+            frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
+        )
         shortlist, shortlist_scores = semantic_shortlist(
             trainer,
             available,
@@ -885,6 +1346,7 @@ def execute_acquisition_policy(
             float(semantic_shortlist_affinity_weight),
             coverage_balance_penalty,
             gap_focus_margin,
+            semantic_plan=semantic_plan,
         )
         scout_chunks: dict[str, list[tuple[str, torch.Tensor]]] = {}
         spent_tokens = 0
@@ -968,7 +1430,14 @@ def execute_acquisition_policy(
                 scout_commit_tokens=int(scout_commit_tokens),
             )
         committed_scout_chunk = consume_previewed_chunk(commit_target, scout_chunks.get(commit_target.name, []))
-        replay_source_chunk(trainer, commit_target, committed_scout_chunk, scout_phase, metrics_rows)
+        replay_source_chunk(
+            trainer,
+            commit_target,
+            committed_scout_chunk,
+            scout_phase,
+            metrics_rows,
+            on_train_step=on_train_step,
+        )
         post_scout_snapshot = candidate_gap_snapshot(
             trainer,
             current_candidate_state,
@@ -976,11 +1445,19 @@ def execute_acquisition_policy(
             gap_ambiguity_weight,
             gap_switch_weight,
             gap_margin_reference,
+            semantic_plan=semantic_plan,
         )
         commit_gap_before = float(post_scout_snapshot[commit_target.name]["recon_error"])
         commit_diagnostic_gap_before = float(post_scout_snapshot[commit_target.name]["diagnostic_gap_score"])
         commit_tokens = max(0, int(acquisition_tokens) - spent_tokens)
-        commit_trained = train_source_chunk(trainer, commit_target, commit_tokens, commit_phase, metrics_rows)
+        commit_trained = train_source_chunk(
+            trainer,
+            commit_target,
+            commit_tokens,
+            commit_phase,
+            metrics_rows,
+            on_train_step=on_train_step,
+        )
         commit_after = probe_gap(
             trainer,
             commit_target,
@@ -1024,8 +1501,13 @@ def execute_acquisition_policy(
                 candidate_bank_specs=list(candidate_bank_specs or []),
                 candidate_train_tokens=int(candidate_train_tokens),
                 probe_tokens=int(probe_tokens),
+                gap_exploration_bonus=float(gap_exploration_bonus),
+                gap_ambiguity_weight=float(gap_ambiguity_weight),
+                gap_switch_weight=float(gap_switch_weight),
+                gap_margin_reference=float(gap_margin_reference),
                 excluded_names=list(acquired_names),
                 excluded_sources=list(acquired_sources),
+                semantic_plan=semantic_plan,
             )
         except ValueError:
             current_candidate_state = []
@@ -1038,6 +1520,7 @@ def execute_acquisition_policy(
             gap_ambiguity_weight,
             gap_switch_weight,
             gap_margin_reference,
+            semantic_plan=semantic_plan,
         )
         if current_candidate_state
         else {}
@@ -1054,6 +1537,8 @@ def execute_acquisition_policy(
         "acquisition_history": acquisition_history,
         "candidate_discovery_history": candidate_discovery_history,
         "candidate_discovery_plan": last_candidate_discovery_plan,
+        "stopped_early": bool(stop_decisions),
+        "stop_decisions": stop_decisions,
         "training_diagnostics": summarize_training_metrics(metrics_rows),
         "runtime_scope": trainer.model.runtime_scope_report(),
         "token_count_before": token_count_before,
@@ -1064,6 +1549,7 @@ def execute_acquisition_policy(
         "semantic_shortlist_size": int(semantic_shortlist_size),
         "semantic_shortlist_gap_weight": float(semantic_shortlist_gap_weight),
         "semantic_shortlist_affinity_weight": float(semantic_shortlist_affinity_weight),
+        "semantic_plan": deepcopy(semantic_plan) if semantic_plan else None,
     }
     result.update(summarize_candidate_frontier(final_snapshot))
     return result
@@ -1147,14 +1633,19 @@ def run_live_acquisition(
     gap_margin_reference: float,
     coverage_balance_penalty: float,
     gap_focus_margin: float,
-    policy_name: str = "scout_commit",
+    policy_name: str = "active",
     scout_commit_tokens: int = 0,
     scout_top_k: int = 1,
     semantic_shortlist_size: int = 0,
     semantic_shortlist_gap_weight: float = 0.5,
     semantic_shortlist_affinity_weight: float = 0.5,
+    semantic_plan: Mapping[str, Any] | None = None,
+    on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    candidate_discovery_plan = frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4)
+    candidate_discovery_plan = _merge_semantic_plans(
+        semantic_plan,
+        frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
+    )
     candidate_state = load_source_banks(
         candidate_bank_specs,
         encoder,
@@ -1188,9 +1679,13 @@ def run_live_acquisition(
         semantic_shortlist_size=semantic_shortlist_size,
         semantic_shortlist_gap_weight=semantic_shortlist_gap_weight,
         semantic_shortlist_affinity_weight=semantic_shortlist_affinity_weight,
+        semantic_plan=semantic_plan,
+        on_train_step=on_train_step,
     )
-    result.setdefault("candidate_discovery_plan", candidate_discovery_plan)
+    if result.get("candidate_discovery_plan") is None:
+        result["candidate_discovery_plan"] = candidate_discovery_plan
     result["initial_candidate_discovery_plan"] = candidate_discovery_plan
+    result["semantic_plan"] = candidate_discovery_plan
     return result
 
 

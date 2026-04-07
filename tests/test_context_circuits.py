@@ -56,6 +56,41 @@ class ContextCircuitTests(unittest.TestCase):
 
         self.assertGreater(float(prediction[1].item()), float(prediction[0].item()))
 
+    def test_low_precision_slows_context_integration(self) -> None:
+        torch.manual_seed(2)
+        seed_layer = ContextLayer(
+            n_columns=4,
+            device=torch.device("cpu"),
+            recurrent_density=1.0,
+            recurrent_scale=0.5,
+        )
+        a = torch.tensor([1.0, 0.0, 0.0, 0.0])
+        b = torch.tensor([0.0, 1.0, 0.0, 0.0])
+        seed_layer.observe(a, update_weights=True)
+        seed_layer.observe(a, update_weights=True)
+
+        high_precision = ContextLayer(
+            n_columns=4,
+            device=torch.device("cpu"),
+            recurrent_density=1.0,
+            recurrent_scale=0.5,
+        )
+        low_precision = ContextLayer(
+            n_columns=4,
+            device=torch.device("cpu"),
+            recurrent_density=1.0,
+            recurrent_scale=0.5,
+        )
+        snapshot = seed_layer.state_dict()
+        high_precision.load_state_dict(snapshot)
+        low_precision.load_state_dict(snapshot)
+
+        high_precision.observe(b, update_weights=False, precision_weight=1.0)
+        low_precision.observe(b, update_weights=False, precision_weight=0.0)
+
+        self.assertGreater(float(high_precision.fast_state[1].item()), float(low_precision.fast_state[1].item()))
+        self.assertGreater(float(low_precision.slow_state[0].item()), float(high_precision.slow_state[0].item()))
+
 
 class BindingCircuitTests(unittest.TestCase):
     def test_binding_facilitation_strengthens_repeated_coincidence(self) -> None:

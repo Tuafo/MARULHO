@@ -49,6 +49,8 @@ def build_bank_query_text(bank: Any, *, max_windows: int = 6, max_terms: int = 2
     terms: list[str] = []
     for raw_window in windows[: max(1, int(max_windows))]:
         for term in tokenize_terms(str(raw_window)):
+            if len(term) < 4 and not term.isdigit():
+                continue
             if term in seen:
                 continue
             seen.add(term)

@@ -13,17 +13,21 @@ from hecsn.training.autonomy_acquisition_runner import (
     execute_acquisition_policy,
     evaluate_projected_candidates,
     preview_source_chunk,
+    refresh_candidate_catalog_state,
     run_live_acquisition,
     semantic_shortlist,
     select_projected_commit_target,
     select_scout_commit_target,
+    train_source_chunk,
 )
 from hecsn.training.autonomy_runner import (
     ProbeGapMetrics,
     SourceBank,
     autonomy_gate_from_comparison,
+    load_source_banks,
     probe_diagnostics,
     select_active_source,
+    update_source_feedback,
 )
 
 
@@ -198,6 +202,36 @@ class AutonomySelectionTests(unittest.TestCase):
 
         self.assertEqual(selected.name, "fresh")
 
+    def test_select_active_source_uses_empirical_feedback_to_escape_stale_leader(self) -> None:
+        available = [
+            make_bank("stale", visits=4),
+            make_bank("fresh", visits=1),
+        ]
+        snapshot = {
+            "stale": make_gap(0.45, 0.41),
+            "fresh": make_gap(0.44, 0.39),
+        }
+        feedback_state: dict[str, dict[str, float]] = {}
+        update_source_feedback(
+            feedback_state,
+            source_name="stale",
+            gap_before=0.40,
+            gap_after=0.395,
+            gap_score_before=0.41,
+            gap_score_after=0.405,
+        )
+
+        selected, scores = select_active_source(
+            available,
+            snapshot,
+            coverage_balance_penalty=0.02,
+            gap_focus_margin=0.02,
+            feedback_state=feedback_state,
+        )
+
+        self.assertEqual(selected.name, "fresh")
+        self.assertGreater(scores["fresh"], scores["stale"])
+
     def test_select_active_source_uses_diagnostic_gap_score_not_info_gain(self) -> None:
         # "better" has a clearly higher diagnostic_gap_score but a *lower* info_gain_score.
         # "worse" has a higher info_gain_score but a lower diagnostic_gap_score.
@@ -344,6 +378,102 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertEqual(ranked[0].name, "finance")
         self.assertGreater(scores["finance"], scores["river"])
 
+    def test_semantic_shortlist_can_use_external_semantic_plan_for_semantic_relevance(self) -> None:
+        available = [
+            make_window_bank("submarine", ["submarine buoyancy ballast pressure", "depth control ballast tank"]),
+            make_window_bank("garden", ["garden tomato soil sunlight", "rain compost seedlings"]),
+        ]
+        snapshot = {
+            "submarine": make_gap(0.44, 0.50),
+            "garden": make_gap(0.45, 0.52),
+        }
+        external_plan = {
+            "planner_mode": "recent_query_gap_focus",
+            "gap_terms": [{"term": "submarine", "weight": 2.0}, {"term": "ballast", "weight": 1.0}],
+            "unsupported_terms": ["submarine", "ballast"],
+            "retrieval_queries": ["submarine ballast buoyancy"],
+            "follow_up_questions": ["What grounded evidence explains submarine ballast control?"],
+        }
+        fake_trainer = object()
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value={},
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            return_value=None,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            return_value=None,
+        ):
+            ranked, scores = semantic_shortlist(
+                trainer=fake_trainer,
+                available=available,
+                gap_snapshot=snapshot,
+                shortlist_size=1,
+                gap_weight=0.2,
+                affinity_weight=0.8,
+                coverage_balance_penalty=0.02,
+                gap_focus_margin=0.02,
+                semantic_plan=external_plan,
+            )
+
+        self.assertEqual(ranked[0].name, "submarine")
+        self.assertGreater(scores["submarine"], scores["garden"])
+
+    def test_semantic_shortlist_keeps_external_focus_ahead_of_frontier_noise(self) -> None:
+        available = [
+            make_window_bank("submarine", ["submarine buoyancy ballast pressure", "depth control ballast tank"]),
+            make_window_bank("garden", ["garden tomato soil sunlight", "rain compost seedlings"]),
+        ]
+        snapshot = {
+            "submarine": make_gap(0.44, 0.50),
+            "garden": make_gap(0.45, 0.52),
+        }
+        external_plan = {
+            "planner_mode": "recent_query_gap_focus",
+            "gap_terms": [{"term": "submarine", "weight": 2.0}, {"term": "ballast", "weight": 1.0}],
+            "unsupported_terms": ["submarine", "ballast"],
+            "retrieval_queries": ["submarine ballast buoyancy"],
+            "follow_up_questions": ["What grounded evidence explains submarine ballast control?"],
+        }
+        noisy_frontier_plan = {
+            "planner_mode": "frontier_semantic_plan",
+            "gap_terms": [{"term": "garden", "weight": 3.0}, {"term": "tomato", "weight": 2.0}],
+            "unsupported_terms": ["garden", "tomato"],
+            "retrieval_queries": ["garden tomato soil"],
+            "follow_up_questions": ["What stable evidence is still missing for garden tomato soil?"],
+        }
+        fake_trainer = object()
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=noisy_frontier_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            return_value=torch.tensor([1.0, 0.0], dtype=torch.float32),
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            side_effect=lambda _trainer, bank: torch.tensor(
+                [1.0, 0.0] if bank.name == "garden" else [0.0, 1.0],
+                dtype=torch.float32,
+            ),
+        ):
+            ranked, scores = semantic_shortlist(
+                trainer=fake_trainer,
+                available=available,
+                gap_snapshot=snapshot,
+                shortlist_size=1,
+                gap_weight=0.0,
+                affinity_weight=1.0,
+                coverage_balance_penalty=0.02,
+                gap_focus_margin=0.02,
+                semantic_plan=external_plan,
+            )
+
+        self.assertEqual(ranked[0].name, "submarine")
+        self.assertGreater(scores["submarine"], scores["garden"])
+
     def test_select_projected_commit_target_prefers_frontier_reduction_over_current_gain(self) -> None:
         candidates = [
             make_bank("dbpedia", visits=0),
@@ -384,6 +514,54 @@ class AutonomySelectionTests(unittest.TestCase):
 
         self.assertEqual(selected.name, "reviews")
         self.assertGreater(scores["reviews"], scores["dbpedia"])
+
+    def test_select_projected_commit_target_prefers_semantically_aligned_candidate_on_near_tie(self) -> None:
+        candidates = [
+            make_bank("submarine", visits=0),
+            make_bank("garden", visits=0),
+        ]
+        snapshot = {
+            "submarine": {
+                **make_gap(0.10463128332048655, 0.5231153989707431),
+                "frontier_semantic_relevance": 0.35886147778190935,
+                "semantic_action_score": 0.8934959494808362,
+            },
+            "garden": {
+                **make_gap(0.10462089255452156, 0.5229352653523287),
+                "frontier_semantic_relevance": 0.004831481588629439,
+                "semantic_action_score": 0.8414926786415609,
+            },
+        }
+        projected_rows = [
+            {
+                "source": "submarine",
+                "gap_reduction": 0.04371026158332825,
+                "diagnostic_gap_reduction": 0.05447149305000254,
+                "projected_final_mean_candidate_gap": 0.06093825865536928,
+                "projected_final_max_candidate_gap": 0.060954395681619644,
+                "projected_final_mean_candidate_diagnostic_gap": 0.4753205345423164,
+                "projected_final_max_candidate_diagnostic_gap": 0.47758205823600297,
+            },
+            {
+                "source": "garden",
+                "gap_reduction": 0.044204539619386196,
+                "diagnostic_gap_reduction": 0.05064562332833156,
+                "projected_final_mean_candidate_gap": 0.060408932622522116,
+                "projected_final_max_candidate_gap": 0.06043654680252075,
+                "projected_final_mean_candidate_diagnostic_gap": 0.4788445137231193,
+                "projected_final_max_candidate_diagnostic_gap": 0.48112050225337355,
+            },
+        ]
+
+        selected, _scores = select_projected_commit_target(
+            candidates=candidates,
+            projected_rows=projected_rows,
+            snapshot=snapshot,
+            coverage_balance_penalty=0.02,
+            gap_focus_margin=0.02,
+        )
+
+        self.assertEqual(selected.name, "submarine")
 
     def test_evaluate_projected_candidates_restores_rng_for_each_trial(self) -> None:
         candidates = [
@@ -624,6 +802,169 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertEqual(selected_candidates, ["alpha", "beta"])
         self.assertEqual(result["acquired_sources"], ["alpha"])
 
+    def test_execute_acquisition_policy_active_stops_when_best_projected_frontier_is_non_positive(self) -> None:
+        trainer = SimpleNamespace(
+            token_count=0,
+            model=SimpleNamespace(runtime_scope_report=lambda: {"mode": "test"}),
+        )
+        candidates = [make_chunk_bank("alpha"), make_chunk_bank("beta")]
+        snapshot = {
+            "alpha": make_gap(0.30, 0.40),
+            "beta": make_gap(0.32, 0.42),
+        }
+        selection_call_count = 0
+
+        def fake_select_projected_active_source(_trainer, available, *_args, **_kwargs):
+            nonlocal selection_call_count
+            selection_call_count += 1
+            if selection_call_count == 1:
+                return (
+                    available[0],
+                    {available[0].name: 0.05},
+                    [
+                        {
+                            "source": available[0].name,
+                            "projected_final_mean_candidate_gap": 0.25,
+                            "projected_final_max_candidate_gap": 0.30,
+                            "projected_final_mean_candidate_diagnostic_gap": 0.31,
+                            "projected_final_max_candidate_diagnostic_gap": 0.35,
+                        }
+                    ],
+                    {},
+                )
+            return (
+                available[1],
+                {available[1].name: -0.01},
+                [
+                    {
+                        "source": available[1].name,
+                        "projected_final_mean_candidate_gap": 0.31,
+                        "projected_final_max_candidate_gap": 0.33,
+                        "projected_final_mean_candidate_diagnostic_gap": 0.41,
+                        "projected_final_max_candidate_diagnostic_gap": 0.43,
+                    }
+                ],
+                {},
+            )
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            return_value=snapshot,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.select_projected_active_source",
+            side_effect=fake_select_projected_active_source,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.train_source_chunk",
+            return_value=1,
+        ) as train_mock, patch(
+            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            return_value=make_gap(0.20, 0.25),
+        ):
+            result = execute_acquisition_policy(
+                trainer=trainer,
+                candidate_state=candidates,
+                candidate_bank_specs=[],
+                encoder=object(),
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                metrics_rows=[],
+                policy_name="active",
+                acquisition_tokens=1,
+                acquisition_slots=2,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+                coverage_balance_penalty=0.0,
+                gap_focus_margin=0.0,
+                acquisition_phase="acquisition",
+            )
+
+        self.assertEqual(selection_call_count, 2)
+        self.assertEqual(train_mock.call_count, 1)
+        self.assertEqual(result["acquired_sources"], ["alpha"])
+        self.assertEqual(len(result["acquisition_history"]), 1)
+        self.assertTrue(result["stopped_early"])
+        self.assertEqual(len(result["stop_decisions"]), 1)
+        self.assertEqual(result["stop_decisions"][0]["selected_source"], "beta")
+        self.assertEqual(result["stop_decisions"][0]["reason"], "best_projected_frontier_non_positive")
+
+    def test_execute_acquisition_policy_active_commits_semantically_focused_candidate_despite_small_negative_projection(self) -> None:
+        trainer = SimpleNamespace(
+            token_count=0,
+            model=SimpleNamespace(runtime_scope_report=lambda: {"mode": "test"}),
+        )
+        candidates = [make_chunk_bank("submarine"), make_chunk_bank("garden")]
+        snapshot = {
+            "submarine": {
+                **make_gap(0.30, 0.42),
+                "frontier_semantic_relevance": 0.85,
+                "semantic_action_score": 0.44,
+            },
+            "garden": {
+                **make_gap(0.32, 0.39),
+                "frontier_semantic_relevance": 0.05,
+                "semantic_action_score": 0.39,
+            },
+        }
+
+        def fake_select_projected_active_source(_trainer, available, *_args, **_kwargs):
+            return (
+                available[0],
+                {available[0].name: -0.008},
+                [
+                    {
+                        "source": available[0].name,
+                        "projected_final_mean_candidate_gap": 0.317,
+                        "projected_final_max_candidate_gap": 0.328,
+                        "projected_final_mean_candidate_diagnostic_gap": 0.43,
+                        "projected_final_max_candidate_diagnostic_gap": 0.45,
+                    }
+                ],
+                {available[0].name: [("submarine buoyancy", torch.tensor([1.0, 0.0]))]},
+            )
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            return_value=snapshot,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.select_projected_active_source",
+            side_effect=fake_select_projected_active_source,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.consume_previewed_chunk",
+            return_value=[("submarine buoyancy", torch.tensor([1.0, 0.0]))],
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.replay_source_chunk",
+            return_value=1,
+        ) as train_mock, patch(
+            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            return_value=make_gap(0.20, 0.25),
+        ):
+            result = execute_acquisition_policy(
+                trainer=trainer,
+                candidate_state=candidates,
+                candidate_bank_specs=[],
+                encoder=object(),
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                metrics_rows=[],
+                policy_name="active",
+                acquisition_tokens=1,
+                acquisition_slots=1,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+                coverage_balance_penalty=0.0,
+                gap_focus_margin=0.0,
+                acquisition_phase="acquisition",
+            )
+
+        self.assertEqual(train_mock.call_count, 1)
+        self.assertEqual(result["acquired_sources"], ["submarine"])
+        self.assertFalse(result["stopped_early"])
+        self.assertEqual(result["stop_decisions"], [])
+
     def test_run_live_acquisition_uses_frontier_plan_for_catalog_discovery(self) -> None:
         fake_plan = {
             "gap_terms": [{"term": "plasticity", "weight": 2.0}],
@@ -673,6 +1014,181 @@ class AutonomySelectionTests(unittest.TestCase):
 
         self.assertEqual(mocked_load.call_args.kwargs["semantic_plan"], fake_plan)
         self.assertEqual(result["candidate_discovery_plan"], fake_plan)
+
+    def test_run_live_acquisition_merges_external_semantic_plan_with_frontier_plan(self) -> None:
+        frontier_plan = {
+            "planner_mode": "frontier_gap_planner",
+            "gap_terms": [{"term": "plasticity", "weight": 2.0}],
+            "unsupported_terms": ["plasticity"],
+            "retrieval_queries": ["synaptic plasticity memory"],
+            "follow_up_questions": ["What grounded evidence would stabilize plasticity in memory?"],
+        }
+        external_plan = {
+            "planner_mode": "recent_query_gap_focus",
+            "gap_terms": [{"term": "submarine", "weight": 3.0}],
+            "unsupported_terms": ["submarine"],
+            "retrieval_queries": ["submarine ballast buoyancy"],
+            "follow_up_questions": ["What grounded evidence explains submarine ballast control?"],
+        }
+        trainer = SimpleNamespace(config=SimpleNamespace(window_size=10))
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=frontier_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            return_value=[make_bank("candidate", visits=0)],
+        ) as mocked_load, patch(
+            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            return_value={"policy": "active"},
+        ) as mocked_execute:
+            result = run_live_acquisition(
+                trainer=trainer,
+                encoder=object(),
+                candidate_bank_specs=[
+                    {
+                        "catalog_mode": "semantic_registry",
+                        "catalog_entries": [
+                            {
+                                "name": "candidate",
+                                "source": "https://example.com/candidate",
+                                "source_type": "web",
+                                "summary": "submarine ballast and plasticity",
+                            }
+                        ],
+                    }
+                ],
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                acquisition_tokens=16,
+                acquisition_slots=1,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+                coverage_balance_penalty=0.0,
+                gap_focus_margin=0.0,
+                semantic_plan=external_plan,
+            )
+
+        merged_plan = mocked_load.call_args.kwargs["semantic_plan"]
+        self.assertEqual(merged_plan["planner_mode"], "merged_semantic_plan")
+        self.assertIn("submarine", merged_plan["unsupported_terms"])
+        self.assertIn("plasticity", merged_plan["unsupported_terms"])
+        self.assertEqual(merged_plan["retrieval_queries"][0], "submarine ballast buoyancy")
+        self.assertEqual(merged_plan["retrieval_queries"][1], "synaptic plasticity memory")
+        self.assertEqual(mocked_execute.call_args.kwargs["semantic_plan"], external_plan)
+        self.assertEqual(result["candidate_discovery_plan"], merged_plan)
+        self.assertEqual(result["semantic_plan"], merged_plan)
+
+    def test_train_source_chunk_calls_runtime_step_callback(self) -> None:
+        bank = make_chunk_bank("candidate")
+        trainer = SimpleNamespace(
+            train_step=lambda pattern, raw_window=None: {"winner": int(torch.sum(pattern).item())},
+        )
+        metrics_rows: list[dict[str, object]] = []
+        observed_steps: list[tuple[str, int, str]] = []
+
+        tokens = train_source_chunk(
+            trainer,
+            bank,
+            2,
+            "probe",
+            metrics_rows,
+            on_train_step=lambda raw_window, row: observed_steps.append(
+                (raw_window, int(row["winner"]), str(row["phase"]))
+            ),
+        )
+
+        self.assertEqual(tokens, 2)
+        self.assertEqual(len(metrics_rows), 2)
+        self.assertEqual(
+            observed_steps,
+            [
+                ("candidate-a", 1, "probe"),
+                ("candidate-b", 1, "probe"),
+            ],
+        )
+
+    def test_run_live_acquisition_passes_runtime_step_callback_into_execute_policy(self) -> None:
+        fake_plan = {"unsupported_terms": ["plasticity"]}
+        trainer = SimpleNamespace(config=SimpleNamespace(window_size=10))
+        callback = object()
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=fake_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            return_value=[make_bank("candidate", visits=0)],
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            return_value={"policy": "active"},
+        ) as mocked_execute:
+            run_live_acquisition(
+                trainer=trainer,
+                encoder=object(),
+                candidate_bank_specs=[{"name": "candidate", "source": "candidate", "source_type": "test"}],
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                acquisition_tokens=16,
+                acquisition_slots=1,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+                coverage_balance_penalty=0.0,
+                gap_focus_margin=0.0,
+                on_train_step=callback,
+            )
+
+        self.assertIs(mocked_execute.call_args.kwargs["on_train_step"], callback)
+
+    def test_load_source_banks_refreshes_loaded_catalog_semantic_relevance(self) -> None:
+        plan = {
+            "gap_terms": [{"term": "wall", "weight": 1.0}, {"term": "street", "weight": 1.0}],
+            "unsupported_terms": ["wall", "street"],
+            "retrieval_queries": ["wall street"],
+            "follow_up_questions": ["What grounded evidence links wall and street in current frontier memory?"],
+        }
+        probe_patterns = [torch.tensor([1.0, 0.0])]
+        train_patterns = [torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0])]
+
+        with patch(
+            "hecsn.training.autonomy_runner.load_probe_train_examples",
+            return_value=(
+                probe_patterns,
+                ["Wall Street trading"],
+                train_patterns,
+                ["Wall Street trading", "market close"],
+            ),
+        ):
+            banks = load_source_banks(
+                [
+                    {
+                        "name": "catalog_candidate",
+                        "source": "catalog_candidate",
+                        "source_type": "hf",
+                        "text_field": "text",
+                        "metadata": {
+                            "catalog_mode": "semantic_registry",
+                            "semantic_relevance": 0.0,
+                            "provider": "None",
+                            "query_text": "None",
+                        },
+                    }
+                ],
+                encoder=object(),
+                window_size=8,
+                probe_tokens=1,
+                source_train_tokens=2,
+                semantic_plan=plan,
+            )
+
+        self.assertEqual(len(banks), 1)
+        self.assertGreater(float(banks[0].metadata["semantic_relevance"]), 0.0)
+        self.assertEqual(banks[0].metadata["provider"], "")
+        self.assertEqual(banks[0].metadata["query_text"], "")
 
     def test_execute_acquisition_policy_refreshes_dynamic_catalog_per_slot(self) -> None:
         trainer = SimpleNamespace(
@@ -732,6 +1248,215 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertEqual(result["acquired_sources"], ["alpha", "beta"])
         self.assertEqual(exclusion_history, [[], ["alpha"], ["alpha", "beta"]])
         self.assertEqual(len(result["candidate_discovery_history"]), 2)
+
+    def test_refresh_candidate_catalog_state_probe_first_scouts_pool_before_full_load(self) -> None:
+        trainer = SimpleNamespace(config=SimpleNamespace(window_size=8))
+        scout_alpha = make_chunk_bank("alpha")
+        scout_alpha.metadata = {"semantic_relevance": 0.10, "combined_score": 0.15}
+        scout_beta = make_chunk_bank("beta")
+        scout_beta.metadata = {"semantic_relevance": 0.30, "combined_score": 0.35}
+        scout_gamma = make_chunk_bank("gamma")
+        scout_gamma.metadata = {"semantic_relevance": 0.20, "combined_score": 0.25}
+        load_calls: list[dict[str, object]] = []
+        fake_plan = {"retrieval_queries": ["probe-first scout"]}
+
+        def fake_load(
+            source_bank_specs,
+            encoder,
+            window_size,
+            probe_tokens,
+            source_train_tokens,
+            *,
+            semantic_plan=None,
+            metadata_prefilter=False,
+        ):
+            load_calls.append(
+                {
+                    "source_bank_specs": source_bank_specs,
+                    "probe_tokens": probe_tokens,
+                    "source_train_tokens": source_train_tokens,
+                    "semantic_plan": semantic_plan,
+                    "metadata_prefilter": metadata_prefilter,
+                }
+            )
+            if metadata_prefilter:
+                return [scout_alpha, scout_beta, scout_gamma]
+            return [make_chunk_bank(str(spec["name"])) for spec in source_bank_specs]
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=fake_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            side_effect=fake_load,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            return_value={
+                "alpha": {
+                    **make_gap(0.31, 0.60),
+                    "semantic_action_score": 0.95,
+                    "frontier_semantic_relevance": 0.99,
+                },
+                "beta": {
+                    **make_gap(0.29, 0.70),
+                    "semantic_action_score": 0.20,
+                    "frontier_semantic_relevance": 0.10,
+                },
+                "gamma": {
+                    **make_gap(0.30, 0.60),
+                    "semantic_action_score": 0.10,
+                    "frontier_semantic_relevance": 0.40,
+                },
+            },
+        ):
+            candidates, plan = refresh_candidate_catalog_state(
+                trainer=trainer,
+                encoder=object(),
+                candidate_bank_specs=[
+                    {
+                        "catalog_mode": "semantic_registry",
+                        "catalog_limit": 2,
+                        "catalog_probe_pool_limit": 3,
+                        "catalog_probe_tokens": 3,
+                        "catalog_scout_tokens": 5,
+                        "catalog_entries": [],
+                    }
+                ],
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+            )
+
+        self.assertEqual(plan, fake_plan)
+        self.assertEqual([bank.name for bank in candidates], ["alpha", "beta"])
+        self.assertEqual(load_calls[0]["probe_tokens"], 3)
+        self.assertEqual(load_calls[0]["source_train_tokens"], 5)
+        self.assertTrue(bool(load_calls[0]["metadata_prefilter"]))
+        self.assertEqual(load_calls[0]["semantic_plan"], fake_plan)
+        self.assertEqual(load_calls[1]["probe_tokens"], 8)
+        self.assertEqual(load_calls[1]["source_train_tokens"], 32)
+        self.assertFalse(bool(load_calls[1]["metadata_prefilter"]))
+        finalist_specs = list(load_calls[1]["source_bank_specs"])
+        self.assertEqual([str(spec["name"]) for spec in finalist_specs], ["alpha", "beta"])
+        self.assertEqual(
+            [float(spec["metadata"]["catalog_probe_selection_score"]) for spec in finalist_specs],
+            [0.95, 0.20],
+        )
+        self.assertEqual(
+            [float(spec["metadata"]["catalog_probe_diagnostic_gap_score"]) for spec in finalist_specs],
+            [0.60, 0.70],
+        )
+        self.assertEqual(
+            [float(spec["metadata"]["catalog_probe_frontier_semantic_relevance"]) for spec in finalist_specs],
+            [0.99, 0.10],
+        )
+        self.assertTrue(all("catalog_mode" not in spec for spec in finalist_specs))
+
+    def test_refresh_candidate_catalog_state_probe_first_finalists_shift_holdout_on_selection_score(self) -> None:
+        trainer = SimpleNamespace(config=SimpleNamespace(window_size=8))
+        scout_reviews = make_chunk_bank("reviews")
+        scout_reviews.metadata = {"semantic_relevance": 0.30, "combined_score": 0.35}
+        scout_dbpedia = make_chunk_bank("dbpedia")
+        scout_dbpedia.metadata = {"semantic_relevance": 0.25, "combined_score": 0.30}
+        scout_yelp = make_chunk_bank("yelp")
+        scout_yelp.metadata = {"semantic_relevance": 0.20, "combined_score": 0.25}
+        scout_amazon = make_chunk_bank("amazon")
+        scout_amazon.metadata = {"semantic_relevance": 0.22, "combined_score": 0.27}
+        load_calls: list[dict[str, object]] = []
+        fake_plan = {"retrieval_queries": ["probe-first scout"]}
+
+        def fake_load(
+            source_bank_specs,
+            encoder,
+            window_size,
+            probe_tokens,
+            source_train_tokens,
+            *,
+            semantic_plan=None,
+            metadata_prefilter=False,
+        ):
+            load_calls.append(
+                {
+                    "source_bank_specs": source_bank_specs,
+                    "probe_tokens": probe_tokens,
+                    "source_train_tokens": source_train_tokens,
+                    "semantic_plan": semantic_plan,
+                    "metadata_prefilter": metadata_prefilter,
+                }
+            )
+            if metadata_prefilter:
+                return [scout_reviews, scout_dbpedia, scout_yelp, scout_amazon]
+            return [make_chunk_bank(str(spec["name"])) for spec in source_bank_specs]
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=fake_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            side_effect=fake_load,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            return_value={
+                "reviews": {
+                    **make_gap(0.31, 0.720),
+                    "semantic_action_score": 0.720,
+                    "frontier_semantic_relevance": 0.20,
+                },
+                "dbpedia": {
+                    **make_gap(0.30, 0.706),
+                    "semantic_action_score": 0.706,
+                    "frontier_semantic_relevance": 0.18,
+                },
+                "yelp": {
+                    **make_gap(0.29, 0.705),
+                    "semantic_action_score": 0.705,
+                    "frontier_semantic_relevance": 0.17,
+                },
+                "amazon": {
+                    **make_gap(0.28, 0.704),
+                    "semantic_action_score": 0.711,
+                    "frontier_semantic_relevance": 0.35,
+                },
+            },
+        ):
+            candidates, plan = refresh_candidate_catalog_state(
+                trainer=trainer,
+                encoder=object(),
+                candidate_bank_specs=[
+                    {
+                        "catalog_mode": "semantic_registry",
+                        "catalog_limit": 3,
+                        "catalog_probe_pool_limit": 4,
+                        "catalog_probe_tokens": 3,
+                        "catalog_scout_tokens": 5,
+                        "catalog_entries": [],
+                    }
+                ],
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+            )
+
+        self.assertEqual(plan, fake_plan)
+        self.assertEqual([bank.name for bank in candidates], ["reviews", "amazon", "dbpedia"])
+        finalist_specs = list(load_calls[1]["source_bank_specs"])
+        finalist_names = [str(spec["name"]) for spec in finalist_specs]
+        self.assertEqual(finalist_names, ["reviews", "amazon", "dbpedia"])
+        self.assertNotIn("yelp", finalist_names)
+        self.assertEqual(
+            [float(spec["metadata"]["catalog_probe_selection_score"]) for spec in finalist_specs],
+            [0.720, 0.711, 0.706],
+        )
+        self.assertEqual(
+            [float(spec["metadata"]["catalog_probe_diagnostic_gap_score"]) for spec in finalist_specs],
+            [0.720, 0.704, 0.706],
+        )
 
 
 if __name__ == "__main__":
