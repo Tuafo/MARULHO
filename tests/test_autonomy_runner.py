@@ -23,6 +23,7 @@ from hecsn.training.autonomy_acquisition_runner import (
 from hecsn.training.autonomy_runner import (
     ProbeGapMetrics,
     SourceBank,
+    _catalog_metadata_prefix_text,
     autonomy_gate_from_comparison,
     load_source_banks,
     probe_diagnostics,
@@ -435,6 +436,56 @@ class AutonomySelectionTests(unittest.TestCase):
             "gap_terms": [{"term": "submarine", "weight": 2.0}, {"term": "ballast", "weight": 1.0}],
             "unsupported_terms": ["submarine", "ballast"],
             "retrieval_queries": ["submarine ballast buoyancy"],
+            "follow_up_questions": ["What grounded evidence explains submarine ballast control?"],
+        }
+        noisy_frontier_plan = {
+            "planner_mode": "frontier_semantic_plan",
+            "gap_terms": [{"term": "garden", "weight": 3.0}, {"term": "tomato", "weight": 2.0}],
+            "unsupported_terms": ["garden", "tomato"],
+            "retrieval_queries": ["garden tomato soil"],
+            "follow_up_questions": ["What stable evidence is still missing for garden tomato soil?"],
+        }
+        fake_trainer = object()
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=noisy_frontier_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            return_value=torch.tensor([1.0, 0.0], dtype=torch.float32),
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            side_effect=lambda _trainer, bank: torch.tensor(
+                [1.0, 0.0] if bank.name == "garden" else [0.0, 1.0],
+                dtype=torch.float32,
+            ),
+        ):
+            ranked, scores = semantic_shortlist(
+                trainer=fake_trainer,
+                available=available,
+                gap_snapshot=snapshot,
+                shortlist_size=1,
+                gap_weight=0.0,
+                affinity_weight=1.0,
+                coverage_balance_penalty=0.02,
+                gap_focus_margin=0.02,
+                semantic_plan=external_plan,
+            )
+
+        self.assertEqual(ranked[0].name, "submarine")
+        self.assertGreater(scores["submarine"], scores["garden"])
+
+    def test_semantic_shortlist_treats_follow_up_only_plan_as_explicit_focus(self) -> None:
+        available = [
+            make_window_bank("submarine", ["submarine buoyancy ballast pressure", "depth control ballast tank"]),
+            make_window_bank("garden", ["garden tomato soil sunlight", "rain compost seedlings"]),
+        ]
+        snapshot = {
+            "submarine": make_gap(0.44, 0.50),
+            "garden": make_gap(0.45, 0.52),
+        }
+        external_plan = {
+            "planner_mode": "recent_query_gap_focus",
             "follow_up_questions": ["What grounded evidence explains submarine ballast control?"],
         }
         noisy_frontier_plan = {
@@ -1015,7 +1066,7 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertEqual(mocked_load.call_args.kwargs["semantic_plan"], fake_plan)
         self.assertEqual(result["candidate_discovery_plan"], fake_plan)
 
-    def test_run_live_acquisition_merges_external_semantic_plan_with_frontier_plan(self) -> None:
+    def test_run_live_acquisition_keeps_external_explicit_focus_for_catalog_discovery(self) -> None:
         frontier_plan = {
             "planner_mode": "frontier_gap_planner",
             "gap_terms": [{"term": "plasticity", "weight": 2.0}],
@@ -1071,15 +1122,79 @@ class AutonomySelectionTests(unittest.TestCase):
                 semantic_plan=external_plan,
             )
 
-        merged_plan = mocked_load.call_args.kwargs["semantic_plan"]
-        self.assertEqual(merged_plan["planner_mode"], "merged_semantic_plan")
-        self.assertIn("submarine", merged_plan["unsupported_terms"])
-        self.assertIn("plasticity", merged_plan["unsupported_terms"])
-        self.assertEqual(merged_plan["retrieval_queries"][0], "submarine ballast buoyancy")
-        self.assertEqual(merged_plan["retrieval_queries"][1], "synaptic plasticity memory")
+        discovery_plan = mocked_load.call_args.kwargs["semantic_plan"]
+        self.assertEqual(discovery_plan, external_plan)
         self.assertEqual(mocked_execute.call_args.kwargs["semantic_plan"], external_plan)
-        self.assertEqual(result["candidate_discovery_plan"], merged_plan)
-        self.assertEqual(result["semantic_plan"], merged_plan)
+        self.assertEqual(result["candidate_discovery_plan"], external_plan)
+        self.assertEqual(result["semantic_plan"], external_plan)
+
+    def test_run_live_acquisition_keeps_external_weak_concept_focus_for_catalog_discovery(self) -> None:
+        frontier_plan = {
+            "planner_mode": "frontier_gap_planner",
+            "gap_terms": [{"term": "plasticity", "weight": 2.0}],
+            "unsupported_terms": ["plasticity"],
+            "retrieval_queries": ["synaptic plasticity memory"],
+            "follow_up_questions": ["What grounded evidence would stabilize plasticity in memory?"],
+        }
+        external_plan = {
+            "planner_mode": "recent_query_gap_focus",
+            "weak_concepts": [
+                {
+                    "label": "buoyancy control",
+                    "weakness": 0.7,
+                    "uncertainty": 0.6,
+                    "drift": 0.2,
+                    "top_terms": ["submarine", "ballast", "buoyancy"],
+                    "match_count": 1,
+                }
+            ],
+        }
+        trainer = SimpleNamespace(config=SimpleNamespace(window_size=10))
+
+        with patch(
+            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            return_value=frontier_plan,
+        ), patch(
+            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            return_value=[make_bank("candidate", visits=0)],
+        ) as mocked_load, patch(
+            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            return_value={"policy": "active"},
+        ) as mocked_execute:
+            result = run_live_acquisition(
+                trainer=trainer,
+                encoder=object(),
+                candidate_bank_specs=[
+                    {
+                        "catalog_mode": "semantic_registry",
+                        "catalog_entries": [
+                            {
+                                "name": "candidate",
+                                "source": "https://example.com/candidate",
+                                "source_type": "web",
+                                "summary": "submarine ballast and buoyancy",
+                            }
+                        ],
+                    }
+                ],
+                candidate_train_tokens=32,
+                probe_tokens=8,
+                acquisition_tokens=16,
+                acquisition_slots=1,
+                gap_exploration_bonus=0.0,
+                gap_ambiguity_weight=0.0,
+                gap_switch_weight=0.0,
+                gap_margin_reference=0.0,
+                coverage_balance_penalty=0.0,
+                gap_focus_margin=0.0,
+                semantic_plan=external_plan,
+            )
+
+        discovery_plan = mocked_load.call_args.kwargs["semantic_plan"]
+        self.assertEqual(discovery_plan, external_plan)
+        self.assertEqual(mocked_execute.call_args.kwargs["semantic_plan"], external_plan)
+        self.assertEqual(result["candidate_discovery_plan"], external_plan)
+        self.assertEqual(result["semantic_plan"], external_plan)
 
     def test_train_source_chunk_calls_runtime_step_callback(self) -> None:
         bank = make_chunk_bank("candidate")
@@ -1189,6 +1304,50 @@ class AutonomySelectionTests(unittest.TestCase):
         self.assertGreater(float(banks[0].metadata["semantic_relevance"]), 0.0)
         self.assertEqual(banks[0].metadata["provider"], "")
         self.assertEqual(banks[0].metadata["query_text"], "")
+
+    def test_catalog_metadata_prefix_prioritizes_best_focus_fragments(self) -> None:
+        prefix = _catalog_metadata_prefix_text(
+            {
+                "metadata": {
+                    "catalog_title": "Ballast tank",
+                    "catalog_summary": (
+                        "A ballast tank is a compartment within a boat, ship or other floating structure that holds water, "
+                        "which is used as ballast to provide hydrostatic stability for a vessel, to reduce or control buoyancy, "
+                        "as in a submarine, and to correct trim."
+                    ),
+                    "query_text": "submarine buoyancy ballast",
+                }
+            }
+        )
+
+        self.assertIn("Ballast tank:", prefix)
+        self.assertIn("Terms:", prefix)
+        self.assertIn("ballast", prefix)
+        self.assertIn("buoyancy", prefix)
+        self.assertIn("submarine", prefix)
+        self.assertIn("to reduce or control buoyancy, as in a submarine", prefix)
+        self.assertIn("A ballast tank is a compartment within a boat", prefix)
+        self.assertLess(prefix.index("Ballast tank:"), prefix.index("Terms:"))
+
+    def test_catalog_metadata_prefix_uses_content_preview_when_available(self) -> None:
+        prefix = _catalog_metadata_prefix_text(
+            {
+                "metadata": {
+                    "catalog_title": "Ballast tank",
+                    "catalog_summary": "Ballast tanks are compartments used for vessel stability and trim.",
+                    "catalog_content_preview": "Ballast tanks reduce submarine buoyancy and support underwater trim control.",
+                    "query_text": "submarine buoyancy ballast",
+                }
+            }
+        )
+
+        self.assertIn("Terms:", prefix)
+        self.assertIn("reduce submarine buoyancy", prefix)
+        self.assertLess(prefix.index("Ballast tanks reduce submarine buoyancy"), prefix.index("Terms:"))
+        self.assertLess(
+            prefix.index("Ballast tanks reduce submarine buoyancy"),
+            prefix.index("Ballast tanks are compartments used for vessel stability and trim."),
+        )
 
     def test_execute_acquisition_policy_refreshes_dynamic_catalog_per_slot(self) -> None:
         trainer = SimpleNamespace(

@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any, Mapping, Optional, Sequence, TypedDict, cast
 
 import numpy as np
@@ -19,6 +20,7 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.gap_planner import bank_semantic_relevance_score
 from hecsn.reporting.autonomy import plot_autonomy_summary
 from hecsn.reporting.io import write_json_file
+from hecsn.semantics.grounding_text import match_terms, salient_query_terms, split_sentences
 from hecsn.semantics.frontier import bank_gap_plan
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
@@ -563,6 +565,7 @@ def load_source_banks(
     banks: list[SourceBank] = []
     for spec in resolved_specs:
         source_type = cast(SourceType, spec.get("source_type", "auto"))
+        prefix_text = _catalog_metadata_prefix_text(spec)
         probe_patterns, probe_raw_windows, train_patterns, train_raw_windows = load_probe_train_examples(
             source=str(spec["source"]),
             source_type=source_type,
@@ -572,6 +575,7 @@ def load_source_banks(
             window_size=window_size,
             probe_tokens=probe_tokens,
             train_tokens=source_train_tokens,
+            prefix_text=prefix_text,
         )
         if not probe_patterns or not train_patterns:
             metadata = spec.get("metadata")
@@ -620,6 +624,164 @@ def _refresh_loaded_bank_metadata(
             float(bank_semantic_relevance_score(bank, semantic_plan)),
         )
     bank.metadata = metadata or None
+
+
+def _catalog_metadata_prefix_text(spec: Mapping[str, Any]) -> str:
+    metadata = spec.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return ""
+
+    title = _normalize_optional_metadata_text(metadata.get("catalog_title"))
+    content_preview = _normalize_optional_metadata_text(metadata.get("catalog_content_preview"))
+    summary = _normalize_optional_metadata_text(metadata.get("catalog_summary"))
+    topic_terms = [
+        _normalize_optional_metadata_text(term)
+        for term in list(metadata.get("catalog_terms") or [])
+    ]
+    topic_terms = [term for term in topic_terms if term]
+
+    parts: list[str] = []
+    focus_terms = _catalog_metadata_focus_terms(metadata)
+    focus_term_text = _catalog_metadata_focus_term_text(
+        title=title,
+        content_preview=content_preview,
+        summary=summary,
+        topic_terms=topic_terms,
+        focus_terms=focus_terms,
+    )
+    primary_summary = content_preview or summary
+    focused_summary = _catalog_metadata_focused_summary(primary_summary, focus_terms, title=title)
+    if focused_summary:
+        parts.append(focused_summary)
+    if focus_term_text:
+        parts.append(focus_term_text)
+    elif title:
+        parts.append(title)
+    if content_preview and content_preview.lower() not in " ".join(parts).lower():
+        parts.append(content_preview)
+    if summary and summary.lower() not in " ".join(parts).lower():
+        parts.append(summary)
+    if topic_terms:
+        parts.append(f"Topics: {', '.join(topic_terms[:6])}.")
+    return " ".join(parts).strip()
+
+
+def _catalog_metadata_focus_terms(metadata: Mapping[str, Any]) -> list[str]:
+    query_texts = [
+        _normalize_optional_metadata_text(item)
+        for item in list(metadata.get("query_texts") or [])
+    ]
+    query_text = _normalize_optional_metadata_text(metadata.get("query_text"))
+    if query_text:
+        query_texts.append(query_text)
+
+    ordered_terms: list[str] = []
+    seen: set[str] = set()
+    for text in query_texts:
+        for term in salient_query_terms(text):
+            normalized = term.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered_terms.append(normalized)
+    return ordered_terms[:6]
+
+
+def _catalog_metadata_focus_term_text(
+    *,
+    title: str,
+    content_preview: str,
+    summary: str,
+    topic_terms: Sequence[str],
+    focus_terms: Sequence[str],
+) -> str:
+    if not focus_terms:
+        return ""
+    metadata_text = " ".join([title, content_preview, summary, *topic_terms]).strip()
+    matched_terms = match_terms(list(focus_terms), metadata_text)
+    if not matched_terms:
+        return ""
+    return f"Terms: {', '.join(matched_terms[:6])}."
+
+
+def _catalog_metadata_focused_summary(
+    summary: str,
+    focus_terms: Sequence[str],
+    *,
+    title: str = "",
+) -> str:
+    if not summary:
+        return title
+    if not focus_terms:
+        return f"{title}. {summary}".strip(". ") if title else summary
+
+    title_matches = set(match_terms(list(focus_terms), title))
+    fragments: list[str] = []
+    seen_fragments: set[str] = set()
+    for sentence in split_sentences(summary):
+        clauses = [
+            _normalize_optional_metadata_text(fragment)
+            for fragment in re.split(r"[,;:()]", sentence)
+        ]
+        clauses = [fragment for fragment in clauses if fragment]
+        if not clauses:
+            continue
+        candidate_windows = [" ".join(clauses)]
+        for index, clause in enumerate(clauses):
+            candidate_windows.append(clause)
+            if index + 1 < len(clauses):
+                candidate_windows.append(f"{clause}, {clauses[index + 1]}")
+        for candidate in candidate_windows:
+            normalized = _normalize_optional_metadata_text(candidate)
+            compact = normalized.lower()
+            if not normalized or compact in seen_fragments:
+                continue
+            seen_fragments.add(compact)
+            fragments.append(normalized)
+
+    ranked_fragments: list[tuple[str, list[str], int, int, int]] = []
+    for fragment in fragments:
+        matches = match_terms(list(focus_terms), fragment)
+        if not matches:
+            continue
+        unseen_matches = [term for term in matches if term not in title_matches]
+        ranked_fragments.append(
+            (
+                fragment,
+                matches,
+                len(unseen_matches),
+                len(matches),
+                len(fragment),
+            )
+        )
+    ranked_fragments.sort(
+        key=lambda item: (
+            item[2],
+            -item[4],
+            item[3],
+        ),
+        reverse=True,
+    )
+    if not ranked_fragments:
+        return f"{title}. {summary}".strip(". ") if title else summary
+
+    selected_fragments: list[str] = []
+    covered_terms = set(title_matches)
+    for fragment, matches, _unseen_count, _match_count, _length in ranked_fragments:
+        new_terms = [term for term in matches if term not in covered_terms]
+        if selected_fragments and not new_terms:
+            continue
+        selected_fragments.append(fragment)
+        covered_terms.update(matches)
+        if len(selected_fragments) >= 2 or covered_terms.issuperset(focus_terms):
+            break
+    if not selected_fragments:
+        selected_fragments.append(ranked_fragments[0][0])
+
+    fragment_text = ". ".join(selected_fragments).strip()
+    if title:
+        return f"{title}: {fragment_text}."
+    return f"{fragment_text}."
 
 
 def next_round_robin_source(banks: list[SourceBank], start_idx: int) -> tuple[SourceBank, int]:

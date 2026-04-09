@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from itertools import chain
 from typing import Deque, Iterable, Iterator, Optional, Sequence, TypeAlias, TypeVar
 
 import torch
@@ -74,6 +75,37 @@ def _split_stream(stream: Iterable[T], first_count: int, second_count: int) -> t
         else:
             break
     return leading, trailing
+
+
+def _prefixed_char_stream(chars: Iterable[str], prefix_text: str | None) -> Iterable[str]:
+    prefix = str(prefix_text or "")
+    if not prefix:
+        return chars
+    if prefix and not prefix.endswith(" "):
+        prefix = f"{prefix} "
+    return chain(prefix, chars)
+
+
+def _prefix_patterns(
+    prefix_text: str | None,
+    encoder: RTFEncoder,
+    window_size: int,
+) -> list[torch.Tensor]:
+    prefix = str(prefix_text or "")
+    if not prefix:
+        return []
+    return list(pattern_stream(prefix, encoder, window_size))
+
+
+def _prefix_examples(
+    prefix_text: str | None,
+    encoder: RTFEncoder,
+    window_size: int,
+) -> list[tuple[str, torch.Tensor]]:
+    prefix = str(prefix_text or "")
+    if not prefix:
+        return []
+    return list(labeled_pattern_stream(prefix, encoder, window_size))
 
 
 def interleave_tagged_blocks(
@@ -257,6 +289,8 @@ def load_probe_train_patterns(
     window_size: int,
     probe_tokens: int,
     train_tokens: int,
+    *,
+    prefix_text: str | None = None,
 ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
     loader = StreamingCorpusLoader(
         source=source,
@@ -264,13 +298,17 @@ def load_probe_train_patterns(
         text_field=text_field,
         hf_config=hf_config,
     )
-    return build_probe_train_patterns(
-        chars=loader.char_stream(),
+    probe_patterns, train_patterns = build_probe_train_patterns(
+        chars=_prefixed_char_stream(loader.char_stream(), prefix_text),
         encoder=encoder,
         window_size=window_size,
         probe_tokens=probe_tokens,
         train_tokens=train_tokens,
     )
+    prefix_patterns = _prefix_patterns(prefix_text, encoder, window_size)
+    if prefix_patterns:
+        train_patterns = [*prefix_patterns, *train_patterns][: max(0, int(train_tokens))]
+    return probe_patterns, train_patterns
 
 
 def load_probe_train_examples(
@@ -282,6 +320,8 @@ def load_probe_train_examples(
     window_size: int,
     probe_tokens: int,
     train_tokens: int,
+    *,
+    prefix_text: str | None = None,
 ) -> tuple[list[torch.Tensor], list[str], list[torch.Tensor], list[str]]:
     loader = StreamingCorpusLoader(
         source=source,
@@ -289,13 +329,21 @@ def load_probe_train_examples(
         text_field=text_field,
         hf_config=hf_config,
     )
-    return build_probe_train_examples(
-        chars=loader.char_stream(),
+    probe_patterns, probe_raw_windows, train_patterns, train_raw_windows = build_probe_train_examples(
+        chars=_prefixed_char_stream(loader.char_stream(), prefix_text),
         encoder=encoder,
         window_size=window_size,
         probe_tokens=probe_tokens,
         train_tokens=train_tokens,
     )
+    prefix_examples = _prefix_examples(prefix_text, encoder, window_size)
+    if prefix_examples:
+        prefix_patterns = [pattern for _, pattern in prefix_examples]
+        prefix_raw_windows = [raw_window for raw_window, _ in prefix_examples]
+        train_limit = max(0, int(train_tokens))
+        train_patterns = [*prefix_patterns, *train_patterns][:train_limit]
+        train_raw_windows = [*prefix_raw_windows, *train_raw_windows][:train_limit]
+    return probe_patterns, probe_raw_windows, train_patterns, train_raw_windows
 
 
 __all__ = [

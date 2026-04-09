@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from hecsn.data.corpus_loader import StreamingCorpusLoader, extract_web_text
@@ -52,6 +53,60 @@ class CorpusLoaderTests(unittest.TestCase):
         self.assertNotIn("File:Hebb", text)
         self.assertNotIn("Category:Neuroscience", text)
         self.assertNotIn("https://example.com", text)
+
+    def test_extract_web_text_normalizes_openalex_work_json(self) -> None:
+        payload = json.dumps(
+            {
+                "id": "https://openalex.org/W999",
+                "display_name": "Closed-access submarine paper",
+                "abstract_inverted_index": {
+                    "Submarine": [0],
+                    "ballast": [1],
+                    "control": [2],
+                    "improves": [3],
+                    "buoyancy": [4],
+                },
+                "primary_location": {
+                    "source": {
+                        "display_name": "Journal of Marine Systems",
+                    }
+                },
+                "primary_topic": {
+                    "display_name": "Marine engineering systems",
+                    "subfield": {"display_name": "Marine engineering"},
+                    "field": {"display_name": "Engineering"},
+                    "domain": {"display_name": "Physical sciences"},
+                },
+                "topics": [
+                    {
+                        "display_name": "Ballast control",
+                        "subfield": {"display_name": "Naval architecture"},
+                    }
+                ],
+                "keywords": [
+                    {"display_name": "Submarine"},
+                    {"display_name": "Ballast tank"},
+                ],
+                "concepts": [
+                    {"display_name": "Buoyancy"},
+                ],
+                "authorships": [
+                    {"author": {"display_name": "Ada Lovelace"}},
+                    {"author": {"display_name": "Grace Hopper"}},
+                ],
+            }
+        )
+
+        text = extract_web_text(payload, content_type="application/json")
+
+        self.assertIn("Closed-access submarine paper", text)
+        self.assertIn("Submarine ballast control improves buoyancy", text)
+        self.assertIn("Journal of Marine Systems", text)
+        self.assertIn("Marine engineering systems", text)
+        self.assertIn("Ballast control", text)
+        self.assertIn("Ada Lovelace", text)
+        self.assertNotIn('"display_name"', text)
+        self.assertNotIn("{", text)
 
 
 if __name__ == "__main__":

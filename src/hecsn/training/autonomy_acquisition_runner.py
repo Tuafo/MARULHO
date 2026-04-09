@@ -161,7 +161,25 @@ def _candidate_has_semantic_signal(bank: SourceBank) -> bool:
 def _has_explicit_semantic_focus(plan: Mapping[str, Any] | None) -> bool:
     if not plan:
         return False
-    return bool(plan.get("gap_terms") or plan.get("unsupported_terms") or plan.get("retrieval_queries"))
+    return bool(
+        plan.get("gap_terms")
+        or plan.get("unsupported_terms")
+        or plan.get("retrieval_queries")
+        or plan.get("follow_up_questions")
+        or plan.get("weak_concepts")
+    )
+
+
+def _candidate_discovery_plan(
+    trainer: HECSNTrainer,
+    semantic_plan: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if _has_explicit_semantic_focus(semantic_plan):
+        return deepcopy(dict(semantic_plan))
+    return _merge_semantic_plans(
+        semantic_plan,
+        frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
+    )
 
 
 def candidate_gap_snapshot(
@@ -307,6 +325,8 @@ def serialize_candidate_snapshot(snapshot: dict[str, ProbeGapMetrics]) -> dict[s
             "concept_support": float(values.get("concept_support", 0.0)),
             "frontier_semantic_relevance": float(values.get("frontier_semantic_relevance", 0.0)),
             "info_gain_score": float(values.get("info_gain_score", values["diagnostic_gap_score"])),
+            "semantic_answerability": float(values.get("semantic_answerability", 0.0)),
+            "semantic_weak_concept_pressure": float(values.get("semantic_weak_concept_pressure", 0.0)),
             "winner_switch_rate": float(values["winner_switch_rate"]),
             "mean_top1_margin": float(values["mean_top1_margin"]),
         }
@@ -679,7 +699,15 @@ def semantic_shortlist(
             affinity_norm = planner_relevance
         else:
             affinity_norm = context_affinity_norm
-        scores[bank.name] = float(gap_weight * gap_norm + affinity_weight * affinity_norm)
+        catalog_prior_bonus = 0.0
+        if explicit_focus:
+            catalog_prior_bonus = 0.05 * max(
+                0.0,
+                min(1.0, _catalog_metadata_float(bank, "prior_weight")),
+            )
+        scores[bank.name] = float(
+            gap_weight * gap_norm + affinity_weight * affinity_norm + catalog_prior_bonus
+        )
 
     ranked = sorted(available, key=lambda bank: scores[bank.name], reverse=True)
     return ranked[:shortlist_size], scores
@@ -761,6 +789,10 @@ def _catalog_scout_tokens(
     default_tokens = max(1, int(default_train_tokens))
     fallback_tokens = min(default_tokens, max(128, int(scout_probe_tokens)))
     return max(1, int(spec.get("catalog_scout_tokens", fallback_tokens)))
+
+
+def _candidate_state_train_tokens(candidate_train_tokens: int, acquisition_tokens: int) -> int:
+    return max(1, int(candidate_train_tokens), int(acquisition_tokens))
 
 
 def _catalog_metadata_float(bank: SourceBank, key: str) -> float:
@@ -882,6 +914,7 @@ def refresh_candidate_catalog_state(
     encoder: RTFEncoder,
     candidate_bank_specs: list[dict[str, Any]],
     candidate_train_tokens: int,
+    acquisition_tokens: int | None = None,
     probe_tokens: int,
     gap_exploration_bonus: float,
     gap_ambiguity_weight: float,
@@ -891,10 +924,7 @@ def refresh_candidate_catalog_state(
     excluded_sources: list[str] | None = None,
     semantic_plan: Mapping[str, Any] | None = None,
 ) -> tuple[list[SourceBank], dict[str, Any]]:
-    candidate_discovery_plan = _merge_semantic_plans(
-        semantic_plan,
-        frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
-    )
+    candidate_discovery_plan = _candidate_discovery_plan(trainer, semantic_plan)
     finalist_specs: list[dict[str, Any]] = []
     for raw_spec in candidate_bank_specs:
         spec = dict(raw_spec)
@@ -930,7 +960,10 @@ def refresh_candidate_catalog_state(
         encoder,
         trainer.config.window_size,
         probe_tokens,
-        candidate_train_tokens,
+        _candidate_state_train_tokens(
+            candidate_train_tokens,
+            candidate_train_tokens if acquisition_tokens is None else acquisition_tokens,
+        ),
         semantic_plan=candidate_discovery_plan,
     )
     return candidate_state, candidate_discovery_plan
@@ -949,9 +982,24 @@ def build_acquisition_history_row(
     snapshot: dict[str, ProbeGapMetrics],
     extra_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    selected_metadata = deepcopy(selected.metadata) if selected.metadata else None
+    selected_provider = ""
+    selected_query_text = ""
+    selected_semantic_relevance = 0.0
+    if isinstance(selected_metadata, Mapping):
+        selected_provider = str(selected_metadata.get("provider", "")).strip()
+        selected_query_text = str(selected_metadata.get("query_text", "")).strip()
+        try:
+            selected_semantic_relevance = float(selected_metadata.get("semantic_relevance", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            selected_semantic_relevance = 0.0
     row = {
         "slot": slot_idx + 1,
         "selected_source": selected.name,
+        "selected_provider": selected_provider,
+        "selected_query_text": selected_query_text,
+        "selected_semantic_relevance": float(selected_semantic_relevance),
+        "selected_metadata": selected_metadata,
         "tokens_trained": int(tokens_trained),
         "selected_gap_before": gap_before,
         "selected_gap_after": gap_after,
@@ -1146,6 +1194,7 @@ def execute_acquisition_policy(
                 encoder=encoder,
                 candidate_bank_specs=list(candidate_bank_specs or []),
                 candidate_train_tokens=int(candidate_train_tokens),
+                acquisition_tokens=int(acquisition_tokens),
                 probe_tokens=int(probe_tokens),
                 gap_exploration_bonus=float(gap_exploration_bonus),
                 gap_ambiguity_weight=float(gap_ambiguity_weight),
@@ -1282,6 +1331,12 @@ def execute_acquisition_policy(
                         "selection_actions": projected_rows,
                         "candidate_discovery_plan": current_discovery_plan,
                         "candidate_catalog_candidates": [bank.name for bank in current_candidate_state],
+                        "selected_concept_uncertainty_after": float(after.get("concept_uncertainty", 0.0)),
+                        "selected_concept_support_after": float(after.get("concept_support", 0.0)),
+                        "selected_semantic_answerability_after": float(after.get("semantic_answerability", 0.0)),
+                        "selected_weak_concept_pressure_after": float(
+                            after.get("semantic_weak_concept_pressure", 0.0)
+                        ),
                     },
                 )
             )
@@ -1500,6 +1555,7 @@ def execute_acquisition_policy(
                 encoder=encoder,
                 candidate_bank_specs=list(candidate_bank_specs or []),
                 candidate_train_tokens=int(candidate_train_tokens),
+                acquisition_tokens=int(acquisition_tokens),
                 probe_tokens=int(probe_tokens),
                 gap_exploration_bonus=float(gap_exploration_bonus),
                 gap_ambiguity_weight=float(gap_ambiguity_weight),
@@ -1642,16 +1698,13 @@ def run_live_acquisition(
     semantic_plan: Mapping[str, Any] | None = None,
     on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    candidate_discovery_plan = _merge_semantic_plans(
-        semantic_plan,
-        frontier_semantic_plan(trainer, max_terms=8, max_queries=4, max_questions=4),
-    )
+    candidate_discovery_plan = _candidate_discovery_plan(trainer, semantic_plan)
     candidate_state = load_source_banks(
         candidate_bank_specs,
         encoder,
         trainer.config.window_size,
         probe_tokens,
-        candidate_train_tokens,
+        _candidate_state_train_tokens(candidate_train_tokens, acquisition_tokens),
         semantic_plan=candidate_discovery_plan,
     )
     result = execute_acquisition_policy(
@@ -1729,7 +1782,7 @@ def run_acquisition_benchmark(
         encoder,
         cfg.window_size,
         probe_tokens,
-        candidate_train_tokens,
+        _candidate_state_train_tokens(candidate_train_tokens, acquisition_tokens),
         semantic_plan=candidate_discovery_plan,
     )
 

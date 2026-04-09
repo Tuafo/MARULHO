@@ -238,11 +238,13 @@ class EvidenceResponder:
                     int(bool(raw_window and not complete_sentence and text.lower() == raw_window.lower())),
                 )
             )
+            metadata_scaffold = text.strip().lower().startswith(("terms:", "topics:"))
             score = similarity + 0.35 * overlap + 0.02 * min(5.0, importance) + 0.05 * concept_priority
             score += 0.05 if text.endswith((".", "!", "?")) else -0.03
             score += 0.08 if not fragmentary else -0.05
             score += 0.04 * complete_sentence
             score -= 0.08 * clipped_overlap
+            score -= 0.60 if metadata_scaffold else 0.0
             ranked.append(
                 _EvidenceCandidate(
                     text=text,

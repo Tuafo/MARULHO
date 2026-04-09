@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import gzip
+import json
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
 import re
-from typing import Iterator, Literal, Optional
+from typing import Any, Iterator, Literal, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -55,6 +56,12 @@ _MEDIAWIKI_LIST_PREFIX_RE = re.compile(r"^\s*[:*#;]+\s*", flags=re.MULTILINE)
 _MEDIAWIKI_TABLE_LINE_RE = re.compile(r"^\s*(?:\{\||\|\}|[|!].*)$", flags=re.MULTILINE)
 
 
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
 def _looks_like_url(source: str) -> bool:
     parsed = urlparse(source)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -81,6 +88,128 @@ def _looks_like_mediawiki_raw(payload: str, *, content_type: str | None = None) 
         return True
     markers = sum(token in payload for token in ("[[", "{{", "==", "'''"))
     return markers >= 2
+
+
+def _looks_like_json_payload(payload: str, *, content_type: str | None = None) -> bool:
+    if content_type and "json" in content_type.lower():
+        return True
+    stripped = payload.lstrip()
+    return stripped.startswith("{") or stripped.startswith("[")
+
+
+def _openalex_abstract_text(value: Any) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    ordered_tokens: dict[int, str] = {}
+    for raw_token, raw_positions in value.items():
+        token = _normalize_text(raw_token)
+        if not token:
+            continue
+        if not isinstance(raw_positions, Sequence) or isinstance(raw_positions, (str, bytes)):
+            continue
+        for raw_position in raw_positions:
+            try:
+                position = int(raw_position)
+            except (TypeError, ValueError):
+                continue
+            if position >= 0 and position not in ordered_tokens:
+                ordered_tokens[position] = token
+    if not ordered_tokens:
+        return ""
+    return _normalize_text(" ".join(token for _position, token in sorted(ordered_tokens.items())))
+
+
+def _openalex_topic_terms(record: Mapping[str, Any]) -> list[str]:
+    terms: list[str] = []
+
+    def add_topic_mapping(value: Any) -> None:
+        if not isinstance(value, Mapping):
+            return
+        display_name = _normalize_text(value.get("display_name"))
+        if display_name:
+            terms.append(display_name)
+        for key in ("subfield", "field", "domain"):
+            nested = value.get(key)
+            if isinstance(nested, Mapping):
+                nested_name = _normalize_text(nested.get("display_name"))
+                if nested_name:
+                    terms.append(nested_name)
+
+    add_topic_mapping(record.get("primary_topic"))
+    for value in list(record.get("topics") or [])[:4]:
+        add_topic_mapping(value)
+    for value in list(record.get("keywords") or [])[:8]:
+        if isinstance(value, Mapping):
+            display_name = _normalize_text(value.get("display_name"))
+            if display_name:
+                terms.append(display_name)
+    for value in list(record.get("concepts") or [])[:8]:
+        if isinstance(value, Mapping):
+            display_name = _normalize_text(value.get("display_name"))
+            if display_name:
+                terms.append(display_name)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        lowered = term.lower()
+        if not term or lowered in seen:
+            continue
+        seen.add(lowered)
+        deduped.append(term)
+    return deduped[:16]
+
+
+def _openalex_records(value: Any) -> list[Mapping[str, Any]]:
+    if isinstance(value, Mapping):
+        identifier = _normalize_text(value.get("id"))
+        if identifier.startswith("https://openalex.org/") or any(
+            key in value
+            for key in ("display_name", "title", "abstract_inverted_index", "primary_topic")
+        ):
+            return [value]
+        results = value.get("results")
+        if isinstance(results, Sequence) and not isinstance(results, (str, bytes)):
+            return [item for item in results if isinstance(item, Mapping)]
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return [item for item in value if isinstance(item, Mapping)]
+    return []
+
+
+def _normalize_openalex_json_text(payload: str, *, max_chars: int | None = None) -> str:
+    try:
+        decoded = json.loads(payload)
+    except json.JSONDecodeError:
+        return ""
+    records = _openalex_records(decoded)
+    if not records:
+        return ""
+
+    sections: list[str] = []
+    for record in records[:3]:
+        title = _normalize_text(record.get("display_name") or record.get("title"))
+        abstract = _openalex_abstract_text(record.get("abstract_inverted_index"))
+        source_name = _normalize_text((((record.get("primary_location") or {}).get("source") or {}).get("display_name")))
+        topics = _openalex_topic_terms(record)
+        authors = [
+            _normalize_text(((authorship.get("author") or {}).get("display_name")))
+            for authorship in list(record.get("authorships") or [])[:5]
+            if isinstance(authorship, Mapping)
+        ]
+        authors = [author for author in authors if author]
+        section_parts = [
+            part
+            for part in (
+                title,
+                abstract,
+                f"Source {source_name}" if source_name else "",
+                f"Topics: {', '.join(topics)}" if topics else "",
+                f"Authors: {', '.join(authors)}" if authors else "",
+            )
+            if part
+        ]
+        if section_parts:
+            sections.append("\n".join(section_parts))
+    return _normalize_plain_text("\n\n".join(sections), max_chars=max_chars)
 
 
 def _normalize_mediawiki_text(text: str, *, max_chars: int | None = None) -> str:
@@ -270,6 +399,10 @@ class _VisibleTextExtractor(HTMLParser):
 def extract_web_text(payload: str, *, content_type: str | None = None, max_chars: int | None = None) -> str:
     looks_like_html = bool(content_type and "html" in content_type.lower()) or bool(re.search(r"<\s*(html|body|main|article)\b", payload[:4096], flags=re.IGNORECASE))
     if not looks_like_html:
+        if _looks_like_json_payload(payload, content_type=content_type):
+            openalex_text = _normalize_openalex_json_text(payload, max_chars=max_chars)
+            if openalex_text:
+                return openalex_text
         if _looks_like_mediawiki_raw(payload, content_type=content_type):
             return _normalize_mediawiki_text(payload, max_chars=max_chars)
         return _normalize_plain_text(payload, max_chars=max_chars)

@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 from threading import Event, RLock, Thread
 import time
@@ -21,6 +22,7 @@ from hecsn.gap_planner import plan_query_gaps
 from hecsn.interaction import EvidenceResponder
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics import ConceptStore
+from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 from hecsn.training.query_runner import build_query_result, feed_text
@@ -33,11 +35,14 @@ DEFAULT_BRAIN_TICK_TOKENS = 128
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.25
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
-DEFAULT_AUTONOMY_REMOTE_PROVIDERS: tuple[str, ...] = ("wikipedia", "arxiv")
+DEFAULT_AUTONOMY_REMOTE_PROVIDERS: tuple[str, ...] = ("wikipedia", "arxiv", "openalex")
 DEFAULT_AUTONOMY_REMOTE_CATALOG_LIMIT = 4
 DEFAULT_AUTONOMY_REMOTE_PROBE_POOL_LIMIT = 4
-DEFAULT_AUTONOMY_REMOTE_QUERIES_PER_PROVIDER = 1
+DEFAULT_AUTONOMY_REMOTE_QUERIES_PER_PROVIDER = 2
 DEFAULT_AUTONOMY_REMOTE_PROVIDER_RESULT_LIMIT = 4
+AUTO_REMOTE_QUERY_BUDGET_MAX = 4
+AUTO_REMOTE_PROVIDER_PRIORITY_WEIGHT = 0.35
+AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT = 8
 AUTO_FOCUS_SHORTLIST_MAX_SIZE = 3
 AUTO_FOCUS_SHORTLIST_GAP_WEIGHT = 0.2
 AUTO_FOCUS_SHORTLIST_AFFINITY_WEIGHT = 0.8
@@ -330,7 +335,7 @@ class HECSNServiceManager:
                 )
             preset_args = get_autonomy_acquisition_preset(preset)
             state_before = self._service_state_snapshot()
-            focus_plan = self._recent_query_focus_plan_locked()
+            focus_plan = self._autonomy_focus_plan_locked()
             shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = self._autonomy_shortlist_settings_locked(
                 candidate_bank=list(preset_args.get("candidate_bank", [])),
                 config=preset_args,
@@ -595,8 +600,23 @@ class HECSNServiceManager:
         top_k_memories: int,
         top_chars: int,
     ) -> dict[str, Any]:
+        query_focus_plan = self._concept_store.focus_plan(
+            query_text=query_text,
+            min_observations=1,
+        )
+        retrieval_focus_terms = None
+        memory_priority = None
+        if query_focus_plan is not None:
+            retrieval_focus_terms = list(
+                query_focus_plan.get("focus_terms")
+                or query_focus_plan.get("query_terms")
+                or []
+            )
+            raw_memory_priority = dict(query_focus_plan.get("memory_priority") or {})
+            if raw_memory_priority:
+                memory_priority = raw_memory_priority
         try:
-            return build_query_result(
+            result = build_query_result(
                 trainer=self._trainer,
                 checkpoint=self._checkpoint_path,
                 metadata=deepcopy(self._metadata),
@@ -609,7 +629,13 @@ class HECSNServiceManager:
                 top_chars=top_chars,
                 compare_context_a=None,
                 compare_context_b=None,
+                retrieval_focus_terms=retrieval_focus_terms,
+                memory_priority=memory_priority,
             )
+            query_summary = result.get("query_summary")
+            if isinstance(query_summary, dict) and query_focus_plan is not None:
+                query_summary["abstraction_focus"] = deepcopy(query_focus_plan)
+            return result
         finally:
             self._trainer.reset_context_state()
 
@@ -897,6 +923,88 @@ class HECSNServiceManager:
             return self._normalize_catalog_candidate_spec(spec, index)
         return self._normalize_brain_source_spec(spec, index)
 
+    def _normalize_provider_curriculum(self, value: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(value, Mapping):
+            return {}
+
+        def _safe_int(raw_value: Any) -> int:
+            try:
+                return max(0, int(raw_value))
+            except (TypeError, ValueError):
+                return 0
+
+        def _safe_float(raw_value: Any) -> float:
+            try:
+                return max(0.0, float(raw_value))
+            except (TypeError, ValueError):
+                return 0.0
+
+        normalized: dict[str, dict[str, Any]] = {}
+        for raw_provider, raw_entry in value.items():
+            provider = " ".join(str(raw_provider).split()).strip().lower()
+            if not provider or not isinstance(raw_entry, Mapping):
+                continue
+            topic_terms: dict[str, float] = {}
+            raw_topic_terms = raw_entry.get("topic_terms")
+            if isinstance(raw_topic_terms, Mapping):
+                for raw_term, raw_weight in raw_topic_terms.items():
+                    term = " ".join(str(raw_term).split()).strip().lower()
+                    if not term:
+                        continue
+                    weight = _safe_float(raw_weight)
+                    if weight > 0.0:
+                        topic_terms[term] = float(weight)
+            topic_families: dict[str, dict[str, Any]] = {}
+            raw_topic_families = raw_entry.get("topic_families")
+            if isinstance(raw_topic_families, Mapping):
+                for raw_family, raw_family_entry in raw_topic_families.items():
+                    family = " ".join(str(raw_family).split()).strip().lower()
+                    if not family or not isinstance(raw_family_entry, Mapping):
+                        continue
+                    topic_families[family] = {
+                        "commits": _safe_int(raw_family_entry.get("commits", 0)),
+                        "successes": _safe_int(raw_family_entry.get("successes", 0)),
+                        "semantic_relevance_ema": _safe_float(raw_family_entry.get("semantic_relevance_ema", 0.0)),
+                        "answerability_gain_ema": _safe_float(raw_family_entry.get("answerability_gain_ema", 0.0)),
+                        "uncertainty_reduction_ema": _safe_float(
+                            raw_family_entry.get("uncertainty_reduction_ema", 0.0)
+                        ),
+                        "weak_concept_stabilization_ema": _safe_float(
+                            raw_family_entry.get("weak_concept_stabilization_ema", 0.0)
+                        ),
+                        "last_selected_at": " ".join(
+                            str(raw_family_entry.get("last_selected_at", "")).split()
+                        ).strip(),
+                    }
+            normalized[provider] = {
+                "attempts": _safe_int(raw_entry.get("attempts", 0)),
+                "commits": _safe_int(raw_entry.get("commits", 0)),
+                "successes": _safe_int(raw_entry.get("successes", 0)),
+                "gap_gain_ema": _safe_float(raw_entry.get("gap_gain_ema", 0.0)),
+                "diagnostic_gain_ema": _safe_float(raw_entry.get("diagnostic_gain_ema", 0.0)),
+                "semantic_relevance_ema": _safe_float(raw_entry.get("semantic_relevance_ema", 0.0)),
+                "answerability_gain_ema": _safe_float(raw_entry.get("answerability_gain_ema", 0.0)),
+                "uncertainty_reduction_ema": _safe_float(raw_entry.get("uncertainty_reduction_ema", 0.0)),
+                "weak_concept_stabilization_ema": _safe_float(
+                    raw_entry.get("weak_concept_stabilization_ema", 0.0)
+                ),
+                "last_query_text": " ".join(str(raw_entry.get("last_query_text", "")).split()).strip(),
+                "last_selected_at": " ".join(str(raw_entry.get("last_selected_at", "")).split()).strip(),
+                "topic_terms": dict(
+                    sorted(
+                        topic_terms.items(),
+                        key=lambda item: (-float(item[1]), item[0]),
+                    )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+                ),
+                "topic_families": dict(
+                    sorted(
+                        topic_families.items(),
+                        key=lambda item: (-self._provider_topic_family_priority_locked(item[1]), item[0]),
+                    )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+                ),
+            }
+        return normalized
+
     def _default_autonomy_candidate_bank(self) -> list[dict[str, Any]]:
         return [
             self._normalize_catalog_candidate_spec(
@@ -959,6 +1067,7 @@ class HECSNServiceManager:
             "enabled": enabled,
             "policy": policy,
             "candidate_bank": candidate_specs,
+            "provider_curriculum": self._normalize_provider_curriculum(autonomy.get("provider_curriculum")),
             "trigger_interval_tokens": max(
                 1,
                 int(autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS)),
@@ -1189,19 +1298,21 @@ class HECSNServiceManager:
         trigger_interval = int(autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS))
         if token_delta < trigger_interval:
             return None
-        focus_plan = self._recent_query_focus_plan_locked()
-        shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = self._autonomy_shortlist_settings_locked(
+        focus_plan = self._autonomy_focus_plan_locked()
+        candidate_specs = self._autonomy_candidate_specs_locked(
             candidate_bank=list(autonomy.get("candidate_bank", [])),
+            focus_plan=focus_plan,
+        )
+        shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = self._autonomy_shortlist_settings_locked(
+            candidate_bank=candidate_specs,
             config=autonomy,
             focus_plan=focus_plan,
         )
+        curriculum_before = deepcopy(autonomy.get("provider_curriculum"))
         result = run_live_acquisition(
             trainer=self._trainer,
             encoder=self._encoder,
-            candidate_bank_specs=self._autonomy_candidate_specs_locked(
-                candidate_bank=list(autonomy.get("candidate_bank", [])),
-                focus_plan=focus_plan,
-            ),
+            candidate_bank_specs=candidate_specs,
             candidate_train_tokens=int(autonomy.get("candidate_train_tokens", 768)),
             probe_tokens=int(autonomy.get("probe_tokens", 96)),
             acquisition_tokens=int(autonomy.get("acquisition_tokens", 512)),
@@ -1221,7 +1332,15 @@ class HECSNServiceManager:
             semantic_plan=focus_plan,
             on_train_step=self._runtime_concept_callback_locked(),
         )
+        self._update_provider_curriculum_locked(
+            autonomy=autonomy,
+            result=result,
+            candidate_specs=candidate_specs,
+            focus_plan=focus_plan,
+        )
         self._brain_last_acquisition_token_count = int(self._trainer.token_count)
+        if curriculum_before != autonomy.get("provider_curriculum"):
+            self._mark_mutated()
         if int(result.get("tokens_trained_total", 0)) > 0:
             self._mark_mutated()
         summary = {
@@ -1235,6 +1354,7 @@ class HECSNServiceManager:
             "stop_reason": result.get("stop_reason"),
             "focus_plan": deepcopy(result.get("semantic_plan")),
             "recent_query_gap_count": int(len(self._brain_recent_query_gaps)),
+            "provider_curriculum": deepcopy(self._provider_curriculum_snapshot_locked(autonomy, focus_plan)),
         }
         self._brain_last_acquisition_summary = summary
         return summary
@@ -1249,6 +1369,7 @@ class HECSNServiceManager:
         autonomy_trigger_ready = None
         autonomy_candidate_names = None
         autonomy_focus_plan = None
+        autonomy_provider_curriculum = None
         if autonomy is not None:
             trigger_interval = int(autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS))
             token_delta = int(self._trainer.token_count) - int(self._brain_last_acquisition_token_count)
@@ -1258,7 +1379,8 @@ class HECSNServiceManager:
                 str(item.get("name", "candidate"))
                 for item in list(autonomy.get("candidate_bank", []))
             ]
-            autonomy_focus_plan = self._recent_query_focus_plan_locked()
+            autonomy_focus_plan = self._autonomy_focus_plan_locked()
+            autonomy_provider_curriculum = self._provider_curriculum_snapshot_locked(autonomy, autonomy_focus_plan)
         return {
             "configured": bool(self._brain_config.get("source_bank")),
             "running": bool(
@@ -1318,6 +1440,7 @@ class HECSNServiceManager:
                 "trigger_ready": autonomy_trigger_ready,
                 "recent_query_gaps": [deepcopy(item) for item in list(self._brain_recent_query_gaps)],
                 "focus_plan": deepcopy(autonomy_focus_plan),
+                "provider_curriculum": deepcopy(autonomy_provider_curriculum),
                 "last_acquisition_token_count": int(self._brain_last_acquisition_token_count),
                 "last_acquisition_summary": deepcopy(self._brain_last_acquisition_summary),
             },
@@ -1381,6 +1504,28 @@ class HECSNServiceManager:
             for value in list(item.get("follow_up_questions") or [])
             if " ".join(str(value).split()).strip()
         ]
+        weak_concepts: list[dict[str, Any]] = []
+        for raw_concept in list(item.get("weak_concepts") or []):
+            if not isinstance(raw_concept, dict):
+                continue
+            label = " ".join(str(raw_concept.get("label", "")).split()).strip()
+            top_terms = [
+                " ".join(str(value).split()).strip().lower()
+                for value in list(raw_concept.get("top_terms") or [])
+                if " ".join(str(value).split()).strip()
+            ]
+            if not label and not top_terms:
+                continue
+            weak_concepts.append(
+                {
+                    "label": label,
+                    "weakness": float(raw_concept.get("weakness", 0.0)),
+                    "uncertainty": float(raw_concept.get("uncertainty", 0.0)),
+                    "drift": float(raw_concept.get("drift", 0.0)),
+                    "top_terms": top_terms[:4],
+                    "match_count": max(0, int(raw_concept.get("match_count", 0))),
+                }
+            )
         return {
             "recorded_at": str(item.get("recorded_at") or datetime.now(timezone.utc).isoformat()),
             "source": str(item.get("source") or "query"),
@@ -1389,6 +1534,7 @@ class HECSNServiceManager:
             "gap_terms": gap_terms,
             "retrieval_queries": retrieval_queries[:4],
             "follow_up_questions": follow_up_questions[:4],
+            "weak_concepts": weak_concepts[:4],
             "grounded_fraction": float(item.get("grounded_fraction", 0.0)),
         }
 
@@ -1420,11 +1566,187 @@ class HECSNServiceManager:
                 "gap_terms": list(gap_plan.get("gap_terms") or []),
                 "retrieval_queries": list(gap_plan.get("retrieval_queries") or []),
                 "follow_up_questions": list(gap_plan.get("follow_up_questions") or []),
+                "weak_concepts": list(gap_plan.get("weak_concepts") or []),
                 "grounded_fraction": float(gap_plan.get("grounded_fraction", 0.0)),
             }
         )
         if normalized is not None:
             self._brain_recent_query_gaps.appendleft(normalized)
+
+    def _autonomy_focus_plan_locked(self) -> dict[str, Any] | None:
+        recent_query_focus = self._recent_query_focus_plan_locked()
+        if recent_query_focus is None:
+            return self._concept_store.focus_plan()
+        abstraction_query = " ".join(
+            [
+                *[
+                    str(value)
+                    for value in list(recent_query_focus.get("query_terms") or [])[:4]
+                    if str(value).strip()
+                ],
+                *[
+                    str(value)
+                    for value in list(recent_query_focus.get("unsupported_terms") or [])[:2]
+                    if str(value).strip()
+                ],
+            ]
+        ).strip()
+        concept_focus = self._concept_store.focus_plan(
+            query_text=abstraction_query,
+            min_observations=1,
+        )
+        if concept_focus is None:
+            return recent_query_focus
+        return self._merge_focus_plans_locked(recent_query_focus, concept_focus)
+
+    def _merge_focus_plans_locked(
+        self,
+        primary: Mapping[str, Any],
+        secondary: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        def _dedupe(values: Sequence[str], limit: int) -> list[str]:
+            seen: set[str] = set()
+            ordered: list[str] = []
+            for raw_value in values:
+                value = " ".join(str(raw_value).split()).strip()
+                if not value:
+                    continue
+                lowered = value.lower()
+                if lowered in seen:
+                    continue
+                seen.add(lowered)
+                ordered.append(value)
+                if len(ordered) >= max(1, int(limit)):
+                    break
+            return ordered
+
+        gap_weights: Counter[str] = Counter()
+        unsupported_weights: Counter[str] = Counter()
+        query_terms: list[str] = []
+        retrieval_queries: list[str] = []
+        follow_up_questions: list[str] = []
+        weak_concept_scores: dict[str, dict[str, Any]] = {}
+
+        for plan, plan_weight in ((primary, 1.0), (secondary, 0.75)):
+            query_terms.extend(str(term) for term in list(plan.get("query_terms") or []) if str(term).strip())
+            retrieval_queries.extend(str(item) for item in list(plan.get("retrieval_queries") or []) if str(item).strip())
+            follow_up_questions.extend(str(item) for item in list(plan.get("follow_up_questions") or []) if str(item).strip())
+
+            for raw_term in list(plan.get("unsupported_terms") or []):
+                term = str(raw_term).strip().lower()
+                if not term:
+                    continue
+                unsupported_weights[term] += float(plan_weight)
+                gap_weights[term] += float(plan_weight)
+
+            for raw_gap in list(plan.get("gap_terms") or []):
+                if not isinstance(raw_gap, Mapping):
+                    continue
+                term = str(raw_gap.get("term", "")).strip().lower()
+                if not term:
+                    continue
+                gap_weights[term] += float(plan_weight) * max(0.0, float(raw_gap.get("weight", 0.0)))
+
+            for raw_concept in list(plan.get("weak_concepts") or []):
+                if not isinstance(raw_concept, Mapping):
+                    continue
+                label = " ".join(str(raw_concept.get("label", "")).split()).strip()
+                top_terms = [
+                    " ".join(str(value).split()).strip().lower()
+                    for value in list(raw_concept.get("top_terms") or [])
+                    if " ".join(str(value).split()).strip()
+                ]
+                if not label and not top_terms:
+                    continue
+                key = label.lower() if label else "|".join(top_terms[:3])
+                if not key:
+                    continue
+                aggregate = weak_concept_scores.setdefault(
+                    key,
+                    {
+                        "label": label,
+                        "top_terms": [],
+                        "weight_sum": 0.0,
+                        "weakness_sum": 0.0,
+                        "uncertainty_sum": 0.0,
+                        "drift_sum": 0.0,
+                        "match_count": 0,
+                    },
+                )
+                aggregate["label"] = str(aggregate["label"] or label)
+                aggregate["top_terms"] = list(dict.fromkeys([*list(aggregate["top_terms"]), *top_terms]))[:4]
+                aggregate["weight_sum"] = float(aggregate["weight_sum"]) + float(plan_weight)
+                aggregate["weakness_sum"] = float(aggregate["weakness_sum"]) + float(plan_weight) * max(
+                    0.0,
+                    float(raw_concept.get("weakness", 0.0)),
+                )
+                aggregate["uncertainty_sum"] = float(aggregate["uncertainty_sum"]) + float(plan_weight) * max(
+                    0.0,
+                    float(raw_concept.get("uncertainty", 0.0)),
+                )
+                aggregate["drift_sum"] = float(aggregate["drift_sum"]) + float(plan_weight) * max(
+                    0.0,
+                    float(raw_concept.get("drift", 0.0)),
+                )
+                aggregate["match_count"] = max(
+                    int(aggregate["match_count"]),
+                    max(0, int(raw_concept.get("match_count", 0))),
+                )
+
+        unsupported_terms = [
+            term
+            for term, _weight in sorted(
+                unsupported_weights.items(),
+                key=lambda item: (-float(item[1]), item[0]),
+            )[:8]
+        ]
+        if not retrieval_queries and unsupported_terms:
+            retrieval_queries.append(" ".join(unsupported_terms[:3]))
+
+        weak_concepts = [
+            {
+                "label": str(values["label"]),
+                "weakness": float(values["weakness_sum"]) / max(1e-8, float(values["weight_sum"])),
+                "uncertainty": float(values["uncertainty_sum"]) / max(1e-8, float(values["weight_sum"])),
+                "drift": float(values["drift_sum"]) / max(1e-8, float(values["weight_sum"])),
+                "top_terms": list(values["top_terms"])[:4],
+                "match_count": int(values["match_count"]),
+            }
+            for _key, values in sorted(
+                weak_concept_scores.items(),
+                key=lambda item: (
+                    -(float(item[1]["weakness_sum"]) / max(1e-8, float(item[1]["weight_sum"]))),
+                    -(float(item[1]["uncertainty_sum"]) / max(1e-8, float(item[1]["weight_sum"]))),
+                    str(item[1]["label"] or "|".join(list(item[1]["top_terms"]))),
+                ),
+            )[:4]
+        ]
+        structural_growth = None
+        secondary_growth = secondary.get("structural_growth")
+        primary_growth = primary.get("structural_growth")
+        if isinstance(secondary_growth, Mapping):
+            structural_growth = deepcopy(dict(secondary_growth))
+        elif isinstance(primary_growth, Mapping):
+            structural_growth = deepcopy(dict(primary_growth))
+
+        merged = {
+            "planner_mode": "merged_runtime_abstraction_focus",
+            "query_terms": _dedupe(query_terms, 8),
+            "unsupported_terms": unsupported_terms,
+            "gap_terms": [
+                {"term": term, "weight": float(weight)}
+                for term, weight in sorted(
+                    gap_weights.items(),
+                    key=lambda item: (-float(item[1]), item[0]),
+                )[:8]
+            ],
+            "retrieval_queries": _dedupe(retrieval_queries, 4),
+            "follow_up_questions": _dedupe(follow_up_questions, 4),
+            "weak_concepts": weak_concepts,
+        }
+        if structural_growth is not None:
+            merged["structural_growth"] = structural_growth
+        return merged
 
     def _recent_query_focus_plan_locked(self) -> dict[str, Any] | None:
         if not self._brain_recent_query_gaps:
@@ -1433,12 +1755,19 @@ class HECSNServiceManager:
         unsupported_weights: Counter[str] = Counter()
         retrieval_queries: list[str] = []
         follow_up_questions: list[str] = []
+        weak_concept_scores: dict[str, dict[str, Any]] = {}
         query_terms: list[str] = []
         seen_queries: set[str] = set()
         seen_questions: set[str] = set()
         seen_terms: set[str] = set()
         for index, item in enumerate(list(self._brain_recent_query_gaps)):
             recency_weight = 1.0 / float(index + 1)
+            for raw_term in salient_query_terms(str(item.get("query_text", ""))):
+                term = str(raw_term).strip().lower()
+                if not term or term in seen_terms:
+                    continue
+                seen_terms.add(term)
+                query_terms.append(term)
             for raw_gap in list(item.get("gap_terms") or []):
                 if not isinstance(raw_gap, dict):
                     continue
@@ -1473,7 +1802,54 @@ class HECSNServiceManager:
                     continue
                 seen_questions.add(lowered)
                 follow_up_questions.append(question)
-        if not gap_weights and not unsupported_weights and not retrieval_queries and not follow_up_questions:
+            for raw_concept in list(item.get("weak_concepts") or []):
+                if not isinstance(raw_concept, dict):
+                    continue
+                label = " ".join(str(raw_concept.get("label", "")).split()).strip()
+                top_terms = [
+                    " ".join(str(value).split()).strip().lower()
+                    for value in list(raw_concept.get("top_terms") or [])
+                    if " ".join(str(value).split()).strip()
+                ]
+                if not label and not top_terms:
+                    continue
+                key = label.lower() if label else "|".join(top_terms[:3])
+                if not key:
+                    continue
+                aggregate = weak_concept_scores.setdefault(
+                    key,
+                    {
+                        "label": label,
+                        "top_terms": [],
+                        "weight_sum": 0.0,
+                        "weakness_sum": 0.0,
+                        "uncertainty_sum": 0.0,
+                        "drift_sum": 0.0,
+                        "match_count": 0,
+                    },
+                )
+                aggregate["label"] = str(aggregate["label"] or label)
+                aggregate["top_terms"] = list(
+                    dict.fromkeys([*list(aggregate["top_terms"]), *top_terms])
+                )[:4]
+                aggregate["weight_sum"] = float(aggregate["weight_sum"]) + recency_weight
+                aggregate["weakness_sum"] = float(aggregate["weakness_sum"]) + recency_weight * max(
+                    0.0,
+                    float(raw_concept.get("weakness", 0.0)),
+                )
+                aggregate["uncertainty_sum"] = float(aggregate["uncertainty_sum"]) + recency_weight * max(
+                    0.0,
+                    float(raw_concept.get("uncertainty", 0.0)),
+                )
+                aggregate["drift_sum"] = float(aggregate["drift_sum"]) + recency_weight * max(
+                    0.0,
+                    float(raw_concept.get("drift", 0.0)),
+                )
+                aggregate["match_count"] = max(
+                    int(aggregate["match_count"]),
+                    max(0, int(raw_concept.get("match_count", 0))),
+                )
+        if not gap_weights and not unsupported_weights and not retrieval_queries and not follow_up_questions and not weak_concept_scores:
             return None
         unsupported_terms = [
             term
@@ -1484,6 +1860,36 @@ class HECSNServiceManager:
         ]
         if not retrieval_queries and unsupported_terms:
             retrieval_queries.append(" ".join(unsupported_terms[:3]))
+        weak_concepts = [
+            {
+                "label": str(values["label"]),
+                "weakness": (
+                    float(values["weakness_sum"]) / max(1e-8, float(values["weight_sum"]))
+                ),
+                "uncertainty": (
+                    float(values["uncertainty_sum"]) / max(1e-8, float(values["weight_sum"]))
+                ),
+                "drift": (
+                    float(values["drift_sum"]) / max(1e-8, float(values["weight_sum"]))
+                ),
+                "top_terms": list(values["top_terms"])[:4],
+                "match_count": int(values["match_count"]),
+            }
+            for _key, values in sorted(
+                weak_concept_scores.items(),
+                key=lambda item: (
+                    -(
+                        float(item[1]["weakness_sum"])
+                        / max(1e-8, float(item[1]["weight_sum"]))
+                    ),
+                    -(
+                        float(item[1]["uncertainty_sum"])
+                        / max(1e-8, float(item[1]["weight_sum"]))
+                    ),
+                    str(item[1]["label"] or "|".join(list(item[1]["top_terms"]))),
+                ),
+            )[:4]
+        ]
         return {
             "planner_mode": "recent_query_gap_focus",
             "query_terms": query_terms[:8],
@@ -1497,6 +1903,7 @@ class HECSNServiceManager:
             ],
             "retrieval_queries": retrieval_queries[:4],
             "follow_up_questions": follow_up_questions[:4],
+            "weak_concepts": weak_concepts,
         }
 
     def _autonomy_candidate_specs_locked(
@@ -1508,8 +1915,12 @@ class HECSNServiceManager:
         specs = deepcopy(candidate_bank)
         if focus_plan is None:
             return specs
+        retrieval_target_count = min(2, len(list(focus_plan.get("retrieval_queries") or [])))
+        follow_up_target_count = 1 if list(focus_plan.get("follow_up_questions") or []) else 0
+        curiosity_ready_weak_concepts = self._curiosity_ready_weak_concept_count_locked(focus_plan)
         focus_text = " ".join(
             [
+                *[str(item) for item in list(focus_plan.get("query_terms") or [])[:3]],
                 *[str(item) for item in list(focus_plan.get("retrieval_queries") or [])[:2]],
                 *[str(item) for item in list(focus_plan.get("unsupported_terms") or [])[:3]],
             ]
@@ -1523,6 +1934,22 @@ class HECSNServiceManager:
                     spec["catalog_focus_text"] = f"{existing_focus} {focus_text}".strip()
                 else:
                     spec["catalog_focus_text"] = focus_text
+                if str(spec.get("catalog_mode", "")).strip().lower() == "live_remote_search":
+                    current_queries_per_provider = max(
+                        1,
+                        int(spec.get("catalog_queries_per_provider", DEFAULT_AUTONOMY_REMOTE_QUERIES_PER_PROVIDER)),
+                    )
+                    desired_queries_per_provider = max(
+                        current_queries_per_provider,
+                        min(
+                            AUTO_REMOTE_QUERY_BUDGET_MAX,
+                            retrieval_target_count
+                            + min(2, curiosity_ready_weak_concepts)
+                            + follow_up_target_count,
+                        ),
+                    )
+                    spec["catalog_queries_per_provider"] = int(desired_queries_per_provider)
+                    self._apply_provider_curriculum_locked(spec, focus_plan=focus_plan)
                 continue
             metadata = dict(spec.get("metadata") or {})
             existing_query_text = " ".join(str(metadata.get("query_text", "")).split()).strip()
@@ -1533,6 +1960,663 @@ class HECSNServiceManager:
             metadata["semantic_relevance"] = float(metadata.get("semantic_relevance", 0.0))
             spec["metadata"] = metadata
         return specs
+
+    def _curiosity_ready_weak_concept_count_locked(self, focus_plan: Mapping[str, Any] | None) -> int:
+        if focus_plan is None:
+            return 0
+        ready_count = 0
+        for raw_concept in list(focus_plan.get("weak_concepts") or []):
+            if not isinstance(raw_concept, Mapping):
+                continue
+            label = " ".join(str(raw_concept.get("label", "")).split()).strip()
+            top_terms = [
+                " ".join(str(value).split()).strip()
+                for value in list(raw_concept.get("top_terms") or [])
+                if " ".join(str(value).split()).strip()
+            ]
+            if not label and not top_terms:
+                continue
+            weakness = max(0.0, min(1.0, float(raw_concept.get("weakness", 0.0))))
+            uncertainty = max(0.0, min(1.0, float(raw_concept.get("uncertainty", 0.0))))
+            intermediate_uncertainty = max(0.0, 1.0 - min(1.0, abs(uncertainty - 0.5) / 0.5))
+            curiosity_score = 0.65 * weakness + 0.35 * intermediate_uncertainty
+            if curiosity_score >= 0.45:
+                ready_count += 1
+        return ready_count
+
+    def _provider_curriculum_focus_terms_locked(self, focus_plan: Mapping[str, Any] | None) -> list[str]:
+        seen: set[str] = set()
+        ordered: list[str] = []
+
+        def _extend(values: Sequence[str]) -> None:
+            for raw_value in values:
+                for term in salient_query_terms(str(raw_value)):
+                    normalized = " ".join(str(term).split()).strip().lower()
+                    if not normalized or normalized in seen:
+                        continue
+                    seen.add(normalized)
+                    ordered.append(normalized)
+                    if len(ordered) >= AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT:
+                        return
+
+        if focus_plan is None:
+            return []
+
+        explicit_focus_signals = [
+            str(item)
+            for item in list(focus_plan.get("query_terms") or [])
+            if str(item).strip()
+        ]
+        explicit_focus_signals.extend(
+            str(item)
+            for item in list(focus_plan.get("unsupported_terms") or [])
+            if str(item).strip()
+        )
+        explicit_focus_signals.extend(
+            str(item.get("term", ""))
+            for item in list(focus_plan.get("gap_terms") or [])
+            if isinstance(item, Mapping) and str(item.get("term", "")).strip()
+        )
+        _extend(explicit_focus_signals)
+        if ordered:
+            return ordered[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+
+        fallback_focus_signals = [
+            str(item)
+            for item in list(focus_plan.get("focus_terms") or [])
+            if str(item).strip()
+        ]
+        fallback_focus_signals.extend(
+            str(item)
+            for item in list(focus_plan.get("retrieval_queries") or [])
+            if str(item).strip()
+        )
+        _extend(fallback_focus_signals)
+        for raw_concept in list(focus_plan.get("weak_concepts") or []):
+            if not isinstance(raw_concept, Mapping):
+                continue
+            _extend([str(item) for item in list(raw_concept.get("top_terms") or []) if str(item).strip()])
+            if len(ordered) >= AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT:
+                break
+        return ordered[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+
+    def _provider_topic_family_priority_locked(self, family_entry: Mapping[str, Any]) -> float:
+        commits = max(0, int(family_entry.get("commits", 0)))
+        successes = max(0, int(family_entry.get("successes", 0)))
+        success_rate = 0.0 if commits <= 0 else float(successes) / float(commits)
+        priority = float(
+            0.32 * max(0.0, min(1.0, float(family_entry.get("answerability_gain_ema", 0.0))))
+            + 0.22 * max(0.0, min(1.0, float(family_entry.get("uncertainty_reduction_ema", 0.0))))
+            + 0.18 * max(0.0, min(1.0, float(family_entry.get("weak_concept_stabilization_ema", 0.0))))
+            + 0.13 * max(0.0, min(1.0, float(family_entry.get("semantic_relevance_ema", 0.0))))
+            + 0.10 * success_rate
+            + 0.05 * min(1.0, float(commits) / 3.0)
+        )
+        return max(0.0, min(1.0, priority))
+
+    def _provider_topic_family_match_score_locked(self, family_term: str, focus_terms: Sequence[str]) -> float:
+        normalized_family = " ".join(str(family_term).split()).strip().lower()
+        if not normalized_family:
+            return 0.0
+        family_tokens = {term.lower() for term in salient_query_terms(normalized_family)}
+        if not family_tokens:
+            family_tokens = {part for part in normalized_family.split() if part}
+        if not family_tokens:
+            return 0.0
+        best = 0.0
+        for raw_focus in focus_terms:
+            normalized_focus = " ".join(str(raw_focus).split()).strip().lower()
+            if not normalized_focus:
+                continue
+            if normalized_focus == normalized_family:
+                return 1.0
+            focus_tokens = {term.lower() for term in salient_query_terms(normalized_focus)}
+            if not focus_tokens:
+                focus_tokens = {part for part in normalized_focus.split() if part}
+            if not focus_tokens:
+                continue
+            overlap = float(len(family_tokens & focus_tokens)) / float(max(len(family_tokens), len(focus_tokens)))
+            if normalized_focus in normalized_family or normalized_family in normalized_focus:
+                overlap = max(overlap, 0.75)
+            best = max(best, overlap)
+        return max(0.0, min(1.0, best))
+
+    def _provider_topic_family_details_locked(
+        self,
+        entry: Mapping[str, Any],
+        focus_terms: Sequence[str],
+    ) -> tuple[float, list[str], int, dict[str, float], float]:
+        raw_topic_families = entry.get("topic_families")
+        if not focus_terms or not isinstance(raw_topic_families, Mapping):
+            return 0.0, [], 0, {}, 0.0
+        focus_index = {term: index for index, term in enumerate(focus_terms)}
+        ranked_matches: list[tuple[float, str, int]] = []
+        for raw_family, raw_family_entry in raw_topic_families.items():
+            family = " ".join(str(raw_family).split()).strip().lower()
+            if not family or not isinstance(raw_family_entry, Mapping):
+                continue
+            match_score = self._provider_topic_family_match_score_locked(family, focus_terms)
+            if match_score <= 0.0:
+                continue
+            family_priority = self._provider_topic_family_priority_locked(raw_family_entry)
+            if family_priority <= 0.0:
+                continue
+            commits = max(0, int(raw_family_entry.get("commits", 0)))
+            ranked_matches.append((float(match_score * family_priority), family, commits))
+        if not ranked_matches:
+            return 0.0, [], 0, {}, 0.0
+        ranked_matches.sort(
+            key=lambda item: (
+                -float(item[0]),
+                int(focus_index.get(item[1], AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT)),
+                item[1],
+            )
+        )
+        top_matches = ranked_matches[: min(3, len(ranked_matches))]
+        strength = max(
+            0.0,
+            min(
+                1.0,
+                sum(float(score) for score, _family, _commits in top_matches) / float(len(top_matches)),
+            ),
+        )
+        best_score, _best_family, best_commits = top_matches[0]
+        query_bonus = 0
+        if best_commits >= 2 and best_score >= 0.28:
+            query_bonus = 1
+        if best_commits >= 4 and best_score >= 0.45:
+            query_bonus = 2
+        return (
+            strength,
+            [family for _score, family, _commits in top_matches],
+            query_bonus,
+            {family: float(score) for score, family, _commits in top_matches},
+            float(best_score),
+        )
+
+    def _provider_curriculum_priority_locked(
+        self,
+        provider: str,
+        focus_plan: Mapping[str, Any] | None,
+        *,
+        autonomy: Mapping[str, Any],
+    ) -> tuple[float, dict[str, Any]]:
+        normalized_provider = " ".join(str(provider).split()).strip().lower()
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+        entry = curriculum.get(normalized_provider, {})
+        attempts = max(0, int(entry.get("attempts", 0)))
+        commits = max(0, int(entry.get("commits", 0)))
+        successes = max(0, int(entry.get("successes", 0)))
+        success_rate = 0.0 if attempts <= 0 else float(successes) / float(attempts)
+        commit_rate = 0.0 if attempts <= 0 else float(commits) / float(attempts)
+        diagnostic_gain = max(0.0, min(1.0, float(entry.get("diagnostic_gain_ema", 0.0))))
+        semantic_relevance = max(0.0, min(1.0, float(entry.get("semantic_relevance_ema", 0.0))))
+        answerability_gain = max(0.0, min(1.0, float(entry.get("answerability_gain_ema", 0.0))))
+        uncertainty_reduction = max(0.0, min(1.0, float(entry.get("uncertainty_reduction_ema", 0.0))))
+        weak_concept_stabilization = max(
+            0.0,
+            min(1.0, float(entry.get("weak_concept_stabilization_ema", 0.0))),
+        )
+        focus_terms = self._provider_curriculum_focus_terms_locked(focus_plan)
+        topic_terms = {
+            str(term).strip().lower(): float(weight)
+            for term, weight in dict(entry.get("topic_terms") or {}).items()
+            if str(term).strip() and float(weight) > 0.0
+        }
+        (
+            topic_family_strength,
+            matched_topic_families,
+            topic_family_query_bonus,
+            topic_family_scores,
+            topic_family_focus_score,
+        ) = self._provider_topic_family_details_locked(entry, focus_terms)
+        topic_overlap = 0.0
+        if focus_terms and topic_terms:
+            denominator = sum(float(weight) for weight in topic_terms.values())
+            if denominator > 0.0:
+                topic_overlap = max(
+                    0.0,
+                    min(
+                        1.0,
+                        sum(float(topic_terms.get(term, 0.0)) for term in focus_terms) / float(denominator),
+                    ),
+                )
+        exploration_bonus = 0.0 if attempts > 0 else 0.15
+        exploration_bonus += 0.10 / math.sqrt(float(attempts) + 1.0)
+        priority = float(
+            0.20 * success_rate
+            + 0.13 * commit_rate
+            + 0.15 * diagnostic_gain
+            + 0.09 * semantic_relevance
+            + 0.10 * answerability_gain
+            + 0.07 * uncertainty_reduction
+            + 0.08 * weak_concept_stabilization
+            + 0.08 * topic_overlap
+            + 0.10 * topic_family_strength
+            + 0.20 * topic_family_focus_score
+            + exploration_bonus
+        )
+        return priority, {
+            "attempts": attempts,
+            "commits": commits,
+            "successes": successes,
+            "success_rate": float(success_rate),
+            "commit_rate": float(commit_rate),
+            "diagnostic_gain_ema": float(entry.get("diagnostic_gain_ema", 0.0)),
+            "semantic_relevance_ema": float(entry.get("semantic_relevance_ema", 0.0)),
+            "answerability_gain_ema": float(entry.get("answerability_gain_ema", 0.0)),
+            "uncertainty_reduction_ema": float(entry.get("uncertainty_reduction_ema", 0.0)),
+            "weak_concept_stabilization_ema": float(entry.get("weak_concept_stabilization_ema", 0.0)),
+            "topic_overlap": float(topic_overlap),
+            "topic_family_strength": float(topic_family_strength),
+            "topic_family_focus_score": float(topic_family_focus_score),
+            "topic_family_query_bonus": int(topic_family_query_bonus),
+            "matched_topic_families": list(matched_topic_families),
+            "topic_family_scores": dict(topic_family_scores),
+            "last_query_text": str(entry.get("last_query_text", "")),
+            "last_selected_at": str(entry.get("last_selected_at", "")),
+            "topic_terms": dict(entry.get("topic_terms") or {}),
+            "topic_families": dict(entry.get("topic_families") or {}),
+        }
+
+    def _provider_curriculum_snapshot_locked(
+        self,
+        autonomy: Mapping[str, Any],
+        focus_plan: Mapping[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+        if not curriculum:
+            return None
+        ranked: list[dict[str, Any]] = []
+        for provider in curriculum:
+            priority, details = self._provider_curriculum_priority_locked(
+                provider,
+                focus_plan,
+                autonomy=autonomy,
+            )
+            ranked.append(
+                {
+                    "provider": provider,
+                    "priority": float(priority),
+                    **details,
+                }
+            )
+        ranked.sort(
+            key=lambda item: (
+                -float(item["priority"]),
+                -int(item["successes"]),
+                str(item["provider"]),
+            )
+        )
+        return {
+            "focus_terms": self._provider_curriculum_focus_terms_locked(focus_plan),
+            "ranked_providers": ranked[: max(1, len(ranked))],
+        }
+
+    def _apply_provider_curriculum_locked(
+        self,
+        spec: dict[str, Any],
+        *,
+        focus_plan: Mapping[str, Any] | None,
+    ) -> None:
+        autonomy = cast(dict[str, Any], self._brain_config.get("autonomy") or {})
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+        if not curriculum:
+            return
+        providers = [
+            str(provider).strip()
+            for provider in list(spec.get("catalog_providers") or [])
+            if str(provider).strip()
+        ]
+        if not providers:
+            return
+        ranked: list[tuple[int, str, float]] = []
+        priority_map: dict[str, float] = {}
+        provider_topic_terms: dict[str, list[str]] = {}
+        topic_family_query_bonus = 0
+        for index, provider in enumerate(providers):
+            priority, details = self._provider_curriculum_priority_locked(
+                provider,
+                focus_plan,
+                autonomy=autonomy,
+            )
+            ranked.append((index, provider, float(priority)))
+            priority_map[str(provider)] = float(priority)
+            curriculum_entry = curriculum.get(str(provider).strip().lower()) or {}
+            matched_topic_families = [
+                str(term).strip()
+                for term in list(details.get("matched_topic_families") or [])
+                if str(term).strip()
+            ]
+            topic_terms = [
+                str(term).strip()
+                for term in dict(curriculum_entry.get("topic_terms") or {}).keys()
+                if str(term).strip()
+            ]
+            if matched_topic_families:
+                ordered_terms = list(dict.fromkeys([*matched_topic_families, *topic_terms]))
+            elif dict(curriculum_entry.get("topic_families") or {}):
+                ordered_terms = []
+            else:
+                ordered_terms = list(topic_terms)
+            if ordered_terms:
+                provider_topic_terms[str(provider)] = ordered_terms[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+            topic_family_query_bonus = max(topic_family_query_bonus, int(details.get("topic_family_query_bonus", 0)))
+        ranked.sort(key=lambda item: (-float(item[2]), int(item[0])))
+        spec["catalog_providers"] = [provider for _index, provider, _priority in ranked]
+        spec["catalog_provider_priority_map"] = dict(priority_map)
+        if provider_topic_terms:
+            spec["catalog_provider_topic_terms"] = dict(provider_topic_terms)
+        spec["catalog_topic_family_budget_bonus"] = int(topic_family_query_bonus)
+        if topic_family_query_bonus > 0:
+            spec["catalog_queries_per_provider"] = int(
+                min(
+                    AUTO_REMOTE_QUERY_BUDGET_MAX,
+                    max(1, int(spec.get("catalog_queries_per_provider", 1))) + topic_family_query_bonus,
+                )
+            )
+        spec["catalog_provider_priority_weight"] = float(
+            max(
+                float(spec.get("catalog_provider_priority_weight", 0.0)),
+                AUTO_REMOTE_PROVIDER_PRIORITY_WEIGHT,
+            )
+        )
+
+    def _update_provider_curriculum_locked(
+        self,
+        *,
+        autonomy: dict[str, Any],
+        result: Mapping[str, Any],
+        candidate_specs: Sequence[dict[str, Any]],
+        focus_plan: Mapping[str, Any] | None,
+    ) -> None:
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+
+        def _ensure(provider: str) -> dict[str, Any]:
+            normalized_provider = " ".join(str(provider).split()).strip().lower()
+            if not normalized_provider:
+                return {}
+            entry = curriculum.setdefault(
+                normalized_provider,
+                {
+                    "attempts": 0,
+                    "commits": 0,
+                    "successes": 0,
+                    "gap_gain_ema": 0.0,
+                    "diagnostic_gain_ema": 0.0,
+                    "semantic_relevance_ema": 0.0,
+                    "answerability_gain_ema": 0.0,
+                    "uncertainty_reduction_ema": 0.0,
+                    "weak_concept_stabilization_ema": 0.0,
+                    "last_query_text": "",
+                    "last_selected_at": "",
+                    "topic_terms": {},
+                    "topic_families": {},
+                },
+            )
+            entry["topic_terms"] = dict(entry.get("topic_terms") or {})
+            entry["topic_families"] = dict(entry.get("topic_families") or {})
+            return entry
+
+        attempted_providers: list[str] = []
+        for spec in candidate_specs:
+            if str(spec.get("catalog_mode", "")).strip().lower() != "live_remote_search":
+                continue
+            attempted_providers.extend(
+                str(provider).strip().lower()
+                for provider in list(spec.get("catalog_providers") or [])
+                if str(provider).strip()
+            )
+        for provider in dict.fromkeys(attempted_providers):
+            entry = _ensure(provider)
+            if entry:
+                entry["attempts"] = int(entry.get("attempts", 0)) + 1
+
+        current_focus_terms = self._provider_curriculum_focus_terms_locked(focus_plan)
+        weak_concepts = [
+            item
+            for item in list((focus_plan or {}).get("weak_concepts") or [])
+            if isinstance(item, Mapping)
+        ]
+        weak_focus_scale = 0.0
+        if weak_concepts:
+            weak_focus_scale = max(
+                0.0,
+                min(
+                    1.0,
+                    sum(
+                        max(
+                            0.0,
+                            min(
+                                1.0,
+                                0.5 * float(item.get("weakness", 0.0))
+                                + 0.5 * float(item.get("uncertainty", 0.0)),
+                            ),
+                        )
+                        for item in weak_concepts
+                    )
+                    / float(len(weak_concepts)),
+                ),
+            )
+        for raw_row in list(result.get("acquisition_history") or []):
+            if not isinstance(raw_row, Mapping):
+                continue
+            provider = " ".join(str(raw_row.get("selected_provider", "")).split()).strip().lower()
+            selected_metadata = raw_row.get("selected_metadata")
+            if not provider and isinstance(selected_metadata, Mapping):
+                provider = " ".join(str(selected_metadata.get("provider", "")).split()).strip().lower()
+            entry = _ensure(provider)
+            if not entry:
+                continue
+            entry["commits"] = int(entry.get("commits", 0)) + 1
+            gap_gain = max(0.0, float(raw_row.get("selected_gap_reduction", 0.0)))
+            diagnostic_gain = max(0.0, float(raw_row.get("selected_diagnostic_gap_reduction", 0.0)))
+            semantic_relevance = max(0.0, min(1.0, float(raw_row.get("selected_semantic_relevance", 0.0))))
+            selected_source = " ".join(str(raw_row.get("selected_source", "")).split()).strip()
+            candidate_snapshot = raw_row.get("candidate_snapshot")
+            before_metrics = {}
+            if (
+                selected_source
+                and isinstance(candidate_snapshot, Mapping)
+                and isinstance(candidate_snapshot.get(selected_source), Mapping)
+            ):
+                before_metrics = cast(Mapping[str, Any], candidate_snapshot.get(selected_source))
+            answerability_before = max(
+                0.0,
+                min(1.0, float(before_metrics.get("semantic_answerability", 0.0) or 0.0)),
+            )
+            answerability_after = max(
+                0.0,
+                min(
+                    1.0,
+                    float(raw_row.get("selected_semantic_answerability_after", answerability_before) or answerability_before),
+                ),
+            )
+            answerability_gain = max(0.0, answerability_after - answerability_before)
+            uncertainty_before = max(
+                0.0,
+                min(1.0, float(before_metrics.get("concept_uncertainty", 0.0) or 0.0)),
+            )
+            uncertainty_after = max(
+                0.0,
+                min(
+                    1.0,
+                    float(raw_row.get("selected_concept_uncertainty_after", uncertainty_before) or uncertainty_before),
+                ),
+            )
+            uncertainty_reduction = max(0.0, uncertainty_before - uncertainty_after)
+            support_before = max(
+                0.0,
+                min(1.0, float(before_metrics.get("concept_support", 0.0) or 0.0)),
+            )
+            support_after = max(
+                0.0,
+                min(1.0, float(raw_row.get("selected_concept_support_after", support_before) or support_before)),
+            )
+            support_gain = max(0.0, support_after - support_before)
+            weak_pressure_before = max(
+                0.0,
+                min(1.0, float(before_metrics.get("semantic_weak_concept_pressure", 0.0) or 0.0)),
+            )
+            weak_pressure_after = max(
+                0.0,
+                min(
+                    1.0,
+                    float(raw_row.get("selected_weak_concept_pressure_after", weak_pressure_before) or weak_pressure_before),
+                ),
+            )
+            weak_pressure_reduction = max(0.0, weak_pressure_before - weak_pressure_after)
+            weak_concept_stabilization = max(
+                0.0,
+                min(
+                    1.0,
+                    weak_focus_scale
+                    * (
+                        0.50 * uncertainty_reduction
+                        + 0.30 * support_gain
+                        + 0.20 * weak_pressure_reduction
+                    ),
+                ),
+            )
+            entry["gap_gain_ema"] = float(
+                gap_gain
+                if int(entry["commits"]) <= 1
+                else 0.70 * float(entry.get("gap_gain_ema", 0.0)) + 0.30 * gap_gain
+            )
+            entry["diagnostic_gain_ema"] = float(
+                diagnostic_gain
+                if int(entry["commits"]) <= 1
+                else 0.70 * float(entry.get("diagnostic_gain_ema", 0.0)) + 0.30 * diagnostic_gain
+            )
+            entry["semantic_relevance_ema"] = float(
+                semantic_relevance
+                if int(entry["commits"]) <= 1
+                else 0.75 * float(entry.get("semantic_relevance_ema", 0.0)) + 0.25 * semantic_relevance
+            )
+            entry["answerability_gain_ema"] = float(
+                answerability_gain
+                if int(entry["commits"]) <= 1
+                else 0.75 * float(entry.get("answerability_gain_ema", 0.0)) + 0.25 * answerability_gain
+            )
+            entry["uncertainty_reduction_ema"] = float(
+                uncertainty_reduction
+                if int(entry["commits"]) <= 1
+                else 0.75 * float(entry.get("uncertainty_reduction_ema", 0.0)) + 0.25 * uncertainty_reduction
+            )
+            entry["weak_concept_stabilization_ema"] = float(
+                weak_concept_stabilization
+                if int(entry["commits"]) <= 1
+                else 0.75 * float(entry.get("weak_concept_stabilization_ema", 0.0))
+                + 0.25 * weak_concept_stabilization
+            )
+            if gap_gain > 0.0 or diagnostic_gain > 0.0 or answerability_gain > 0.0 or weak_concept_stabilization > 0.0:
+                entry["successes"] = int(entry.get("successes", 0)) + 1
+            query_text = " ".join(str(raw_row.get("selected_query_text", "")).split()).strip()
+            if not query_text and isinstance(selected_metadata, Mapping):
+                query_text = " ".join(str(selected_metadata.get("query_text", "")).split()).strip()
+            if query_text:
+                entry["last_query_text"] = query_text
+            entry["last_selected_at"] = datetime.now(timezone.utc).isoformat()
+            topic_terms = {
+                str(term).strip().lower(): float(weight)
+                for term, weight in dict(entry.get("topic_terms") or {}).items()
+                if str(term).strip() and float(weight) > 0.0
+            }
+            for term in list(topic_terms):
+                topic_terms[term] = float(topic_terms[term]) * 0.85
+                if topic_terms[term] < 0.05:
+                    topic_terms.pop(term, None)
+            metadata_terms: list[str] = []
+            if isinstance(selected_metadata, Mapping):
+                metadata_terms = [
+                    str(term).strip().lower()
+                    for term in list(selected_metadata.get("catalog_terms") or [])
+                    if str(term).strip()
+                ]
+            update_terms = list(dict.fromkeys([*current_focus_terms, *metadata_terms]))
+            if not update_terms and query_text:
+                update_terms = [term.lower() for term in salient_query_terms(query_text)]
+            for rank, term in enumerate(update_terms[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]):
+                topic_terms[term] = float(topic_terms.get(term, 0.0)) + 1.0 / float(rank + 1)
+            entry["topic_terms"] = dict(
+                sorted(
+                    topic_terms.items(),
+                    key=lambda item: (-float(item[1]), item[0]),
+                )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+            )
+            topic_families: dict[str, dict[str, Any]] = {}
+            for raw_family, raw_family_entry in dict(entry.get("topic_families") or {}).items():
+                family = " ".join(str(raw_family).split()).strip().lower()
+                if not family or not isinstance(raw_family_entry, Mapping):
+                    continue
+                topic_families[family] = {
+                    "commits": max(0, int(raw_family_entry.get("commits", 0))),
+                    "successes": max(0, int(raw_family_entry.get("successes", 0))),
+                    "semantic_relevance_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("semantic_relevance_ema", 0.0)),
+                    ),
+                    "answerability_gain_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("answerability_gain_ema", 0.0)),
+                    ),
+                    "uncertainty_reduction_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("uncertainty_reduction_ema", 0.0)),
+                    ),
+                    "weak_concept_stabilization_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("weak_concept_stabilization_ema", 0.0)),
+                    ),
+                    "last_selected_at": " ".join(str(raw_family_entry.get("last_selected_at", "")).split()).strip(),
+                }
+            for family_term in update_terms[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]:
+                topic_family = topic_families.setdefault(
+                    family_term,
+                    {
+                        "commits": 0,
+                        "successes": 0,
+                        "semantic_relevance_ema": 0.0,
+                        "answerability_gain_ema": 0.0,
+                        "uncertainty_reduction_ema": 0.0,
+                        "weak_concept_stabilization_ema": 0.0,
+                        "last_selected_at": "",
+                    },
+                )
+                topic_family["commits"] = int(topic_family.get("commits", 0)) + 1
+                if gap_gain > 0.0 or diagnostic_gain > 0.0 or answerability_gain > 0.0 or weak_concept_stabilization > 0.0:
+                    topic_family["successes"] = int(topic_family.get("successes", 0)) + 1
+                topic_family["semantic_relevance_ema"] = float(
+                    semantic_relevance
+                    if int(topic_family["commits"]) <= 1
+                    else 0.75 * float(topic_family.get("semantic_relevance_ema", 0.0)) + 0.25 * semantic_relevance
+                )
+                topic_family["answerability_gain_ema"] = float(
+                    answerability_gain
+                    if int(topic_family["commits"]) <= 1
+                    else 0.75 * float(topic_family.get("answerability_gain_ema", 0.0)) + 0.25 * answerability_gain
+                )
+                topic_family["uncertainty_reduction_ema"] = float(
+                    uncertainty_reduction
+                    if int(topic_family["commits"]) <= 1
+                    else 0.75 * float(topic_family.get("uncertainty_reduction_ema", 0.0))
+                    + 0.25 * uncertainty_reduction
+                )
+                topic_family["weak_concept_stabilization_ema"] = float(
+                    weak_concept_stabilization
+                    if int(topic_family["commits"]) <= 1
+                    else 0.75 * float(topic_family.get("weak_concept_stabilization_ema", 0.0))
+                    + 0.25 * weak_concept_stabilization
+                )
+                topic_family["last_selected_at"] = entry["last_selected_at"]
+            entry["topic_families"] = dict(
+                sorted(
+                    topic_families.items(),
+                    key=lambda item: (-self._provider_topic_family_priority_locked(item[1]), item[0]),
+                )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+            )
+
+        autonomy["provider_curriculum"] = curriculum
 
     def _candidate_pool_size_hint(self, candidate_bank: Sequence[dict[str, Any]]) -> int:
         estimated_pool_size = 0
@@ -1588,6 +2672,7 @@ class HECSNServiceManager:
         focus_signal_count = int(len(list(focus_plan.get("unsupported_terms") or [])))
         focus_signal_count += int(len(list(focus_plan.get("retrieval_queries") or [])))
         focus_signal_count += int(len(list(focus_plan.get("gap_terms") or [])))
+        focus_signal_count += int(len(list(focus_plan.get("weak_concepts") or [])))
         if focus_signal_count <= 0:
             return shortlist_size, gap_weight, affinity_weight
 

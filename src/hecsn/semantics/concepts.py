@@ -15,6 +15,24 @@ from .grounding_text import tokenize as _tokenize
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
 
+
+def _dedupe_strings(values: Sequence[str], *, limit: int) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        item = " ".join(str(value).split()).strip()
+        if not item:
+            continue
+        lowered = item.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        ordered.append(item)
+        if len(ordered) >= max(1, int(limit)):
+            break
+    return ordered
+
+
 def _label_terms(tokens: Sequence[str], query_terms: set[str]) -> list[str]:
     seen: list[str] = []
     for token in tokens:
@@ -40,10 +58,44 @@ def _normalize_signature(value: Any) -> torch.Tensor | None:
     return F.normalize(vector, dim=0)
 
 
+def _resize_signature(value: torch.Tensor | None, *, target_dim: int | None) -> torch.Tensor | None:
+    vector = _normalize_signature(value)
+    if vector is None or target_dim is None:
+        return vector
+    dim = int(max(1, target_dim))
+    current_dim = int(vector.numel())
+    if current_dim == dim:
+        return vector
+    if current_dim < dim:
+        resized = F.pad(vector, (0, dim - current_dim))
+    else:
+        resized = vector[:dim]
+    if float(resized.norm().item()) <= 1e-8:
+        return None
+    return F.normalize(resized, dim=0)
+
+
+def _align_signatures(
+    left: torch.Tensor | None,
+    right: torch.Tensor | None,
+    *,
+    target_dim: int | None = None,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    left_norm = _normalize_signature(left)
+    right_norm = _normalize_signature(right)
+    if left_norm is None or right_norm is None:
+        return left_norm, right_norm
+    dim = target_dim
+    if dim is None:
+        dim = max(int(left_norm.numel()), int(right_norm.numel()))
+    return _resize_signature(left_norm, target_dim=dim), _resize_signature(right_norm, target_dim=dim)
+
+
 def _cosine_similarity(left: torch.Tensor | None, right: torch.Tensor | None) -> float:
-    if left is None or right is None:
+    left_aligned, right_aligned = _align_signatures(left, right)
+    if left_aligned is None or right_aligned is None:
         return 0.0
-    return float(torch.dot(left, right).item())
+    return float(torch.dot(left_aligned, right_aligned).item())
 
 
 def _blend_centroid(
@@ -52,11 +104,30 @@ def _blend_centroid(
     *,
     weight: float,
 ) -> torch.Tensor | None:
-    if incoming is None:
-        return None if current is None else current.clone()
-    if current is None:
-        return incoming.clone()
-    return F.normalize(current * float(max(0.0, weight)) + incoming, dim=0)
+    current_aligned, incoming_aligned = _align_signatures(current, incoming)
+    if incoming_aligned is None:
+        return None if current_aligned is None else current_aligned.clone()
+    if current_aligned is None:
+        return incoming_aligned.clone()
+    return F.normalize(current_aligned * float(max(0.0, weight)) + incoming_aligned, dim=0)
+
+
+def _weighted_centroid(
+    left: torch.Tensor | None,
+    *,
+    left_weight: float,
+    right: torch.Tensor | None,
+    right_weight: float,
+) -> torch.Tensor | None:
+    left_aligned, right_aligned = _align_signatures(left, right)
+    if right_aligned is None:
+        return None if left_aligned is None else left_aligned.clone()
+    if left_aligned is None:
+        return right_aligned.clone()
+    total = left_aligned * float(max(0.0, left_weight)) + right_aligned * float(max(0.0, right_weight))
+    if float(total.norm().item()) <= 1e-8:
+        return left_aligned.clone()
+    return F.normalize(total, dim=0)
 
 
 class OnlineSlowFeatureMap:
@@ -111,6 +182,48 @@ class OnlineSlowFeatureMap:
             return
         q, _ = torch.linalg.qr(self.components.t(), mode="reduced")
         self.components = q.t().contiguous()
+
+    def grow_output_dim(self, *, step: int = 1, max_output_dim: int | None = None) -> bool:
+        growth_step = max(1, int(step))
+        target_requested = int(self.requested_output_dim + growth_step)
+        if max_output_dim is not None:
+            target_requested = min(target_requested, max(1, int(max_output_dim)))
+        if target_requested <= self.requested_output_dim:
+            return False
+        previous_requested = int(self.requested_output_dim)
+        self.requested_output_dim = target_requested
+        if self.input_dim is None or self.components is None:
+            return True
+
+        target_output_dim = min(self.requested_output_dim, int(self.input_dim))
+        if target_output_dim <= self.actual_output_dim:
+            return int(self.requested_output_dim) > previous_requested
+
+        additional = int(target_output_dim - self.actual_output_dim)
+        generator = torch.Generator()
+        generator.manual_seed(12991 + int(self.input_dim) * 173 + int(self.updates) * 17 + int(target_output_dim))
+        existing_basis = self.components.t().contiguous()
+        new_rows: list[torch.Tensor] = []
+        attempts = 0
+        while len(new_rows) < additional and attempts < max(8, 4 * additional):
+            candidate = torch.randn(int(self.input_dim), dtype=torch.float32, generator=generator)
+            if int(existing_basis.numel()) > 0:
+                candidate = candidate - torch.mv(existing_basis, torch.mv(existing_basis.t(), candidate))
+            for row in new_rows:
+                candidate = candidate - torch.dot(candidate, row) * row
+            norm = float(candidate.norm().item())
+            attempts += 1
+            if norm <= self.eps:
+                continue
+            new_rows.append(candidate / norm)
+        if len(new_rows) < additional:
+            return False
+
+        self.components = torch.cat([self.components, torch.stack(new_rows, dim=0)], dim=0)
+        self.actual_output_dim = int(self.components.shape[0])
+        self.last_projected = None
+        self._orthonormalize()
+        return True
 
     def project(
         self,
@@ -175,6 +288,7 @@ class OnlineSlowFeatureMap:
     def summary(self) -> dict[str, Any]:
         return {
             "mode": "online_sfa_proxy",
+            "runtime_role": "maintained_abstraction_layer",
             "requested_output_dim": int(self.requested_output_dim),
             "output_dim": int(self.actual_output_dim),
             "input_dim": None if self.input_dim is None else int(self.input_dim),
@@ -250,6 +364,7 @@ class ConceptStore:
         lexical_merge_threshold: float = 0.60,
         lexical_weight: float = 0.12,
         slow_feature_dim: int = 8,
+        max_slow_feature_dim: int | None = None,
         min_lexical_overlap_for_merge: float = 0.20,
         min_query_overlap_terms: int = 1,
     ) -> None:
@@ -258,11 +373,23 @@ class ConceptStore:
         self._lexical_weight = float(lexical_weight)
         self._min_lexical_overlap_for_merge = float(max(0.0, min_lexical_overlap_for_merge))
         self._min_query_overlap_terms = int(max(0, min_query_overlap_terms))
+        self._base_slow_feature_dim = int(max(1, slow_feature_dim))
+        self._max_slow_feature_dim = int(
+            max(
+                self._base_slow_feature_dim,
+                max_slow_feature_dim if max_slow_feature_dim is not None else self._base_slow_feature_dim + 4,
+            )
+        )
         self._entries: dict[str, dict[str, Any]] = {}
         self._observations = 0
         self._episode_index = 0
         self._next_id = 1
-        self._slow_features = OnlineSlowFeatureMap(output_dim=slow_feature_dim)
+        self._slow_features = OnlineSlowFeatureMap(output_dim=self._base_slow_feature_dim)
+        self._growth_event_count = 0
+        self._prune_event_count = 0
+        self._growth_events: list[dict[str, Any]] = []
+        self._last_growth_episode = 0
+        self._last_prune_episode = 0
 
     @classmethod
     def from_state_dict(cls, payload: dict[str, Any] | None) -> ConceptStore:
@@ -281,7 +408,15 @@ class ConceptStore:
                 return None
             if len(valid_signatures) == 1:
                 return valid_signatures[0]
-            return _normalize_signature(torch.stack(valid_signatures, dim=0).mean(dim=0))
+            target_dim = max(int(signature.numel()) for signature in valid_signatures)
+            aligned = [
+                resized
+                for signature in valid_signatures
+                if (resized := _resize_signature(signature, target_dim=target_dim)) is not None
+            ]
+            if not aligned:
+                return None
+            return _normalize_signature(torch.stack(aligned, dim=0).mean(dim=0))
         try:
             index = int(memory_index)
         except (TypeError, ValueError):
@@ -320,6 +455,9 @@ class ConceptStore:
             "drift_ema": 0.0,
             "temporal_coherence_ema": 0.0,
             "abstraction_gain_ema": 0.5,
+            "growth_pressure_ema": 0.0,
+            "growth_streak": 0,
+            "split_bias": 0.0,
             "first_episode": int(self._episode_index),
             "last_episode": int(self._episode_index),
         }
@@ -340,6 +478,98 @@ class ConceptStore:
         if not label_terms:
             return entry["concept_id"]
         return " / ".join(label_terms)
+
+    def _concept_support(self, entry: dict[str, Any]) -> float:
+        observations = int(entry.get("observations", 0))
+        temporal_coherence = _clamp01(float(entry.get("temporal_coherence_ema", 0.0)))
+        abstraction_gain = _clamp01(float(entry.get("abstraction_gain_ema", 0.5)))
+        uncertainty = self._concept_uncertainty(entry)
+        return _clamp01(
+            0.45 * min(1.0, float(observations) / 4.0)
+            + 0.25 * temporal_coherence
+            + 0.20 * abstraction_gain
+            + 0.10 * (1.0 - uncertainty)
+        )
+
+    def _concept_weakness(self, entry: dict[str, Any]) -> float:
+        uncertainty = self._concept_uncertainty(entry)
+        drift = _clamp01(float(entry.get("drift_ema", 0.0)))
+        instability = 1.0 - _clamp01(float(entry.get("temporal_coherence_ema", 0.0)))
+        abstraction_gain = _clamp01(float(entry.get("abstraction_gain_ema", 0.5)))
+        return _clamp01(
+            0.40 * uncertainty
+            + 0.25 * instability
+            + 0.20 * abstraction_gain
+            + 0.15 * drift
+        )
+
+    def _concept_growth_pressure(self, entry: dict[str, Any]) -> float:
+        observations = int(entry.get("observations", 0))
+        persistence = min(1.0, float(observations) / 4.0)
+        weakness = self._concept_weakness(entry)
+        abstraction_gain = _clamp01(float(entry.get("abstraction_gain_ema", 0.5)))
+        support = self._concept_support(entry)
+        return _clamp01(
+            0.35 * weakness
+            + 0.25 * abstraction_gain
+            + 0.20 * support
+            + 0.20 * persistence
+        )
+
+    def _refresh_entry_structure(self, entry: dict[str, Any]) -> None:
+        observations = int(entry.get("observations", 0))
+        growth_pressure = self._concept_growth_pressure(entry)
+        previous_growth_pressure = float(entry.get("growth_pressure_ema", 0.0))
+        entry["growth_pressure_ema"] = float(
+            growth_pressure
+            if observations <= 1
+            else 0.70 * previous_growth_pressure + 0.30 * growth_pressure
+        )
+        if observations >= 4 and float(entry["growth_pressure_ema"]) >= 0.45:
+            entry["growth_streak"] = int(entry.get("growth_streak", 0)) + 1
+        else:
+            entry["growth_streak"] = 0
+        entry["split_bias"] = _clamp01(
+            0.70 * float(entry["growth_pressure_ema"])
+            + 0.30 * self._concept_weakness(entry)
+        )
+
+    def _structural_growth_report(self) -> dict[str, Any]:
+        active_growth_concepts = [
+            {
+                "concept_id": str(entry["concept_id"]),
+                "label": self._concept_label(entry, set()),
+                "growth_pressure": float(entry.get("growth_pressure_ema", 0.0)),
+                "split_bias": _clamp01(float(entry.get("split_bias", 0.0))),
+                "top_terms": self._top_terms(entry),
+                "observations": int(entry.get("observations", 0)),
+            }
+            for entry in sorted(
+                self._entries.values(),
+                key=lambda item: (
+                    float(item.get("growth_pressure_ema", 0.0)),
+                    float(item.get("split_bias", 0.0)),
+                    int(item.get("observations", 0)),
+                ),
+                reverse=True,
+            )
+            if float(entry.get("growth_pressure_ema", 0.0)) >= 0.40
+        ]
+        growth_ready = bool(
+            active_growth_concepts
+            and int(self._slow_features.requested_output_dim) < int(self._max_slow_feature_dim)
+        )
+        return {
+            "base_output_dim": int(self._base_slow_feature_dim),
+            "max_output_dim": int(self._max_slow_feature_dim),
+            "requested_output_dim": int(self._slow_features.requested_output_dim),
+            "current_output_dim": int(self._slow_features.actual_output_dim),
+            "expansion_events": int(self._growth_event_count),
+            "prune_events": int(self._prune_event_count),
+            "growth_ready": growth_ready,
+            "active_growth_concepts": active_growth_concepts[:4],
+            "recent_events": [dict(item) for item in self._growth_events[-6:]],
+        }
 
     def _assignment_score(
         self,
@@ -387,12 +617,19 @@ class ConceptStore:
                 best_raw = raw_similarity
                 best_lexical = lexical_overlap
 
-        if best_id is not None and (
-            best_slow >= self._merge_similarity
-            or best_raw >= (self._merge_similarity + 0.05)
-            or best_lexical >= self._lexical_merge_threshold
-        ) and best_lexical >= self._min_lexical_overlap_for_merge:
-            return best_id
+        if best_id is not None:
+            best_entry = self._entries[best_id]
+            split_bias = _clamp01(float(best_entry.get("split_bias", 0.0)))
+            merge_similarity = min(0.98, self._merge_similarity + 0.12 * split_bias)
+            raw_merge_similarity = min(0.99, self._merge_similarity + 0.05 + 0.12 * split_bias)
+            lexical_merge_threshold = min(0.98, self._lexical_merge_threshold + 0.10 * split_bias)
+            min_lexical_overlap = min(1.0, self._min_lexical_overlap_for_merge + 0.10 * split_bias)
+            if (
+                best_slow >= merge_similarity
+                or best_raw >= raw_merge_similarity
+                or best_lexical >= lexical_merge_threshold
+            ) and best_lexical >= min_lexical_overlap:
+                return best_id
 
         entry = self._new_entry(
             tokens=tokens,
@@ -493,6 +730,7 @@ class ConceptStore:
         rank_gain = 1.0 + 0.5 * temporal_coherence + 0.25 * abstraction_gain
         for rank, token in enumerate(tokens[:8]):
             entry["term_weights"][str(token)] += rank_gain * float(score) / max(1.0, float(rank + 1))
+        self._refresh_entry_structure(entry)
 
     def _concept_payload(
         self,
@@ -516,11 +754,171 @@ class ConceptStore:
             "drift": _clamp01(float(entry.get("drift_ema", 0.0))),
             "temporal_coherence": _clamp01(float(entry.get("temporal_coherence_ema", 0.0))),
             "abstraction_gain": _clamp01(float(entry.get("abstraction_gain_ema", 0.5))),
+            "growth_pressure": _clamp01(float(entry.get("growth_pressure_ema", 0.0))),
+            "split_bias": _clamp01(float(entry.get("split_bias", 0.0))),
             "episode_span": int(max(1, last_episode - first_episode + 1)),
             "memory_indices": memory_indices[:4],
             "example_windows": example_windows[:2],
             "top_terms": self._top_terms(entry),
         }
+
+    def _merge_entries(self, *, keeper_id: str, donor_id: str) -> None:
+        keeper = self._entries[keeper_id]
+        donor = self._entries[donor_id]
+        keeper_observations = int(keeper.get("observations", 0))
+        donor_observations = int(donor.get("observations", 0))
+        total_observations = max(1, keeper_observations + donor_observations)
+
+        keeper["raw_centroid"] = _weighted_centroid(
+            _normalize_signature(keeper.get("raw_centroid")),
+            left_weight=float(keeper_observations),
+            right=_normalize_signature(donor.get("raw_centroid")),
+            right_weight=float(donor_observations),
+        )
+        keeper["slow_centroid"] = _weighted_centroid(
+            _normalize_signature(keeper.get("slow_centroid")),
+            left_weight=float(keeper_observations),
+            right=_normalize_signature(donor.get("slow_centroid")),
+            right_weight=float(donor_observations),
+        )
+        donor_last_slow = _normalize_signature(donor.get("last_slow_signature"))
+        keeper_last_slow = _normalize_signature(keeper.get("last_slow_signature"))
+        keeper["last_slow_signature"] = donor_last_slow if donor_last_slow is not None else keeper_last_slow
+        keeper["score_total"] = float(keeper.get("score_total", 0.0)) + float(donor.get("score_total", 0.0))
+        keeper["observations"] = total_observations
+        keeper["match_count_total"] = int(keeper.get("match_count_total", 0)) + int(donor.get("match_count_total", 0))
+        keeper["memory_indices"] = list(
+            dict.fromkeys([*list(keeper.get("memory_indices") or []), *list(donor.get("memory_indices") or [])])
+        )[-8:]
+        keeper["example_windows"] = list(
+            dict.fromkeys([*list(keeper.get("example_windows") or []), *list(donor.get("example_windows") or [])])
+        )[-3:]
+        keeper["term_weights"].update(Counter(donor.get("term_weights") or {}))
+        for field in (
+            "uncertainty_ema",
+            "drift_ema",
+            "temporal_coherence_ema",
+            "abstraction_gain_ema",
+            "growth_pressure_ema",
+            "split_bias",
+        ):
+            keeper[field] = float(
+                (
+                    keeper_observations * float(keeper.get(field, 0.0))
+                    + donor_observations * float(donor.get(field, 0.0))
+                )
+                / float(total_observations)
+            )
+        keeper["growth_streak"] = max(int(keeper.get("growth_streak", 0)), int(donor.get("growth_streak", 0)))
+        keeper["first_episode"] = min(int(keeper.get("first_episode", 0)), int(donor.get("first_episode", 0)))
+        keeper["last_episode"] = max(int(keeper.get("last_episode", 0)), int(donor.get("last_episode", 0)))
+        self._refresh_entry_structure(keeper)
+
+    def refresh_structural_capacity(self, *, grouped: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+        growth_candidates = [
+            entry
+            for entry in self._entries.values()
+            if int(entry.get("observations", 0)) >= 4
+            and int(entry.get("growth_streak", 0)) >= 2
+            and float(entry.get("growth_pressure_ema", 0.0)) >= 0.45
+        ]
+        growth_candidates.sort(
+            key=lambda entry: (
+                float(entry.get("growth_pressure_ema", 0.0)),
+                float(entry.get("split_bias", 0.0)),
+                int(entry.get("observations", 0)),
+            ),
+            reverse=True,
+        )
+        if (
+            growth_candidates
+            and int(self._episode_index - self._last_growth_episode) >= 4
+            and int(self._slow_features.requested_output_dim) < int(self._max_slow_feature_dim)
+        ):
+            previous_requested = int(self._slow_features.requested_output_dim)
+            if self._slow_features.grow_output_dim(max_output_dim=self._max_slow_feature_dim):
+                self._growth_event_count += 1
+                self._last_growth_episode = int(self._episode_index)
+                self._growth_events.append(
+                    {
+                        "type": "expand",
+                        "episode": int(self._episode_index),
+                        "requested_output_dim_before": previous_requested,
+                        "requested_output_dim_after": int(self._slow_features.requested_output_dim),
+                        "concept_ids": [str(entry["concept_id"]) for entry in growth_candidates[:2]],
+                    }
+                )
+                self._growth_events = self._growth_events[-8:]
+                for entry in growth_candidates[:2]:
+                    entry["growth_streak"] = 0
+
+        if len(self._entries) >= 3 and int(self._episode_index - self._last_prune_episode) >= 4:
+            best_pair: tuple[str, str] | None = None
+            best_score = 0.0
+            concept_ids = list(self._entries.keys())
+            for left_id in concept_ids:
+                left = self._entries[left_id]
+                left_terms = set(self._top_terms(left, limit=6))
+                left_signature = _normalize_signature(left.get("slow_centroid"))
+                if left_signature is None:
+                    left_signature = _normalize_signature(left.get("raw_centroid"))
+                if left_signature is None:
+                    continue
+                for right_id in concept_ids:
+                    if left_id == right_id:
+                        continue
+                    right = self._entries[right_id]
+                    if int(right.get("observations", 0)) > 2:
+                        continue
+                    if float(right.get("growth_pressure_ema", 0.0)) > 0.40:
+                        continue
+                    right_terms = set(self._top_terms(right, limit=6))
+                    lexical_overlap = 0.0 if not left_terms or not right_terms else float(
+                        len(left_terms & right_terms) / max(1, min(len(left_terms), len(right_terms)))
+                    )
+                    if lexical_overlap < 0.75:
+                        continue
+                    right_signature = _normalize_signature(right.get("slow_centroid"))
+                    if right_signature is None:
+                        right_signature = _normalize_signature(right.get("raw_centroid"))
+                    similarity = _cosine_similarity(left_signature, right_signature)
+                    if similarity < 0.97:
+                        continue
+                    score = 0.65 * similarity + 0.35 * lexical_overlap
+                    if score > best_score:
+                        best_score = score
+                        best_pair = (left_id, right_id)
+            if best_pair is not None:
+                keeper_id, donor_id = best_pair
+                self._merge_entries(keeper_id=keeper_id, donor_id=donor_id)
+                if grouped is not None and donor_id in grouped:
+                    donor_group = grouped.pop(donor_id)
+                    keeper_group = grouped.setdefault(
+                        keeper_id,
+                        {"score": 0.0, "match_count": 0, "memory_indices": [], "example_windows": []},
+                    )
+                    keeper_group["score"] += float(donor_group.get("score", 0.0))
+                    keeper_group["match_count"] += int(donor_group.get("match_count", 0))
+                    keeper_group["memory_indices"] = list(
+                        dict.fromkeys([*list(keeper_group.get("memory_indices", [])), *list(donor_group.get("memory_indices", []))])
+                    )
+                    keeper_group["example_windows"] = list(
+                        dict.fromkeys([*list(keeper_group.get("example_windows", [])), *list(donor_group.get("example_windows", []))])
+                    )
+                del self._entries[donor_id]
+                self._prune_event_count += 1
+                self._last_prune_episode = int(self._episode_index)
+                self._growth_events.append(
+                    {
+                        "type": "prune",
+                        "episode": int(self._episode_index),
+                        "keeper_id": keeper_id,
+                        "donor_id": donor_id,
+                    }
+                )
+                self._growth_events = self._growth_events[-8:]
+
+        return self._structural_growth_report()
 
     def observe(
         self,
@@ -641,6 +1039,7 @@ class ConceptStore:
             if raw_window not in current["example_windows"]:
                 current["example_windows"].append(raw_window)
 
+        structural_growth = self.refresh_structural_capacity(grouped=grouped)
         concepts = [
             self._concept_payload(
                 self._entries[concept_id],
@@ -667,7 +1066,177 @@ class ConceptStore:
             "concept_count": int(len(concepts)),
             "source_memory_count": int(len(evidence_sources)),
             "abstraction": self._slow_features.summary(),
+            "growth": structural_growth,
+            "focus_plan": self.focus_plan(
+                query_text=query_text,
+                limit=limit,
+                min_observations=1,
+            ),
             "concepts": concepts[: max(1, int(limit))],
+        }
+
+    def focus_plan(
+        self,
+        *,
+        query_text: str | None = None,
+        limit: int = 4,
+        min_observations: int = 2,
+    ) -> dict[str, Any] | None:
+        ranked: list[dict[str, Any]] = []
+        minimum_observations = max(1, int(min_observations))
+        requested_query_terms = _tokenize(query_text or "")
+        requested_query_term_set = set(requested_query_terms)
+        for entry in self._entries.values():
+            observations = int(entry.get("observations", 0))
+            if observations < minimum_observations:
+                continue
+            top_terms = self._top_terms(entry)
+            if not top_terms:
+                continue
+            label = self._concept_label(entry, requested_query_term_set if requested_query_term_set else set())
+            concept_terms = _dedupe_strings(
+                [*top_terms, *_tokenize(label)],
+                limit=6,
+            )
+            query_overlap_terms = [
+                term
+                for term in concept_terms
+                if term in requested_query_term_set
+            ]
+            if requested_query_term_set and not query_overlap_terms:
+                continue
+            query_overlap = (
+                0.0
+                if not requested_query_term_set
+                else float(len(query_overlap_terms)) / max(1.0, float(len(requested_query_term_set)))
+            )
+            uncertainty = self._concept_uncertainty(entry)
+            drift = _clamp01(float(entry.get("drift_ema", 0.0)))
+            temporal_coherence = _clamp01(float(entry.get("temporal_coherence_ema", 0.0)))
+            abstraction_gain = _clamp01(float(entry.get("abstraction_gain_ema", 0.5)))
+            support = self._concept_support(entry)
+            weakness = self._concept_weakness(entry)
+            focus_weight = _clamp01(
+                (
+                    0.45 * query_overlap
+                    + 0.25 * weakness
+                    + 0.15 * abstraction_gain
+                    + 0.15 * support
+                )
+                if requested_query_term_set
+                else (
+                    0.45 * weakness
+                    + 0.20 * abstraction_gain
+                    + 0.20 * support
+                    + 0.15 * temporal_coherence
+                )
+            )
+            retrieval_terms = _dedupe_strings(
+                [*requested_query_terms, *concept_terms],
+                limit=4,
+            ) if requested_query_terms else top_terms[:3]
+            retrieval_query = " ".join(retrieval_terms).strip()
+            if not retrieval_query:
+                continue
+            if requested_query_terms:
+                anchor_text = " ".join(requested_query_terms[:2]).strip() or retrieval_query
+                target_terms = [
+                    term
+                    for term in concept_terms
+                    if term not in requested_query_term_set
+                ]
+                target_text = " ".join(target_terms[:2]).strip() or " ".join(top_terms[:2]).strip() or retrieval_query
+                follow_up_question = f"What grounded evidence connects {anchor_text} to {target_text}?"
+            else:
+                follow_up_question = (
+                    f"What grounded evidence would stabilize the concept around {retrieval_query}?"
+                )
+            ranked.append(
+                {
+                    "label": label,
+                    "top_terms": top_terms[:4],
+                    "concept_terms": concept_terms,
+                    "weakness": weakness,
+                    "uncertainty": uncertainty,
+                    "drift": drift,
+                    "temporal_coherence": temporal_coherence,
+                    "abstraction_gain": abstraction_gain,
+                    "support": support,
+                    "query_overlap": query_overlap,
+                    "query_overlap_terms": query_overlap_terms,
+                    "focus_weight": focus_weight,
+                    "match_count": observations,
+                    "memory_indices": [int(value) for value in list(entry.get("memory_indices") or [])][:4],
+                    "retrieval_query": retrieval_query,
+                    "follow_up_question": follow_up_question,
+                }
+            )
+        if not ranked:
+            return None
+
+        ranked.sort(
+            key=lambda item: (
+                float(item["query_overlap"]),
+                float(item["focus_weight"]),
+                float(item["weakness"]),
+                float(item["abstraction_gain"]),
+                float(item["match_count"]),
+            ),
+            reverse=True,
+        )
+
+        gap_weights: Counter[str] = Counter()
+        query_terms: list[str] = list(requested_query_terms)
+        retrieval_queries: list[str] = []
+        follow_up_questions: list[str] = []
+        weak_concepts: list[dict[str, Any]] = []
+        memory_priority: dict[str, float] = {}
+        for item in ranked[: max(1, int(limit))]:
+            top_terms = list(item["top_terms"])
+            focus_terms = list(item["concept_terms"]) if requested_query_terms else top_terms[:3]
+            weak_concepts.append(
+                {
+                    "label": str(item["label"]),
+                    "weakness": float(item["weakness"]),
+                    "uncertainty": float(item["uncertainty"]),
+                    "drift": float(item["drift"]),
+                    "abstraction_gain": float(item["abstraction_gain"]),
+                    "support": float(item["support"]),
+                    "query_overlap": float(item["query_overlap"]),
+                    "query_overlap_terms": list(item["query_overlap_terms"]),
+                    "top_terms": top_terms,
+                    "match_count": int(item["match_count"]),
+                    "memory_indices": list(item["memory_indices"]),
+                    "focus_weight": float(item["focus_weight"]),
+                }
+            )
+            query_terms.extend(focus_terms[:3])
+            retrieval_queries.append(str(item["retrieval_query"]))
+            follow_up_questions.append(str(item["follow_up_question"]))
+            for memory_index in list(item["memory_indices"]):
+                key = str(memory_index)
+                memory_priority[key] = max(
+                    float(memory_priority.get(key, 0.0)),
+                    float(item["focus_weight"]),
+                )
+            gap_base = float(item["focus_weight"] if requested_query_terms else item["weakness"])
+            for rank, term in enumerate(focus_terms[:3]):
+                gap_weights[str(term)] += gap_base / float(rank + 1)
+
+        return {
+            "planner_mode": "concept_store_abstraction_focus",
+            "query_terms": _dedupe_strings(query_terms, limit=8),
+            "focus_terms": _dedupe_strings(query_terms, limit=8),
+            "unsupported_terms": [],
+            "gap_terms": [
+                {"term": str(term), "weight": float(weight)}
+                for term, weight in gap_weights.most_common(8)
+            ],
+            "retrieval_queries": _dedupe_strings(retrieval_queries, limit=4),
+            "follow_up_questions": _dedupe_strings(follow_up_questions, limit=4),
+            "weak_concepts": weak_concepts,
+            "memory_priority": memory_priority,
+            "structural_growth": self._structural_growth_report(),
         }
 
     def snapshot(self, limit: int = 8) -> dict[str, Any]:
@@ -695,6 +1264,8 @@ class ConceptStore:
             "observations": int(self._observations),
             "concept_count": int(len(self._entries)),
             "abstraction": self._slow_features.summary(),
+            "growth": self._structural_growth_report(),
+            "focus_plan": self.focus_plan(limit=min(limit, 4)),
             "top_concepts": concepts[: max(1, int(limit))],
         }
 
@@ -720,6 +1291,9 @@ class ConceptStore:
                     "drift_ema": float(entry.get("drift_ema", 0.0)),
                     "temporal_coherence_ema": float(entry.get("temporal_coherence_ema", 0.0)),
                     "abstraction_gain_ema": float(entry.get("abstraction_gain_ema", 0.5)),
+                    "growth_pressure_ema": float(entry.get("growth_pressure_ema", 0.0)),
+                    "growth_streak": int(entry.get("growth_streak", 0)),
+                    "split_bias": float(entry.get("split_bias", 0.0)),
                     "first_episode": int(entry.get("first_episode", 0)),
                     "last_episode": int(entry.get("last_episode", 0)),
                 }
@@ -729,6 +1303,13 @@ class ConceptStore:
             "observations": int(self._observations),
             "episode_index": int(self._episode_index),
             "next_id": int(self._next_id),
+            "base_slow_feature_dim": int(self._base_slow_feature_dim),
+            "max_slow_feature_dim": int(self._max_slow_feature_dim),
+            "growth_event_count": int(self._growth_event_count),
+            "prune_event_count": int(self._prune_event_count),
+            "growth_events": [dict(item) for item in self._growth_events],
+            "last_growth_episode": int(self._last_growth_episode),
+            "last_prune_episode": int(self._last_prune_episode),
             "slow_features": self._slow_features.state_dict(),
             "entries": entries,
         }
@@ -738,6 +1319,13 @@ class ConceptStore:
         self._observations = int(payload.get("observations", 0))
         self._episode_index = int(payload.get("episode_index", 0))
         self._next_id = int(payload.get("next_id", 1))
+        self._base_slow_feature_dim = int(payload.get("base_slow_feature_dim", self._base_slow_feature_dim))
+        self._max_slow_feature_dim = int(payload.get("max_slow_feature_dim", self._max_slow_feature_dim))
+        self._growth_event_count = int(payload.get("growth_event_count", 0))
+        self._prune_event_count = int(payload.get("prune_event_count", 0))
+        self._growth_events = [dict(item) for item in list(payload.get("growth_events", []) or []) if isinstance(item, dict)][-8:]
+        self._last_growth_episode = int(payload.get("last_growth_episode", 0))
+        self._last_prune_episode = int(payload.get("last_prune_episode", 0))
         self._slow_features = OnlineSlowFeatureMap()
         self._slow_features.load_state_dict(dict(payload.get("slow_features", {})))
 
@@ -772,6 +1360,9 @@ class ConceptStore:
                 "drift_ema": float(item.get("drift_ema", 0.0)),
                 "temporal_coherence_ema": float(item.get("temporal_coherence_ema", 0.0)),
                 "abstraction_gain_ema": float(item.get("abstraction_gain_ema", 0.5)),
+                "growth_pressure_ema": float(item.get("growth_pressure_ema", 0.0)),
+                "growth_streak": int(item.get("growth_streak", 0)),
+                "split_bias": float(item.get("split_bias", 0.0)),
                 "first_episode": int(item.get("first_episode", 0)),
                 "last_episode": int(item.get("last_episode", item.get("first_episode", 0))),
             }

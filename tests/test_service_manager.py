@@ -233,6 +233,183 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_terminus_focus_plan_preserves_recent_weak_concepts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_recent_weak_concepts")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_source",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "trigger_interval_tokens": 50,
+                    },
+                )
+                with manager._lock:
+                    manager._record_recent_query_gap_locked(
+                        query_text="submarine buoyancy ballast",
+                        source="query",
+                        gap_plan={
+                            "unsupported_terms": ["submarine"],
+                            "gap_terms": [{"term": "submarine", "weight": 2.0}],
+                            "retrieval_queries": ["submarine buoyancy ballast"],
+                            "follow_up_questions": ["What grounded evidence explains submarine ballast control?"],
+                            "weak_concepts": [
+                                {
+                                    "label": "buoyancy control",
+                                    "weakness": 0.7,
+                                    "uncertainty": 0.6,
+                                    "drift": 0.2,
+                                    "top_terms": ["submarine", "ballast", "buoyancy"],
+                                    "match_count": 1,
+                                }
+                            ],
+                            "grounded_fraction": 0.0,
+                        },
+                    )
+                runtime = manager.terminus_status()["terminus_runtime"]
+
+                self.assertEqual(
+                    runtime["autonomy"]["recent_query_gaps"][0]["weak_concepts"][0]["label"],
+                    "buoyancy control",
+                )
+                self.assertEqual(
+                    runtime["autonomy"]["focus_plan"]["weak_concepts"][0]["label"],
+                    "buoyancy control",
+                )
+                self.assertEqual(
+                    runtime["autonomy"]["focus_plan"]["weak_concepts"][0]["top_terms"],
+                    ["submarine", "ballast", "buoyancy"],
+                )
+            finally:
+                manager.close()
+
+    def test_terminus_autonomy_uses_concept_store_focus_without_recent_query_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_concept_store_focus")
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text("submarine ballast buoyancy pressure " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_source",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager.feed(text=("submarine ballast buoyancy pressure control " * 16).strip())
+                concept_store = manager.status()["concept_store"]
+                runtime = manager.terminus_status()["terminus_runtime"]
+
+                self.assertGreater(concept_store["growth"]["expansion_events"], 0)
+                self.assertGreater(concept_store["abstraction"]["requested_output_dim"], 8)
+                self.assertEqual(runtime["autonomy"]["recent_query_gaps"], [])
+                self.assertIsNotNone(runtime["autonomy"]["focus_plan"])
+                self.assertEqual(runtime["autonomy"]["focus_plan"]["planner_mode"], "concept_store_abstraction_focus")
+                self.assertIn("submarine", " ".join(runtime["autonomy"]["focus_plan"]["retrieval_queries"]).lower())
+                self.assertGreater(
+                    runtime["autonomy"]["focus_plan"]["structural_growth"]["expansion_events"],
+                    0,
+                )
+
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": runtime["autonomy"]["focus_plan"],
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                kwargs = mocked_acquire.call_args.kwargs
+                self.assertEqual(kwargs["semantic_plan"]["planner_mode"], "concept_store_abstraction_focus")
+                self.assertIn("submarine", " ".join(kwargs["semantic_plan"]["retrieval_queries"]).lower())
+                self.assertIn("submarine", kwargs["candidate_bank_specs"][0]["metadata"]["query_text"].lower())
+            finally:
+                manager.close()
+
+    def test_query_passes_query_conditioned_concept_focus_into_retrieval(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_query_conditioned_abstraction")
+            try:
+                manager.feed(text=("submarine ballast buoyancy pressure control " * 16).strip())
+                captured: dict[str, object] = {}
+
+                def _fake_build_query_result(**kwargs: object) -> dict[str, object]:
+                    captured.update(kwargs)
+                    return {
+                        "checkpoint": "test://service-manager",
+                        "checkpoint_metadata": {},
+                        "config": {},
+                        "feed_summary": None,
+                        "context_summary": None,
+                        "context_comparison": None,
+                        "query_summary": {
+                            "query_text": "submarine control depth",
+                            "memory_matches": [],
+                            "memory_episodes": [],
+                            "native_decode": {"available": False},
+                        },
+                    }
+
+                with patch("hecsn.service.manager.build_query_result", side_effect=_fake_build_query_result):
+                    result = manager.query(query_text="submarine control depth", top_k_memories=4)
+
+                self.assertIn("ballast", " ".join(captured["retrieval_focus_terms"]).lower())
+                self.assertTrue(captured["memory_priority"])
+                self.assertEqual(
+                    result["query_summary"]["abstraction_focus"]["planner_mode"],
+                    "concept_store_abstraction_focus",
+                )
+                self.assertIn(
+                    "submarine",
+                    " ".join(result["query_summary"]["abstraction_focus"]["retrieval_queries"]).lower(),
+                )
+            finally:
+                manager.close()
+
     def test_terminus_autonomy_passes_recent_query_focus_into_acquisition(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -506,9 +683,15 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 runtime = manager.terminus_status()["terminus_runtime"]
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_mode"], "live_remote_search")
-                self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_providers"], ["wikipedia", "arxiv"])
+                self.assertEqual(
+                    runtime["autonomy"]["candidate_bank"][0]["catalog_providers"],
+                    ["wikipedia", "arxiv"],
+                )
                 self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_mode"], "live_remote_search")
-                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_providers"], ["wikipedia", "arxiv"])
+                self.assertEqual(
+                    kwargs["candidate_bank_specs"][0]["catalog_providers"],
+                    ["wikipedia", "arxiv"],
+                )
                 self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"], 2)
                 self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_provider_result_limit"], 4)
                 self.assertIn("submarine", kwargs["candidate_bank_specs"][0]["catalog_focus_text"].lower())
@@ -560,15 +743,549 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(runtime["autonomy"]["candidate_count"], 1)
                 self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_mode"], "live_remote_search")
-                self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_providers"], ["wikipedia", "arxiv"])
+                self.assertEqual(
+                    runtime["autonomy"]["candidate_bank"][0]["catalog_providers"],
+                    ["wikipedia", "arxiv", "openalex"],
+                )
                 self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_mode"], "live_remote_search")
-                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_providers"], ["wikipedia", "arxiv"])
-                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"], 1)
+                self.assertEqual(
+                    kwargs["candidate_bank_specs"][0]["catalog_providers"],
+                    ["wikipedia", "arxiv", "openalex"],
+                )
+                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"], 2)
                 self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_provider_result_limit"], 4)
                 self.assertIn("submarine", kwargs["candidate_bank_specs"][0]["catalog_focus_text"].lower())
                 self.assertEqual(kwargs["semantic_shortlist_size"], 1)
                 self.assertAlmostEqual(kwargs["semantic_shortlist_gap_weight"], 0.0)
                 self.assertAlmostEqual(kwargs["semantic_shortlist_affinity_weight"], 1.0)
+            finally:
+                manager.close()
+
+    def test_terminus_default_live_remote_search_grows_query_budget_for_multiple_weak_concepts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_default_live_remote_query_growth")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                with manager._lock:
+                    manager._record_recent_query_gap_locked(
+                        query_text="submarine buoyancy ballast",
+                        source="query",
+                        gap_plan={
+                            "unsupported_terms": ["submarine"],
+                            "gap_terms": [{"term": "submarine", "weight": 2.0}],
+                            "retrieval_queries": [],
+                            "follow_up_questions": [],
+                            "weak_concepts": [
+                                {
+                                    "label": "garden soil",
+                                    "weakness": 0.9,
+                                    "uncertainty": 0.5,
+                                    "drift": 0.1,
+                                    "top_terms": ["garden", "tomato", "soil"],
+                                    "match_count": 1,
+                                },
+                                {
+                                    "label": "buoyancy control",
+                                    "weakness": 0.7,
+                                    "uncertainty": 0.6,
+                                    "drift": 0.2,
+                                    "top_terms": ["submarine", "ballast", "buoyancy"],
+                                    "match_count": 1,
+                                },
+                            ],
+                            "grounded_fraction": 0.0,
+                        },
+                    )
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": {
+                            "unsupported_terms": ["submarine"],
+                        },
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                kwargs = mocked_acquire.call_args.kwargs
+                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_mode"], "live_remote_search")
+                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"], 3)
+                self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_provider_result_limit"], 4)
+            finally:
+                manager.close()
+
+    def test_terminus_live_remote_search_learns_provider_curriculum(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_curriculum")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["arxiv", "wikipedia"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager._brain_recent_query_gaps[0]["weak_concepts"] = [
+                    {
+                        "label": "buoyancy control",
+                        "weakness": 0.9,
+                        "uncertainty": 0.8,
+                        "drift": 0.1,
+                        "top_terms": ["submarine", "ballast", "buoyancy"],
+                        "match_count": 1,
+                    }
+                ]
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    side_effect=[
+                        {
+                            "policy": "active",
+                            "tokens_trained_total": 32,
+                            "acquired_sources": ["wikipedia_submarine_source"],
+                            "semantic_plan": {
+                                "unsupported_terms": ["submarine", "buoyancy", "ballast"],
+                            },
+                            "acquisition_history": [
+                                {
+                                    "selected_source": "wikipedia_submarine_source",
+                                    "selected_provider": "wikipedia",
+                                    "selected_query_text": "submarine buoyancy ballast",
+                                    "selected_semantic_relevance": 0.9,
+                                    "selected_gap_reduction": 0.25,
+                                    "selected_diagnostic_gap_reduction": 0.35,
+                                    "tokens_trained": 32,
+                                     "selected_metadata": {
+                                         "provider": "wikipedia",
+                                         "query_text": "submarine buoyancy ballast",
+                                         "semantic_relevance": 0.9,
+                                         "catalog_terms": ["marine engineering", "ballast tank"],
+                                      },
+                                     "candidate_snapshot": {
+                                         "wikipedia_submarine_source": {
+                                             "semantic_answerability": 0.20,
+                                             "concept_uncertainty": 0.70,
+                                             "concept_support": 0.15,
+                                             "semantic_weak_concept_pressure": 0.80,
+                                         }
+                                    },
+                                     "selected_semantic_answerability_after": 0.65,
+                                     "selected_concept_uncertainty_after": 0.25,
+                                     "selected_concept_support_after": 0.60,
+                                     "selected_weak_concept_pressure_after": 0.20,
+                                   }
+                               ],
+                           },
+                        {
+                            "policy": "active",
+                            "tokens_trained_total": 24,
+                            "acquired_sources": ["wikipedia_submarine_follow_up"],
+                            "semantic_plan": {
+                                "unsupported_terms": ["submarine", "buoyancy", "ballast"],
+                            },
+                            "acquisition_history": [
+                                {
+                                    "selected_source": "wikipedia_submarine_follow_up",
+                                    "selected_provider": "wikipedia",
+                                    "selected_query_text": "submarine buoyancy ballast trim",
+                                    "selected_semantic_relevance": 0.92,
+                                    "selected_gap_reduction": 0.18,
+                                    "selected_diagnostic_gap_reduction": 0.21,
+                                    "tokens_trained": 24,
+                                    "selected_metadata": {
+                                        "provider": "wikipedia",
+                                        "query_text": "submarine buoyancy ballast trim",
+                                        "semantic_relevance": 0.92,
+                                        "catalog_terms": ["marine engineering", "ballast tank", "trim control"],
+                                    },
+                                    "candidate_snapshot": {
+                                        "wikipedia_submarine_follow_up": {
+                                            "semantic_answerability": 0.45,
+                                            "concept_uncertainty": 0.42,
+                                            "concept_support": 0.32,
+                                            "semantic_weak_concept_pressure": 0.46,
+                                        }
+                                    },
+                                    "selected_semantic_answerability_after": 0.79,
+                                    "selected_concept_uncertainty_after": 0.18,
+                                    "selected_concept_support_after": 0.74,
+                                    "selected_weak_concept_pressure_after": 0.10,
+                                }
+                            ],
+                        },
+                        {
+                            "policy": "active",
+                            "tokens_trained_total": 0,
+                            "acquired_sources": [],
+                            "semantic_plan": {
+                                "unsupported_terms": ["submarine", "buoyancy", "ballast"],
+                            },
+                            "acquisition_history": [],
+                        },
+                    ],
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+                    manager.terminus_tick()
+                    manager.terminus_tick()
+
+                runtime = manager.terminus_status()["terminus_runtime"]
+                first_kwargs = mocked_acquire.call_args_list[0].kwargs
+                second_kwargs = mocked_acquire.call_args_list[1].kwargs
+                third_kwargs = mocked_acquire.call_args_list[2].kwargs
+                self.assertEqual(
+                    first_kwargs["candidate_bank_specs"][0]["catalog_providers"],
+                    ["arxiv", "wikipedia"],
+                )
+                self.assertEqual(
+                    second_kwargs["candidate_bank_specs"][0]["catalog_providers"][0],
+                    "wikipedia",
+                )
+                self.assertGreater(
+                    float(second_kwargs["candidate_bank_specs"][0]["catalog_provider_priority_map"]["wikipedia"]),
+                    float(second_kwargs["candidate_bank_specs"][0]["catalog_provider_priority_map"]["arxiv"]),
+                )
+                self.assertEqual(
+                    second_kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"],
+                    3,
+                )
+                self.assertEqual(
+                    third_kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"],
+                    4,
+                )
+                provider_curriculum = runtime["autonomy"]["provider_curriculum"]
+                self.assertIsNotNone(provider_curriculum)
+                self.assertEqual(provider_curriculum["ranked_providers"][0]["provider"], "wikipedia")
+                self.assertEqual(provider_curriculum["ranked_providers"][0]["successes"], 2)
+                self.assertIn("submarine", provider_curriculum["focus_terms"])
+                self.assertIn(
+                    "marine engineering",
+                    provider_curriculum["ranked_providers"][0]["topic_terms"],
+                )
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["answerability_gain_ema"]),
+                    0.0,
+                )
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["uncertainty_reduction_ema"]),
+                    0.0,
+                )
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["weak_concept_stabilization_ema"]),
+                    0.0,
+                )
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["topic_family_strength"]),
+                    0.0,
+                )
+                self.assertEqual(
+                    int(provider_curriculum["ranked_providers"][0]["topic_family_query_bonus"]),
+                    1,
+                )
+                self.assertIn(
+                    "submarine",
+                    provider_curriculum["ranked_providers"][0]["matched_topic_families"],
+                )
+                self.assertEqual(
+                    int(provider_curriculum["ranked_providers"][0]["topic_families"]["submarine"]["commits"]),
+                    2,
+                )
+                self.assertEqual(
+                    second_kwargs["candidate_bank_specs"][0]["catalog_provider_topic_terms"]["wikipedia"][0],
+                    "submarine",
+                )
+                self.assertIn(
+                    "marine engineering",
+                    second_kwargs["candidate_bank_specs"][0]["catalog_provider_topic_terms"]["wikipedia"],
+                )
+                self.assertEqual(
+                    int(third_kwargs["candidate_bank_specs"][0]["catalog_topic_family_budget_bonus"]),
+                    1,
+                )
+            finally:
+                manager.close()
+
+    def test_terminus_live_remote_search_avoids_off_topic_provider_term_leakage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_topic_filter")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["wikipedia", "openalex"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 2,
+                        "diagnostic_gain_ema": 0.2,
+                        "semantic_relevance_ema": 0.9,
+                        "answerability_gain_ema": 0.4,
+                        "uncertainty_reduction_ema": 0.3,
+                        "weak_concept_stabilization_ema": 0.2,
+                        "topic_terms": {"submarine": 1.0, "buoyancy": 0.5},
+                        "topic_families": {
+                            "submarine": {
+                                "commits": 2,
+                                "successes": 2,
+                                "semantic_relevance_ema": 0.9,
+                                "answerability_gain_ema": 0.4,
+                                "uncertainty_reduction_ema": 0.3,
+                                "weak_concept_stabilization_ema": 0.2,
+                            }
+                        },
+                    },
+                    "openalex": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 2,
+                        "diagnostic_gain_ema": 0.25,
+                        "semantic_relevance_ema": 0.92,
+                        "answerability_gain_ema": 0.45,
+                        "uncertainty_reduction_ema": 0.35,
+                        "weak_concept_stabilization_ema": 0.25,
+                        "topic_terms": {"octopus": 1.0, "jars": 0.5},
+                        "topic_families": {
+                            "octopus": {
+                                "commits": 2,
+                                "successes": 2,
+                                "semantic_relevance_ema": 0.92,
+                                "answerability_gain_ema": 0.45,
+                                "uncertainty_reduction_ema": 0.35,
+                                "weak_concept_stabilization_ema": 0.25,
+                            }
+                        },
+                    },
+                }
+                manager.query(query_text="What opens jars and solves puzzles?", top_k_memories=6)
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": {
+                            "unsupported_terms": ["opens", "jars", "solves", "puzzles"],
+                        },
+                        "acquisition_history": [],
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
+                self.assertEqual(spec["catalog_providers"][0], "openalex")
+                self.assertNotIn("catalog_provider_topic_terms", spec)
+            finally:
+                manager.close()
+
+    def test_terminus_live_remote_search_prefers_matched_topic_family_on_revisit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_revisit_alignment")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["wikipedia", "openalex"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 1,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.18,
+                        "semantic_relevance_ema": 0.70,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.12,
+                        "weak_concept_stabilization_ema": 0.08,
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.8, "buoyancy": 0.6},
+                        "topic_families": {
+                            "submarine": {
+                                "commits": 1,
+                                "successes": 1,
+                                "semantic_relevance_ema": 0.70,
+                                "answerability_gain_ema": 0.18,
+                                "uncertainty_reduction_ema": 0.12,
+                                "weak_concept_stabilization_ema": 0.08,
+                            }
+                        },
+                    },
+                    "openalex": {
+                        "attempts": 2,
+                        "commits": 1,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.28,
+                        "semantic_relevance_ema": 0.92,
+                        "answerability_gain_ema": 0.42,
+                        "uncertainty_reduction_ema": 0.30,
+                        "weak_concept_stabilization_ema": 0.18,
+                        "topic_terms": {"octopus": 1.0, "jars": 0.7},
+                        "topic_families": {
+                            "octopus": {
+                                "commits": 1,
+                                "successes": 1,
+                                "semantic_relevance_ema": 0.92,
+                                "answerability_gain_ema": 0.42,
+                                "uncertainty_reduction_ema": 0.30,
+                                "weak_concept_stabilization_ema": 0.18,
+                            }
+                        },
+                    },
+                }
+                manager._brain_recent_query_gaps.appendleft(
+                    manager._normalize_recent_query_gap(
+                        {
+                            "source": "query",
+                            "query_text": "What corrects submarine trim?",
+                            "unsupported_terms": ["corrects", "trim"],
+                            "gap_terms": [
+                                {"term": "corrects", "weight": 2.0},
+                                {"term": "trim", "weight": 2.0},
+                            ],
+                            "retrieval_queries": ["corrects trim"],
+                            "follow_up_questions": [
+                                "What grounded evidence is still missing for corrects?",
+                                "What grounded evidence is still missing for trim?",
+                            ],
+                            "weak_concepts": [
+                                {
+                                    "label": "terms / octopuses",
+                                    "weakness": 0.55,
+                                    "uncertainty": 0.54,
+                                    "drift": 0.0,
+                                    "top_terms": ["terms", "octopuses", "open"],
+                                    "match_count": 1,
+                                }
+                            ],
+                            "grounded_fraction": 0.3333333333333333,
+                        }
+                    )
+                )
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": {
+                            "unsupported_terms": ["corrects", "submarine", "trim"],
+                        },
+                        "acquisition_history": [],
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
+                runtime = manager.terminus_status()["terminus_runtime"]
+                provider_curriculum = runtime["autonomy"]["provider_curriculum"]
+
+                self.assertEqual(spec["catalog_providers"][0], "wikipedia")
+                self.assertGreater(
+                    float(spec["catalog_provider_priority_map"]["wikipedia"]),
+                    float(spec["catalog_provider_priority_map"]["openalex"]),
+                )
+                self.assertIn("submarine", str(spec["catalog_focus_text"]))
+                self.assertIn("catalog_provider_topic_terms", spec)
+                self.assertEqual(spec["catalog_provider_topic_terms"]["wikipedia"][0], "submarine")
+                self.assertNotIn("openalex", spec["catalog_provider_topic_terms"])
+                self.assertEqual(provider_curriculum["ranked_providers"][0]["provider"], "wikipedia")
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["topic_family_focus_score"]),
+                    0.0,
+                )
             finally:
                 manager.close()
 

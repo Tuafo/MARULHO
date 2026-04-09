@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Callable, Iterator, List, Optional
+from typing import Any, Callable, Iterator, List, Mapping, Optional, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -139,6 +139,37 @@ def candidate_details(trainer: HECSNTrainer, routing_key: torch.Tensor, top_k: i
     return details
 
 
+def _dedupe_terms(values: Sequence[str] | None) -> list[str]:
+    if not values:
+        return []
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw_value in values:
+        value = str(raw_value).strip().lower()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _memory_focus_priority(
+    memory_priority: Mapping[object, object] | None,
+    memory_indices: Sequence[int],
+) -> float:
+    if not memory_priority:
+        return 0.0
+    best = 0.0
+    for memory_index in memory_indices:
+        for key in (memory_index, str(memory_index)):
+            value = memory_priority.get(key, 0.0)
+            try:
+                best = max(best, float(value))
+            except (TypeError, ValueError):
+                continue
+    return float(best)
+
+
 def memory_matches(
     trainer: HECSNTrainer,
     pattern_vec: torch.Tensor,
@@ -146,10 +177,14 @@ def memory_matches(
     top_k: int,
     top_chars: int,
     query_terms: Optional[list[str]] = None,
+    *,
+    focus_terms: Sequence[str] | None = None,
+    memory_priority: Mapping[object, object] | None = None,
 ) -> list[dict[str, Any]]:
     store = trainer.model.memory_store
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
     replay_scores = store.replay_scores(trainer.token_count)
+    ordered_focus_terms = _dedupe_terms(focus_terms)
     matches: list[dict[str, Any]] = []
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
@@ -174,6 +209,9 @@ def memory_matches(
         complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
         matched_query_terms = match_terms(query_terms or [], str(text or ""))
         query_overlap = len(matched_query_terms)
+        matched_focus_terms = match_terms(ordered_focus_terms, str(text or "")) if ordered_focus_terms else []
+        focus_overlap = len(matched_focus_terms)
+        focus_priority = _memory_focus_priority(memory_priority, (idx,))
         matches.append(
             {
                 "memory_index": int(idx),
@@ -194,19 +232,40 @@ def memory_matches(
                 "top_chars": top_feature_details(evidence_pattern, top_chars, representation),
                 "query_overlap": int(query_overlap),
                 "matched_query_terms": matched_query_terms,
+                "focus_overlap": int(focus_overlap),
+                "matched_focus_terms": matched_focus_terms,
+                "memory_focus_priority": float(focus_priority),
                 "complete_sentence": int(complete_sentence),
                 "clipped_overlap": int(clipped_overlap),
             }
         )
 
     limit = max(1, int(top_k))
-    if not query_terms:
+    if not query_terms and not ordered_focus_terms and not memory_priority:
         matches.sort(key=lambda item: float(item["similarity"]), reverse=True)
+        return matches[:limit]
+
+    if not query_terms:
+        matches.sort(
+            key=lambda item: (
+                int(item.get("focus_overlap", 0)),
+                float(item.get("memory_focus_priority", 0.0)),
+                int(item.get("complete_sentence", 0)),
+                -int(item.get("clipped_overlap", 0)),
+                float(item["similarity"]),
+                float(item["importance"]),
+                -int(item["age_tokens"]),
+            ),
+            reverse=True,
+        )
         return matches[:limit]
 
     similarity_ranked = sorted(
         matches,
         key=lambda item: (
+            int(item.get("query_overlap", 0)),
+            int(item.get("focus_overlap", 0)),
+            float(item.get("memory_focus_priority", 0.0)),
             float(item["similarity"]),
             float(item["importance"]),
             -int(item["age_tokens"]),
@@ -217,6 +276,8 @@ def memory_matches(
         matches,
         key=lambda item: (
             int(item.get("query_overlap", 0)),
+            int(item.get("focus_overlap", 0)),
+            float(item.get("memory_focus_priority", 0.0)),
             int(item.get("complete_sentence", 0)),
             -int(item.get("clipped_overlap", 0)),
             float(item["similarity"]),
@@ -262,6 +323,8 @@ def memory_matches(
     merged.sort(
         key=lambda item: (
             int(item.get("query_overlap", 0)),
+            int(item.get("focus_overlap", 0)),
+            float(item.get("memory_focus_priority", 0.0)),
             int(item.get("complete_sentence", 0)),
             -int(item.get("clipped_overlap", 0)),
             float(item["similarity"]),
@@ -278,14 +341,18 @@ def build_memory_episodes(
     *,
     top_k: int,
     query_terms: Optional[list[str]] = None,
+    focus_terms: Sequence[str] | None = None,
+    memory_priority: Mapping[object, object] | None = None,
 ) -> list[dict[str, Any]]:
+    ordered_focus_terms = _dedupe_terms(focus_terms)
+    clause_terms = _dedupe_terms([*(query_terms or []), *ordered_focus_terms])
     grouped: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for match in memory_matches:
         source_text = str(match.get("text") or match.get("raw_window") or "").strip()
         if not source_text:
             continue
-        clause_candidates = query_focused_clauses(source_text, query_terms or [])
+        clause_candidates = query_focused_clauses(source_text, clause_terms)
         for text in clause_candidates:
             if not text:
                 continue
@@ -302,6 +369,8 @@ def build_memory_episodes(
                     "age_tokens": int(match.get("age_tokens", 0)),
                     "match_count": 0,
                     "query_overlap": 0,
+                    "focus_overlap": 0,
+                    "memory_focus_priority": 0.0,
                     "complete_sentence": 0,
                     "clipped_overlap": 1,
                 }
@@ -315,9 +384,14 @@ def build_memory_episodes(
             entry["complete_sentence"] = max(int(entry["complete_sentence"]), int(complete_sentence))
             entry["clipped_overlap"] = min(int(entry["clipped_overlap"]), int(clipped_overlap))
             entry["query_overlap"] = max(int(entry["query_overlap"]), len(match_terms(query_terms or [], text)))
+            entry["focus_overlap"] = max(int(entry["focus_overlap"]), len(match_terms(ordered_focus_terms, text)))
             memory_index = int(match.get("memory_index", -1))
             if memory_index >= 0 and memory_index not in entry["memory_indices"]:
                 entry["memory_indices"].append(memory_index)
+            entry["memory_focus_priority"] = max(
+                float(entry.get("memory_focus_priority", 0.0)),
+                _memory_focus_priority(memory_priority, entry["memory_indices"]),
+            )
             if float(match.get("similarity", 0.0)) >= float(entry["similarity"]):
                 entry["memory_index"] = memory_index
                 if match.get("raw_window"):
@@ -327,6 +401,8 @@ def build_memory_episodes(
     episodes.sort(
         key=lambda item: (
             int(item.get("query_overlap", 0)),
+            int(item.get("focus_overlap", 0)),
+            float(item.get("memory_focus_priority", 0.0)),
             int(item.get("complete_sentence", 0)),
             -int(item.get("clipped_overlap", 0)),
             float(item.get("similarity", 0.0)),
@@ -412,6 +488,8 @@ def build_query_result(
     top_chars: int,
     compare_context_a: Optional[str],
     compare_context_b: Optional[str],
+    retrieval_focus_terms: Sequence[str] | None = None,
+    memory_priority: Mapping[object, object] | None = None,
 ) -> dict[str, Any]:
     trainer.reset_context_state()
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
@@ -452,6 +530,7 @@ def build_query_result(
         winner = trainer.contextual_winner_for_pattern(pattern_vec) if trainer.model.context_layer is not None and context_text is not None else trainer.winner_for_pattern(pattern_vec)
         recon_error = trainer.reconstruction_error(pattern_vec)
         query_terms = salient_query_terms(query_text_resolved)
+        ordered_focus_terms = _dedupe_terms(retrieval_focus_terms)
         decode_matches = memory_matches(
             trainer,
             pattern_vec,
@@ -459,6 +538,8 @@ def build_query_result(
             max(top_k_memories, 24),
             top_chars,
             query_terms=query_terms,
+            focus_terms=ordered_focus_terms,
+            memory_priority=memory_priority,
         )
         result["query_summary"] = {
             "query_text": query_text_resolved,
@@ -473,6 +554,8 @@ def build_query_result(
                 decode_matches,
                 top_k=max(1, min(int(top_k_memories), 8)),
                 query_terms=query_terms,
+                focus_terms=ordered_focus_terms,
+                memory_priority=memory_priority,
             ),
             "native_decode": _NATIVE_DECODER.decode(
                 query_window=query_window,

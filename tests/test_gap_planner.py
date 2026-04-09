@@ -91,6 +91,43 @@ class GapPlannerTests(unittest.TestCase):
         self.assertTrue(plan["follow_up_questions"])
         self.assertTrue(plan["retrieval_queries"])
 
+    def test_plan_query_gaps_matches_boundary_free_query_against_spaced_evidence(self) -> None:
+        plan = plan_query_gaps(
+            query_text="submarineballastcontrol",
+            query_summary={
+                "memory_matches": [
+                    {
+                        "raw_window": "submarine ballast control regulates buoyancy underwater",
+                        "similarity": 0.91,
+                    }
+                ]
+            },
+            concept_summary={"concepts": []},
+        )
+
+        self.assertEqual(plan["query_terms"], ["submarineballastcontrol"])
+        self.assertEqual(plan["unsupported_terms"], [])
+        self.assertAlmostEqual(float(plan["grounded_fraction"]), 1.0, places=6)
+
+    def test_plan_query_gaps_supports_unsegmented_character_stream_terms(self) -> None:
+        plan = plan_query_gaps(
+            query_text="submarineballast",
+            query_summary={
+                "memory_matches": [
+                    {
+                        "raw_window": "submarines regulate buoyancy with ballast tanks",
+                        "similarity": 0.92,
+                    }
+                ]
+            },
+            concept_summary={"concepts": []},
+        )
+
+        self.assertEqual(plan["planner_mode"], "semantic_gap_planner")
+        self.assertEqual(plan["query_terms"], ["submarineballast"])
+        self.assertEqual(plan["unsupported_terms"], [])
+        self.assertGreater(plan["grounded_fraction"], 0.0)
+
     def test_frontier_gap_terms_prioritize_unstable_memory(self) -> None:
         terms = frontier_gap_terms(
             memory_store=_FakeMemoryStore(),
@@ -206,6 +243,110 @@ class GapPlannerTests(unittest.TestCase):
 
         self.assertGreater(related_score, 0.0)
         self.assertGreater(related_score, unrelated_score)
+
+    def test_bank_semantic_relevance_matches_unsegmented_character_stream_query(self) -> None:
+        plan = {
+            "gap_terms": [
+                {"term": "submarineballast", "weight": 2.0},
+            ],
+            "unsupported_terms": ["submarineballast"],
+            "retrieval_queries": ["submarineballast"],
+            "follow_up_questions": [],
+        }
+        related_bank = SimpleNamespace(
+            name="related",
+            source="https://example.com/related",
+            train_raw_windows=[
+                "submarines regulate buoyancy with ballast tanks",
+                "ballast water shifts pressure inside a submarine",
+            ],
+        )
+        unrelated_bank = SimpleNamespace(
+            name="unrelated",
+            source="https://example.com/unrelated",
+            train_raw_windows=["garden tomato soil sunlight", "library reading room quiet books"],
+        )
+
+        related_score = bank_semantic_relevance_score(related_bank, plan)
+        unrelated_score = bank_semantic_relevance_score(unrelated_bank, plan)
+
+        self.assertGreater(related_score, 0.0)
+        self.assertGreater(related_score, unrelated_score)
+
+    def test_bank_semantic_relevance_matches_boundary_free_compound_terms(self) -> None:
+        plan = {
+            "gap_terms": [
+                {"term": "submarineballastcontrol", "weight": 2.0},
+            ],
+            "unsupported_terms": ["submarineballastcontrol"],
+            "retrieval_queries": ["submarineballastcontrol"],
+            "follow_up_questions": [
+                "What grounded evidence is still missing for submarineballastcontrol?"
+            ],
+        }
+        related_bank = SimpleNamespace(
+            name="related",
+            source="https://example.com/related",
+            train_raw_windows=["submarine ballast control regulates buoyancy underwater"],
+        )
+        unrelated_bank = SimpleNamespace(
+            name="unrelated",
+            source="https://example.com/unrelated",
+            train_raw_windows=["garden tomato soil moisture and sunlight"],
+        )
+
+        related_score = bank_semantic_relevance_score(related_bank, plan)
+        unrelated_score = bank_semantic_relevance_score(unrelated_bank, plan)
+
+        self.assertGreater(related_score, 0.0)
+        self.assertGreater(related_score, unrelated_score)
+
+    def test_bank_semantic_relevance_uses_catalog_summary_metadata_for_candidate_focus(self) -> None:
+        plan = {
+            "gap_terms": [
+                {"term": "ballast", "weight": 4.0},
+                {"term": "buoyancy", "weight": 4.0},
+                {"term": "submarine", "weight": 4.0},
+            ],
+            "unsupported_terms": ["ballast", "buoyancy", "submarine"],
+            "retrieval_queries": ["submarine buoyancy ballast"],
+            "follow_up_questions": [
+                "What grounded evidence is still missing for submarine?",
+                "What grounded evidence is still missing for buoyancy?",
+                "What grounded evidence is still missing for ballast?",
+            ],
+        }
+        ballast_bank = SimpleNamespace(
+            name="ballast_tank",
+            source="https://en.wikipedia.org/wiki/Ballast_tank",
+            probe_raw_windows=["B", "Ba", "Bal", "Ball", "Balla"],
+            train_raw_windows=["B", "Ba", "Bal", "Ball", "Balla"],
+            metadata={
+                "catalog_title": "Ballast tank",
+                "catalog_summary": (
+                    "A ballast tank controls buoyancy in a submarine by moving ballast water."
+                ),
+                "catalog_terms": ["marine engineering", "ballast tank"],
+            },
+        )
+        submarine_bank = SimpleNamespace(
+            name="submarine",
+            source="https://en.wikipedia.org/wiki/Submarine",
+            probe_raw_windows=["S", "Su", "Sub", "Subm", "Subma"],
+            train_raw_windows=["S", "Su", "Sub", "Subm", "Subma"],
+            metadata={
+                "catalog_title": "Submarine",
+                "catalog_summary": (
+                    "A submarine is a watercraft capable of independent underwater operation."
+                ),
+                "catalog_terms": [],
+            },
+        )
+
+        ballast_score = bank_semantic_relevance_score(ballast_bank, plan)
+        submarine_score = bank_semantic_relevance_score(submarine_bank, plan)
+
+        self.assertGreater(ballast_score, submarine_score)
 
     def test_build_bank_query_text_filters_short_prefix_fragments(self) -> None:
         bank = SimpleNamespace(

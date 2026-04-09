@@ -144,6 +144,64 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertIn("indoors", body["response"]["response_text"].lower())
             self.assertIn("mice", body["response"]["response_text"].lower())
 
+    def test_terminus_tick_then_respond_handles_unsegmented_character_stream_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            set_seed(7)
+            root = Path(tmpdir)
+            source_path = root / "terminus_unsegmented_query.txt"
+            source_path.write_text(
+                (
+                    "\n".join(
+                        [
+                            "submarines regulate buoyancy with ballast tanks.",
+                            "ballast water shifts pressure and buoyancy inside a submarine.",
+                        ]
+                    )
+                    + "\n"
+                )
+                * 24,
+                encoding="utf-8",
+            )
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_unsegmented_character_stream_query"),
+                trace_dir=root / "traces",
+            )
+            with TestClient(app) as client:
+                configure_response = client.post(
+                    "/terminus/configure",
+                    json={
+                        "source_bank": [
+                            {
+                                "name": "terminus_unsegmented_query_source",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "tick_tokens": 48,
+                        "sleep_interval_seconds": 0.01,
+                        "repeat_sources": True,
+                    },
+                )
+                tick_response = client.post("/terminus/tick", json={"steps": 6})
+                respond_response = client.post(
+                    "/respond",
+                    json={
+                        "query_text": "submarineballast",
+                        "max_evidence_items": 3,
+                        "learn_mode": "none",
+                    },
+                )
+
+            self.assertEqual(configure_response.status_code, 200)
+            self.assertEqual(tick_response.status_code, 200)
+            self.assertEqual(respond_response.status_code, 200)
+            body = respond_response.json()
+            self.assertIn(body["response"]["response_mode"], {"quote", "grounded_synthesis", "stitch"})
+            self.assertTrue(
+                any(term in body["response"]["response_text"].lower() for term in ("submarine", "ballast", "buoyancy"))
+            )
+            self.assertEqual(body["response"]["unsupported_terms"], [])
+
     def test_terminus_tick_then_respond_handles_mixed_world_grounding(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             set_seed(7)
@@ -505,9 +563,691 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 response = respond_body["response"]
 
                 self.assertEqual(autonomy["candidate_bank"][0]["catalog_mode"], "live_remote_search")
-                self.assertEqual(autonomy["candidate_bank"][0]["catalog_providers"], ["wikipedia", "arxiv"])
+                self.assertEqual(
+                    autonomy["candidate_bank"][0]["catalog_providers"],
+                    ["wikipedia", "arxiv", "openalex"],
+                )
                 self.assertIn("submarine", query_body["gap_plan"]["unsupported_terms"])
                 self.assertIn("submarine", autonomy["focus_plan"]["unsupported_terms"])
+                self.assertEqual(acquisition["acquired_sources"], ["submarine_source"])
+                self.assertGreater(acquisition["tokens_trained_total"], 0)
+                self.assertFalse(acquisition["stopped_early"])
+                self.assertIn(response["response_mode"], {"quote", "grounded_synthesis", "stitch"})
+                self.assertIn("submarine", response["response_text"].lower())
+                self.assertTrue(
+                    any(term in response["response_text"].lower() for term in ("buoyancy", "ballast"))
+                )
+                self.assertEqual(response["unsupported_terms"], [])
+            finally:
+                content_server.shutdown()
+                content_server.server_close()
+
+    def test_terminus_default_autonomy_remote_search_uses_catalog_summary_for_first_tick_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            set_seed(7)
+            root = Path(tmpdir)
+            background_path = root / "terminus_background.txt"
+            background_path.write_text("neutral background signal " * 40, encoding="utf-8")
+            submarine_path = root / "submarine_delayed.txt"
+            submarine_path.write_text(
+                (
+                    "submarines travel underwater for naval operations and long endurance patrols near ocean fleets. "
+                    * 10
+                )
+                + (
+                    "submarines regulate buoyancy with ballast tanks. ballast water shifts pressure and buoyancy inside a submarine. "
+                    * 16
+                ),
+                encoding="utf-8",
+            )
+            garden_path = root / "garden.txt"
+            garden_path.write_text("garden tomatoes need soil sunlight and watering. " * 24, encoding="utf-8")
+            astronomy_path = root / "astronomy.txt"
+            astronomy_path.write_text("astronomy studies planets observatories and telescope images. " * 24, encoding="utf-8")
+
+            content_port = _free_port()
+            content_server = ThreadingHTTPServer(
+                ("127.0.0.1", content_port),
+                partial(_SilentSimpleHTTPRequestHandler, directory=str(root)),
+            )
+            content_thread = threading.Thread(target=content_server.serve_forever, daemon=True)
+            content_thread.start()
+
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_default_live_remote_catalog_summary_recovery"),
+                trace_dir=root / "traces",
+            )
+
+            def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+                if provider != "wikipedia":
+                    return []
+                return [
+                    {
+                        "name": "submarine_source",
+                        "source": f"http://127.0.0.1:{content_port}/submarine_delayed.txt",
+                        "source_type": "web",
+                        "summary": (
+                            "Submarines regulate buoyancy with ballast tanks. "
+                            "Ballast water shifts pressure and buoyancy inside a submarine."
+                        ),
+                        "terms": ["marine engineering", "ballast tank"],
+                        "query_text": query,
+                        "catalog_priority": 0.9,
+                        "provider": provider,
+                    },
+                    {
+                        "name": "garden_source",
+                        "source": f"http://127.0.0.1:{content_port}/garden.txt",
+                        "source_type": "web",
+                        "summary": "garden tomatoes soil sunlight watering",
+                        "query_text": query,
+                        "catalog_priority": 0.5,
+                        "provider": provider,
+                    },
+                    {
+                        "name": "astronomy_source",
+                        "source": f"http://127.0.0.1:{content_port}/astronomy.txt",
+                        "source_type": "web",
+                        "summary": "astronomy planets observatory telescope orbit",
+                        "query_text": query,
+                        "catalog_priority": 0.4,
+                        "provider": provider,
+                    },
+                ][:result_limit]
+
+            try:
+                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                    with TestClient(app) as client:
+                        client.post(
+                            "/terminus/configure",
+                            json={
+                                "source_bank": [
+                                    {
+                                        "name": "api_terminus_source",
+                                        "source": str(background_path),
+                                        "source_type": "file",
+                                    }
+                                ],
+                                "tick_tokens": 24,
+                                "sleep_interval_seconds": 0.01,
+                                "repeat_sources": True,
+                                "autonomy": {
+                                    "enabled": True,
+                                    "policy": "active",
+                                    "trigger_interval_tokens": 1,
+                                    "candidate_train_tokens": 96,
+                                    "probe_tokens": 48,
+                                    "acquisition_tokens": 128,
+                                    "acquisition_slots": 1,
+                                },
+                            },
+                        )
+                        client.post(
+                            "/query",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                            },
+                        )
+                        tick_response = client.post("/terminus/tick", json={"steps": 1})
+                        respond_response = client.post(
+                            "/respond",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                                "max_evidence_items": 3,
+                                "learn_mode": "none",
+                            },
+                        )
+
+                self.assertEqual(tick_response.status_code, 200)
+                self.assertEqual(respond_response.status_code, 200)
+
+                tick_body = tick_response.json()
+                respond_body = respond_response.json()
+                acquisition = tick_body["terminus_runtime"]["autonomy"]["last_acquisition_summary"]
+                response = respond_body["response"]
+
+                self.assertEqual(acquisition["acquired_sources"], ["submarine_source"])
+                self.assertGreater(acquisition["tokens_trained_total"], 0)
+                self.assertIn(response["response_mode"], {"quote", "grounded_synthesis", "stitch"})
+                self.assertIn("submarine", response["response_text"].lower())
+                self.assertTrue(
+                    any(term in response["response_text"].lower() for term in ("buoyancy", "ballast"))
+                )
+                self.assertEqual(response["unsupported_terms"], [])
+            finally:
+                content_server.shutdown()
+                content_server.server_close()
+
+    def test_terminus_default_autonomy_remote_search_focuses_late_summary_fragments_for_first_tick_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            set_seed(7)
+            root = Path(tmpdir)
+            background_path = root / "terminus_background.txt"
+            background_path.write_text("neutral background signal " * 40, encoding="utf-8")
+            ballast_path = root / "ballast_delayed.txt"
+            ballast_path.write_text(
+                (
+                    "ballast tanks are mechanical compartments for marine systems and vessel trim adjustments. "
+                    * 10
+                )
+                + (
+                    "ballast water reduces buoyancy in a submarine and supports underwater trim control. "
+                    * 16
+                ),
+                encoding="utf-8",
+            )
+            garden_path = root / "garden.txt"
+            garden_path.write_text("garden tomatoes need soil sunlight and watering. " * 24, encoding="utf-8")
+            astronomy_path = root / "astronomy.txt"
+            astronomy_path.write_text("astronomy studies planets observatories and telescope images. " * 24, encoding="utf-8")
+
+            content_port = _free_port()
+            content_server = ThreadingHTTPServer(
+                ("127.0.0.1", content_port),
+                partial(_SilentSimpleHTTPRequestHandler, directory=str(root)),
+            )
+            content_thread = threading.Thread(target=content_server.serve_forever, daemon=True)
+            content_thread.start()
+
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_default_live_remote_focus_fragment_recovery"),
+                trace_dir=root / "traces",
+            )
+
+            def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+                if provider != "wikipedia":
+                    return []
+                return [
+                    {
+                        "name": "ballast_tank_source",
+                        "source": f"http://127.0.0.1:{content_port}/ballast_delayed.txt",
+                        "source_type": "web",
+                        "summary": (
+                            "A ballast tank is a compartment within a boat, ship, or floating structure that holds water, "
+                            "ballast water reduces buoyancy in a submarine, and helps correct trim."
+                        ),
+                        "query_text": query,
+                        "catalog_priority": 0.9,
+                        "provider": provider,
+                    },
+                    {
+                        "name": "garden_source",
+                        "source": f"http://127.0.0.1:{content_port}/garden.txt",
+                        "source_type": "web",
+                        "summary": "garden tomatoes soil sunlight watering",
+                        "query_text": query,
+                        "catalog_priority": 0.5,
+                        "provider": provider,
+                    },
+                    {
+                        "name": "astronomy_source",
+                        "source": f"http://127.0.0.1:{content_port}/astronomy.txt",
+                        "source_type": "web",
+                        "summary": "astronomy planets observatory telescope orbit",
+                        "query_text": query,
+                        "catalog_priority": 0.4,
+                        "provider": provider,
+                    },
+                ][:result_limit]
+
+            try:
+                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                    with TestClient(app) as client:
+                        client.post(
+                            "/terminus/configure",
+                            json={
+                                "source_bank": [
+                                    {
+                                        "name": "api_terminus_source",
+                                        "source": str(background_path),
+                                        "source_type": "file",
+                                    }
+                                ],
+                                "tick_tokens": 24,
+                                "sleep_interval_seconds": 0.01,
+                                "repeat_sources": True,
+                                "autonomy": {
+                                    "enabled": True,
+                                    "policy": "active",
+                                    "trigger_interval_tokens": 1,
+                                    "candidate_train_tokens": 96,
+                                    "probe_tokens": 48,
+                                    "acquisition_tokens": 128,
+                                    "acquisition_slots": 1,
+                                },
+                            },
+                        )
+                        client.post(
+                            "/query",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                            },
+                        )
+                        tick_response = client.post("/terminus/tick", json={"steps": 1})
+                        respond_response = client.post(
+                            "/respond",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                                "max_evidence_items": 3,
+                                "learn_mode": "none",
+                            },
+                        )
+
+                self.assertEqual(tick_response.status_code, 200)
+                self.assertEqual(respond_response.status_code, 200)
+
+                tick_body = tick_response.json()
+                respond_body = respond_response.json()
+                acquisition = tick_body["terminus_runtime"]["autonomy"]["last_acquisition_summary"]
+                response = respond_body["response"]
+
+                self.assertEqual(acquisition["acquired_sources"], ["ballast_tank_source"])
+                self.assertGreater(acquisition["tokens_trained_total"], 0)
+                self.assertIn(response["response_mode"], {"quote", "grounded_synthesis", "stitch"})
+                self.assertIn("ballast", response["response_text"].lower())
+                self.assertTrue(
+                    any(term in response["response_text"].lower() for term in ("buoyancy", "submarine"))
+                )
+                self.assertEqual(response["unsupported_terms"], [])
+            finally:
+                content_server.shutdown()
+                content_server.server_close()
+
+    def test_terminus_live_remote_search_probes_cross_provider_page_content_for_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            set_seed(7)
+            root = Path(tmpdir)
+            background_path = root / "terminus_background.txt"
+            background_path.write_text("neutral background signal " * 40, encoding="utf-8")
+            ballast_paper_path = root / "ballast_paper.txt"
+            ballast_paper_path.write_text(
+                (
+                    "marine engineering reports compare underwater trim and ballast systems. "
+                    "ballast tanks reduce submarine buoyancy and support underwater trim control. "
+                )
+                * 18,
+                encoding="utf-8",
+            )
+            cable_path = root / "submarine_cable.txt"
+            cable_path.write_text(
+                "submarine cables carry internet traffic between continents and coastal landing stations. " * 24,
+                encoding="utf-8",
+            )
+
+            content_port = _free_port()
+            content_server = ThreadingHTTPServer(
+                ("127.0.0.1", content_port),
+                partial(_SilentSimpleHTTPRequestHandler, directory=str(root)),
+            )
+            content_thread = threading.Thread(target=content_server.serve_forever, daemon=True)
+            content_thread.start()
+
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_live_remote_cross_provider_content_probe"),
+                trace_dir=root / "traces",
+            )
+
+            def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+                if provider == "wikipedia":
+                    return [
+                        {
+                            "name": "cable_source",
+                            "source": f"http://127.0.0.1:{content_port}/submarine_cable.txt",
+                            "source_type": "web",
+                            "summary": "Submarine infrastructure and communications systems.",
+                            "query_text": query,
+                            "catalog_priority": 0.70,
+                            "provider": provider,
+                        }
+                    ][:result_limit]
+                if provider == "openalex":
+                    return [
+                        {
+                            "name": "ballast_paper_source",
+                            "source": f"http://127.0.0.1:{content_port}/ballast_paper.txt",
+                            "source_type": "web",
+                            "summary": "Marine systems analysis of vessel stability and trim.",
+                            "terms": ["marine engineering"],
+                            "query_text": query,
+                            "catalog_priority": 0.35,
+                            "provider": provider,
+                        }
+                    ][:result_limit]
+                return []
+
+            try:
+                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                    with TestClient(app) as client:
+                        client.post(
+                            "/terminus/configure",
+                            json={
+                                "source_bank": [
+                                    {
+                                        "name": "api_terminus_source",
+                                        "source": str(background_path),
+                                        "source_type": "file",
+                                    }
+                                ],
+                                "tick_tokens": 24,
+                                "sleep_interval_seconds": 0.01,
+                                "repeat_sources": True,
+                                "autonomy": {
+                                    "enabled": True,
+                                    "policy": "active",
+                                    "candidate_bank": [
+                                        {
+                                            "name": "live_remote_pool",
+                                            "catalog_mode": "live_remote_search",
+                                            "catalog_providers": ["wikipedia", "openalex"],
+                                            "catalog_limit": 1,
+                                            "catalog_probe_pool_limit": 2,
+                                            "catalog_prior_weight": 0.4,
+                                            "catalog_queries_per_provider": 1,
+                                            "catalog_provider_result_limit": 1,
+                                        }
+                                    ],
+                                    "trigger_interval_tokens": 1,
+                                    "candidate_train_tokens": 96,
+                                    "probe_tokens": 48,
+                                    "acquisition_tokens": 128,
+                                    "acquisition_slots": 1,
+                                },
+                            },
+                        )
+                        client.post(
+                            "/query",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                            },
+                        )
+                        tick_response = client.post("/terminus/tick", json={"steps": 1})
+                        respond_response = client.post(
+                            "/respond",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                                "max_evidence_items": 3,
+                                "learn_mode": "none",
+                            },
+                        )
+
+                self.assertEqual(tick_response.status_code, 200)
+                self.assertEqual(respond_response.status_code, 200)
+
+                tick_body = tick_response.json()
+                respond_body = respond_response.json()
+                acquisition = tick_body["terminus_runtime"]["autonomy"]["last_acquisition_summary"]
+                response = respond_body["response"]
+
+                self.assertEqual(acquisition["acquired_sources"], ["ballast_paper_source"])
+                self.assertGreater(acquisition["tokens_trained_total"], 0)
+                self.assertIn(response["response_mode"], {"quote", "grounded_synthesis", "stitch"})
+                self.assertIn("submarine", response["response_text"].lower())
+                self.assertTrue(
+                    any(term in response["response_text"].lower() for term in ("buoyancy", "ballast"))
+                )
+                self.assertEqual(response["unsupported_terms"], [])
+            finally:
+                content_server.shutdown()
+                content_server.server_close()
+
+    def test_terminus_default_autonomy_remote_search_can_recover_via_follow_up_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            set_seed(7)
+            root = Path(tmpdir)
+            background_path = root / "terminus_background.txt"
+            background_path.write_text("neutral background signal " * 40, encoding="utf-8")
+            submarine_path = root / "submarine.txt"
+            submarine_path.write_text(
+                ("submarines regulate buoyancy with ballast tanks. ballast water shifts pressure and buoyancy inside a submarine. " * 24),
+                encoding="utf-8",
+            )
+
+            content_port = _free_port()
+            content_server = ThreadingHTTPServer(
+                ("127.0.0.1", content_port),
+                partial(_SilentSimpleHTTPRequestHandler, directory=str(root)),
+            )
+            content_thread = threading.Thread(target=content_server.serve_forever, daemon=True)
+            content_thread.start()
+
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_default_live_remote_follow_up_probe"),
+                trace_dir=root / "traces",
+            )
+            provider_queries: list[str] = []
+
+            def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+                provider_queries.append(f"{provider}:{query}")
+                if provider != "wikipedia":
+                    return []
+                if query.strip().lower() != "submarine":
+                    return []
+                return [
+                    {
+                        "name": "submarine_source",
+                        "source": f"http://127.0.0.1:{content_port}/submarine.txt",
+                        "source_type": "web",
+                        "summary": "submarine buoyancy ballast pressure trim tanks",
+                        "query_text": query,
+                        "catalog_priority": 0.9,
+                        "provider": provider,
+                    }
+                ][:result_limit]
+
+            try:
+                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                    with TestClient(app) as client:
+                        configure_response = client.post(
+                            "/terminus/configure",
+                            json={
+                                "source_bank": [
+                                    {
+                                        "name": "api_terminus_source",
+                                        "source": str(background_path),
+                                        "source_type": "file",
+                                    }
+                                ],
+                                "tick_tokens": 24,
+                                "sleep_interval_seconds": 0.01,
+                                "repeat_sources": True,
+                                "autonomy": {
+                                    "enabled": True,
+                                    "policy": "active",
+                                    "trigger_interval_tokens": 1,
+                                    "candidate_train_tokens": 96,
+                                    "probe_tokens": 48,
+                                    "acquisition_tokens": 128,
+                                    "acquisition_slots": 1,
+                                },
+                            },
+                        )
+                        query_response = client.post(
+                            "/query",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                            },
+                        )
+                        tick_response = client.post("/terminus/tick", json={"steps": 1})
+                        respond_response = client.post(
+                            "/respond",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                                "max_evidence_items": 3,
+                                "learn_mode": "none",
+                            },
+                        )
+
+                self.assertEqual(configure_response.status_code, 200)
+                self.assertEqual(query_response.status_code, 200)
+                self.assertEqual(tick_response.status_code, 200)
+                self.assertEqual(respond_response.status_code, 200)
+
+                tick_body = tick_response.json()
+                respond_body = respond_response.json()
+                autonomy = tick_body["terminus_runtime"]["autonomy"]
+                acquisition = autonomy["last_acquisition_summary"]
+                response = respond_body["response"]
+
+                self.assertEqual(autonomy["candidate_bank"][0]["catalog_mode"], "live_remote_search")
+                self.assertEqual(
+                    autonomy["candidate_bank"][0]["catalog_providers"],
+                    ["wikipedia", "arxiv", "openalex"],
+                )
+                self.assertEqual(autonomy["candidate_bank"][0]["catalog_queries_per_provider"], 2)
+                self.assertIn("wikipedia:submarine buoyancy ballast", provider_queries)
+                self.assertIn("wikipedia:submarine", provider_queries)
+                self.assertEqual(acquisition["acquired_sources"], ["submarine_source"])
+                self.assertGreater(acquisition["tokens_trained_total"], 0)
+                self.assertFalse(acquisition["stopped_early"])
+                self.assertIn(response["response_mode"], {"quote", "grounded_synthesis", "stitch"})
+                self.assertIn("submarine", response["response_text"].lower())
+                self.assertTrue(
+                    any(term in response["response_text"].lower() for term in ("buoyancy", "ballast"))
+                )
+                self.assertEqual(response["unsupported_terms"], [])
+            finally:
+                content_server.shutdown()
+                content_server.server_close()
+
+    def test_terminus_default_autonomy_remote_search_grows_query_budget_from_weak_concepts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            set_seed(7)
+            root = Path(tmpdir)
+            background_path = root / "terminus_background.txt"
+            background_path.write_text("neutral background signal " * 40, encoding="utf-8")
+            submarine_path = root / "submarine.txt"
+            submarine_path.write_text(
+                ("submarines regulate buoyancy with ballast tanks. ballast water shifts pressure and buoyancy inside a submarine. " * 24),
+                encoding="utf-8",
+            )
+
+            content_port = _free_port()
+            content_server = ThreadingHTTPServer(
+                ("127.0.0.1", content_port),
+                partial(_SilentSimpleHTTPRequestHandler, directory=str(root)),
+            )
+            content_thread = threading.Thread(target=content_server.serve_forever, daemon=True)
+            content_thread.start()
+
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_default_live_remote_query_growth"),
+                trace_dir=root / "traces",
+            )
+            provider_queries: list[str] = []
+
+            def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+                provider_queries.append(f"{provider}:{query}")
+                if provider != "wikipedia":
+                    return []
+                if query.strip().lower() != "submarine ballast buoyancy":
+                    return []
+                return [
+                    {
+                        "name": "submarine_source",
+                        "source": f"http://127.0.0.1:{content_port}/submarine.txt",
+                        "source_type": "web",
+                        "summary": "submarine buoyancy ballast pressure trim tanks",
+                        "query_text": query,
+                        "catalog_priority": 0.9,
+                        "provider": provider,
+                    }
+                ][:result_limit]
+
+            try:
+                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                    with TestClient(app) as client:
+                        configure_response = client.post(
+                            "/terminus/configure",
+                            json={
+                                "source_bank": [
+                                    {
+                                        "name": "api_terminus_source",
+                                        "source": str(background_path),
+                                        "source_type": "file",
+                                    }
+                                ],
+                                "tick_tokens": 24,
+                                "sleep_interval_seconds": 0.01,
+                                "repeat_sources": True,
+                                "autonomy": {
+                                    "enabled": True,
+                                    "policy": "active",
+                                    "trigger_interval_tokens": 1,
+                                    "candidate_train_tokens": 96,
+                                    "probe_tokens": 48,
+                                    "acquisition_tokens": 128,
+                                    "acquisition_slots": 1,
+                                },
+                            },
+                        )
+                        with app.state.hecsn_manager._lock:
+                            app.state.hecsn_manager._record_recent_query_gap_locked(
+                                query_text="submarine buoyancy ballast",
+                                source="query",
+                                gap_plan={
+                                    "unsupported_terms": ["submarine"],
+                                    "gap_terms": [{"term": "submarine", "weight": 2.0}],
+                                    "retrieval_queries": [],
+                                    "follow_up_questions": [],
+                                    "weak_concepts": [
+                                        {
+                                            "label": "garden soil",
+                                            "weakness": 0.9,
+                                            "uncertainty": 0.5,
+                                            "drift": 0.1,
+                                            "top_terms": ["garden", "tomato", "soil"],
+                                            "match_count": 1,
+                                        },
+                                        {
+                                            "label": "buoyancy control",
+                                            "weakness": 0.7,
+                                            "uncertainty": 0.6,
+                                            "drift": 0.2,
+                                            "top_terms": ["submarine", "ballast", "buoyancy"],
+                                            "match_count": 1,
+                                        },
+                                    ],
+                                    "grounded_fraction": 0.0,
+                                },
+                            )
+                        tick_response = client.post("/terminus/tick", json={"steps": 1})
+                        respond_response = client.post(
+                            "/respond",
+                            json={
+                                "query_text": "submarine buoyancy ballast",
+                                "top_k_memories": 6,
+                                "max_evidence_items": 3,
+                                "learn_mode": "none",
+                            },
+                        )
+
+                self.assertEqual(configure_response.status_code, 200)
+                self.assertEqual(tick_response.status_code, 200)
+                self.assertEqual(respond_response.status_code, 200)
+
+                tick_body = tick_response.json()
+                respond_body = respond_response.json()
+                autonomy = tick_body["terminus_runtime"]["autonomy"]
+                acquisition = autonomy["last_acquisition_summary"]
+                response = respond_body["response"]
+
+                self.assertEqual(autonomy["candidate_bank"][0]["catalog_mode"], "live_remote_search")
+                self.assertEqual(autonomy["candidate_bank"][0]["catalog_queries_per_provider"], 2)
+                self.assertEqual(
+                    autonomy["focus_plan"]["weak_concepts"][0]["top_terms"],
+                    ["garden", "tomato", "soil"],
+                )
+                self.assertIn("wikipedia:submarine", provider_queries)
+                self.assertIn("wikipedia:garden tomato soil", provider_queries)
+                self.assertIn("wikipedia:submarine ballast buoyancy", provider_queries)
                 self.assertEqual(acquisition["acquired_sources"], ["submarine_source"])
                 self.assertGreater(acquisition["tokens_trained_total"], 0)
                 self.assertFalse(acquisition["stopped_early"])

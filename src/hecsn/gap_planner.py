@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 from hecsn.semantics.grounding_text import match_terms
 from hecsn.semantics.grounding_text import normalize_text as _normalize_text
 from hecsn.semantics.grounding_text import salient_query_terms
+from hecsn.semantics.grounding_text import stream_unit_profile
+from hecsn.semantics.grounding_text import term_match_score
 from hecsn.semantics.grounding_text import tokenize
 
 def _clamp01(value: float) -> float:
@@ -96,6 +98,24 @@ def _top_term_payload(counter: Counter[str], limit: int) -> list[dict[str, Any]]
         for term, weight in ranked
         if float(weight) > 0.0
     ]
+
+
+def _add_profile_weights(
+    counter: Counter[str],
+    profile: Mapping[str, float],
+    *,
+    scale: float,
+    limit: int = 12,
+) -> None:
+    ranked = sorted(
+        profile.items(),
+        key=lambda item: float(item[1]),
+        reverse=True,
+    )[: max(1, int(limit))]
+    for rank, (term, weight) in enumerate(ranked):
+        if len(str(term)) < 2 and not str(term).isdigit():
+            continue
+        counter[str(term)] += float(scale) * max(0.0, float(weight)) / float(rank + 1)
 
 
 def _query_term_support(
@@ -393,9 +413,17 @@ def frontier_gap_plan(
 
 def _add_weighted_terms(counter: Counter[str], texts: Sequence[str], *, scale: float) -> None:
     for text_rank, text in enumerate(texts):
-        for term_rank, term in enumerate(tokenize_terms(text)[:8]):
-            counter[term] += float(scale) / (
-                math.sqrt(float(text_rank + 1)) * float(term_rank + 1)
+        profile = stream_unit_profile(text)
+        ranked_terms = sorted(
+            profile.items(),
+            key=lambda item: float(item[1]),
+            reverse=True,
+        )[:24]
+        for term_rank, (term, weight) in enumerate(ranked_terms):
+            counter[str(term)] += (
+                float(scale)
+                * max(0.0, float(weight))
+                / (math.sqrt(float(text_rank + 1)) * float(term_rank + 1))
             )
 
 
@@ -414,8 +442,8 @@ def candidate_bank_term_profile(
     counter: Counter[str] = Counter()
     name = _normalize_text(_candidate_bank_field(bank, "name", ""))
     source = _normalize_text(_candidate_bank_field(bank, "source", ""))
-    for rank, term in enumerate(tokenize_terms(name)):
-        counter[term] += 2.0 / float(rank + 1)
+    metadata = _candidate_bank_field(bank, "metadata", None)
+    _add_profile_weights(counter, stream_unit_profile(name), scale=2.0)
 
     if source:
         parsed = urlparse(source)
@@ -425,8 +453,22 @@ def candidate_bank_term_profile(
             source if not parsed.scheme else "",
         ]
         for part in source_parts:
-            for rank, term in enumerate(tokenize_terms(part)):
-                counter[term] += 1.0 / float(rank + 1)
+            _add_profile_weights(counter, stream_unit_profile(part), scale=1.0)
+
+    if isinstance(metadata, Mapping):
+        catalog_title = _normalize_text(metadata.get("catalog_title", ""))
+        catalog_summary = _normalize_text(metadata.get("catalog_summary", ""))
+        if catalog_title:
+            _add_profile_weights(counter, stream_unit_profile(catalog_title), scale=1.5)
+        if catalog_summary:
+            _add_weighted_terms(counter, [catalog_summary], scale=1.25)
+        catalog_terms = [
+            _normalize_text(item)
+            for item in list(metadata.get("catalog_terms") or [])
+            if _normalize_text(item)
+        ]
+        if catalog_terms:
+            _add_weighted_terms(counter, catalog_terms[:16], scale=1.0)
 
     probe_windows = list(_candidate_bank_field(bank, "probe_raw_windows", []) or [])
     _add_weighted_terms(counter, probe_windows[: max(1, int(max_windows // 2))], scale=1.25)
@@ -451,41 +493,61 @@ def _profile_overlap_score(
     if not profile or not target_weights:
         return 0.0
 
-    def term_match_score(profile_term: str, target_term: str) -> float:
-        profile_norm = _normalize_text(profile_term).lower()
-        target_norm = _normalize_text(target_term).lower()
-        if not profile_norm or not target_norm:
-            return 0.0
-        if profile_norm == target_norm:
-            return 1.0
-        shorter = min(len(profile_norm), len(target_norm))
-        longer = max(len(profile_norm), len(target_norm))
-        if profile_norm in target_norm or target_norm in profile_norm:
-            return float(shorter / max(1, longer))
-        overlap = max(
-            _suffix_prefix_overlap(profile_norm, target_norm, min_overlap=4),
-            _suffix_prefix_overlap(target_norm, profile_norm, min_overlap=4),
-        )
-        if overlap <= 0:
-            return 0.0
-        return float(overlap / max(1, longer))
-
     matched = 0.0
     total = 0.0
-    max_profile_weight = max(profile.values()) if profile else 1.0
+    profile_terms = [
+        str(term).strip().lower()
+        for term, weight in profile.items()
+        if str(term).strip() and float(weight) > 0.0
+    ]
     for term, raw_weight in target_weights.items():
         weight = max(0.0, float(raw_weight))
         total += weight
-        best_match = 0.0
-        for profile_term, profile_weight in profile.items():
-            match_strength = term_match_score(profile_term, term)
-            if match_strength <= 0.0:
-                continue
-            normalized_profile_weight = min(1.0, float(profile_weight) / max(1e-8, max_profile_weight))
-            best_match = max(best_match, match_strength * normalized_profile_weight)
-        matched += weight * best_match
+        matched += weight * term_match_score(str(term), profile_terms)
     if total <= 0.0:
         return 0.0
+    return float(max(0.0, min(1.0, matched / total)))
+
+
+def _candidate_bank_metadata_texts(bank: Any) -> list[str]:
+    metadata = _candidate_bank_field(bank, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return []
+
+    texts: list[str] = []
+    for key in ("catalog_title", "catalog_summary", "catalog_content_preview"):
+        value = _normalize_text(metadata.get(key, ""))
+        if value:
+            texts.append(value)
+    texts.extend(
+        _normalize_text(item)
+        for item in list(metadata.get("catalog_terms") or [])
+        if _normalize_text(item)
+    )
+    return texts
+
+
+def _metadata_overlap_score(
+    bank: Any,
+    target_weights: Mapping[str, float],
+) -> float:
+    if not target_weights:
+        return 0.0
+    metadata_text = " ".join(_candidate_bank_metadata_texts(bank)).strip()
+    if not metadata_text:
+        return 0.0
+    matched_terms = set(match_terms(list(target_weights), metadata_text))
+    if not matched_terms:
+        return 0.0
+
+    total = sum(max(0.0, float(weight)) for weight in target_weights.values())
+    if total <= 0.0:
+        return 0.0
+    matched = sum(
+        max(0.0, float(weight))
+        for term, weight in target_weights.items()
+        if str(term).strip().lower() in matched_terms
+    )
     return float(max(0.0, min(1.0, matched / total)))
 
 
@@ -524,10 +586,22 @@ def bank_semantic_relevance_score(
         if not focus_terms or term in focus_terms
     }
 
-    gap_score = _profile_overlap_score(profile, gap_targets)
-    query_score = _profile_overlap_score(profile, query_targets)
-    question_score = _profile_overlap_score(profile, question_targets)
-    unsupported_score = _profile_overlap_score(profile, unsupported_targets)
+    gap_score = max(
+        _profile_overlap_score(profile, gap_targets),
+        _metadata_overlap_score(bank, gap_targets),
+    )
+    query_score = max(
+        _profile_overlap_score(profile, query_targets),
+        _metadata_overlap_score(bank, query_targets),
+    )
+    question_score = max(
+        _profile_overlap_score(profile, question_targets),
+        _metadata_overlap_score(bank, question_targets),
+    )
+    unsupported_score = max(
+        _profile_overlap_score(profile, unsupported_targets),
+        _metadata_overlap_score(bank, unsupported_targets),
+    )
     return _clamp01(
         0.45 * gap_score
         + 0.25 * query_score

@@ -10,12 +10,50 @@ from hecsn.gap_planner import plan_query_gaps
 from hecsn.interaction import EvidenceResponder
 from hecsn.semantics import ConceptStore
 from hecsn.training.meaning_grounding_runner import run_meaning_grounding_benchmark
-from hecsn.training.query_runner import build_query_result
+from hecsn.training.query_runner import build_memory_episodes, build_query_result
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
 
 
 class MeaningGroundingTests(unittest.TestCase):
+    def test_build_memory_episodes_uses_abstraction_focus_to_resegment_priority_evidence(self) -> None:
+        memory_matches = [
+            {
+                "memory_index": 0,
+                "text": "The submarine crew rotates watches during patrols. Ballast water controls buoyancy and depth.",
+                "raw_window": "submarine crew rotates watches ballast water controls buoyancy depth",
+                "similarity": 0.40,
+                "importance": 1.0,
+            },
+            {
+                "memory_index": 1,
+                "text": "The submarine crew rotates watches during patrols.",
+                "raw_window": "submarine crew rotates watches during patrols",
+                "similarity": 0.45,
+                "importance": 1.0,
+            },
+        ]
+
+        baseline = build_memory_episodes(
+            memory_matches,
+            top_k=2,
+            query_terms=["submarine", "depth"],
+        )
+        focused = build_memory_episodes(
+            memory_matches,
+            top_k=2,
+            query_terms=["submarine", "depth"],
+            focus_terms=["ballast", "buoyancy", "depth"],
+            memory_priority={"0": 1.0},
+        )
+
+        self.assertEqual(
+            baseline[0]["text"].lower(),
+            "the submarine crew rotates watches during patrols.",
+        )
+        self.assertIn("ballast water controls buoyancy and depth", focused[0]["text"].lower())
+        self.assertEqual(focused[0]["memory_index"], 0)
+
     def test_query_result_exposes_episode_evidence_and_grounded_quote(self) -> None:
         set_seed(7)
         cfg = HECSNConfig(
