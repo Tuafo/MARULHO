@@ -54,17 +54,7 @@ def feature_label(index: int, representation: str, feature_dim: int) -> str:
 
 
 def text_pattern_stream(text: str, encoder: RTFEncoder, window_size: int) -> Iterator[tuple[str, torch.Tensor]]:
-    window_codes: List[int] = []
-    window_chars: List[str] = []
-    for ch in text:
-        code = ord(ch) if ord(ch) < 128 else 0
-        display = ch if ord(ch) < 128 else "?"
-        window_codes.append(code)
-        window_chars.append(display)
-        if len(window_codes) > window_size:
-            window_codes.pop(0)
-            window_chars.pop(0)
-        yield "".join(window_chars), encoder.feature_vector(window_codes)
+    yield from encoder.iter_char_patterns(text, window_size, learn=False)
 
 
 def top_feature_details(pattern: torch.Tensor, top_n: int, representation: str) -> list[dict[str, Any]]:
@@ -100,9 +90,10 @@ def feed_text(
     *,
     on_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
+    trainer.encoder = encoder
     last_metrics: dict[str, Any] | None = None
     tokens = 0
-    for raw_window, pattern in text_pattern_stream(text, encoder, trainer.config.window_size):
+    for raw_window, pattern in encoder.iter_char_patterns(text, trainer.config.window_size, learn=True):
         last_metrics = trainer.train_step(pattern, raw_window=raw_window)
         if on_step is not None:
             on_step(raw_window, last_metrics)
@@ -118,6 +109,7 @@ def feed_text(
 
 
 def prime_context(trainer: HECSNTrainer, encoder: RTFEncoder, text: str) -> int:
+    trainer.encoder = encoder
     patterns = [pattern for _, pattern in text_pattern_stream(text, encoder, trainer.config.window_size)]
     trainer.prime_context(patterns, update_weights=False)
     return len(patterns)
@@ -373,6 +365,7 @@ def build_memory_episodes(
                     "memory_focus_priority": 0.0,
                     "complete_sentence": 0,
                     "clipped_overlap": 1,
+                    "expansion_chars": 0,
                 }
                 grouped[key] = entry
                 order.append(key)
@@ -381,8 +374,12 @@ def build_memory_episodes(
             entry["importance"] = max(float(entry["importance"]), float(match.get("importance", 0.0)))
             entry["age_tokens"] = min(int(entry["age_tokens"]), int(match.get("age_tokens", 0)))
             complete_sentence, clipped_overlap = episode_quality(text, match.get("raw_window"))
+            raw_window_text = str(match.get("raw_window") or "").strip()
+            expansion_chars = max(0, len(text.strip()) - len(raw_window_text))
+            previous_expansion = int(entry.get("expansion_chars", 0))
             entry["complete_sentence"] = max(int(entry["complete_sentence"]), int(complete_sentence))
             entry["clipped_overlap"] = min(int(entry["clipped_overlap"]), int(clipped_overlap))
+            entry["expansion_chars"] = max(previous_expansion, int(expansion_chars))
             entry["query_overlap"] = max(int(entry["query_overlap"]), len(match_terms(query_terms or [], text)))
             entry["focus_overlap"] = max(int(entry["focus_overlap"]), len(match_terms(ordered_focus_terms, text)))
             memory_index = int(match.get("memory_index", -1))
@@ -392,7 +389,10 @@ def build_memory_episodes(
                 float(entry.get("memory_focus_priority", 0.0)),
                 _memory_focus_priority(memory_priority, entry["memory_indices"]),
             )
-            if float(match.get("similarity", 0.0)) >= float(entry["similarity"]):
+            if (
+                expansion_chars > previous_expansion
+                or float(match.get("similarity", 0.0)) >= float(entry["similarity"])
+            ):
                 entry["memory_index"] = memory_index
                 if match.get("raw_window"):
                     entry["raw_window"] = match.get("raw_window")
@@ -404,6 +404,7 @@ def build_memory_episodes(
             int(item.get("focus_overlap", 0)),
             float(item.get("memory_focus_priority", 0.0)),
             int(item.get("complete_sentence", 0)),
+            int(item.get("expansion_chars", 0)),
             -int(item.get("clipped_overlap", 0)),
             float(item.get("similarity", 0.0)),
             int(item.get("match_count", 0)),
@@ -433,7 +434,7 @@ def build_context_comparison(
     top_chars: int,
 ) -> dict[str, Any]:
     trainer, _ = load_trainer_checkpoint(checkpoint)
-    encoder = RTFEncoder.from_config(trainer.config)
+    encoder = trainer.encoder
 
     if feed_text_value:
         feed_text(trainer, encoder, feed_text_value)
@@ -595,7 +596,7 @@ def run_query(
     compare_context_b: Optional[str],
 ) -> None:
     trainer, metadata = load_trainer_checkpoint(checkpoint)
-    encoder = RTFEncoder.from_config(trainer.config)
+    encoder = trainer.encoder
 
     feed_text_resolved = read_text_argument(feed_text_value, feed_file)
     query_text_resolved = read_text_argument(query_text, query_file)

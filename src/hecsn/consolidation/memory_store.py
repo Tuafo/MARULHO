@@ -237,6 +237,104 @@ class DualMemoryStore:
         bucket_share, global_share = self._pool_share(idx)
         return float(max(0.0, local_prp + bucket_share + global_share))
 
+    def fragility_score(self, idx: int, current_token: int) -> float:
+        if idx < 0 or idx >= len(self.slow_buffer):
+            return 0.0
+
+        self._advance_state(current_token)
+        consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+        importance = float(max(1e-6, self.slow_importance[idx]))
+        replay_age = max(0, int(current_token) - int(self.slow_last_replay_token[idx]))
+        replay_count = max(0, int(self.slow_replay_count[idx]))
+        tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
+        capture_strength = float(max(0.0, tag_strength * self._available_prp(idx)))
+
+        age_pressure = 1.0 + math.log1p(float(replay_age) / max(1.0, float(self.functional_minute)))
+        access_penalty = 1.0 / (1.0 + 0.5 * float(replay_count))
+        stability_gap = max(0.0, 1.0 - consolidation)
+        capture_gap = max(0.0, 1.0 - capture_strength)
+        importance_scale = 0.5 + min(1.0, importance)
+        return float(stability_gap * age_pressure * access_penalty * importance_scale * (0.5 + capture_gap))
+
+    def fragility_scores(self, current_token: int) -> torch.Tensor:
+        self._advance_state(current_token)
+        return torch.tensor(
+            [self.fragility_score(idx, current_token) for idx in range(len(self.slow_buffer))],
+            dtype=torch.float32,
+        )
+
+    def bucket_consolidation_level(self, bucket_id: Optional[int]) -> float:
+        if bucket_id is None:
+            return 0.0
+
+        bucket = int(bucket_id)
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for idx, stored_bucket in enumerate(self.slow_bucket_ids):
+            if stored_bucket is None or int(stored_bucket) != bucket:
+                continue
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            weighted_sum += importance * float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+            total_weight += importance
+        if total_weight <= 0.0:
+            return 0.0
+        return float(weighted_sum / total_weight)
+
+    def maintenance_scores(self, current_token: int) -> torch.Tensor:
+        if not self.slow_buffer:
+            return torch.zeros(0, dtype=torch.float32)
+
+        self._advance_state(current_token)
+        scores: list[float] = []
+        for idx in range(len(self.slow_buffer)):
+            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+            if consolidation >= 0.8:
+                scores.append(0.0)
+                continue
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
+            fragility = self.fragility_score(idx, current_token)
+            scores.append(float(importance * fragility * (1.0 + 0.5 * tag_strength)))
+        return torch.tensor(scores, dtype=torch.float32)
+
+    def consolidation_scores(self, current_token: int) -> torch.Tensor:
+        if not self.slow_buffer:
+            return torch.zeros(0, dtype=torch.float32)
+
+        self._advance_state(current_token)
+        scores: list[float] = []
+        for idx in range(len(self.slow_buffer)):
+            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+            tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
+            prp_level = float(max(0.0, self._available_prp(idx)))
+            capture_strength = float(max(0.0, tag_strength * prp_level))
+            if consolidation >= 0.8 or capture_strength <= self.prp_capture_threshold:
+                scores.append(0.0)
+                continue
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            consolidation_gap = max(0.0, 0.8 - consolidation)
+            scores.append(float(importance * capture_strength * (1.0 + consolidation_gap)))
+        return torch.tensor(scores, dtype=torch.float32)
+
+    def repair_scores(self, current_token: int) -> torch.Tensor:
+        if not self.slow_buffer:
+            return torch.zeros(0, dtype=torch.float32)
+
+        self._advance_state(current_token)
+        scores: list[float] = []
+        for idx in range(len(self.slow_buffer)):
+            importance = float(max(1e-6, self.slow_importance[idx]))
+            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+            replay_age = max(0, int(current_token) - int(self.slow_last_replay_token[idx]))
+            scores.append(
+                float(
+                    importance
+                    * (0.5 + consolidation)
+                    * (1.0 + math.log1p(float(replay_age) / max(1.0, float(self.functional_minute))))
+                )
+            )
+        return torch.tensor(scores, dtype=torch.float32)
+
     def _consume_pools(self, idx: int, amount: float) -> float:
         required = float(max(0.0, amount))
         if required <= 0.0:
@@ -490,6 +588,8 @@ class DualMemoryStore:
             "consolidation_gap": float(max(0.0, 1.0 - consolidation)),
             "consolidation_events": int(self.slow_consolidation_events[idx]),
             "replay_count": int(self.slow_replay_count[idx]),
+            "tokens_since_last_replay": int(max(0, token_marker - int(self.slow_last_replay_token[idx]))),
+            "fragility": float(self.fragility_score(idx, token_marker)),
             "age_tokens": int(max(0, token_marker - int(self.slow_entry_timestamps[idx]))),
             "last_replay_token": int(self.slow_last_replay_token[idx]),
             "tag_is_strong": bool(self.slow_tag_is_strong[idx]),
@@ -506,14 +606,20 @@ class DualMemoryStore:
         if n <= 0 or not self.slow_buffer:
             return []
 
-        scores = self.replay_scores(current_token)
-        if int(scores.numel()) <= 0:
-            return []
-
         count = len(self.slow_buffer)
         if strategy == "random":
             perm = torch.randperm(count)
             return [int(idx) for idx in perm[: min(count, int(n))].tolist()]
+        if strategy == "maintenance":
+            scores = self.maintenance_scores(current_token)
+        elif strategy in {"priority", "consolidation"}:
+            scores = self.consolidation_scores(current_token)
+        elif strategy == "repair":
+            scores = self.repair_scores(current_token)
+        else:
+            raise ValueError(f"Unknown replay sampling strategy: {strategy}")
+        if int(scores.numel()) <= 0:
+            return []
 
         top_k = min(count, max(int(n), int(candidate_pool) if candidate_pool is not None else int(n)))
         top_values, top_indices = torch.topk(scores, k=top_k)
@@ -526,6 +632,56 @@ class DualMemoryStore:
         chosen = [int(top_indices[int(local_idx)].item()) for local_idx in draw.tolist()]
         chosen.sort(key=lambda item: float(scores[item].item()), reverse=True)
         return chosen
+
+    def refresh_maintenance(
+        self,
+        indices: Sequence[int],
+        *,
+        current_token: int,
+        tag_refresh: float = 0.05,
+    ) -> None:
+        if not indices:
+            return
+
+        self._advance_state(current_token)
+        refresh = float(max(0.0, tag_refresh))
+        for raw_idx in indices:
+            idx = int(raw_idx)
+            if idx < 0 or idx >= len(self.slow_buffer):
+                continue
+            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+            if consolidation >= 0.8:
+                continue
+            if refresh > 0.0:
+                self.slow_capture_tag[idx] = float(min(1.0, self.slow_capture_tag[idx] + refresh))
+                importance = float(max(1e-6, self.slow_importance[idx]))
+                injected = self._inject_prp(
+                    bucket_id=self.slow_bucket_ids[idx] if idx < len(self.slow_bucket_ids) else None,
+                    strength=self.slow_capture_tag[idx],
+                    importance=importance,
+                    sleep_boost=0.5,
+                )
+                if injected > 0.0:
+                    self.slow_local_prp[idx] = float(self.slow_local_prp[idx] + 0.10 * injected)
+            self.slow_last_replay_token[idx] = int(current_token)
+            self.slow_replay_count[idx] += 1
+
+    def mark_repair_replay(
+        self,
+        indices: Sequence[int],
+        *,
+        current_token: int,
+    ) -> None:
+        if not indices:
+            return
+
+        self._advance_state(current_token)
+        for raw_idx in indices:
+            idx = int(raw_idx)
+            if idx < 0 or idx >= len(self.slow_buffer):
+                continue
+            self.slow_last_replay_token[idx] = int(current_token)
+            self.slow_replay_count[idx] += 1
 
     def consolidate_replay(
         self,
@@ -552,6 +708,11 @@ class DualMemoryStore:
             bucket_id = self.slow_bucket_ids[idx] if idx < len(self.slow_bucket_ids) else None
             tag_strength = float(max(0.0, self.slow_capture_tag[idx]))
             importance = float(max(1e-6, self.slow_importance[idx]))
+            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
+            if consolidation >= 0.8:
+                self.slow_last_replay_token[idx] = int(current_token)
+                self.slow_replay_count[idx] += 1
+                continue
             if synthesis_level > 0.0:
                 injected = self._inject_prp(
                     bucket_id=bucket_id,
@@ -569,7 +730,6 @@ class DualMemoryStore:
 
             prp_level = float(max(0.0, self._available_prp(idx)))
             capture_strength = float(max(0.0, tag_strength * prp_level))
-            consolidation = float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
             capture_drive = max(0.0, capture_strength - self.prp_capture_threshold) + 0.25 * min(capture_strength, self.prp_capture_threshold)
             delta = replay_blend * self.consolidation_rate * capture_drive * max(0.0, 1.0 - consolidation)
 
@@ -630,6 +790,7 @@ class DualMemoryStore:
         token_marker = self._state_token if current_token is None else int(current_token)
         self._advance_state(token_marker)
         prp_levels = [float(self._available_prp(idx)) for idx in range(len(self.slow_buffer))]
+        fragility_levels = [float(self.fragility_score(idx, token_marker)) for idx in range(len(self.slow_buffer))]
         capture_levels = [
             float(max(0.0, self.slow_capture_tag[idx]) * max(0.0, prp_levels[idx]))
             for idx in range(len(self.slow_buffer))
@@ -646,10 +807,14 @@ class DualMemoryStore:
             "mean_capture_strength": float(sum(capture_levels) / max(1, len(capture_levels))),
             "max_capture_strength": float(max(capture_levels, default=0.0)),
             "mean_consolidation_level": float(sum(self.slow_consolidation_level) / max(1, len(self.slow_consolidation_level))),
+            "mean_fragility": float(sum(fragility_levels) / max(1, len(fragility_levels))),
+            "max_fragility": float(max(fragility_levels, default=0.0)),
             "mean_replay_count": float(sum(self.slow_replay_count) / max(1, len(self.slow_replay_count))),
             "strong_tag_fraction": float(sum(1 for value in self.slow_tag_is_strong if value) / max(1, len(self.slow_tag_is_strong))),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
+            "fast_ema_norm": float(torch.norm(self.fast_ema).item()) if isinstance(self.fast_ema, torch.Tensor) else 0.0,
+            "slow_mean_norm": float(torch.norm(self._slow_mean).item()) if isinstance(self._slow_mean, torch.Tensor) else 0.0,
             "drift": float(self.compute_drift()),
         }
 

@@ -94,8 +94,11 @@ class ContextCircuitTests(unittest.TestCase):
 
 class BindingCircuitTests(unittest.TestCase):
     def test_binding_facilitation_strengthens_repeated_coincidence(self) -> None:
+        torch.manual_seed(3)
         layer = BindingLayer(
             n_columns=4,
+            n_bindings=8,
+            fan_in=2,
             device=torch.device("cpu"),
             threshold=0.0,
             association_lr=0.3,
@@ -109,11 +112,16 @@ class BindingCircuitTests(unittest.TestCase):
         _, second_strength = layer.bind(context, assembly, update_weights=True)
 
         self.assertGreaterEqual(second_strength, first_strength)
-        self.assertGreater(float(layer.facilitation[0].item()), 0.0)
+        self.assertNotEqual(layer.n_bindings, layer.n_columns)
+        self.assertTrue(torch.all(layer.connectivity.sum(dim=1) == 2.0))
+        self.assertGreater(float(layer.facilitation.max().item()), 0.0)
 
     def test_binding_prediction_prefers_learned_conjunction(self) -> None:
+        torch.manual_seed(4)
         layer = BindingLayer(
             n_columns=4,
+            n_bindings=8,
+            fan_in=2,
             device=torch.device("cpu"),
             threshold=0.0,
             association_lr=0.5,
@@ -128,6 +136,32 @@ class BindingCircuitTests(unittest.TestCase):
 
         prediction = layer.binding_prediction(context)
         self.assertGreater(float(prediction[1].item()), float(prediction[0].item()))
+
+    def test_binding_growth_adds_new_sparse_subset(self) -> None:
+        torch.manual_seed(5)
+        layer = BindingLayer(
+            n_columns=6,
+            n_bindings=4,
+            fan_in=2,
+            device=torch.device("cpu"),
+        )
+        covered_pairs = {
+            tuple(indices.tolist())
+            for indices in (row.nonzero(as_tuple=True)[0].cpu() for row in layer.connectivity)
+        }
+        candidate_pair = next(pair for pair in ((0, 3), (1, 4), (2, 5), (0, 5)) if pair not in covered_pairs)
+
+        grown = layer.grow_binding([(candidate_pair[0], candidate_pair[1], 0.9)])
+
+        self.assertEqual(grown, 1)
+        self.assertEqual(layer.n_bindings, 5)
+        self.assertTrue(
+            bool(
+                ((layer.connectivity[:, candidate_pair[0]] > 0.0) & (layer.connectivity[:, candidate_pair[1]] > 0.0))
+                .any()
+                .item()
+            )
+        )
 
 
 class ContextCheckpointTests(unittest.TestCase):

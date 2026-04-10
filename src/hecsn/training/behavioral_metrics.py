@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
@@ -17,6 +18,31 @@ TextScoreFn = Callable[[str, str], float]
 TextVectorFn = Callable[[str], torch.Tensor]
 
 
+def _normalize_vector(value: torch.Tensor) -> torch.Tensor | None:
+    vector = value.detach().clone().float().reshape(-1)
+    if int(vector.numel()) <= 0:
+        return None
+    norm = float(vector.norm().item())
+    if norm <= 1e-8:
+        return None
+    return F.normalize(vector, dim=0)
+
+
+def _align_vectors(left: torch.Tensor, right: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    target_dim = max(int(left.numel()), int(right.numel()))
+    if int(left.numel()) < target_dim:
+        left = F.pad(left, (0, target_dim - int(left.numel())))
+    if int(right.numel()) < target_dim:
+        right = F.pad(right, (0, target_dim - int(right.numel())))
+    return left, right
+
+
+def _mean_or_none(values: Sequence[float]) -> Optional[float]:
+    if not values:
+        return None
+    return float(sum(values) / len(values))
+
+
 def ascii_codes(text: str) -> list[int]:
     return [ord(ch) if ord(ch) < 128 else 0 for ch in text]
 
@@ -28,9 +54,12 @@ def mean(values: Sequence[float]) -> float:
 
 
 def cosine_similarity(left: torch.Tensor, right: torch.Tensor) -> float:
-    if left.numel() == 0 or right.numel() == 0:
+    left_norm = _normalize_vector(left)
+    right_norm = _normalize_vector(right)
+    if left_norm is None or right_norm is None:
         return float("nan")
-    return float(F.cosine_similarity(left.unsqueeze(0), right.unsqueeze(0), dim=1).item())
+    left_aligned, right_aligned = _align_vectors(left_norm, right_norm)
+    return float(torch.dot(left_aligned, right_aligned).item())
 
 
 def order_sensitivity(vector_for_text: TextVectorFn, eval_windows: Sequence[str], max_samples: int) -> dict[str, Any]:
@@ -157,3 +186,186 @@ def clustering_metrics(
 
     array = np.stack([embedding.detach().cpu().float().numpy() for embedding in embeddings], axis=0)
     return float(silhouette_score(array, labels)), float(davies_bouldin_score(array, labels)), "ok"
+
+
+def temporal_coherence(
+    routing_history: Sequence[tuple[str, int]],
+    *,
+    window: int | None = None,
+    min_pattern_occurrences: int = 2,
+) -> dict[str, Any]:
+    if window is not None and window > 0:
+        history = list(routing_history[-int(window) :])
+    else:
+        history = list(routing_history)
+    if not history:
+        return {
+            "history_length": 0,
+            "pattern_count": 0,
+            "supported_pattern_count": 0,
+            "sample_count": 0,
+            "mean_coherence": None,
+        }
+
+    grouped: dict[str, list[int]] = defaultdict(list)
+    for pattern_hash, winner_idx in history:
+        grouped[str(pattern_hash)].append(int(winner_idx))
+
+    supported_pattern_count = 0
+    sample_count = 0
+    coherences: list[float] = []
+    minimum = max(2, int(min_pattern_occurrences))
+    for winners in grouped.values():
+        if len(winners) < minimum:
+            continue
+        supported_pattern_count += 1
+        sample_count += len(winners)
+        mode_count = Counter(winners).most_common(1)[0][1]
+        coherences.append(float(mode_count) / float(len(winners)))
+
+    return {
+        "history_length": int(len(history)),
+        "pattern_count": int(len(grouped)),
+        "supported_pattern_count": int(supported_pattern_count),
+        "sample_count": int(sample_count),
+        "mean_coherence": _mean_or_none(coherences),
+    }
+
+
+def compositionality_score(
+    vector_triples: Sequence[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+) -> dict[str, Any]:
+    scores: list[float] = []
+    successes = 0
+    for left, right, combined in vector_triples:
+        left_norm = _normalize_vector(left)
+        right_norm = _normalize_vector(right)
+        combined_norm = _normalize_vector(combined)
+        if left_norm is None or right_norm is None or combined_norm is None:
+            continue
+        left_aligned, right_aligned = _align_vectors(left_norm, right_norm)
+        combined_aligned, _ = _align_vectors(combined_norm, left_aligned)
+        left_aligned, right_aligned = _align_vectors(left_aligned, right_aligned)
+        expected = left_aligned + right_aligned
+        expected_norm = _normalize_vector(expected)
+        if expected_norm is None:
+            continue
+        expected_norm, combined_aligned = _align_vectors(expected_norm, combined_aligned)
+        score = float(torch.dot(expected_norm, combined_aligned).item())
+        scores.append(score)
+        if score > 0.0:
+            successes += 1
+
+    return {
+        "sample_count": int(len(scores)),
+        "mean_score": _mean_or_none(scores),
+        "success_rate": None if not scores else float(successes / len(scores)),
+    }
+
+
+def grounding_probe(
+    vector_triples: Sequence[tuple[torch.Tensor, torch.Tensor, torch.Tensor]],
+) -> dict[str, Any]:
+    positive_scores: list[float] = []
+    negative_scores: list[float] = []
+    margins: list[float] = []
+    correct = 0
+    for anchor, positive, negative in vector_triples:
+        positive_similarity = cosine_similarity(anchor, positive)
+        negative_similarity = cosine_similarity(anchor, negative)
+        if np.isnan(positive_similarity) or np.isnan(negative_similarity):
+            continue
+        positive_scores.append(float(positive_similarity))
+        negative_scores.append(float(negative_similarity))
+        margin = float(positive_similarity - negative_similarity)
+        margins.append(margin)
+        if margin > 0.0:
+            correct += 1
+
+    return {
+        "sample_count": int(len(margins)),
+        "accuracy": None if not margins else float(correct / len(margins)),
+        "mean_margin": _mean_or_none(margins),
+        "mean_positive_similarity": _mean_or_none(positive_scores),
+        "mean_negative_similarity": _mean_or_none(negative_scores),
+    }
+
+
+def novelty_coverage_curve(
+    novelty_events: Sequence[bool],
+    token_checkpoints: Sequence[int],
+    *,
+    healthy_range: tuple[float, float] = (0.05, 0.20),
+    saturation_threshold: float = 0.02,
+    instability_threshold: float = 0.90,
+) -> dict[str, Any]:
+    if not novelty_events:
+        return {
+            "novelty_rate_by_checkpoint": [],
+            "final_novelty_rate": None,
+            "saturation_detected": False,
+            "instability_detected": False,
+            "healthy_range": {
+                "min": float(healthy_range[0]),
+                "max": float(healthy_range[1]),
+            },
+            "healthy_final_range": False,
+        }
+
+    max_token = int(len(novelty_events))
+    checkpoints = sorted(
+        {
+            int(max(1, min(max_token, int(value))))
+            for value in token_checkpoints
+            if int(value) > 0
+        }
+    )
+    if not checkpoints or checkpoints[-1] != max_token:
+        checkpoints.append(max_token)
+
+    rows: list[dict[str, Any]] = []
+    start = 0
+    for end in checkpoints:
+        if end <= start:
+            continue
+        segment = novelty_events[start:end]
+        rate = float(sum(1 for event in segment if bool(event))) / float(len(segment))
+        rows.append(
+            {
+                "token_start": int(start + 1),
+                "token_end": int(end),
+                "window_size": int(len(segment)),
+                "novelty_rate": float(rate),
+            }
+        )
+        start = end
+
+    final_rate = None if not rows else float(rows[-1]["novelty_rate"])
+    healthy_min = float(healthy_range[0])
+    healthy_max = float(healthy_range[1])
+    return {
+        "novelty_rate_by_checkpoint": rows,
+        "final_novelty_rate": final_rate,
+        "saturation_detected": bool(final_rate is not None and final_rate < saturation_threshold),
+        "instability_detected": bool(final_rate is not None and final_rate > instability_threshold),
+        "healthy_range": {"min": healthy_min, "max": healthy_max},
+        "healthy_final_range": bool(final_rate is not None and healthy_min < final_rate < healthy_max),
+    }
+
+
+def representation_retention(
+    before_vectors: Sequence[torch.Tensor],
+    after_vectors: Sequence[torch.Tensor],
+) -> dict[str, Any]:
+    scores: list[float] = []
+    for before, after in zip(before_vectors, after_vectors):
+        score = cosine_similarity(before, after)
+        if np.isnan(score):
+            continue
+        scores.append(float(score))
+
+    return {
+        "sample_count": int(len(scores)),
+        "mean_retention": _mean_or_none(scores),
+        "min_retention": None if not scores else float(min(scores)),
+    }

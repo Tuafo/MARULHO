@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from hecsn.semantics.grounding_text import match_terms
 from hecsn.semantics.grounding_text import normalize_text as _normalize_text
+from hecsn.semantics.grounding_text import query_focused_clauses
 from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.semantics.grounding_text import stream_unit_profile
 from hecsn.semantics.grounding_text import term_match_score
@@ -144,6 +145,51 @@ def _query_term_support(
     return support
 
 
+def _supports_chunked_query_expansion(query_text: str, query_terms: Sequence[str]) -> bool:
+    normalized = _normalize_text(query_text)
+    if not normalized or " " in normalized:
+        return False
+    if len(query_terms) != 1:
+        return False
+    term = str(query_terms[0]).strip().lower()
+    return len(term) >= 8 and any(ch.isalpha() for ch in term)
+
+
+def _supported_chunk_queries(
+    *,
+    query_text: str,
+    query_terms: Sequence[str],
+    memory_matches: Sequence[Mapping[str, Any]],
+    limit: int,
+) -> list[str]:
+    if not _supports_chunked_query_expansion(query_text, query_terms):
+        return []
+
+    ranked_matches = sorted(
+        memory_matches,
+        key=lambda item: float(item.get("similarity", 0.0)),
+        reverse=True,
+    )[: max(1, int(limit) * 3)]
+
+    queries: list[str] = []
+    for match in ranked_matches:
+        source_text = _normalize_text(match.get("text") or match.get("raw_window"))
+        if not source_text:
+            continue
+        for clause in query_focused_clauses(source_text, query_terms):
+            terms = [
+                term
+                for term in tokenize_terms(clause)
+                if len(term) >= 4 or term.isdigit()
+            ]
+            if len(terms) < 2:
+                continue
+            queries.append(" ".join(terms[:4]))
+            if len(_dedupe_keep_order(queries)) >= max(1, int(limit)):
+                return _dedupe_keep_order(queries)[: max(1, int(limit))]
+    return _dedupe_keep_order(queries)[: max(1, int(limit))]
+
+
 def plan_query_gaps(
     *,
     query_text: str,
@@ -211,6 +257,12 @@ def plan_query_gaps(
     gap_terms = _top_term_payload(gap_counter, max_terms)
     retrieval_queries = _dedupe_keep_order(
         [
+            *_supported_chunk_queries(
+                query_text=query_text_norm,
+                query_terms=query_terms,
+                memory_matches=memory_matches,
+                limit=max_queries,
+            ),
             " ".join(unsupported_terms[:3]).strip(),
             *[
                 " ".join(concept["top_terms"][:3]).strip()

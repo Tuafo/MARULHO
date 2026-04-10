@@ -21,7 +21,7 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.gap_planner import plan_query_gaps
 from hecsn.interaction import EvidenceResponder
 from hecsn.reporting.io import write_json_file
-from hecsn.semantics import ConceptStore
+from hecsn.semantics import ConceptStore, GeometricCuriosityController
 from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
@@ -43,9 +43,39 @@ DEFAULT_AUTONOMY_REMOTE_PROVIDER_RESULT_LIMIT = 4
 AUTO_REMOTE_QUERY_BUDGET_MAX = 4
 AUTO_REMOTE_PROVIDER_PRIORITY_WEIGHT = 0.35
 AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT = 8
+AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT = 4
 AUTO_FOCUS_SHORTLIST_MAX_SIZE = 3
 AUTO_FOCUS_SHORTLIST_GAP_WEIGHT = 0.2
 AUTO_FOCUS_SHORTLIST_AFFINITY_WEIGHT = 0.8
+_IRREGULAR_TOPIC_SINGULARS = {
+    "octopi": "octopus",
+    "octopuses": "octopus",
+}
+
+
+def _canonical_provider_term(value: Any) -> str:
+    normalized = " ".join(str(value).split()).strip().lower()
+    if not normalized:
+        return ""
+
+    def _canonical_token(token: str) -> str:
+        if token in _IRREGULAR_TOPIC_SINGULARS:
+            return _IRREGULAR_TOPIC_SINGULARS[token]
+        if token in {"species", "series"} or len(token) <= 3:
+            return token
+        if token.endswith("ies") and len(token) > 4:
+            return token[:-3] + "y"
+        if token.endswith(("ses", "xes", "zes", "ches", "shes")) and len(token) > 4:
+            return token[:-2]
+        if token.endswith("oes") and len(token) > 4:
+            return token[:-2]
+        if token.endswith(("us", "is")):
+            return token
+        if token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+            return token[:-1]
+        return token
+
+    return " ".join(_canonical_token(part) for part in normalized.split() if part).strip()
 
 
 @dataclass
@@ -81,13 +111,17 @@ class HECSNServiceManager:
         self._trace_dir = Path(trace_dir) if trace_dir is not None else (Path("reports") / "service" / "traces")
         self._trace_dir.mkdir(parents=True, exist_ok=True)
         self._trainer, self._metadata = load_trainer_checkpoint(self._checkpoint_path)
-        self._encoder = RTFEncoder.from_config(self._trainer.config)
+        self._encoder = self._trainer.encoder
         self._responder = EvidenceResponder()
         self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
         self._concept_store = ConceptStore.from_state_dict(concept_state)
+        self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
+            self._trainer.model.abstraction_layer,
+            cast(dict[str, Any] | None, terminus_state.get("geometric_curiosity")),
+        )
         self._brain_config = self._normalize_brain_config(
             terminus_state
         )
@@ -109,6 +143,7 @@ class HECSNServiceManager:
             ),
             maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY,
         )
+        self._brain_skip_next_autonomy_for_grounded_query = False
         self._brain_last_acquisition_summary: dict[str, Any] | None = None
         self._brain_last_acquisition_token_count = int(self._trainer.token_count)
         self._brain_running_since: str | None = None
@@ -140,6 +175,10 @@ class HECSNServiceManager:
                 "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
                 "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
                 "checkpoint_metadata": deepcopy(self._metadata),
+                "dopamine": float(self._trainer.model.surprise.dopamine),
+                "serotonin": float(self._trainer.model.surprise.serotonin),
+                "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
+                "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
                 "runtime_scope": self._trainer.model.runtime_scope_report(),
                 "memory_store": self._trainer.model.memory_store.summary_stats(),
                 "concept_store": self._concept_store.snapshot(),
@@ -169,6 +208,7 @@ class HECSNServiceManager:
                 "micro_sleep_events": int(self._trainer.micro_sleep_events),
                 "deep_sleep_events": int(self._trainer.deep_sleep_events),
                 "dopamine": float(self._trainer.model.surprise.dopamine),
+                "serotonin": float(self._trainer.model.surprise.serotonin),
                 "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
                 "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
                 "drift": float(drift_value),
@@ -557,13 +597,17 @@ class HECSNServiceManager:
             trainer, metadata = load_trainer_checkpoint(checkpoint_path)
             self._trainer = trainer
             self._metadata = dict(metadata)
-            self._encoder = RTFEncoder.from_config(self._trainer.config)
+            self._encoder = self._trainer.encoder
             self._checkpoint_path = checkpoint_path
             self._checkpoint_dir = checkpoint_path.parent if checkpoint_path.parent != Path("") else Path("checkpoints")
             service_state = dict(self._metadata.get("service_state", {}))
             terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
             concept_state = service_state.get("concept_store")
             self._concept_store = ConceptStore.from_state_dict(concept_state)
+            self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
+                self._trainer.model.abstraction_layer,
+                cast(dict[str, Any] | None, terminus_state.get("geometric_curiosity")),
+            )
             self._brain_config = self._normalize_brain_config(
                 terminus_state
             )
@@ -758,7 +802,7 @@ class HECSNServiceManager:
         if idx < len(slow_consolidation):
             consolidation_level = float(memory_store.slow_consolidation_level[idx])
 
-        return self._concept_store.observe(
+        observed = self._concept_store.observe(
             query_text="",
             memory_matches=[
                 {
@@ -774,6 +818,13 @@ class HECSNServiceManager:
             memory_store=memory_store,
             limit=4,
         )
+        abstraction_layer = self._trainer.model.abstraction_layer
+        if abstraction_layer is not None:
+            self._geometric_curiosity.update_lexicon(
+                abstraction_layer.last_activations,
+                [source_text, raw_match],
+            )
+        return observed
 
     def _service_state_snapshot(self) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
@@ -948,7 +999,7 @@ class HECSNServiceManager:
             raw_topic_terms = raw_entry.get("topic_terms")
             if isinstance(raw_topic_terms, Mapping):
                 for raw_term, raw_weight in raw_topic_terms.items():
-                    term = " ".join(str(raw_term).split()).strip().lower()
+                    term = _canonical_provider_term(raw_term)
                     if not term:
                         continue
                     weight = _safe_float(raw_weight)
@@ -958,10 +1009,32 @@ class HECSNServiceManager:
             raw_topic_families = raw_entry.get("topic_families")
             if isinstance(raw_topic_families, Mapping):
                 for raw_family, raw_family_entry in raw_topic_families.items():
-                    family = " ".join(str(raw_family).split()).strip().lower()
+                    family = _canonical_provider_term(raw_family)
                     if not family or not isinstance(raw_family_entry, Mapping):
                         continue
                     topic_families[family] = {
+                        "commits": _safe_int(raw_family_entry.get("commits", 0)),
+                        "successes": _safe_int(raw_family_entry.get("successes", 0)),
+                        "semantic_relevance_ema": _safe_float(raw_family_entry.get("semantic_relevance_ema", 0.0)),
+                        "answerability_gain_ema": _safe_float(raw_family_entry.get("answerability_gain_ema", 0.0)),
+                        "uncertainty_reduction_ema": _safe_float(
+                            raw_family_entry.get("uncertainty_reduction_ema", 0.0)
+                        ),
+                        "weak_concept_stabilization_ema": _safe_float(
+                            raw_family_entry.get("weak_concept_stabilization_ema", 0.0)
+                        ),
+                        "last_selected_at": " ".join(
+                            str(raw_family_entry.get("last_selected_at", "")).split()
+                        ).strip(),
+                    }
+            query_families: dict[str, dict[str, Any]] = {}
+            raw_query_families = raw_entry.get("query_families")
+            if isinstance(raw_query_families, Mapping):
+                for raw_family, raw_family_entry in raw_query_families.items():
+                    family = _canonical_provider_term(raw_family)
+                    if not family or not isinstance(raw_family_entry, Mapping):
+                        continue
+                    query_families[family] = {
                         "commits": _safe_int(raw_family_entry.get("commits", 0)),
                         "successes": _safe_int(raw_family_entry.get("successes", 0)),
                         "semantic_relevance_ema": _safe_float(raw_family_entry.get("semantic_relevance_ema", 0.0)),
@@ -1001,6 +1074,12 @@ class HECSNServiceManager:
                         topic_families.items(),
                         key=lambda item: (-self._provider_topic_family_priority_locked(item[1]), item[0]),
                     )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+                ),
+                "query_families": dict(
+                    sorted(
+                        query_families.items(),
+                        key=lambda item: (-self._provider_query_family_priority_locked(item[1]), item[0]),
+                    )[:AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT]
                 ),
             }
         return normalized
@@ -1123,7 +1202,12 @@ class HECSNServiceManager:
             text_field=str(spec.get("text_field", "text")),
             hf_config=spec.get("hf_config"),
         )
-        return labeled_pattern_stream(loader.char_stream(), self._encoder, self._trainer.config.window_size)
+        return labeled_pattern_stream(
+            loader.char_stream(),
+            self._encoder,
+            self._trainer.config.window_size,
+            learn_chunking=True,
+        )
 
     def _close_brain_sources_locked(self) -> None:
         for runtime in self._brain_source_runtimes:
@@ -1298,6 +1382,10 @@ class HECSNServiceManager:
         trigger_interval = int(autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS))
         if token_delta < trigger_interval:
             return None
+        if self._brain_skip_next_autonomy_for_grounded_query:
+            self._brain_skip_next_autonomy_for_grounded_query = False
+            self._brain_last_acquisition_summary = None
+            return None
         focus_plan = self._autonomy_focus_plan_locked()
         candidate_specs = self._autonomy_candidate_specs_locked(
             candidate_bank=list(autonomy.get("candidate_bank", [])),
@@ -1443,6 +1531,7 @@ class HECSNServiceManager:
                 "provider_curriculum": deepcopy(autonomy_provider_curriculum),
                 "last_acquisition_token_count": int(self._brain_last_acquisition_token_count),
                 "last_acquisition_summary": deepcopy(self._brain_last_acquisition_summary),
+                "geometric_curiosity": deepcopy(self._geometric_curiosity.summary()),
             },
         }
 
@@ -1456,6 +1545,7 @@ class HECSNServiceManager:
             "repeat_sources": bool(self._brain_config.get("repeat_sources", True)),
             "autonomy": deepcopy(self._brain_config.get("autonomy")),
             "recent_query_gaps": [deepcopy(item) for item in list(self._brain_recent_query_gaps)],
+            "geometric_curiosity": self._geometric_curiosity.state_dict(),
         }
 
     def _plan_gaps_locked(
@@ -1554,7 +1644,10 @@ class HECSNServiceManager:
             if str(item.get("query_text", "")).lower() != normalized_query.lower()
         ]
         self._brain_recent_query_gaps = deque(existing, maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY)
-        meaningful = bool(gap_plan.get("unsupported_terms") or gap_plan.get("gap_terms") or gap_plan.get("weak_concepts"))
+        grounded_fraction = float(gap_plan.get("grounded_fraction", 0.0))
+        query_deficit = bool(gap_plan.get("unsupported_terms")) or grounded_fraction < 0.999
+        self._brain_skip_next_autonomy_for_grounded_query = not query_deficit
+        meaningful = bool(query_deficit and (gap_plan.get("unsupported_terms") or gap_plan.get("gap_terms") or gap_plan.get("weak_concepts")))
         if not meaningful:
             return
         normalized = self._normalize_recent_query_gap(
@@ -1575,29 +1668,44 @@ class HECSNServiceManager:
 
     def _autonomy_focus_plan_locked(self) -> dict[str, Any] | None:
         recent_query_focus = self._recent_query_focus_plan_locked()
-        if recent_query_focus is None:
-            return self._concept_store.focus_plan()
-        abstraction_query = " ".join(
-            [
-                *[
-                    str(value)
-                    for value in list(recent_query_focus.get("query_terms") or [])[:4]
-                    if str(value).strip()
-                ],
-                *[
-                    str(value)
-                    for value in list(recent_query_focus.get("unsupported_terms") or [])[:2]
-                    if str(value).strip()
-                ],
-            ]
-        ).strip()
-        concept_focus = self._concept_store.focus_plan(
-            query_text=abstraction_query,
-            min_observations=1,
+        abstraction_query = ""
+        if recent_query_focus is not None:
+            abstraction_query = " ".join(
+                [
+                    *[
+                        str(value)
+                        for value in list(recent_query_focus.get("query_terms") or [])[:4]
+                        if str(value).strip()
+                    ],
+                    *[
+                        str(value)
+                        for value in list(recent_query_focus.get("unsupported_terms") or [])[:2]
+                        if str(value).strip()
+                    ],
+                ]
+            ).strip()
+        concept_focus = (
+            self._concept_store.focus_plan(
+                query_text=abstraction_query,
+                min_observations=1,
+            )
+            if abstraction_query
+            else self._concept_store.focus_plan()
         )
-        if concept_focus is None:
-            return recent_query_focus
-        return self._merge_focus_plans_locked(recent_query_focus, concept_focus)
+        geometric_focus = self._geometric_curiosity.focus_plan(
+            query_text=abstraction_query or None,
+        )
+        plans = [
+            plan
+            for plan in (recent_query_focus, concept_focus, geometric_focus)
+            if isinstance(plan, Mapping)
+        ]
+        if not plans:
+            return None
+        merged: dict[str, Any] = deepcopy(dict(plans[0]))
+        for plan in plans[1:]:
+            merged = self._merge_focus_plans_locked(merged, plan)
+        return merged
 
     def _merge_focus_plans_locked(
         self,
@@ -1626,11 +1734,15 @@ class HECSNServiceManager:
         retrieval_queries: list[str] = []
         follow_up_questions: list[str] = []
         weak_concept_scores: dict[str, dict[str, Any]] = {}
+        geometric_gaps: list[dict[str, Any]] = []
 
         for plan, plan_weight in ((primary, 1.0), (secondary, 0.75)):
             query_terms.extend(str(term) for term in list(plan.get("query_terms") or []) if str(term).strip())
             retrieval_queries.extend(str(item) for item in list(plan.get("retrieval_queries") or []) if str(item).strip())
             follow_up_questions.extend(str(item) for item in list(plan.get("follow_up_questions") or []) if str(item).strip())
+            for raw_gap in list(plan.get("geometric_gaps") or []):
+                if isinstance(raw_gap, Mapping):
+                    geometric_gaps.append(deepcopy(dict(raw_gap)))
 
             for raw_term in list(plan.get("unsupported_terms") or []):
                 term = str(raw_term).strip().lower()
@@ -1746,6 +1858,8 @@ class HECSNServiceManager:
         }
         if structural_growth is not None:
             merged["structural_growth"] = structural_growth
+        if geometric_gaps:
+            merged["geometric_gaps"] = geometric_gaps[:4]
         return merged
 
     def _recent_query_focus_plan_locked(self) -> dict[str, Any] | None:
@@ -1921,7 +2035,7 @@ class HECSNServiceManager:
         focus_text = " ".join(
             [
                 *[str(item) for item in list(focus_plan.get("query_terms") or [])[:3]],
-                *[str(item) for item in list(focus_plan.get("retrieval_queries") or [])[:2]],
+                *[str(item) for item in list(focus_plan.get("retrieval_queries") or [])[:4]],
                 *[str(item) for item in list(focus_plan.get("unsupported_terms") or [])[:3]],
             ]
         ).strip()
@@ -1991,7 +2105,7 @@ class HECSNServiceManager:
         def _extend(values: Sequence[str]) -> None:
             for raw_value in values:
                 for term in salient_query_terms(str(raw_value)):
-                    normalized = " ".join(str(term).split()).strip().lower()
+                    normalized = _canonical_provider_term(term)
                     if not normalized or normalized in seen:
                         continue
                     seen.add(normalized)
@@ -2055,7 +2169,7 @@ class HECSNServiceManager:
         return max(0.0, min(1.0, priority))
 
     def _provider_topic_family_match_score_locked(self, family_term: str, focus_terms: Sequence[str]) -> float:
-        normalized_family = " ".join(str(family_term).split()).strip().lower()
+        normalized_family = _canonical_provider_term(family_term)
         if not normalized_family:
             return 0.0
         family_tokens = {term.lower() for term in salient_query_terms(normalized_family)}
@@ -2065,7 +2179,7 @@ class HECSNServiceManager:
             return 0.0
         best = 0.0
         for raw_focus in focus_terms:
-            normalized_focus = " ".join(str(raw_focus).split()).strip().lower()
+            normalized_focus = _canonical_provider_term(raw_focus)
             if not normalized_focus:
                 continue
             if normalized_focus == normalized_family:
@@ -2134,6 +2248,122 @@ class HECSNServiceManager:
             float(best_score),
         )
 
+    def _provider_query_family_priority_locked(self, family_entry: Mapping[str, Any]) -> float:
+        commits = max(0, int(family_entry.get("commits", 0)))
+        successes = max(0, int(family_entry.get("successes", 0)))
+        success_rate = 0.0 if commits <= 0 else float(successes) / float(commits)
+        priority = float(
+            0.30 * max(0.0, min(1.0, float(family_entry.get("answerability_gain_ema", 0.0))))
+            + 0.25 * max(0.0, min(1.0, float(family_entry.get("uncertainty_reduction_ema", 0.0))))
+            + 0.20 * max(0.0, min(1.0, float(family_entry.get("weak_concept_stabilization_ema", 0.0))))
+            + 0.15 * max(0.0, min(1.0, float(family_entry.get("semantic_relevance_ema", 0.0))))
+            + 0.10 * success_rate
+        )
+        return max(0.0, min(1.0, priority))
+
+    def _provider_query_family_match_score_locked(
+        self,
+        query_family: str,
+        focus_terms: Sequence[str],
+        focus_queries: Sequence[str],
+    ) -> float:
+        normalized_family = " ".join(str(query_family).split()).strip().lower()
+        if not normalized_family:
+            return 0.0
+        family_tokens = {term.lower() for term in salient_query_terms(normalized_family)}
+        if not family_tokens:
+            family_tokens = {part for part in normalized_family.split() if part}
+        if not family_tokens:
+            return 0.0
+        best = 0.0
+        for raw_query in focus_queries:
+            normalized_query = " ".join(str(raw_query).split()).strip().lower()
+            if not normalized_query:
+                continue
+            if normalized_query == normalized_family:
+                return 1.0
+            query_tokens = {term.lower() for term in salient_query_terms(normalized_query)}
+            if not query_tokens:
+                query_tokens = {part for part in normalized_query.split() if part}
+            if not query_tokens:
+                continue
+            overlap = float(len(family_tokens & query_tokens)) / float(max(len(family_tokens), len(query_tokens)))
+            if normalized_query in normalized_family or normalized_family in normalized_query:
+                overlap = max(overlap, 0.80)
+            best = max(best, overlap)
+        for raw_focus in focus_terms:
+            normalized_focus = " ".join(str(raw_focus).split()).strip().lower()
+            if not normalized_focus:
+                continue
+            focus_tokens = {term.lower() for term in salient_query_terms(normalized_focus)}
+            if not focus_tokens:
+                focus_tokens = {part for part in normalized_focus.split() if part}
+            if not focus_tokens:
+                continue
+            overlap = float(len(family_tokens & focus_tokens)) / float(max(len(family_tokens), len(focus_tokens)))
+            best = max(best, overlap)
+        return max(0.0, min(1.0, best))
+
+    def _provider_query_family_details_locked(
+        self,
+        entry: Mapping[str, Any],
+        focus_plan: Mapping[str, Any] | None,
+        focus_terms: Sequence[str],
+    ) -> tuple[float, list[str], int, dict[str, float], float]:
+        raw_query_families = entry.get("query_families")
+        if not focus_terms or not isinstance(raw_query_families, Mapping):
+            return 0.0, [], 0, {}, 0.0
+        if not isinstance(focus_plan, Mapping) or not list(focus_plan.get("geometric_gaps") or []):
+            return 0.0, [], 0, {}, 0.0
+        focus_queries = [
+            " ".join(str(item).split()).strip().lower()
+            for item in list(focus_plan.get("retrieval_queries") or [])
+            if " ".join(str(item).split()).strip()
+        ]
+        if not focus_queries:
+            focus_queries = [
+                " ".join(str(item).split()).strip().lower()
+                for item in list(focus_plan.get("follow_up_questions") or [])
+                if " ".join(str(item).split()).strip()
+            ]
+        ranked_matches: list[tuple[float, str, int]] = []
+        for raw_family, raw_family_entry in raw_query_families.items():
+            family = " ".join(str(raw_family).split()).strip().lower()
+            if not family or not isinstance(raw_family_entry, Mapping):
+                continue
+            match_score = self._provider_query_family_match_score_locked(family, focus_terms, focus_queries)
+            if match_score <= 0.0:
+                continue
+            family_priority = self._provider_query_family_priority_locked(raw_family_entry)
+            if family_priority <= 0.0:
+                continue
+            commits = max(0, int(raw_family_entry.get("commits", 0)))
+            ranked_matches.append((float(match_score * family_priority), family, commits))
+        if not ranked_matches:
+            return 0.0, [], 0, {}, 0.0
+        ranked_matches.sort(key=lambda item: (-float(item[0]), item[1]))
+        top_matches = ranked_matches[: min(3, len(ranked_matches))]
+        strength = max(
+            0.0,
+            min(
+                1.0,
+                sum(float(score) for score, _family, _commits in top_matches) / float(len(top_matches)),
+            ),
+        )
+        best_score, _best_family, best_commits = top_matches[0]
+        query_bonus = 0
+        if best_commits >= 1 and best_score >= 0.18:
+            query_bonus = 1
+        if best_commits >= 2 and best_score >= 0.35:
+            query_bonus = 2
+        return (
+            strength,
+            [family for _score, family, _commits in top_matches],
+            query_bonus,
+            {family: float(score) for score, family, _commits in top_matches},
+            float(best_score),
+        )
+
     def _provider_curriculum_priority_locked(
         self,
         provider: str,
@@ -2170,6 +2400,13 @@ class HECSNServiceManager:
             topic_family_scores,
             topic_family_focus_score,
         ) = self._provider_topic_family_details_locked(entry, focus_terms)
+        (
+            query_family_strength,
+            matched_query_families,
+            query_family_query_bonus,
+            query_family_scores,
+            query_family_focus_score,
+        ) = self._provider_query_family_details_locked(entry, focus_plan, focus_terms)
         topic_overlap = 0.0
         if focus_terms and topic_terms:
             denominator = sum(float(weight) for weight in topic_terms.values())
@@ -2194,6 +2431,8 @@ class HECSNServiceManager:
             + 0.08 * topic_overlap
             + 0.10 * topic_family_strength
             + 0.20 * topic_family_focus_score
+            + 0.06 * query_family_strength
+            + 0.14 * query_family_focus_score
             + exploration_bonus
         )
         return priority, {
@@ -2213,10 +2452,16 @@ class HECSNServiceManager:
             "topic_family_query_bonus": int(topic_family_query_bonus),
             "matched_topic_families": list(matched_topic_families),
             "topic_family_scores": dict(topic_family_scores),
+            "query_family_strength": float(query_family_strength),
+            "query_family_focus_score": float(query_family_focus_score),
+            "query_family_query_bonus": int(query_family_query_bonus),
+            "matched_query_families": list(matched_query_families),
+            "query_family_scores": dict(query_family_scores),
             "last_query_text": str(entry.get("last_query_text", "")),
             "last_selected_at": str(entry.get("last_selected_at", "")),
             "topic_terms": dict(entry.get("topic_terms") or {}),
             "topic_families": dict(entry.get("topic_families") or {}),
+            "query_families": dict(entry.get("query_families") or {}),
         }
 
     def _provider_curriculum_snapshot_locked(
@@ -2273,7 +2518,9 @@ class HECSNServiceManager:
         ranked: list[tuple[int, str, float]] = []
         priority_map: dict[str, float] = {}
         provider_topic_terms: dict[str, list[str]] = {}
+        provider_query_families: dict[str, list[str]] = {}
         topic_family_query_bonus = 0
+        query_family_query_bonus = 0
         for index, provider in enumerate(providers):
             priority, details = self._provider_curriculum_priority_locked(
                 provider,
@@ -2302,17 +2549,29 @@ class HECSNServiceManager:
             if ordered_terms:
                 provider_topic_terms[str(provider)] = ordered_terms[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
             topic_family_query_bonus = max(topic_family_query_bonus, int(details.get("topic_family_query_bonus", 0)))
+            matched_query_families = [
+                str(query).strip()
+                for query in list(details.get("matched_query_families") or [])
+                if str(query).strip()
+            ]
+            if matched_query_families:
+                provider_query_families[str(provider)] = matched_query_families[:AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT]
+            query_family_query_bonus = max(query_family_query_bonus, int(details.get("query_family_query_bonus", 0)))
         ranked.sort(key=lambda item: (-float(item[2]), int(item[0])))
         spec["catalog_providers"] = [provider for _index, provider, _priority in ranked]
         spec["catalog_provider_priority_map"] = dict(priority_map)
         if provider_topic_terms:
             spec["catalog_provider_topic_terms"] = dict(provider_topic_terms)
+        if provider_query_families:
+            spec["catalog_provider_query_families"] = dict(provider_query_families)
         spec["catalog_topic_family_budget_bonus"] = int(topic_family_query_bonus)
-        if topic_family_query_bonus > 0:
+        spec["catalog_query_family_budget_bonus"] = int(query_family_query_bonus)
+        total_query_bonus = int(topic_family_query_bonus) + int(query_family_query_bonus)
+        if total_query_bonus > 0:
             spec["catalog_queries_per_provider"] = int(
                 min(
                     AUTO_REMOTE_QUERY_BUDGET_MAX,
-                    max(1, int(spec.get("catalog_queries_per_provider", 1))) + topic_family_query_bonus,
+                    max(1, int(spec.get("catalog_queries_per_provider", 1))) + total_query_bonus,
                 )
             )
         spec["catalog_provider_priority_weight"] = float(
@@ -2352,10 +2611,12 @@ class HECSNServiceManager:
                     "last_selected_at": "",
                     "topic_terms": {},
                     "topic_families": {},
+                    "query_families": {},
                 },
             )
             entry["topic_terms"] = dict(entry.get("topic_terms") or {})
             entry["topic_families"] = dict(entry.get("topic_families") or {})
+            entry["query_families"] = dict(entry.get("query_families") or {})
             return entry
 
         attempted_providers: list[str] = []
@@ -2529,13 +2790,17 @@ class HECSNServiceManager:
             metadata_terms: list[str] = []
             if isinstance(selected_metadata, Mapping):
                 metadata_terms = [
-                    str(term).strip().lower()
+                    _canonical_provider_term(term)
                     for term in list(selected_metadata.get("catalog_terms") or [])
-                    if str(term).strip()
+                    if _canonical_provider_term(term)
                 ]
             update_terms = list(dict.fromkeys([*current_focus_terms, *metadata_terms]))
             if not update_terms and query_text:
-                update_terms = [term.lower() for term in salient_query_terms(query_text)]
+                update_terms = [
+                    normalized
+                    for normalized in (_canonical_provider_term(term) for term in salient_query_terms(query_text))
+                    if normalized
+                ]
             for rank, term in enumerate(update_terms[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]):
                 topic_terms[term] = float(topic_terms.get(term, 0.0)) + 1.0 / float(rank + 1)
             entry["topic_terms"] = dict(
@@ -2546,7 +2811,7 @@ class HECSNServiceManager:
             )
             topic_families: dict[str, dict[str, Any]] = {}
             for raw_family, raw_family_entry in dict(entry.get("topic_families") or {}).items():
-                family = " ".join(str(raw_family).split()).strip().lower()
+                family = _canonical_provider_term(raw_family)
                 if not family or not isinstance(raw_family_entry, Mapping):
                     continue
                 topic_families[family] = {
@@ -2614,6 +2879,85 @@ class HECSNServiceManager:
                     topic_families.items(),
                     key=lambda item: (-self._provider_topic_family_priority_locked(item[1]), item[0]),
                 )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+            )
+            query_families: dict[str, dict[str, Any]] = {}
+            for raw_family, raw_family_entry in dict(entry.get("query_families") or {}).items():
+                family = _canonical_provider_term(raw_family)
+                if not family or not isinstance(raw_family_entry, Mapping):
+                    continue
+                query_families[family] = {
+                    "commits": max(0, int(raw_family_entry.get("commits", 0))),
+                    "successes": max(0, int(raw_family_entry.get("successes", 0))),
+                    "semantic_relevance_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("semantic_relevance_ema", 0.0)),
+                    ),
+                    "answerability_gain_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("answerability_gain_ema", 0.0)),
+                    ),
+                    "uncertainty_reduction_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("uncertainty_reduction_ema", 0.0)),
+                    ),
+                    "weak_concept_stabilization_ema": max(
+                        0.0,
+                        float(raw_family_entry.get("weak_concept_stabilization_ema", 0.0)),
+                    ),
+                    "last_selected_at": " ".join(str(raw_family_entry.get("last_selected_at", "")).split()).strip(),
+                }
+            geometric_queries = [
+                " ".join(str(query).split()).strip().lower()
+                for query in list((focus_plan or {}).get("retrieval_queries") or [])
+                if " ".join(str(query).split()).strip()
+            ]
+            update_query_families = list(dict.fromkeys([query_text.lower(), *geometric_queries])) if query_text else list(dict.fromkeys(geometric_queries))
+            if not update_query_families and query_text:
+                update_query_families = [query_text.lower()]
+            for family_query in update_query_families[:AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT]:
+                query_family = query_families.setdefault(
+                    family_query,
+                    {
+                        "commits": 0,
+                        "successes": 0,
+                        "semantic_relevance_ema": 0.0,
+                        "answerability_gain_ema": 0.0,
+                        "uncertainty_reduction_ema": 0.0,
+                        "weak_concept_stabilization_ema": 0.0,
+                        "last_selected_at": "",
+                    },
+                )
+                query_family["commits"] = int(query_family.get("commits", 0)) + 1
+                if gap_gain > 0.0 or diagnostic_gain > 0.0 or answerability_gain > 0.0 or weak_concept_stabilization > 0.0:
+                    query_family["successes"] = int(query_family.get("successes", 0)) + 1
+                query_family["semantic_relevance_ema"] = float(
+                    semantic_relevance
+                    if int(query_family["commits"]) <= 1
+                    else 0.75 * float(query_family.get("semantic_relevance_ema", 0.0)) + 0.25 * semantic_relevance
+                )
+                query_family["answerability_gain_ema"] = float(
+                    answerability_gain
+                    if int(query_family["commits"]) <= 1
+                    else 0.75 * float(query_family.get("answerability_gain_ema", 0.0)) + 0.25 * answerability_gain
+                )
+                query_family["uncertainty_reduction_ema"] = float(
+                    uncertainty_reduction
+                    if int(query_family["commits"]) <= 1
+                    else 0.75 * float(query_family.get("uncertainty_reduction_ema", 0.0))
+                    + 0.25 * uncertainty_reduction
+                )
+                query_family["weak_concept_stabilization_ema"] = float(
+                    weak_concept_stabilization
+                    if int(query_family["commits"]) <= 1
+                    else 0.75 * float(query_family.get("weak_concept_stabilization_ema", 0.0))
+                    + 0.25 * weak_concept_stabilization
+                )
+                query_family["last_selected_at"] = entry["last_selected_at"]
+            entry["query_families"] = dict(
+                sorted(
+                    query_families.items(),
+                    key=lambda item: (-self._provider_query_family_priority_locked(item[1]), item[0]),
+                )[:AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT]
             )
 
         autonomy["provider_curriculum"] = curriculum

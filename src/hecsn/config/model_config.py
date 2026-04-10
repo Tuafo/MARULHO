@@ -13,6 +13,7 @@ class HECSNConfig:
     window_size: int = 10
     input_representation: Literal["order_weighted_ascii", "unigram_ascii", "hashed_ngram"] = "order_weighted_ascii"
     plasticity_mode: Literal["lite", "local_stdp", "spike_eligibility"] = "lite"
+    plasticity_spike_backend: Literal["proxy", "adex"] = "proxy"
     spike_trace_tau: float = 6.0
     spike_burst_decay: float = 0.85
     stdp_trace_tau: float = 20.0
@@ -28,6 +29,20 @@ class HECSNConfig:
     hashed_ngram_dim: int = 2048
     hashed_ngram_min_n: int = 2
     hashed_ngram_max_n: int = 3
+    enable_learned_chunking: bool = True
+    learned_chunk_detector_count: int = 128
+    learned_chunk_min_len: int = 2
+    learned_chunk_max_len: int = 12
+    learned_chunk_feature_mode: Literal["blend", "concat"] = "blend"
+    learned_chunk_concat_dim: int = 128
+    learned_chunk_blend: float = 0.5
+    learned_chunk_similarity_floor: float = 0.30
+    learned_chunk_boundary_threshold: float = 0.08
+    learned_chunk_update_lr: float = 0.25
+    learned_chunk_query_blend_floor: float = 0.15
+    learned_chunk_association_blend: float = 0.35
+    learned_chunk_association_lr: float = 0.15
+    learned_chunk_association_decay: float = 0.995
 
     n_columns: int = 10
     column_latent_dim: int = 256
@@ -35,6 +50,7 @@ class HECSNConfig:
     bootstrap_tokens: int = 5000
     k_routing: int = 10
     index_rebuild_threshold: int = 256
+    routing_index_mode: Literal["auto", "faiss_hnsw", "torch_topk", "exact_cosine"] = "auto"
     routing_shards: int = 1
     shard_candidate_factor: int = 2
 
@@ -104,11 +120,21 @@ class HECSNConfig:
     context_recurrent_scale: float = 0.85
     context_inhibition_strength: float = 0.25
 
+    enable_abstraction_layer: bool = False
+    abstraction_n_concepts: int = 8
+    abstraction_slow_rate: float = 0.05
+    abstraction_fast_rate: float = 0.30
+    abstraction_learning_rate: float = 0.02
+    abstraction_feedback_lr: float = 0.05
+    abstraction_feedback_strength: float = 0.15
+
     enable_binding_layer: bool = False
     binding_threshold: float = 0.02
     binding_association_lr: float = 0.20
     binding_association_decay: float = 0.995
     binding_gain_strength: float = 0.80
+    binding_n_bindings: int = 0
+    binding_fan_in: int = 4
     binding_tau: float = 6.0
     binding_stp_u_inc: float = 0.15
     binding_stp_tau_f: float = 12.0
@@ -129,10 +155,13 @@ class HECSNConfig:
     def __post_init__(self) -> None:
         valid_representations = {"order_weighted_ascii", "unigram_ascii", "hashed_ngram"}
         valid_plasticity_modes = {"lite", "local_stdp", "spike_eligibility"}
+        valid_spike_backends = {"proxy", "adex"}
         if self.input_representation not in valid_representations:
             raise ValueError(f"input_representation must be one of {sorted(valid_representations)}")
         if self.plasticity_mode not in valid_plasticity_modes:
             raise ValueError(f"plasticity_mode must be one of {sorted(valid_plasticity_modes)}")
+        if self.plasticity_spike_backend not in valid_spike_backends:
+            raise ValueError(f"plasticity_spike_backend must be one of {sorted(valid_spike_backends)}")
         if self.plasticity_mode == "spike_eligibility":
             self.plasticity_mode = "local_stdp"
         if self.spike_trace_tau <= 0.0:
@@ -161,12 +190,42 @@ class HECSNConfig:
             raise ValueError("hashed_ngram_min_n must be positive")
         if self.hashed_ngram_max_n < self.hashed_ngram_min_n:
             raise ValueError("hashed_ngram_max_n must be greater than or equal to hashed_ngram_min_n")
+        if self.learned_chunk_detector_count <= 0:
+            raise ValueError("learned_chunk_detector_count must be positive")
+        if self.learned_chunk_min_len <= 0:
+            raise ValueError("learned_chunk_min_len must be positive")
+        if self.learned_chunk_max_len < self.learned_chunk_min_len:
+            raise ValueError("learned_chunk_max_len must be greater than or equal to learned_chunk_min_len")
+        if self.learned_chunk_feature_mode not in {"blend", "concat"}:
+            raise ValueError("learned_chunk_feature_mode must be one of blend or concat")
+        if self.learned_chunk_concat_dim <= 0:
+            raise ValueError("learned_chunk_concat_dim must be positive")
+        if not 0.0 <= self.learned_chunk_blend <= 1.0:
+            raise ValueError("learned_chunk_blend must be in [0, 1]")
+        if not 0.0 <= self.learned_chunk_similarity_floor <= 1.0:
+            raise ValueError("learned_chunk_similarity_floor must be in [0, 1]")
+        if self.learned_chunk_boundary_threshold < 0.0:
+            raise ValueError("learned_chunk_boundary_threshold must be non-negative")
+        if not 0.0 < self.learned_chunk_update_lr <= 1.0:
+            raise ValueError("learned_chunk_update_lr must be in (0, 1]")
+        if not 0.0 <= self.learned_chunk_query_blend_floor <= 1.0:
+            raise ValueError("learned_chunk_query_blend_floor must be in [0, 1]")
+        if not 0.0 <= self.learned_chunk_association_blend <= 1.0:
+            raise ValueError("learned_chunk_association_blend must be in [0, 1]")
+        if not 0.0 <= self.learned_chunk_association_lr <= 1.0:
+            raise ValueError("learned_chunk_association_lr must be in [0, 1]")
+        if not 0.0 <= self.learned_chunk_association_decay <= 1.0:
+            raise ValueError("learned_chunk_association_decay must be in [0, 1]")
         if self.binding_association_lr < 0.0:
             raise ValueError("binding_association_lr must be non-negative")
         if not 0.0 <= self.binding_association_decay <= 1.0:
             raise ValueError("binding_association_decay must be in [0, 1]")
         if self.binding_gain_strength < 0.0:
             raise ValueError("binding_gain_strength must be non-negative")
+        if self.binding_n_bindings < 0:
+            raise ValueError("binding_n_bindings must be non-negative")
+        if self.binding_fan_in < 2:
+            raise ValueError("binding_fan_in must be at least 2")
         if not 0.0 < self.context_fast_rate <= 1.0:
             raise ValueError("context_fast_rate must be in (0, 1]")
         if not 0.0 < self.context_medium_rate <= 1.0:
@@ -179,6 +238,18 @@ class HECSNConfig:
             raise ValueError("context_recurrent_scale must be non-negative")
         if self.context_inhibition_strength < 0.0:
             raise ValueError("context_inhibition_strength must be non-negative")
+        if self.abstraction_n_concepts <= 0:
+            raise ValueError("abstraction_n_concepts must be positive")
+        if not 0.0 < self.abstraction_slow_rate <= 1.0:
+            raise ValueError("abstraction_slow_rate must be in (0, 1]")
+        if not 0.0 < self.abstraction_fast_rate <= 1.0:
+            raise ValueError("abstraction_fast_rate must be in (0, 1]")
+        if self.abstraction_learning_rate < 0.0:
+            raise ValueError("abstraction_learning_rate must be non-negative")
+        if self.abstraction_feedback_lr < 0.0:
+            raise ValueError("abstraction_feedback_lr must be non-negative")
+        if self.abstraction_feedback_strength < 0.0:
+            raise ValueError("abstraction_feedback_strength must be non-negative")
         if self.binding_tau <= 0.0:
             raise ValueError("binding_tau must be positive")
         if self.binding_stp_u_inc < 0.0:
@@ -191,6 +262,8 @@ class HECSNConfig:
             raise ValueError("binding_pv_threshold must be non-negative")
         if self.binding_pv_gain < 0.0:
             raise ValueError("binding_pv_gain must be non-negative")
+        if self.enable_binding_layer and self.n_columns < 2:
+            raise ValueError("enable_binding_layer requires at least 2 columns")
         if not 0.0 < self.stc_tag_decay <= 1.0:
             raise ValueError("stc_tag_decay must be in (0, 1]")
         if not 0.0 <= self.stc_capture_release <= 1.0:
@@ -219,7 +292,11 @@ class HECSNConfig:
             raise ValueError("acquisition_concept_novelty_weight must be non-negative")
         if self.acquisition_concept_uncertainty_weight < 0.0:
             raise ValueError("acquisition_concept_uncertainty_weight must be non-negative")
-        self.input_dim = self.hashed_ngram_dim if self.input_representation == "hashed_ngram" else self.n_ascii
+        base_input_dim = self.hashed_ngram_dim if self.input_representation == "hashed_ngram" else self.n_ascii
+        if self.enable_learned_chunking and self.learned_chunk_feature_mode == "concat":
+            self.input_dim = int(base_input_dim + self.learned_chunk_concat_dim)
+        else:
+            self.input_dim = int(base_input_dim)
         if self.column_latent_dim <= 0:
             raise ValueError("column_latent_dim must be positive")
         if self.index_rebuild_threshold <= 0:
@@ -228,6 +305,8 @@ class HECSNConfig:
             raise ValueError("routing_shards must be positive")
         if self.routing_shards > self.n_columns:
             raise ValueError("routing_shards must be less than or equal to n_columns")
+        if self.routing_index_mode not in {"auto", "faiss_hnsw", "torch_topk", "exact_cosine"}:
+            raise ValueError("routing_index_mode must be one of auto, faiss_hnsw, torch_topk, exact_cosine")
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
 

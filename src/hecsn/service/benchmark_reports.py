@@ -10,6 +10,38 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_REPORTS_ROOT = REPO_ROOT / "reports"
 MAINTAINED_REPRESENTATION = "order_weighted_ascii"
+MECHANISM_REPORT_PATTERNS = (
+    "phase7_mechanism_validation_baseline_*",
+    "phase7_mechanism_validation_smoke*",
+    "refactor_mechanism_validation_smoke",
+    "refactor_stage0_smoke",
+)
+EMERGENCE_REPORT_PATTERNS = (
+    "phase7_emergence_evaluation_*",
+    "refactor_emergence_evaluation_smoke",
+)
+REPRESENTATION_REPORT_PATTERNS = (
+    "phase7_representation_baseline_*",
+    "phase7_representation_smoke*",
+    "refactor_representation_smoke",
+)
+CONTEXTUAL_ROUTING_REPORT_PATTERNS = (
+    "phase7_contextual_routing_smoke*",
+    "refactor_contextual_routing_smoke",
+    "refactor_phase3_smoke",
+)
+HIERARCHICAL_SCALE_REPORT_PATTERNS = (
+    "phase7_routing_scale_baseline_*",
+    "phase7_routing_scale_smoke*",
+    "refactor_hierarchical_scale_smoke",
+    "refactor_phase4_smoke",
+)
+KNOWLEDGE_GAP_REPORT_PATTERNS = (
+    "phase6_autonomy_baseline_feedback_tiebreak_*",
+    "phase6_autonomy_baseline_feedback_*",
+    "phase6_autonomy_baseline_rerun_*",
+    "refactor_autonomy_smoke",
+)
 ACQUISITION_REPORT_PATTERNS = (
     "refactor_autonomy_acquisition_hf_allocation_rng_*",
     "refactor_autonomy_acquisition_open_web_scout_projected_*",
@@ -21,6 +53,12 @@ BENCHMARK_CATALOG: tuple[tuple[str, str, str, Any], ...] = (
         "Mechanism validation",
         "Competitive self-organization, surprise stabilization, and early predictive error trends.",
         "_load_mechanism_validation",
+    ),
+    (
+        "emergence_evaluation",
+        "Emergence evaluation",
+        "Label-free temporal coherence, compositionality, novelty coverage, grounding, and forgetting diagnostics.",
+        "_load_emergence_evaluation",
     ),
     (
         "representation_benchmark",
@@ -81,14 +119,8 @@ def load_benchmark_reports(*, reports_root: str | Path | None = None, max_points
 
 
 def _load_mechanism_validation(root: Path, *, max_points: int) -> dict[str, Any] | None:
-    summary_path = _first_existing_path(
-        root / "refactor_mechanism_validation_smoke" / "summary.json",
-        root / "refactor_stage0_smoke" / "summary.json",
-    )
-    metrics_path = _first_existing_path(
-        root / "refactor_mechanism_validation_smoke" / "metrics.csv",
-        root / "refactor_stage0_smoke" / "metrics.csv",
-    )
+    summary_path = _latest_matching_summary(root, MECHANISM_REPORT_PATTERNS)
+    metrics_path = None if summary_path is None else summary_path.parent / "metrics.csv"
     if summary_path is None or metrics_path is None:
         return None
     summary = _load_json(summary_path)
@@ -127,10 +159,48 @@ def _load_mechanism_validation(root: Path, *, max_points: int) -> dict[str, Any]
     }
 
 
+def _load_emergence_evaluation(root: Path, *, max_points: int) -> dict[str, Any] | None:
+    del max_points
+
+    summary_path = _latest_matching_summary(root, EMERGENCE_REPORT_PATTERNS)
+    if summary_path is None:
+        return None
+    summary = _load_json(summary_path)
+    if summary is None:
+        return None
+
+    metrics = summary.get("metrics", {})
+    novelty = summary.get("novelty_coverage", {})
+    gate = summary.get("emergence_evaluation_gate", {})
+    meaning_grounding = summary.get("meaning_grounding", {})
+    return {
+        "summary_path": _repo_relative(summary_path),
+        "summary": {
+            "temporal_coherence_mean": _float_value(metrics, "temporal_coherence_mean"),
+            "grounded_query_accuracy": _float_value(metrics, "grounded_query_accuracy"),
+            "compositional_query_accuracy": _float_value(metrics, "compositional_query_accuracy"),
+            "phase_a_interference_retention": _float_value(metrics, "phase_a_interference_retention"),
+            "phase_a_final_retention": _float_value(metrics, "phase_a_final_retention"),
+            "supported_topic_coverage": _float_value(metrics, "supported_topic_coverage"),
+            "answerability_growth_mean": _float_value(metrics, "answerability_growth_mean"),
+            "meaning_grounding_gate_pass": bool(meaning_grounding.get("mixed_world", {}).get("gate_pass", False)),
+            "gate_pass": bool(gate.get("pass", False)),
+        },
+        "coverage_summary": {
+            "supportedTopicCoverage": _float_value(novelty, "supported_topic_coverage"),
+            "answerabilityGrowthMean": _float_value(novelty, "answerability_growth_mean"),
+            "revisitRetentionRate": _float_value(novelty, "revisit_retention_rate"),
+            "uniqueAcquiredSourceCount": _int_value(novelty, "unique_acquired_source_count"),
+        },
+    }
+
+
 def _load_representation_benchmark(root: Path, *, max_points: int) -> dict[str, Any] | None:
     del max_points
 
-    summary_path = root / "refactor_representation_smoke" / "summary.json"
+    summary_path = _latest_matching_summary(root, REPRESENTATION_REPORT_PATTERNS)
+    if summary_path is None:
+        return None
     summary = _load_json(summary_path)
     if summary is None:
         return None
@@ -189,6 +259,7 @@ def _load_representation_benchmark(root: Path, *, max_points: int) -> dict[str, 
 
 def _load_memory_consolidation(root: Path, *, max_points: int) -> dict[str, Any] | None:
     summary_path = _first_existing_path(
+        root / "phase7_fragility_consolidation_smoke" / "summary.json",
         root / "refactor_memory_consolidation_smoke" / "summary.json",
         root / "refactor_phase2_smoke" / "summary.json",
     )
@@ -255,10 +326,7 @@ def _load_memory_consolidation(root: Path, *, max_points: int) -> dict[str, Any]
 
 
 def _load_contextual_routing(root: Path, *, max_points: int) -> dict[str, Any] | None:
-    summary_path = _first_existing_path(
-        root / "refactor_contextual_routing_smoke" / "summary.json",
-        root / "refactor_phase3_smoke" / "summary.json",
-    )
+    summary_path = _latest_matching_summary(root, CONTEXTUAL_ROUTING_REPORT_PATTERNS)
     if summary_path is None:
         return None
     summary = _load_json(summary_path)
@@ -313,6 +381,10 @@ def _load_contextual_routing(root: Path, *, max_points: int) -> dict[str, Any] |
                 "value": _float_value(diagnostics, "mean_dopamine"),
             },
             {
+                "label": "Serotonin",
+                "value": _float_value(diagnostics, "mean_serotonin"),
+            },
+            {
                 "label": "Acetylcholine",
                 "value": _float_value(diagnostics, "mean_acetylcholine"),
             },
@@ -329,10 +401,7 @@ def _load_contextual_routing(root: Path, *, max_points: int) -> dict[str, Any] |
 
 
 def _load_hierarchical_scale(root: Path, *, max_points: int) -> dict[str, Any] | None:
-    summary_path = _first_existing_path(
-        root / "refactor_hierarchical_scale_smoke" / "summary.json",
-        root / "refactor_phase4_smoke" / "summary.json",
-    )
+    summary_path = _latest_matching_summary(root, HIERARCHICAL_SCALE_REPORT_PATTERNS)
     if summary_path is None:
         return None
     summary = _load_json(summary_path)
@@ -401,7 +470,9 @@ def _load_hierarchical_scale(root: Path, *, max_points: int) -> dict[str, Any] |
 
 
 def _load_knowledge_gap_seeking(root: Path, *, max_points: int) -> dict[str, Any] | None:
-    summary_path = root / "refactor_autonomy_smoke" / "summary.json"
+    summary_path = _latest_matching_summary(root, KNOWLEDGE_GAP_REPORT_PATTERNS)
+    if summary_path is None:
+        return None
     summary = _load_json(summary_path)
     if summary is None:
         return None
@@ -667,11 +738,12 @@ def _mean_value(values: list[float]) -> float | None:
 
 
 def _latest_matching_summary(root: Path, patterns: tuple[str, ...]) -> Path | None:
+    matches: list[Path] = []
     for pattern in patterns:
-        matches = sorted(root.glob(f"{pattern}/summary.json"), key=lambda path: path.parent.name, reverse=True)
-        if matches:
-            return matches[0]
-    return None
+        matches.extend(root.glob(f"{pattern}/summary.json"))
+    if not matches:
+        return None
+    return max(matches, key=lambda path: (path.stat().st_mtime, path.parent.name))
 
 
 def _first_existing_path(*paths: Path) -> Path | None:

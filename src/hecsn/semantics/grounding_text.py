@@ -72,6 +72,8 @@ _LOW_SIGNAL_UNITS = {
     "yours",
 }
 _MAX_COMPOUND_WINDOW = 3
+_MAX_FOCUSED_CHUNK_WINDOW = 8
+_MAX_FOCUSED_CHUNKS = 4
 
 
 def normalize_text(value: Any) -> str:
@@ -106,27 +108,34 @@ def _compact_unit(value: str) -> str:
     return "".join(ch for ch in normalized if ch.isalnum())
 
 
-def _append_unit(units: list[str], raw_value: str) -> None:
-    unit = _normalize_run(raw_value)
+def _append_unit_span(
+    spans: list[tuple[str, int, int]],
+    text: str,
+    start: int,
+    end: int,
+) -> None:
+    unit = _normalize_run(text[start:end])
     if unit:
-        units.append(unit)
+        spans.append((unit, start, end))
 
 
-def _raw_stream_units(text: str) -> list[str]:
+def _raw_stream_unit_spans(text: str) -> list[tuple[str, int, int]]:
     normalized = normalize_text(text)
     if not normalized:
         return []
 
-    units: list[str] = []
+    spans: list[tuple[str, int, int]] = []
+    current_start: int | None = None
     current: list[str] = []
-    for ch in normalized:
+    for idx, ch in enumerate(normalized):
         if ch.isalnum() or ch == "'":
-            if (
-                current
-                and current[-1].islower()
-                and ch.isupper()
-            ):
-                _append_unit(units, "".join(current))
+            if current_start is None:
+                current_start = idx
+                current = [ch]
+                continue
+            if current and current[-1].islower() and ch.isupper():
+                _append_unit_span(spans, normalized, current_start, idx)
+                current_start = idx
                 current = [ch]
                 continue
             if (
@@ -136,17 +145,24 @@ def _raw_stream_units(text: str) -> list[str]:
                 and len(current) > 1
                 and current[-2].isupper()
             ):
-                _append_unit(units, "".join(current[:-1]))
-                current = [current[-1], ch]
+                split_index = idx - 1
+                _append_unit_span(spans, normalized, current_start, split_index)
+                current_start = split_index
+                current = [normalized[split_index], ch]
                 continue
             current.append(ch)
             continue
-        if current:
-            _append_unit(units, "".join(current))
+        if current_start is not None:
+            _append_unit_span(spans, normalized, current_start, idx)
+            current_start = None
             current = []
-    if current:
-        _append_unit(units, "".join(current))
-    return units
+    if current_start is not None:
+        _append_unit_span(spans, normalized, current_start, len(normalized))
+    return spans
+
+
+def _raw_stream_units(text: str) -> list[str]:
+    return [unit for unit, _, _ in _raw_stream_unit_spans(text)]
 
 
 def _compound_stream_units(
@@ -409,6 +425,67 @@ def split_sentences(text: str) -> list[str]:
     return segments or [normalized]
 
 
+def _chunk_text_slice(text: str, start: int, end: int) -> str:
+    finish = end
+    while finish < len(text) and text[finish] in "\"')]}":
+        finish += 1
+    if finish < len(text) and text[finish] in ".,;:!?":
+        finish += 1
+    return text[start:finish].strip(" ,;:")
+
+
+def _chunk_signal_unit_count(text: str) -> int:
+    count = 0
+    for unit in _raw_stream_units(text):
+        compact = _compact_unit(unit)
+        if not compact:
+            continue
+        if compact in _LOW_SIGNAL_UNITS:
+            continue
+        count += 1
+    return count
+
+
+def _query_chunk_candidates(text: str) -> list[str]:
+    normalized = normalize_text(text)
+    if not normalized:
+        return []
+
+    sentences = list(split_sentences(normalized))
+    if len(sentences) > 1:
+        return sentences
+
+    spans = _raw_stream_unit_spans(normalized)
+    if not spans:
+        return [normalized]
+
+    candidates: list[str] = []
+    if normalized.endswith((".", "!", "?")) or len(spans) <= 3:
+        candidates.append(normalized)
+
+    min_window = 2 if len(spans) <= 4 else 3
+    max_window = min(_MAX_FOCUSED_CHUNK_WINDOW, len(spans) - 1)
+    if max_window < min_window:
+        return candidates or [normalized]
+    for window_size in range(min_window, max_window + 1):
+        for start_idx in range(0, len(spans) - window_size + 1):
+            start = spans[start_idx][1]
+            end = spans[start_idx + window_size - 1][2]
+            chunk = _chunk_text_slice(normalized, start, end)
+            if len(_compact_stream(chunk)) < 8:
+                continue
+            candidates.append(chunk)
+    return _dedupe_keep_order(candidates)
+
+
+def _chunks_overlap(left: str, right: str) -> bool:
+    left_norm = normalize_text(left).lower()
+    right_norm = normalize_text(right).lower()
+    if not left_norm or not right_norm:
+        return False
+    return left_norm in right_norm or right_norm in left_norm
+
+
 def query_focused_clauses(text: str, query_terms: Sequence[str]) -> list[str]:
     normalized = normalize_text(text)
     if not normalized:
@@ -416,13 +493,85 @@ def query_focused_clauses(text: str, query_terms: Sequence[str]) -> list[str]:
     if not query_terms:
         return [normalized]
 
-    clauses = split_sentences(normalized)
-    if len(clauses) <= 1:
-        return clauses
+    sentences = split_sentences(normalized)
+    if len(sentences) == 1 and normalized.endswith((".", "!", "?")):
+        matched_full_sentence = match_terms(query_terms, normalized)
+        if len(matched_full_sentence) >= len(_dedupe_keep_order([str(term) for term in query_terms])):
+            return [normalized]
 
-    focused = [clause for clause in clauses if match_terms(query_terms, clause)]
-    return focused or clauses
+    clause_candidates = _query_chunk_candidates(normalized)
+    scored: list[dict[str, float | int | str | tuple[str, ...]]] = []
+    for clause in clause_candidates:
+        matched_terms = tuple(match_terms(query_terms, clause))
+        if not matched_terms:
+            continue
+        signal_units = max(1, _chunk_signal_unit_count(clause))
+        scored.append(
+            {
+                "text": clause,
+                "match_count": int(len(matched_terms)),
+                "density": float(len(matched_terms) / float(signal_units)),
+                "complete_sentence": int(clause.endswith((".", "!", "?"))),
+                "signal_units": int(signal_units),
+                "position": int(normalized.lower().find(clause.lower())),
+                "matched_terms": matched_terms,
+            }
+        )
+
+    if not scored:
+        clauses = split_sentences(normalized)
+        focused = [clause for clause in clauses if match_terms(query_terms, clause)]
+        return focused or clauses
+
+    scored.sort(
+        key=lambda item: (
+            int(item["match_count"]),
+            float(item["density"]),
+            int(item["complete_sentence"]),
+            -int(item["signal_units"]),
+        ),
+        reverse=True,
+    )
+    best_match_count = int(scored[0]["match_count"])
+    best_density = float(scored[0]["density"])
+    covered_terms: set[str] = set()
+    selected: list[dict[str, float | int | str | tuple[str, ...]]] = []
+    for item in scored:
+        matched_terms = set(item["matched_terms"])
+        adds_new_terms = bool(matched_terms - covered_terms)
+        close_to_best = (
+            int(item["match_count"]) >= max(1, best_match_count - 1)
+            and float(item["density"]) >= max(0.20, best_density * 0.70)
+        )
+        if selected and not adds_new_terms and not close_to_best:
+            continue
+        if any(_chunks_overlap(str(item["text"]), str(existing["text"])) for existing in selected):
+            continue
+        selected.append(item)
+        covered_terms.update(matched_terms)
+        if len(selected) >= _MAX_FOCUSED_CHUNKS:
+            break
+
+    if not selected:
+        clauses = split_sentences(normalized)
+        focused = [clause for clause in clauses if match_terms(query_terms, clause)]
+        return focused or clauses
+
+    selected.sort(key=lambda item: (int(item["position"]), -len(str(item["text"]))))
+    return [str(item["text"]) for item in selected]
 
 
 def query_focused_text(text: str, query_terms: Sequence[str]) -> str:
-    return " ".join(query_focused_clauses(text, query_terms)).strip()
+    normalized = normalize_text(text)
+    if not normalized:
+        return ""
+
+    focused_clauses = query_focused_clauses(normalized, query_terms)
+    focused_text = " ".join(focused_clauses).strip()
+    if not focused_text:
+        return normalized
+
+    if len(split_sentences(normalized)) == 1 and normalized.endswith((".", "!", "?")):
+        if len(match_terms(query_terms, normalized)) >= len(match_terms(query_terms, focused_text)):
+            return normalized
+    return focused_text

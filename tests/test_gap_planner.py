@@ -128,6 +128,25 @@ class GapPlannerTests(unittest.TestCase):
         self.assertEqual(plan["unsupported_terms"], [])
         self.assertGreater(plan["grounded_fraction"], 0.0)
 
+    def test_plan_query_gaps_derives_chunked_retrieval_query_from_boundary_free_match(self) -> None:
+        plan = plan_query_gaps(
+            query_text="submarineballastcontrol",
+            query_summary={
+                "memory_matches": [
+                    {
+                        "raw_window": "submarine ballast control regulates buoyancy underwater",
+                        "similarity": 0.91,
+                    }
+                ]
+            },
+            concept_summary={"concepts": []},
+        )
+
+        self.assertTrue(plan["retrieval_queries"])
+        self.assertTrue(
+            any(query.startswith("submarine ballast control") for query in plan["retrieval_queries"])
+        )
+
     def test_frontier_gap_terms_prioritize_unstable_memory(self) -> None:
         terms = frontier_gap_terms(
             memory_store=_FakeMemoryStore(),

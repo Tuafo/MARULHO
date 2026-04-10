@@ -440,6 +440,7 @@ def summarize_training_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     if not rows:
         return {
             "mean_dopamine": float("nan"),
+            "mean_serotonin": float("nan"),
             "mean_acetylcholine": float("nan"),
             "mean_norepinephrine": float("nan"),
             "mean_binding_strength": float("nan"),
@@ -447,6 +448,7 @@ def summarize_training_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         }
     return {
         "mean_dopamine": float(np.mean([float(row["dopamine"]) for row in rows])),
+        "mean_serotonin": float(np.mean([float(row.get("serotonin", float("nan"))) for row in rows])),
         "mean_acetylcholine": float(np.mean([float(row["acetylcholine"]) for row in rows])),
         "mean_norepinephrine": float(np.mean([float(row["norepinephrine"]) for row in rows])),
         "mean_binding_strength": float(np.mean([float(row["binding_strength"]) for row in rows])),

@@ -125,17 +125,42 @@ def evaluate_routing(
     }
 
 
-def evaluate_index_integrity(trainer: HECSNTrainer, k: int) -> dict[str, float]:
-    unreachable = 0
+def evaluate_index_integrity(
+    trainer: HECSNTrainer,
+    k: int,
+    *,
+    equivalent_similarity_min: float = 0.99999,
+) -> dict[str, float]:
+    strict_unreachable = 0
+    equivalent_unreachable = 0
+    equivalent_recoveries = 0
     total = int(trainer.config.n_columns)
     prototypes = trainer.model.competitive.prototypes.detach()
     for column_id in range(total):
         candidate_ids, _ = trainer.model.hnsw_index.search(prototypes[column_id : column_id + 1], k=max(1, int(k)))
         row = candidate_ids[0] if candidate_ids else []
-        unreachable += int(column_id not in row)
-    unreachable_fraction = float(unreachable / max(1, total))
+        if column_id in row:
+            continue
+        strict_unreachable += 1
+        equivalent_hit = False
+        if row:
+            query = torch.nn.functional.normalize(prototypes[column_id : column_id + 1], dim=1)
+            candidate_bank = torch.nn.functional.normalize(prototypes[row], dim=1)
+            best_similarity = float(torch.max(query @ candidate_bank.T).item())
+            equivalent_hit = bool(best_similarity >= float(equivalent_similarity_min))
+        if equivalent_hit:
+            equivalent_recoveries += 1
+        else:
+            equivalent_unreachable += 1
+    strict_unreachable_fraction = float(strict_unreachable / max(1, total))
+    unreachable_fraction = float(equivalent_unreachable / max(1, total))
     return {
-        "unreachable_columns": float(unreachable),
+        "strict_unreachable_columns": float(strict_unreachable),
+        "strict_unreachable_fraction": strict_unreachable_fraction,
+        "strict_self_recall": float(1.0 - strict_unreachable_fraction),
+        "equivalent_recoveries": float(equivalent_recoveries),
+        "equivalent_similarity_min": float(equivalent_similarity_min),
+        "unreachable_columns": float(equivalent_unreachable),
         "unreachable_fraction": unreachable_fraction,
         "self_recall": float(1.0 - unreachable_fraction),
     }
@@ -219,6 +244,7 @@ def run_hierarchical_scale(
     column_latent_dim: int,
     k_routing: int,
     index_rebuild_threshold: int,
+    routing_index_mode: str,
     routing_shards: int,
     shard_candidate_factor: int,
     neurons_per_column_assumption: int,
@@ -256,6 +282,7 @@ def run_hierarchical_scale(
         column_latent_dim=column_latent_dim,
         k_routing=k_routing,
         index_rebuild_threshold=index_rebuild_threshold,
+        routing_index_mode=routing_index_mode,
         routing_shards=routing_shards,
         shard_candidate_factor=shard_candidate_factor,
         neurons_per_column_assumption=neurons_per_column_assumption,
@@ -359,10 +386,10 @@ def run_hierarchical_scale(
     gate = build_hierarchical_scale_gate(cfg, routing_metrics, integrity_metrics, memory_budget)
 
     summary = {
-        "protocol": "hierarchical_scale_hf",
+        "protocol": "hierarchical_scale",
         "data_setup": {
             "source": source,
-            "source_type": "hf",
+            "source_type": str(source_type),
             "hf_config": hf_config,
             "text_field": text_field,
             "train_tokens": len(train_patterns),
@@ -405,9 +432,10 @@ def run_hierarchical_scale(
             checkpoint_out,
             trainer,
             metadata={
-                "protocol": "hierarchical_scale_hf",
+                "protocol": "hierarchical_scale",
                 "benchmark": "hierarchical_scale",
                 "source": source,
+                "source_type": str(source_type),
                 "hf_config": hf_config,
                 "text_field": text_field,
                 "train_tokens": len(train_patterns),
@@ -458,6 +486,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--column-latent-dim", type=int, default=preset_defaults.get("column_latent_dim", 256))
     parser.add_argument("--k-routing", type=int, default=preset_defaults.get("k_routing", 12))
     parser.add_argument("--index-rebuild-threshold", type=int, default=preset_defaults.get("index_rebuild_threshold", 128))
+    parser.add_argument(
+        "--routing-index-mode",
+        type=str,
+        default=preset_defaults.get("routing_index_mode", "auto"),
+        choices=["auto", "faiss_hnsw", "torch_topk", "exact_cosine"],
+    )
     parser.add_argument("--routing-shards", type=int, default=preset_defaults.get("routing_shards", 4))
     parser.add_argument("--shard-candidate-factor", type=int, default=preset_defaults.get("shard_candidate_factor", 2))
     parser.add_argument("--neurons-per-column-assumption", type=int, default=preset_defaults.get("neurons_per_column_assumption", 100))
@@ -524,6 +558,7 @@ def main() -> None:
         column_latent_dim=args.column_latent_dim,
         k_routing=args.k_routing,
         index_rebuild_threshold=args.index_rebuild_threshold,
+        routing_index_mode=args.routing_index_mode,
         routing_shards=args.routing_shards,
         shard_candidate_factor=args.shard_candidate_factor,
         neurons_per_column_assumption=args.neurons_per_column_assumption,

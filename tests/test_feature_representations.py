@@ -7,7 +7,14 @@ import torch
 from hecsn.config.model_config import HECSNConfig
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.training.baselines import CharNGramMemory, OnlineKMeans
-from hecsn.training.behavioral_metrics import completion_coherence
+from hecsn.training.behavioral_metrics import (
+    completion_coherence,
+    compositionality_score,
+    grounding_probe,
+    novelty_coverage_curve,
+    representation_retention,
+    temporal_coherence,
+)
 
 
 class FeatureRepresentationTests(unittest.TestCase):
@@ -87,6 +94,65 @@ class BehavioralBaselineTests(unittest.TestCase):
         self.assertGreater(result["sample_count"], 0)
         self.assertIsNotNone(result["mean_margin"])
         self.assertGreater(float(result["mean_margin"]), 0.0)
+
+    def test_temporal_coherence_reports_stable_winners(self) -> None:
+        result = temporal_coherence(
+            [
+                ("cat", 1),
+                ("dog", 2),
+                ("cat", 1),
+                ("cat", 1),
+                ("dog", 2),
+                ("dog", 2),
+            ]
+        )
+
+        self.assertEqual(result["supported_pattern_count"], 2)
+        self.assertIsNotNone(result["mean_coherence"])
+        self.assertGreaterEqual(float(result["mean_coherence"]), 1.0)
+
+    def test_compositionality_score_prefers_additive_composite(self) -> None:
+        left = torch.tensor([1.0, 0.0, 0.0])
+        right = torch.tensor([0.0, 1.0, 0.0])
+        combined = torch.tensor([1.0, 1.0, 0.0])
+
+        result = compositionality_score([(left, right, combined)])
+
+        self.assertEqual(result["sample_count"], 1)
+        self.assertIsNotNone(result["mean_score"])
+        self.assertGreater(float(result["mean_score"]), 0.99)
+
+    def test_grounding_probe_prefers_positive_pair(self) -> None:
+        anchor = torch.tensor([1.0, 0.0, 0.0])
+        positive = torch.tensor([0.8, 0.2, 0.0])
+        negative = torch.tensor([0.0, 1.0, 0.0])
+
+        result = grounding_probe([(anchor, positive, negative)])
+
+        self.assertEqual(result["sample_count"], 1)
+        self.assertEqual(float(result["accuracy"]), 1.0)
+        self.assertGreater(float(result["mean_margin"]), 0.0)
+
+    def test_novelty_coverage_curve_reports_final_rate(self) -> None:
+        result = novelty_coverage_curve(
+            [True, True, False, False, True, False],
+            [2, 4, 6],
+            healthy_range=(0.1, 0.9),
+        )
+
+        self.assertEqual(len(result["novelty_rate_by_checkpoint"]), 3)
+        self.assertAlmostEqual(float(result["final_novelty_rate"]), 0.5)
+        self.assertTrue(result["healthy_final_range"])
+
+    def test_representation_retention_reports_similarity(self) -> None:
+        before = [torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0])]
+        after = [torch.tensor([0.9, 0.1]), torch.tensor([0.1, 0.9])]
+
+        result = representation_retention(before, after)
+
+        self.assertEqual(result["sample_count"], 2)
+        self.assertIsNotNone(result["mean_retention"])
+        self.assertGreater(float(result["mean_retention"]), 0.85)
 
 
 if __name__ == "__main__":

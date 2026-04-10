@@ -1107,7 +1107,6 @@ def projected_active_stop_decision(
     projected_final_max = float(selected_projection["projected_final_max_candidate_gap"])
     if (
         semantic_commit_margin > 0.0
-        and projected_score > -semantic_commit_margin
         and projected_final_mean <= current_mean_gap + semantic_commit_margin
         and projected_final_max <= current_max_gap + semantic_commit_margin
     ):

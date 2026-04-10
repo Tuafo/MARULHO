@@ -6,6 +6,8 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
+from hecsn.core.adex import AdExNeuron
+
 
 def _normalize_nonnegative(signal: torch.Tensor) -> torch.Tensor:
     signal = torch.clamp(signal.float(), min=0.0)
@@ -53,6 +55,7 @@ class LocalPlasticityCircuit:
         projection_norm_target: float,
         projection_plasticity_scale: float,
         assembly_projection_plasticity_scale: float,
+        spike_backend: str = "proxy",
     ) -> None:
         self.n_columns = int(n_columns)
         self.input_dim = int(input_dim)
@@ -73,6 +76,9 @@ class LocalPlasticityCircuit:
         self.projection_norm_target = float(projection_norm_target)
         self.projection_plasticity_scale = float(projection_plasticity_scale)
         self.assembly_projection_plasticity_scale = float(assembly_projection_plasticity_scale)
+        self.spike_backend = str(spike_backend)
+        if self.spike_backend not in {"proxy", "adex"}:
+            raise ValueError("spike_backend must be 'proxy' or 'adex'")
 
         self.pre_trace = torch.zeros(self.input_dim, device=self.device)
         self.post_trace = torch.zeros(self.n_columns, device=self.device)
@@ -91,6 +97,14 @@ class LocalPlasticityCircuit:
         self.synaptic_scale = torch.ones(self.n_columns, device=self.device)
         self.inhibitory_trace = torch.zeros(self.n_columns, device=self.device)
         self.inhibitory_tone = torch.zeros(self.n_columns, device=self.device)
+        self.adex_neurons = (
+            AdExNeuron(n_neurons=self.n_columns, dt=0.5, device=self.device, burst_mode=True)
+            if self.spike_backend == "adex"
+            else None
+        )
+        self.adex_step = 0
+        self.last_post_spike_fraction = 0.0
+        self.last_mean_membrane_voltage = 0.0
 
     def _trace_decay(self) -> float:
         return math.exp(-1.0 / max(self.trace_tau, 1e-6))
@@ -103,7 +117,7 @@ class LocalPlasticityCircuit:
             return self.inhibitory_tone
         return self.inhibitory_tone[candidates]
 
-    def _winner_activity(
+    def _proxy_winner_activity(
         self,
         winner_indices: torch.Tensor,
         winner_strengths: torch.Tensor | None,
@@ -123,6 +137,31 @@ class LocalPlasticityCircuit:
             strengths = _normalize_nonnegative(winner_strengths.to(self.device))
         post_spikes[winners] = strengths
         return post_spikes
+
+    def _winner_activity(
+        self,
+        winner_indices: torch.Tensor,
+        winner_strengths: torch.Tensor | None,
+        assembly_signal: torch.Tensor,
+    ) -> torch.Tensor:
+        proxy_post = self._proxy_winner_activity(winner_indices, winner_strengths)
+        if self.spike_backend != "adex" or self.adex_neurons is None:
+            self.last_post_spike_fraction = float((proxy_post > 0).float().mean().item())
+            self.last_mean_membrane_voltage = 0.0
+            return proxy_post
+
+        current = 8.0 * torch.clamp(assembly_signal.to(self.device), min=0.0)
+        if float(proxy_post.sum().item()) > 0.0:
+            current = current + 24.0 * proxy_post
+        spikes = self.adex_neurons.step(current, t=float(self.adex_step) * float(self.adex_neurons.dt))
+        self.adex_step += 1
+
+        adex_post = spikes.to(torch.float32)
+        self.last_post_spike_fraction = float(adex_post.mean().item())
+        self.last_mean_membrane_voltage = float(self.adex_neurons.V.mean().item())
+        if float(adex_post.sum().item()) <= 0.0:
+            return proxy_post
+        return _normalize_nonnegative(adex_post + 0.25 * proxy_post)
 
     def _log_stdp_delta(
         self,
@@ -183,7 +222,7 @@ class LocalPlasticityCircuit:
         )
         assembly_signal = _normalize_nonnegative(assembly.to(self.device))
         routing_signal = _normalize_nonnegative(routing_key.to(self.device))
-        post_signal = self._winner_activity(winner_indices, winner_strengths)
+        post_signal = self._winner_activity(winner_indices, winner_strengths, assembly_signal)
 
         trace_decay = self._trace_decay()
         eligibility_decay = self._eligibility_decay()
@@ -257,6 +296,8 @@ class LocalPlasticityCircuit:
             "modulated_update_norm": float((lr * learning_signal * self.input_eligibility).norm().item()),
             "mean_inhibitory_tone": float(self.inhibitory_tone.mean().item()),
             "mean_synaptic_scale": float(self.synaptic_scale.mean().item()),
+            "post_spike_fraction": float(self.last_post_spike_fraction),
+            "mean_membrane_voltage": float(self.last_mean_membrane_voltage),
         }
 
     def revive_columns(self, column_indices: torch.Tensor) -> None:

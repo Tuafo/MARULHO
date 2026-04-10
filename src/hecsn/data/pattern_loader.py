@@ -26,12 +26,11 @@ def pattern_stream(
     chars: Iterable[str],
     encoder: RTFEncoder,
     window_size: int,
+    *,
+    learn_chunking: bool = False,
 ) -> Iterator[torch.Tensor]:
-    window_codes: Deque[int] = deque(maxlen=max(1, int(window_size)))
-    for ch in chars:
-        code, _ = _normalize_char(ch)
-        window_codes.append(code)
-        yield encoder.feature_vector(list(window_codes))
+    for _, pattern in encoder.iter_char_patterns(chars, window_size, learn=learn_chunking):
+        yield pattern
 
 
 def raw_window_stream(
@@ -50,15 +49,10 @@ def labeled_pattern_stream(
     chars: Iterable[str],
     encoder: RTFEncoder,
     window_size: int,
+    *,
+    learn_chunking: bool = False,
 ) -> Iterator[PatternExample]:
-    maxlen = max(1, int(window_size))
-    window_codes: Deque[int] = deque(maxlen=maxlen)
-    window_chars: Deque[str] = deque(maxlen=maxlen)
-    for ch in chars:
-        code, display = _normalize_char(ch)
-        window_codes.append(code)
-        window_chars.append(display)
-        yield "".join(window_chars), encoder.feature_vector(list(window_codes))
+    yield from encoder.iter_char_patterns(chars, window_size, learn=learn_chunking)
 
 
 def _split_stream(stream: Iterable[T], first_count: int, second_count: int) -> tuple[list[T], list[T]]:

@@ -8,6 +8,7 @@ from hecsn.data.source_catalog import (
     expand_source_bank_specs,
     select_catalog_source_specs,
 )
+from hecsn.gap_planner import plan_query_gaps
 
 
 class SourceCatalogTests(unittest.TestCase):
@@ -198,6 +199,57 @@ class SourceCatalogTests(unittest.TestCase):
         self.assertEqual(len(selected), 2)
         self.assertIn("wikipedia:spiking plasticity", queries)
         self.assertIn("arxiv:memory consolidation", queries)
+
+    def test_discover_remote_search_source_specs_emits_learned_provider_query_families(self) -> None:
+        queries: list[str] = []
+
+        def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+            queries.append(f"{provider}:{query}")
+            return [
+                {
+                    "name": f"{provider}_{query.replace(' ', '_')}",
+                    "source": f"https://example.com/{provider}/{query.replace(' ', '_')}",
+                    "source_type": "web",
+                    "summary": f"{query} submarine ballast trim stability",
+                    "query_text": query,
+                    "catalog_priority": 0.6,
+                    "provider": provider,
+                }
+            ]
+
+        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+            selected = discover_remote_search_source_specs(
+                {
+                    "catalog_mode": "live_remote_search",
+                    "catalog_providers": ["wikipedia"],
+                    "catalog_limit": 2,
+                    "catalog_queries_per_provider": 2,
+                    "catalog_provider_result_limit": 1,
+                    "catalog_provider_query_families": {
+                        "wikipedia": ["ballast trim stability"],
+                    },
+                },
+                semantic_plan={
+                    "planner_mode": "geometric_abstraction_gap_focus",
+                    "retrieval_queries": ["submarine buoyancy ballast"],
+                    "geometric_gaps": [
+                        {
+                            "concept_index": 0,
+                            "gap_score": 0.4,
+                            "top_terms": ["submarine", "ballast", "trim"],
+                        }
+                    ],
+                },
+            )
+
+        self.assertEqual(
+            queries,
+            [
+                "wikipedia:submarine buoyancy ballast",
+                "wikipedia:ballast trim stability",
+            ],
+        )
+        self.assertEqual(len(selected), 2)
 
     def test_discover_remote_search_source_specs_can_use_follow_up_questions_as_queries(self) -> None:
         queries: list[str] = []
@@ -576,6 +628,52 @@ class SourceCatalogTests(unittest.TestCase):
             )
 
         self.assertEqual([item["name"] for item in selected], ["submarine_source"])
+
+    def test_discover_remote_search_source_specs_uses_chunked_boundary_free_query(self) -> None:
+        seen_queries: list[str] = []
+
+        def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:
+            seen_queries.append(query)
+            return [
+                {
+                    "name": "submarine_source",
+                    "source": "https://example.com/submarine",
+                    "source_type": "web",
+                    "summary": "submarine ballast control regulates buoyancy underwater",
+                    "query_text": query,
+                    "catalog_priority": 0.45,
+                    "provider": provider,
+                }
+            ][:result_limit]
+
+        semantic_plan = plan_query_gaps(
+            query_text="submarineballastcontrol",
+            query_summary={
+                "memory_matches": [
+                    {
+                        "raw_window": "submarine ballast control regulates buoyancy underwater",
+                        "similarity": 0.91,
+                    }
+                ]
+            },
+            concept_summary={"concepts": []},
+        )
+
+        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+            selected = discover_remote_search_source_specs(
+                {
+                    "catalog_mode": "live_remote_search",
+                    "catalog_providers": ["wikipedia"],
+                    "catalog_limit": 1,
+                    "catalog_queries_per_provider": 1,
+                    "catalog_provider_result_limit": 1,
+                },
+                semantic_plan=semantic_plan,
+            )
+
+        self.assertEqual([item["name"] for item in selected], ["submarine_source"])
+        self.assertEqual(len(seen_queries), 1)
+        self.assertTrue(seen_queries[0].startswith("submarine ballast control"))
 
     def test_discover_remote_search_source_specs_ranks_semantic_match_above_distractors(self) -> None:
         def fake_search(provider: str, query: str, *, result_limit: int, timeout_seconds: float) -> list[dict[str, object]]:

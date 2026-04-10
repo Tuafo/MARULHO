@@ -232,6 +232,7 @@ class EvidenceResponder:
             concept_priority = max((float(entry.get("priority", 0.0)) for entry in concept_entries), default=0.0)
             fragmentary = self._is_fragmentary_evidence(text, raw_window)
             complete_sentence = int(match.get("complete_sentence", int(text.endswith((".", "!", "?")))))
+            expansion_chars = int(match.get("expansion_chars", max(0, len(text) - len(raw_window))))
             clipped_overlap = int(
                 match.get(
                     "clipped_overlap",
@@ -243,6 +244,7 @@ class EvidenceResponder:
             score += 0.05 if text.endswith((".", "!", "?")) else -0.03
             score += 0.08 if not fragmentary else -0.05
             score += 0.04 * complete_sentence
+            score += 0.01 * min(20.0, float(expansion_chars))
             score -= 0.08 * clipped_overlap
             score -= 0.60 if metadata_scaffold else 0.0
             ranked.append(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, List, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, List, Literal, Sequence
 import torch
 
 if TYPE_CHECKING:
@@ -8,6 +8,237 @@ if TYPE_CHECKING:
 
 
 RepresentationMode = Literal["order_weighted_ascii", "unigram_ascii", "hashed_ngram"]
+
+
+def _normalize(vector: torch.Tensor) -> torch.Tensor:
+    total = float(torch.norm(vector.float(), p=2).item())
+    if total <= 0.0:
+        return torch.zeros_like(vector, dtype=torch.float32)
+    return vector.float() / (torch.norm(vector.float(), p=2) + 1e-8)
+
+
+def _ascii_code(ch: str) -> int:
+    code = ord(ch)
+    return int(code if code < 128 else 0)
+
+
+class LearnedChunkingLayer:
+    def __init__(
+        self,
+        *,
+        n_detectors: int,
+        min_chunk_len: int,
+        max_chunk_len: int,
+        similarity_floor: float,
+        boundary_threshold: float,
+        update_lr: float,
+        association_blend: float,
+        association_lr: float,
+        association_decay: float,
+    ) -> None:
+        self.n_detectors = int(n_detectors)
+        self.min_chunk_len = int(min_chunk_len)
+        self.max_chunk_len = int(max_chunk_len)
+        self.similarity_floor = float(similarity_floor)
+        self.boundary_threshold = float(boundary_threshold)
+        self.update_lr = float(update_lr)
+        self.association_blend = float(association_blend)
+        self.association_lr = float(association_lr)
+        self.association_decay = float(association_decay)
+        self.prototype_dim = (self.max_chunk_len * 8) + 32
+        self.prototypes = torch.zeros(self.n_detectors, self.prototype_dim, dtype=torch.float32)
+        self.confidence = torch.zeros(self.n_detectors, dtype=torch.float32)
+        self.usage = torch.zeros(self.n_detectors, dtype=torch.float32)
+        self.associations = torch.zeros(self.n_detectors, self.n_detectors, dtype=torch.float32)
+
+    @staticmethod
+    def is_separator(code: int) -> bool:
+        if not 0 <= int(code) < 128:
+            return True
+        ch = chr(int(code))
+        return ch.isspace() or ch in ",.;:!?()[]{}<>\""
+
+    @staticmethod
+    def is_hard_boundary(code: int) -> bool:
+        if not 0 <= int(code) < 128:
+            return True
+        return chr(int(code)) in ".!?\n\r"
+
+    @staticmethod
+    def _byte_weight(code: int) -> float:
+        if not 0 <= int(code) < 128:
+            return 0.0
+        ch = chr(int(code))
+        if ch.isalpha():
+            return 1.0
+        if ch.isdigit():
+            return 0.85
+        if ch in "'-_/":
+            return 0.65
+        if ch.isspace():
+            return 0.2
+        return 0.5
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "prototypes": self.prototypes.detach().clone().cpu(),
+            "confidence": self.confidence.detach().clone().cpu(),
+            "usage": self.usage.detach().clone().cpu(),
+            "associations": self.associations.detach().clone().cpu(),
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        prototypes = state.get("prototypes")
+        confidence = state.get("confidence")
+        usage = state.get("usage")
+        associations = state.get("associations")
+        if isinstance(prototypes, torch.Tensor) and prototypes.shape == self.prototypes.shape:
+            self.prototypes = prototypes.detach().clone().cpu().float()
+        if isinstance(confidence, torch.Tensor) and confidence.shape == self.confidence.shape:
+            self.confidence = confidence.detach().clone().cpu().float()
+        if isinstance(usage, torch.Tensor) and usage.shape == self.usage.shape:
+            self.usage = usage.detach().clone().cpu().float()
+        if isinstance(associations, torch.Tensor) and associations.shape == self.associations.shape:
+            self.associations = associations.detach().clone().cpu().float()
+
+    def encode_chunk(self, chars: Sequence[int]) -> torch.Tensor:
+        window: list[int] = [int(code) for code in list(chars)[-self.max_chunk_len :] if 0 <= int(code) < 128]
+        vector = torch.zeros(self.prototype_dim, dtype=torch.float32)
+        if not window:
+            return vector
+
+        for pos, code in enumerate(window):
+            base = pos * 8
+            weight = self._byte_weight(code) * max(0.35, 1.0 - (0.04 * pos))
+            for bit in range(8):
+                if (int(code) >> bit) & 1:
+                    vector[base + bit] += float(weight)
+
+        offset = self.max_chunk_len * 8
+        for left, right in zip(window, window[1:]):
+            bucket = ((int(left) + 17) * 131 + (int(right) + 1) * 31) % 32
+            vector[offset + bucket] += 1.0
+
+        return _normalize(vector)
+
+    def _similarities_from_encoding(self, encoding: torch.Tensor) -> torch.Tensor:
+        if float(encoding.sum().item()) <= 0.0:
+            return torch.zeros(self.n_detectors, dtype=torch.float32)
+        active = self.usage > 0.0
+        if not bool(active.any().item()):
+            return torch.zeros(self.n_detectors, dtype=torch.float32)
+        sims = torch.mv(self.prototypes, encoding.float())
+        sims = torch.clamp(sims, min=0.0) * active.float()
+        sims = sims * torch.clamp(self.confidence, min=0.25, max=1.0)
+        return sims
+
+    def _best_detector(self, chars: Sequence[int]) -> tuple[int | None, float]:
+        similarities = self._similarities_from_encoding(self.encode_chunk(chars))
+        if similarities.numel() == 0:
+            return None, 0.0
+        best = float(similarities.max().item()) if int(similarities.numel()) > 0 else 0.0
+        if best <= 0.0:
+            return None, 0.0
+        return int(torch.argmax(similarities).item()), best
+
+    def detector_activations(self, chars: Sequence[int]) -> torch.Tensor:
+        similarities = self._similarities_from_encoding(self.encode_chunk(chars))
+        if float(similarities.max().item()) <= 0.0:
+            return torch.zeros(self.n_detectors, dtype=torch.float32)
+        active_count = max(1, int((self.usage > 0.0).sum().item()))
+        top_k = min(8, active_count)
+        values, indices = torch.topk(similarities, k=top_k)
+        result = torch.zeros_like(similarities)
+        result[indices] = values
+        result = _normalize(result)
+        if self.association_blend <= 0.0:
+            return result
+        associated = self._association_context(result)
+        if float(associated.sum().item()) <= 0.0:
+            return result
+        blended = ((1.0 - self.association_blend) * result) + (self.association_blend * associated)
+        return _normalize(blended)
+
+    def _allocate_detector_index(self) -> int:
+        inactive = torch.nonzero(self.usage <= 0.0, as_tuple=False).flatten()
+        if inactive.numel() > 0:
+            return int(inactive[0].item())
+        scores = self.usage + (self.confidence * 8.0)
+        return int(torch.argmin(scores).item())
+
+    def _creation_floor(self, chars: Sequence[int]) -> float:
+        length = min(len(chars), self.max_chunk_len)
+        return max(self.similarity_floor, 0.55 - (0.02 * float(length)))
+
+    def _association_context(self, activations: torch.Tensor) -> torch.Tensor:
+        if activations.numel() == 0 or float(activations.sum().item()) <= 0.0:
+            return torch.zeros(self.n_detectors, dtype=torch.float32)
+        associated = torch.mv(self.associations, activations.float())
+        if float(associated.sum().item()) <= 0.0:
+            return torch.zeros(self.n_detectors, dtype=torch.float32)
+        associated = associated * (self.usage > 0.0).float()
+        return _normalize(torch.clamp(associated, min=0.0))
+
+    def _update_associations(self, current: torch.Tensor, context: torch.Tensor | None) -> None:
+        if self.association_lr <= 0.0 or context is None:
+            return
+        if context.dim() != 1 or int(context.numel()) != self.n_detectors:
+            return
+        current_vec = _normalize(torch.clamp(current.float(), min=0.0))
+        context_vec = _normalize(torch.clamp(context.float(), min=0.0))
+        if float(current_vec.sum().item()) <= 0.0 or float(context_vec.sum().item()) <= 0.0:
+            return
+        pair = torch.outer(context_vec, current_vec) + torch.outer(current_vec, context_vec)
+        updated = (self.association_decay * self.associations) + (self.association_lr * pair)
+        updated.fill_diagonal_(0.0)
+        self.associations = torch.clamp(updated, min=0.0, max=1.0)
+
+    def learn_chunk(self, chars: Sequence[int], *, context: torch.Tensor | None = None) -> None:
+        encoding = self.encode_chunk(chars)
+        if float(encoding.sum().item()) <= 0.0:
+            return
+        similarities = self._similarities_from_encoding(encoding)
+        best_score = float(similarities.max().item()) if int(similarities.numel()) > 0 else 0.0
+        if best_score < self._creation_floor(chars):
+            index = self._allocate_detector_index()
+            self.prototypes[index] = encoding
+            self.confidence[index] = max(0.5, best_score)
+            self.usage[index] = self.usage[index] + 1.0
+            current = torch.zeros(self.n_detectors, dtype=torch.float32)
+            current[index] = 1.0
+            self._update_associations(current, context)
+            return
+
+        index = int(torch.argmax(similarities).item())
+        lr = self.update_lr * max(0.25, 1.0 - float(self.confidence[index].item()))
+        updated = ((1.0 - lr) * self.prototypes[index]) + (lr * encoding)
+        self.prototypes[index] = _normalize(updated)
+        self.confidence[index] = max(
+            0.15,
+            min(
+                1.0,
+                (0.85 * float(self.confidence[index].item())) + (0.15 * best_score),
+            ),
+        )
+        self.usage[index] = self.usage[index] + 1.0
+        current = torch.zeros(self.n_detectors, dtype=torch.float32)
+        current[index] = 1.0
+        self._update_associations(current, context)
+
+    def should_boundary(self, buffer: Sequence[int], next_code: int) -> bool:
+        if len(buffer) >= self.max_chunk_len:
+            return True
+        if len(buffer) < self.min_chunk_len:
+            return False
+
+        current_idx, current_score = self._best_detector(buffer)
+        if current_idx is None or current_score < self.similarity_floor:
+            return False
+
+        extended_idx, extended_score = self._best_detector([*buffer, int(next_code)])
+        changed_detector = extended_idx is None or extended_idx != current_idx
+        score_drop = current_score - extended_score
+        return bool(changed_detector and score_drop >= self.boundary_threshold)
 
 
 class RTFEncoder:
@@ -27,6 +258,19 @@ class RTFEncoder:
         hashed_ngram_dim: int = 2048,
         hashed_ngram_min_n: int = 2,
         hashed_ngram_max_n: int = 3,
+        enable_learned_chunking: bool = False,
+        learned_chunk_detector_count: int = 128,
+        learned_chunk_min_len: int = 2,
+        learned_chunk_max_len: int = 12,
+        learned_chunk_feature_mode: Literal["blend", "concat"] = "blend",
+        learned_chunk_concat_dim: int = 128,
+        learned_chunk_blend: float = 0.5,
+        learned_chunk_similarity_floor: float = 0.30,
+        learned_chunk_boundary_threshold: float = 0.08,
+        learned_chunk_update_lr: float = 0.25,
+        learned_chunk_association_blend: float = 0.35,
+        learned_chunk_association_lr: float = 0.15,
+        learned_chunk_association_decay: float = 0.995,
     ) -> None:
         self.t_max = float(t_max)
         self.n_bursts_max = int(n_bursts_max)
@@ -36,6 +280,24 @@ class RTFEncoder:
         self.hashed_ngram_dim = int(hashed_ngram_dim)
         self.hashed_ngram_min_n = int(hashed_ngram_min_n)
         self.hashed_ngram_max_n = int(hashed_ngram_max_n)
+        self.learned_chunk_feature_mode = str(learned_chunk_feature_mode)
+        self.learned_chunk_concat_dim = int(learned_chunk_concat_dim)
+        self.learned_chunk_blend = float(learned_chunk_blend)
+        self.learned_chunking = (
+            LearnedChunkingLayer(
+                n_detectors=learned_chunk_detector_count,
+                min_chunk_len=learned_chunk_min_len,
+                max_chunk_len=learned_chunk_max_len,
+                similarity_floor=learned_chunk_similarity_floor,
+                boundary_threshold=learned_chunk_boundary_threshold,
+                update_lr=learned_chunk_update_lr,
+                association_blend=learned_chunk_association_blend,
+                association_lr=learned_chunk_association_lr,
+                association_decay=learned_chunk_association_decay,
+            )
+            if enable_learned_chunking
+            else None
+        )
 
     @classmethod
     def from_config(cls, config: "HECSNConfig") -> "RTFEncoder":
@@ -45,11 +307,62 @@ class RTFEncoder:
             hashed_ngram_dim=config.hashed_ngram_dim,
             hashed_ngram_min_n=config.hashed_ngram_min_n,
             hashed_ngram_max_n=config.hashed_ngram_max_n,
+            enable_learned_chunking=config.enable_learned_chunking,
+            learned_chunk_detector_count=config.learned_chunk_detector_count,
+            learned_chunk_min_len=config.learned_chunk_min_len,
+            learned_chunk_max_len=config.learned_chunk_max_len,
+            learned_chunk_feature_mode=config.learned_chunk_feature_mode,
+            learned_chunk_concat_dim=config.learned_chunk_concat_dim,
+            learned_chunk_blend=config.learned_chunk_blend,
+            learned_chunk_similarity_floor=config.learned_chunk_similarity_floor,
+            learned_chunk_boundary_threshold=config.learned_chunk_boundary_threshold,
+            learned_chunk_update_lr=config.learned_chunk_update_lr,
+            learned_chunk_association_blend=config.learned_chunk_association_blend,
+            learned_chunk_association_lr=config.learned_chunk_association_lr,
+            learned_chunk_association_decay=config.learned_chunk_association_decay,
         )
 
     @property
-    def output_dim(self) -> int:
+    def base_output_dim(self) -> int:
         return self.hashed_ngram_dim if self.representation == "hashed_ngram" else 128
+
+    @property
+    def uses_learned_chunking(self) -> bool:
+        return self.learned_chunking is not None
+
+    @property
+    def uses_concat_chunk_channel(self) -> bool:
+        return self.learned_chunking is not None and self.learned_chunk_feature_mode == "concat"
+
+    @property
+    def chunk_output_dim(self) -> int:
+        if self.uses_concat_chunk_channel:
+            return self.learned_chunk_concat_dim
+        return self.base_output_dim
+
+    @property
+    def chunk_projection_work_dim(self) -> int:
+        if self.uses_concat_chunk_channel:
+            return self.output_dim
+        return self.base_output_dim
+
+    @property
+    def output_dim(self) -> int:
+        if self.uses_concat_chunk_channel:
+            return self.base_output_dim + self.learned_chunk_concat_dim
+        return self.base_output_dim
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "learned_chunking": None if self.learned_chunking is None else self.learned_chunking.state_dict(),
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        if self.learned_chunking is None:
+            return
+        learned_chunking = state.get("learned_chunking")
+        if isinstance(learned_chunking, dict):
+            self.learned_chunking.load_state_dict(learned_chunking)
 
     def character_window_to_pattern(self, chars: Iterable[int]) -> torch.Tensor:
         window: List[int] = list(chars)[-self.window_size :]
@@ -104,7 +417,7 @@ class RTFEncoder:
 
         return route / (torch.norm(route, p=2) + 1e-8)
 
-    def feature_vector(self, chars: Iterable[int]) -> torch.Tensor:
+    def _base_feature_vector(self, chars: Iterable[int]) -> torch.Tensor:
         if self.representation == "order_weighted_ascii":
             return self.routing_vector(chars)
         if self.representation == "unigram_ascii":
@@ -112,6 +425,216 @@ class RTFEncoder:
         if self.representation == "hashed_ngram":
             return self.hashed_ngram_vector(chars)
         raise ValueError(f"Unsupported representation: {self.representation}")
+
+    def _project_chunk_vector(self, detector_vector: torch.Tensor) -> torch.Tensor:
+        projected = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32)
+        if detector_vector.numel() == 0 or float(detector_vector.sum().item()) <= 0.0:
+            return projected
+        if int(detector_vector.numel()) == int(projected.numel()):
+            return _normalize(detector_vector.float())
+        for index, value in enumerate(detector_vector.tolist()):
+            if float(value) <= 0.0:
+                continue
+            projected[index % int(projected.numel())] += float(value)
+        return _normalize(projected)
+
+    def _chunk_signature_vector(self, chunk_codes: Sequence[int]) -> torch.Tensor:
+        signature = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32)
+        if not chunk_codes:
+            return signature
+
+        rolling = 2166136261
+        for code in chunk_codes:
+            rolling ^= int(code) + 1
+            rolling = (rolling * 16777619) & 0xFFFFFFFF
+            signature[int(rolling % max(1, self.chunk_projection_work_dim))] += 1.0
+
+        for left, right in zip(chunk_codes, chunk_codes[1:]):
+            pair_hash = ((int(left) + 17) * 1315423911) ^ ((int(right) + 31) * 2654435761)
+            signature[int(pair_hash % max(1, self.chunk_projection_work_dim))] += 0.75
+
+        signature[int(len(chunk_codes) % max(1, self.chunk_projection_work_dim))] += 0.5
+        return _normalize(signature)
+
+    def _chunk_projection(
+        self,
+        *,
+        chunk_state: torch.Tensor | None = None,
+        chunk_codes: Sequence[int] | None = None,
+    ) -> torch.Tensor:
+        if self.learned_chunking is None or chunk_state is None:
+            return torch.zeros(self.chunk_output_dim, dtype=torch.float32)
+        projected = self._project_chunk_vector(chunk_state)
+        signature = self._chunk_signature_vector(chunk_codes or [])
+        chunk_projection = _normalize(projected + signature)
+        if self.uses_concat_chunk_channel and int(chunk_projection.numel()) != self.chunk_output_dim:
+            chunk_projection = _normalize(chunk_projection[: self.chunk_output_dim])
+        return chunk_projection
+
+    def _combine_features(
+        self,
+        base: torch.Tensor,
+        *,
+        chunk_state: torch.Tensor | None = None,
+        chunk_codes: Sequence[int] | None = None,
+    ) -> torch.Tensor:
+        base_features = _normalize(base.float())
+        if self.learned_chunking is None:
+            return base_features
+
+        chunk_projection = self._chunk_projection(chunk_state=chunk_state, chunk_codes=chunk_codes)
+        if self.uses_concat_chunk_channel:
+            return _normalize(torch.cat([base_features, chunk_projection], dim=0))
+        if chunk_state is None or self.learned_chunk_blend <= 0.0:
+            return base_features
+        if float(chunk_projection.sum().item()) <= 0.0:
+            return base_features
+        blended = ((1.0 - self.learned_chunk_blend) * base_features) + (self.learned_chunk_blend * chunk_projection)
+        return _normalize(blended)
+
+    def feature_vector(self, chars: Iterable[int]) -> torch.Tensor:
+        return self._combine_features(self._base_feature_vector(chars))
+
+    def blended_feature_vector(
+        self,
+        chars: Iterable[int],
+        *,
+        chunk_state: torch.Tensor | None = None,
+        chunk_codes: Sequence[int] | None = None,
+    ) -> torch.Tensor:
+        return self._combine_features(
+            self._base_feature_vector(chars),
+            chunk_state=chunk_state,
+            chunk_codes=chunk_codes,
+        )
+
+    def _update_chunk_context(self, context: torch.Tensor, chunk_codes: Sequence[int]) -> torch.Tensor:
+        if self.learned_chunking is None:
+            return context
+        chunk_vector = self.learned_chunking.detector_activations(chunk_codes)
+        if float(chunk_vector.sum().item()) <= 0.0:
+            return context
+        if float(context.sum().item()) <= 0.0:
+            return chunk_vector
+        return _normalize((0.7 * context) + (0.3 * chunk_vector))
+
+    def _current_chunk_state(self, context: torch.Tensor, chunk_codes: Sequence[int]) -> torch.Tensor:
+        if self.learned_chunking is None:
+            return torch.zeros(0, dtype=torch.float32)
+        current = self.learned_chunking.detector_activations(chunk_codes)
+        if float(current.sum().item()) <= 0.0:
+            return context
+        if float(context.sum().item()) <= 0.0:
+            return current
+        return _normalize(context + current)
+
+    def iter_char_patterns(
+        self,
+        chars: Iterable[str],
+        window_size: int,
+        *,
+        learn: bool = False,
+    ) -> Iterator[tuple[str, torch.Tensor]]:
+        maxlen = max(1, int(window_size))
+        window_codes: list[int] = []
+        window_chars: list[str] = []
+        chunk_codes: list[int] = []
+        chunk_context = (
+            torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32)
+            if self.learned_chunking is not None
+            else torch.zeros(0, dtype=torch.float32)
+        )
+
+        for ch in chars:
+            code = _ascii_code(ch)
+            display = ch if ord(ch) < 128 else "?"
+            window_codes.append(code)
+            window_chars.append(display)
+            if len(window_codes) > maxlen:
+                window_codes.pop(0)
+                window_chars.pop(0)
+
+            if self.learned_chunking is not None:
+                if self.learned_chunking.is_separator(code):
+                    if chunk_codes:
+                        if learn:
+                            self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
+                        chunk_context = self._update_chunk_context(chunk_context, chunk_codes)
+                        chunk_codes = []
+                    if self.learned_chunking.is_hard_boundary(code):
+                        chunk_context = torch.zeros_like(chunk_context)
+                    chunk_state = chunk_context
+                else:
+                    if chunk_codes and self.learned_chunking.should_boundary(chunk_codes, code):
+                        if learn:
+                            self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
+                        chunk_context = self._update_chunk_context(chunk_context, chunk_codes)
+                        chunk_codes = [code]
+                    else:
+                        chunk_codes.append(code)
+                    chunk_state = self._current_chunk_state(chunk_context, chunk_codes)
+            else:
+                chunk_state = None
+
+            yield "".join(window_chars), self.blended_feature_vector(
+                window_codes,
+                chunk_state=chunk_state,
+                chunk_codes=chunk_codes,
+            )
+
+        if learn and self.learned_chunking is not None and chunk_codes:
+            self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
+
+    def segment_text(self, text: str, *, learn: bool = False) -> list[str]:
+        if not text:
+            return []
+        if self.learned_chunking is None:
+            normalized = str(text).strip()
+            return [normalized] if normalized else []
+
+        segments: list[str] = []
+        chunk_codes: list[int] = []
+        chunk_chars: list[str] = []
+        chunk_context = torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32)
+        sentence_punct = {".", "!", "?"}
+        for ch in text:
+            code = _ascii_code(ch)
+            if self.learned_chunking.is_separator(code):
+                if chunk_chars:
+                    if ch in sentence_punct:
+                        chunk_chars.append(ch)
+                    segment = "".join(chunk_chars).strip()
+                    if segment:
+                        segments.append(segment)
+                    if learn:
+                        self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
+                    chunk_context = self._update_chunk_context(chunk_context, chunk_codes)
+                    chunk_codes = []
+                    chunk_chars = []
+                if self.learned_chunking.is_hard_boundary(code):
+                    chunk_context = torch.zeros_like(chunk_context)
+                continue
+
+            if chunk_codes and self.learned_chunking.should_boundary(chunk_codes, code):
+                segment = "".join(chunk_chars).strip()
+                if segment:
+                    segments.append(segment)
+                if learn:
+                    self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
+                chunk_context = self._update_chunk_context(chunk_context, chunk_codes)
+                chunk_codes = [code]
+                chunk_chars = [ch]
+            else:
+                chunk_codes.append(code)
+                chunk_chars.append(ch)
+
+        if chunk_chars:
+            segment = "".join(chunk_chars).strip()
+            if segment:
+                segments.append(segment)
+            if learn:
+                self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
+        return segments
 
     def encode(self, chars: Iterable[int], context_confidence: float) -> torch.Tensor:
         window: List[int] = list(chars)[-self.window_size :]

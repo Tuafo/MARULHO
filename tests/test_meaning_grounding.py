@@ -130,6 +130,30 @@ class MeaningGroundingTests(unittest.TestCase):
         self.assertTrue(any(term in {"cat", "cats"} for term in concept_summary["concepts"][0]["top_terms"]))
         self.assertFalse(any(term in {"dog", "dogs"} for term in concept_summary["concepts"][0]["top_terms"]))
 
+        dog_query_result = build_query_result(
+            trainer=trainer,
+            checkpoint=Path("test://meaning-grounding"),
+            metadata={},
+            encoder=encoder,
+            query_text_resolved="What guards the house and barks at strangers?",
+            feed_text_resolved=None,
+            context_text=None,
+            top_k_candidates=4,
+            top_k_memories=6,
+            top_chars=8,
+            compare_context_a=None,
+            compare_context_b=None,
+        )
+        dog_summary = dict(dog_query_result["query_summary"])
+        dog_concepts = ConceptStore().observe(
+            query_text="What guards the house and barks at strangers?",
+            memory_matches=dog_summary["memory_matches"],
+            memory_episodes=dog_summary["memory_episodes"],
+            memory_store=trainer.model.memory_store,
+        )
+        self.assertTrue(any(term in {"dog", "dogs"} for term in dog_concepts["concepts"][0]["top_terms"]))
+        self.assertFalse(any(term in {"cat", "cats"} for term in dog_concepts["concepts"][0]["top_terms"]))
+
         compositional_query_result = build_query_result(
             trainer=trainer,
             checkpoint=Path("test://meaning-grounding"),

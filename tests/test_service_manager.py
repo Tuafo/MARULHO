@@ -53,7 +53,9 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertIn("gap_plan", river_query)
                 self.assertEqual(river_query["gap_plan"]["planner_mode"], "semantic_gap_planner")
 
-                before = manager.status()["concept_store"]
+                before_status = manager.status()
+                before = before_status["concept_store"]
+                before_serotonin = float(before_status["serotonin"])
                 self.assertGreater(int(before["concept_count"]), 0)
                 self.assertGreater(int(before["observations"]), 0)
 
@@ -73,6 +75,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         sorted(entry["concept_id"] for entry in after.get("top_concepts", [])),
                         sorted(entry["concept_id"] for entry in before.get("top_concepts", [])),
                     )
+                    self.assertIn("serotonin", after_status)
+                    self.assertAlmostEqual(float(after_status["serotonin"]), before_serotonin, places=6)
                     self.assertEqual(
                         metadata["service_state"]["concept_store"]["concept_mode"],
                         "slow_feature_concept_memory",
@@ -303,6 +307,114 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_fully_grounded_query_does_not_persist_recent_gap_focus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_fully_grounded_query_gap")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "trigger_interval_tokens": 50,
+                    },
+                )
+                with manager._lock:
+                    manager._record_recent_query_gap_locked(
+                        query_text="what corrects submarine trim",
+                        source="query",
+                        gap_plan={
+                            "unsupported_terms": [],
+                            "gap_terms": [{"term": "submarine", "weight": 1.0}],
+                            "retrieval_queries": ["submarine ballast trim"],
+                            "follow_up_questions": ["What grounded evidence would reduce drift for buoyancy control?"],
+                            "weak_concepts": [
+                                {
+                                    "label": "buoyancy control",
+                                    "weakness": 0.7,
+                                    "uncertainty": 0.4,
+                                    "drift": 0.3,
+                                    "top_terms": ["submarine", "ballast", "trim"],
+                                    "match_count": 2,
+                                }
+                            ],
+                            "grounded_fraction": 1.0,
+                        },
+                    )
+                runtime = manager.terminus_status()["terminus_runtime"]
+
+                self.assertEqual(runtime["autonomy"]["recent_query_gaps"], [])
+                self.assertIsNone(runtime["autonomy"]["focus_plan"])
+            finally:
+                manager.close()
+
+    def test_fully_grounded_query_skips_next_autonomy_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_grounded_query_autonomy_skip")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                with manager._lock:
+                    manager._record_recent_query_gap_locked(
+                        query_text="what corrects submarine trim",
+                        source="query",
+                        gap_plan={
+                            "unsupported_terms": [],
+                            "gap_terms": [{"term": "submarine", "weight": 1.0}],
+                            "retrieval_queries": ["submarine ballast trim"],
+                            "follow_up_questions": ["What grounded evidence would reduce drift for buoyancy control?"],
+                            "weak_concepts": [
+                                {
+                                    "label": "buoyancy control",
+                                    "weakness": 0.7,
+                                    "uncertainty": 0.4,
+                                    "drift": 0.3,
+                                    "top_terms": ["submarine", "ballast", "trim"],
+                                    "match_count": 2,
+                                }
+                            ],
+                            "grounded_fraction": 1.0,
+                        },
+                    )
+                with patch("hecsn.service.manager.run_live_acquisition") as mocked_acquire:
+                    manager.terminus_tick()
+
+                runtime = manager.terminus_status()["terminus_runtime"]
+                mocked_acquire.assert_not_called()
+                self.assertIsNone(runtime["autonomy"]["last_acquisition_summary"])
+            finally:
+                manager.close()
+
     def test_terminus_autonomy_uses_concept_store_focus_without_recent_query_gap(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -366,6 +478,220 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(kwargs["semantic_plan"]["planner_mode"], "concept_store_abstraction_focus")
                 self.assertIn("submarine", " ".join(kwargs["semantic_plan"]["retrieval_queries"]).lower())
                 self.assertIn("submarine", kwargs["candidate_bank_specs"][0]["metadata"]["query_text"].lower())
+            finally:
+                manager.close()
+
+    def test_terminus_autonomy_surfaces_geometric_curiosity_focus_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg = HECSNConfig(
+                n_columns=4,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                memory_capacity=64,
+                eta_competitive=0.05,
+                eta_decay=0.0,
+                input_weight_blend=0.0,
+                enable_context_layer=True,
+                enable_binding_layer=True,
+                enable_abstraction_layer=True,
+            )
+            trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                root / "initial_abstraction.pt",
+                trainer,
+                metadata={"test_case": "service_manager_geometric_curiosity_focus"},
+            )
+            manager = HECSNServiceManager(
+                checkpoint_path,
+                trace_dir=root / "traces",
+            )
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text("river stream water current bank " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_source",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager.feed(text=("river stream water current bank " * 12).strip())
+                runtime = manager.terminus_status()["terminus_runtime"]
+                autonomy = runtime["autonomy"]
+
+                self.assertTrue(autonomy["geometric_curiosity"]["enabled"])
+                self.assertTrue(autonomy["geometric_curiosity"]["has_focus_plan"])
+                self.assertIsNotNone(autonomy["focus_plan"])
+                self.assertIn("geometric_gaps", autonomy["focus_plan"])
+                self.assertTrue(autonomy["focus_plan"]["retrieval_queries"])
+            finally:
+                manager.close()
+
+    def test_terminus_live_remote_search_learns_geometric_query_families(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cfg = HECSNConfig(
+                n_columns=4,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                memory_capacity=64,
+                eta_competitive=0.05,
+                eta_decay=0.0,
+                input_weight_blend=0.0,
+                enable_context_layer=True,
+                enable_binding_layer=True,
+                enable_abstraction_layer=True,
+            )
+            trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                root / "initial_geometric_curriculum.pt",
+                trainer,
+                metadata={"test_case": "service_manager_geometric_query_families"},
+            )
+            manager = HECSNServiceManager(
+                checkpoint_path,
+                trace_dir=root / "traces",
+            )
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["wikipedia", "openalex"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager.feed(text=("river stream water current bank loan credit " * 12).strip())
+                focus_plan = manager.terminus_status()["terminus_runtime"]["autonomy"]["focus_plan"]
+                self.assertTrue(focus_plan["geometric_gaps"])
+                selected_query = str(focus_plan["retrieval_queries"][0]).strip().lower()
+
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    side_effect=[
+                        {
+                            "policy": "active",
+                            "tokens_trained_total": 32,
+                            "acquired_sources": ["wikipedia_gap_source"],
+                            "semantic_plan": focus_plan,
+                            "acquisition_history": [
+                                {
+                                    "selected_source": "wikipedia_gap_source",
+                                    "selected_provider": "wikipedia",
+                                    "selected_query_text": selected_query,
+                                    "selected_semantic_relevance": 0.91,
+                                    "selected_gap_reduction": 0.22,
+                                    "selected_diagnostic_gap_reduction": 0.31,
+                                    "tokens_trained": 32,
+                                    "selected_metadata": {
+                                        "provider": "wikipedia",
+                                        "query_text": selected_query,
+                                        "semantic_relevance": 0.91,
+                                        "catalog_terms": ["river current", "bank finance"],
+                                    },
+                                    "candidate_snapshot": {
+                                        "wikipedia_gap_source": {
+                                            "semantic_answerability": 0.22,
+                                            "concept_uncertainty": 0.72,
+                                            "concept_support": 0.18,
+                                            "semantic_weak_concept_pressure": 0.76,
+                                        }
+                                    },
+                                    "selected_semantic_answerability_after": 0.64,
+                                    "selected_concept_uncertainty_after": 0.28,
+                                    "selected_concept_support_after": 0.58,
+                                    "selected_weak_concept_pressure_after": 0.18,
+                                }
+                            ],
+                        },
+                        {
+                            "policy": "active",
+                            "tokens_trained_total": 0,
+                            "acquired_sources": [],
+                            "semantic_plan": focus_plan,
+                            "acquisition_history": [],
+                        },
+                    ],
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+                    manager.terminus_tick()
+
+                first_kwargs = mocked_acquire.call_args_list[0].kwargs
+                second_kwargs = mocked_acquire.call_args_list[1].kwargs
+                spec = second_kwargs["candidate_bank_specs"][0]
+                runtime = manager.terminus_status()["terminus_runtime"]
+                provider_curriculum = runtime["autonomy"]["provider_curriculum"]
+
+                self.assertEqual(spec["catalog_providers"][0], "wikipedia")
+                self.assertGreaterEqual(
+                    int(spec["catalog_queries_per_provider"]),
+                    int(first_kwargs["candidate_bank_specs"][0]["catalog_queries_per_provider"]),
+                )
+                self.assertEqual(int(spec["catalog_query_family_budget_bonus"]), 1)
+                self.assertIn("catalog_provider_query_families", spec)
+                self.assertIn(selected_query, spec["catalog_provider_query_families"]["wikipedia"])
+                self.assertEqual(provider_curriculum["ranked_providers"][0]["provider"], "wikipedia")
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["query_family_strength"]),
+                    0.0,
+                )
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["query_family_focus_score"]),
+                    0.0,
+                )
+                self.assertEqual(
+                    int(provider_curriculum["ranked_providers"][0]["query_family_query_bonus"]),
+                    1,
+                )
+                self.assertIn(
+                    selected_query,
+                    provider_curriculum["ranked_providers"][0]["matched_query_families"],
+                )
+                self.assertEqual(
+                    int(provider_curriculum["ranked_providers"][0]["query_families"][selected_query]["commits"]),
+                    1,
+                )
             finally:
                 manager.close()
 

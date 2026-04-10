@@ -33,6 +33,7 @@ class CompetitiveColumnLayer:
         input_synapse_ltd: float = 0.01,
         input_weight_row_target: float = 1.0,
         plasticity_mode: str = "lite",
+        plasticity_spike_backend: str = "proxy",
         homeostasis_beta: float = 0.01,
         homeostasis_lr: float = 0.2,
         threshold_min: float = 0.05,
@@ -66,6 +67,7 @@ class CompetitiveColumnLayer:
         self.input_synapse_ltd = float(input_synapse_ltd)
         self.input_weight_row_target = float(input_weight_row_target)
         self.plasticity_mode = str(plasticity_mode)
+        self.plasticity_spike_backend = str(plasticity_spike_backend)
         self.homeostasis_beta = float(homeostasis_beta)
         self.homeostasis_lr = float(homeostasis_lr)
         self.threshold_min = float(threshold_min)
@@ -126,6 +128,7 @@ class CompetitiveColumnLayer:
                 projection_norm_target=self.projection_norm_target,
                 projection_plasticity_scale=projection_plasticity_scale,
                 assembly_projection_plasticity_scale=assembly_projection_plasticity_scale,
+                spike_backend=self.plasticity_spike_backend,
             )
 
     def get_lr(self) -> float:
@@ -169,6 +172,7 @@ class CompetitiveColumnLayer:
         payload = {
             "status": "active_parameter_weights",
             "plasticity_mode": self.plasticity_mode,
+            "plasticity_spike_backend": self.plasticity_spike_backend if self.local_plasticity is not None else None,
             "supports_full_synaptic_weight_validation": False,
             "paper_target_directly_measured": True,
             "reason": (
@@ -186,6 +190,7 @@ class CompetitiveColumnLayer:
         if self.local_plasticity is not None:
             payload["inhibitory_tone"] = self._moment_stats(self.local_plasticity.inhibitory_tone)
             payload["synaptic_scale"] = self._moment_stats(self.local_plasticity.synaptic_scale)
+            payload["uses_adex_post_spikes"] = bool(self.local_plasticity.spike_backend == "adex")
         return payload
 
     def _normalized_input_pattern(self, input_vec: torch.Tensor) -> torch.Tensor:

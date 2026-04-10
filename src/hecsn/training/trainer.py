@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 
 from hecsn.config.model_config import HECSNConfig
+from hecsn.core.abstraction import AbstractionLayer
 from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.core.context import BindingLayer, ContextLayer
 from hecsn.core.surprise import SurpriseMonitor
@@ -44,6 +45,7 @@ class HECSNModelLite:
             input_synapse_ltd=self.config.input_synapse_ltd,
             input_weight_row_target=self.config.input_weight_row_target,
             plasticity_mode=self.config.plasticity_mode,
+            plasticity_spike_backend=self.config.plasticity_spike_backend,
             homeostasis_beta=self.config.homeostasis_beta,
             homeostasis_lr=self.config.homeostasis_lr,
             threshold_min=self.config.threshold_min,
@@ -76,6 +78,16 @@ class HECSNModelLite:
             recurrent_scale=self.config.context_recurrent_scale,
             inhibition_strength=self.config.context_inhibition_strength,
         ) if self.config.enable_context_layer else None
+        self.abstraction_layer = AbstractionLayer(
+            n_columns=self.config.n_columns,
+            n_concepts=self.config.abstraction_n_concepts,
+            device=self.device,
+            slow_rate=self.config.abstraction_slow_rate,
+            fast_rate=self.config.abstraction_fast_rate,
+            learning_rate=self.config.abstraction_learning_rate,
+            feedback_lr=self.config.abstraction_feedback_lr,
+            feedback_strength=self.config.abstraction_feedback_strength,
+        ) if self.config.enable_abstraction_layer else None
         self.binding_layer = BindingLayer(
             n_columns=self.config.n_columns,
             device=self.device,
@@ -83,6 +95,8 @@ class HECSNModelLite:
             association_lr=self.config.binding_association_lr,
             association_decay=self.config.binding_association_decay,
             gain_strength=self.config.binding_gain_strength,
+            n_bindings=self.config.binding_n_bindings,
+            fan_in=self.config.binding_fan_in,
             tau_binding=self.config.binding_tau,
             stp_u_inc=self.config.binding_stp_u_inc,
             stp_tau_f=self.config.binding_stp_tau_f,
@@ -113,11 +127,15 @@ class HECSNModelLite:
                 n_shards=self.config.routing_shards,
                 rebuild_threshold=self.config.index_rebuild_threshold,
                 shard_candidate_factor=self.config.shard_candidate_factor,
+                device=self.device,
+                backend=self.config.routing_index_mode,
             )
         else:
             self.hnsw_index = HierarchicalAssemblyIndex(
                 dim=self.config.column_latent_dim,
                 rebuild_threshold=self.config.index_rebuild_threshold,
+                device=self.device,
+                backend=self.config.routing_index_mode,
             )
 
         self.W_assembly_project = torch.empty(
@@ -135,22 +153,35 @@ class HECSNModelLite:
         """Route using spike-proxy assembly activations projected to latent space."""
         x = pattern_vec.to(self.device)
         assembly = self.competitive.assembly_from_input(x)
+        if self.config.enable_learned_chunking:
+            projected = self.competitive.last_projected_input
+            if projected is None:
+                projected = self.competitive.project_input(x)
+            return F.normalize(projected, dim=0)
         routing_key = torch.mv(self.W_assembly_project.t(), assembly)
         return F.normalize(routing_key, dim=0)
 
     def runtime_scope_report(self) -> dict[str, Any]:
         routing_index_stats = self.hnsw_index.stats()
         local_stdp_active = self.config.plasticity_mode == "local_stdp"
+        adex_post_spikes = local_stdp_active and self.config.plasticity_spike_backend == "adex"
         reason = (
             "The runnable scaffold now exposes a maintained local plasticity circuit with log-STDP-style eligibility traces, "
             "iSTDP-style inhibitory balancing, synaptic scaling, competitive prototypes, plastic latent projections, "
-            "and an explicit tag/PRP replay-consolidation stack. "
+            "an optional AdEx-backed local postsynaptic spike backend, and an explicit tag/PRP replay-consolidation stack. "
             "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit."
-            if local_stdp_active
+            if adex_post_spikes
             else (
-                "The runnable scaffold now uses active column input weights, competitive prototypes, a latent projection matrix, "
+                "The runnable scaffold now exposes a maintained local plasticity circuit with log-STDP-style eligibility traces, "
+                "iSTDP-style inhibitory balancing, synaptic scaling, competitive prototypes, plastic latent projections, "
                 "and an explicit tag/PRP replay-consolidation stack. "
                 "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit."
+                if local_stdp_active
+                else (
+                    "The runnable scaffold now uses active column input weights, competitive prototypes, a latent projection matrix, "
+                    "and an explicit tag/PRP replay-consolidation stack. "
+                    "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit."
+                )
             )
         )
         return {
@@ -162,25 +193,38 @@ class HECSNModelLite:
             ),
             "input_representation": str(self.config.input_representation),
             "plasticity_mode": str(self.config.plasticity_mode),
+            "plasticity_spike_backend": str(self.config.plasticity_spike_backend) if local_stdp_active else None,
             "input_dim": int(self.config.input_dim),
             "validates_full_log_stdp_weight_target": False,
             "supports_local_log_stdp": bool(local_stdp_active),
             "supports_inhibitory_balance": bool(local_stdp_active),
             "uses_precise_spike_trace_when_available": bool(local_stdp_active),
+            "uses_adex_post_spikes": bool(adex_post_spikes),
             "supports_stc_like_memory_consolidation": True,
             "supports_explicit_prp_state_stack": True,
             "memory_consolidation_mode": "tag_prp_replay_consolidation",
             "reason": reason,
             "supports_contextual_routing": self.context_layer is not None,
+            "supports_first_class_abstraction": self.abstraction_layer is not None,
             "supports_binding_conjunction_memory": self.binding_layer is not None,
             "supports_approximate_attractor_context": self.context_layer is not None,
             "supports_binding_coincidence": self.binding_layer is not None,
             "context_architecture": "multiscale_recurrent_attractor" if self.context_layer is not None else None,
-            "binding_architecture": "stp_coincidence_with_pv_inhibition" if self.binding_layer is not None else None,
+            "abstraction_architecture": (
+                "slow_feature_feedback_layer"
+                if self.abstraction_layer is not None
+                else None
+            ),
+            "binding_architecture": (
+                "sparse_subset_stp_coincidence_with_pv_inhibition"
+                if self.binding_layer is not None
+                else None
+            ),
             "supports_column_sharding_proxy": bool(self.config.routing_shards > 1),
             "estimated_neurons": int(self.config.n_columns * self.config.neurons_per_column_assumption),
             "neurons_per_column_assumption": int(self.config.neurons_per_column_assumption),
             "routing_candidate_fraction": float(self.config.k_routing / max(1, self.config.n_columns)),
+            "routing_backend_mode": str(self.config.routing_index_mode),
             "routing_index": routing_index_stats,
             "weight_distribution": self.competitive.distribution_proxy_stats(),
         }
@@ -214,11 +258,15 @@ class HECSNTrainer:
         self.encoder = RTFEncoder.from_config(self.config)
         self._recent_stream_text = ""
         self._last_raw_window_text: str | None = None
+        self._cached_episode_text: str | None = None
+        self._last_episode_refresh_length = 0
 
     def _update_stream_text(self, raw_window: Optional[str]) -> Optional[str]:
         if raw_window is None:
             self._last_raw_window_text = None
             self._recent_stream_text = ""
+            self._cached_episode_text = None
+            self._last_episode_refresh_length = 0
             return None
 
         current = str(raw_window)
@@ -226,10 +274,14 @@ class HECSNTrainer:
             return None
 
         previous = self._last_raw_window_text
+        appended = current
         if previous is None:
             self._recent_stream_text = current
             self._last_raw_window_text = current
-            return self._current_episode_text(current)
+            episode_text = self._current_episode_text(current)
+            self._cached_episode_text = episode_text
+            self._last_episode_refresh_length = len(self._recent_stream_text)
+            return episode_text
 
         best_overlap = 0
         max_overlap = min(len(previous), len(current))
@@ -245,22 +297,73 @@ class HECSNTrainer:
                 self._recent_stream_text += appended
         else:
             self._recent_stream_text = current
+            appended = current
 
         self._last_raw_window_text = current
         if len(self._recent_stream_text) > 512:
             self._recent_stream_text = self._recent_stream_text[-512:]
-        return self._current_episode_text(current)
+            self._last_episode_refresh_length = min(self._last_episode_refresh_length, len(self._recent_stream_text))
+
+        if self.encoder.uses_learned_chunking:
+            cached_terms = {
+                token.lower()
+                for token in re.findall(r"[A-Za-z0-9']+", str(self._cached_episode_text or ""))
+                if len(token) > 2
+            }
+            current_terms = {
+                token.lower()
+                for token in re.findall(r"[A-Za-z0-9']+", current)
+                if len(token) > 2
+            }
+            refresh_due = (
+                self._cached_episode_text is None
+                or len(self._recent_stream_text) - self._last_episode_refresh_length >= 24
+                or any(ch in ".!?\n" for ch in appended)
+                or bool(current_terms - cached_terms)
+            )
+            if not refresh_due:
+                return self._cached_episode_text
+
+        episode_text = self._current_episode_text(current)
+        self._cached_episode_text = episode_text
+        self._last_episode_refresh_length = len(self._recent_stream_text)
+        return episode_text
 
     def _current_episode_text(self, raw_window: str) -> Optional[str]:
         text = self._recent_stream_text.strip()
         if not text:
             return None
 
-        segments = [
+        sentence_like_segments = [
             segment.strip()
             for segment in re.split(r"(?<=[.!?])\s+|\n+", text)
             if segment and segment.strip()
         ]
+        if self.encoder.uses_learned_chunking and len(sentence_like_segments) <= 1:
+            window_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", raw_window)}
+            tail_chars = max(96, min(192, len(raw_window) * 8))
+            learned_segments = self.encoder.segment_text(text[-tail_chars:])
+            if learned_segments:
+                best_candidate: str | None = None
+                best_score: tuple[int, int, int] | None = None
+                max_span = min(12, len(learned_segments))
+                for span in range(1, max_span + 1):
+                    candidate = " ".join(segment for segment in learned_segments[-span:] if segment).strip()
+                    if not candidate:
+                        continue
+                    candidate_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", candidate)}
+                    overlap = len(window_terms & candidate_terms)
+                    if raw_window.lower() in candidate.lower():
+                        overlap += len(raw_window)
+                    completeness = int(candidate.endswith((".", "!", "?")))
+                    score = (overlap, completeness, len(candidate))
+                    if best_score is None or score > best_score:
+                        best_score = score
+                        best_candidate = candidate
+                if best_candidate is not None and best_score is not None and (best_score[0] > 0 or len(learned_segments) == 1):
+                    return best_candidate[-240:]
+
+        segments = sentence_like_segments
         if segments:
             window_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", raw_window)}
             candidates = segments[-2:] if len(segments) > 1 else segments
@@ -382,14 +485,24 @@ class HECSNTrainer:
 
     def _context_prediction_and_gain(self) -> tuple[torch.Tensor | None, torch.Tensor | None]:
         if self.model.context_layer is None:
-            return None, None
-
-        context_prediction = self.model.context_layer.context_prediction()
-        routing_gain = self.model.context_layer.modulation_gain(
-            norepinephrine=self.model.surprise.norepinephrine,
-            acetylcholine=self.model.surprise.acetylcholine,
-        )
-        if self.model.binding_layer is not None:
+            context_prediction = None
+            routing_gain = None
+        else:
+            context_prediction = self.model.context_layer.context_prediction()
+            routing_gain = self.model.context_layer.modulation_gain(
+                norepinephrine=self.model.surprise.norepinephrine,
+                acetylcholine=self.model.surprise.acetylcholine,
+            )
+        if self.model.abstraction_layer is not None:
+            abstraction_gain = self.model.abstraction_layer.routing_gain()
+            routing_gain = abstraction_gain if routing_gain is None else torch.clamp(
+                routing_gain * abstraction_gain,
+                min=0.5,
+                max=1.5,
+            )
+        if self.model.binding_layer is not None and context_prediction is not None:
+            if routing_gain is None:
+                routing_gain = torch.ones(self.config.n_columns, device=self.model.device)
             routing_gain = torch.clamp(
                 routing_gain * self.model.binding_layer.modulation_gain(context_prediction),
                 min=0.5,
@@ -406,18 +519,28 @@ class HECSNTrainer:
         blend_state: bool = False,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
         if self.model.context_layer is None:
-            return None, None
+            context_source = None
+            routing_gain = None
+        else:
+            context_source = self.model.context_layer.context_prediction()
+            if blend_state:
+                context_source = self._normalize_signal(self.model.context_layer.state + context_source)
 
-        context_source = self.model.context_layer.context_prediction()
-        if blend_state:
-            context_source = self._normalize_signal(self.model.context_layer.state + context_source)
-
-        routing_gain = self.model.context_layer.modulation_gain_for_signal(
-            context_source,
-            norepinephrine=self.model.surprise.norepinephrine,
-            acetylcholine=self.model.surprise.acetylcholine,
-        )
-        if self.model.binding_layer is not None:
+            routing_gain = self.model.context_layer.modulation_gain_for_signal(
+                context_source,
+                norepinephrine=self.model.surprise.norepinephrine,
+                acetylcholine=self.model.surprise.acetylcholine,
+            )
+        if self.model.abstraction_layer is not None:
+            abstraction_gain = self.model.abstraction_layer.routing_gain()
+            routing_gain = abstraction_gain if routing_gain is None else torch.clamp(
+                routing_gain * abstraction_gain,
+                min=0.5,
+                max=1.5,
+            )
+        if self.model.binding_layer is not None and context_source is not None:
+            if routing_gain is None:
+                routing_gain = torch.ones(self.config.n_columns, device=self.model.device)
             routing_gain = torch.clamp(
                 routing_gain * self.model.binding_layer.modulation_gain_for_context(context_source),
                 min=0.5,
@@ -487,28 +610,59 @@ class HECSNTrainer:
             )
             self.model.competitive.input_weights[idx] = anchored_weights
 
+    def _repair_column_from_replay(
+        self,
+        column_id: int,
+        routing_key: torch.Tensor,
+        *,
+        strength: float = 0.30,
+    ) -> None:
+        idx = int(column_id)
+        if idx < 0 or idx >= self.config.n_columns:
+            return
+        if float(routing_key.abs().sum().item()) <= 0.0:
+            return
+
+        target = F.normalize(routing_key.to(self.model.device), dim=0)
+        current = self.model.competitive.prototypes[idx]
+        repaired = F.normalize((1.0 - strength) * current + strength * target, dim=0)
+        self.model.competitive.prototypes[idx] = repaired
+        self.model.competitive.prototype_velocity[idx] = 0.0
+
     def _sleep_replay(self, mode: str) -> int:
         """Replay slow-buffer assemblies with spaced priority and mode-specific depth."""
         replay_use_stored_bucket = True
         anchor_blend_scale = 0.05
         anchor_blend_cap = 0.35
+        repair_anchor_strength = 0.30
 
         if mode == "micro":
             steps = self.config.micro_sleep_replay_steps
             candidate_pool = self.config.micro_sleep_candidate_pool
+            sampling_strategy = "maintenance"
             memory_blend = self.config.micro_sleep_memory_blend
-            modulator = 0.10
-            protein_synthesis_level = 0.75
-            prototype_lr_scale = 0.25
-            input_lr_scale = 0.15
+            modulator = 0.0
+            protein_synthesis_level = 0.0
+            prototype_lr_scale = 0.0
+            input_lr_scale = 0.0
         elif mode == "deep":
             steps = self.config.deep_sleep_replay_steps
             candidate_pool = self.config.deep_sleep_candidate_pool
+            sampling_strategy = "consolidation"
             memory_blend = self.config.deep_sleep_memory_blend
             modulator = 0.08
             protein_synthesis_level = 1.35
             prototype_lr_scale = 0.10
             input_lr_scale = 0.05
+        elif mode == "repair":
+            steps = self.config.deep_sleep_replay_steps
+            candidate_pool = self.config.deep_sleep_candidate_pool
+            sampling_strategy = "repair"
+            memory_blend = 0.0
+            modulator = 0.0
+            protein_synthesis_level = 0.0
+            prototype_lr_scale = 0.0
+            input_lr_scale = 0.0
         else:
             raise ValueError(f"Unknown sleep mode: {mode}")
 
@@ -516,13 +670,14 @@ class HECSNTrainer:
             n=steps,
             current_token=self.token_count,
             candidate_pool=candidate_pool,
-            strategy="priority",
+            strategy=sampling_strategy,
         )
         if not replay_idx:
             return 0
 
         applied = 0
         updated_ids = []
+        processed_indices: list[int] = []
 
         for idx in replay_idx:
             replay_entry = self.model.memory_store.replay_entry(idx, current_token=self.token_count)
@@ -585,6 +740,17 @@ class HECSNTrainer:
                     context_gain=context_gain,
                 )
 
+            if mode == "repair":
+                self._repair_column_from_replay(
+                    int(winner.item()),
+                    routing_key,
+                    strength=repair_anchor_strength,
+                )
+                updated_ids.append(int(winner.item()))
+                processed_indices.append(int(idx))
+                applied += 1
+                continue
+
             replay_priority = (
                 replay_importance
                 + replay_capture_strength
@@ -617,41 +783,59 @@ class HECSNTrainer:
                 input_lr_scale=input_lr_scale,
                 update_global_state=False,
             )
-            self._apply_column_anchors(
-                [int(winner.item())],
-                blend_scale=anchor_blend_scale,
-                blend_cap=anchor_blend_cap,
-            )
-            if self.model.context_layer is not None:
+            if mode == "deep":
+                self._apply_column_anchors(
+                    [int(winner.item())],
+                    blend_scale=anchor_blend_scale,
+                    blend_cap=anchor_blend_cap,
+                )
+            if self.model.context_layer is not None and mode == "deep":
                 replay_assembly = self.model.competitive.winner_assembly(routing_key, winner)
                 replay_assembly, _ = self._apply_binding(
                     replay_assembly,
                     context_prediction,
-                    update_weights=True,
+                    update_weights=False,
                 )
                 self.model.context_layer.observe(
                     replay_assembly,
                     update_weights=False,
                     precision_weight=self._context_precision_weight(),
                 )
-            updated_ids.append(int(winner.item()))
-            revived_ids = self.model.competitive.last_revived_indices.detach().cpu().tolist()
-            updated_ids.extend(int(idx) for idx in revived_ids)
+            if mode == "deep":
+                updated_ids.append(int(winner.item()))
+                revived_ids = self.model.competitive.last_revived_indices.detach().cpu().tolist()
+                updated_ids.extend(int(idx) for idx in revived_ids)
+            processed_indices.append(int(idx))
             applied += 1
 
         if applied > 0:
-            uniq = sorted(set(updated_ids))
-            id_arr = np.asarray(uniq, dtype=np.int64)
-            vecs = self.model.competitive.prototypes[id_arr].detach()
-            self.model.hnsw_index.add(vecs, id_arr)
             if mode == "deep":
+                uniq = sorted(set(updated_ids))
+                id_arr = np.asarray(uniq, dtype=np.int64)
+                vecs = self.model.competitive.prototypes[id_arr].detach()
+                self.model.hnsw_index.add(vecs, id_arr)
                 self.model.hnsw_index.rebuild()
-            self.model.memory_store.consolidate_replay(
-                replay_idx,
-                current_token=self.token_count,
-                blend=memory_blend,
-                protein_synthesis_level=protein_synthesis_level,
-            )
+                self.model.memory_store.consolidate_replay(
+                    processed_indices,
+                    current_token=self.token_count,
+                    blend=memory_blend,
+                    protein_synthesis_level=protein_synthesis_level,
+                )
+            elif mode == "micro":
+                self.model.memory_store.refresh_maintenance(
+                    processed_indices,
+                    current_token=self.token_count,
+                )
+            else:
+                uniq = sorted(set(updated_ids))
+                id_arr = np.asarray(uniq, dtype=np.int64)
+                vecs = self.model.competitive.prototypes[id_arr].detach()
+                self.model.hnsw_index.add(vecs, id_arr)
+                self.model.hnsw_index.rebuild()
+                self.model.memory_store.mark_repair_replay(
+                    processed_indices,
+                    current_token=self.token_count,
+                )
 
             self.sleep_events += 1
             if mode == "micro":
@@ -686,7 +870,7 @@ class HECSNTrainer:
             and (self.token_count - self.last_deep_sleep_token) >= self.config.emergency_deep_sleep_cooldown_tokens
         )
         if deep_due_interval or deep_due_emergency:
-            replay_updates = self._sleep_replay("deep")
+            replay_updates = self._sleep_replay("repair" if deep_due_emergency else "deep")
             if replay_updates > 0:
                 sleep_type = "deep"
                 deep_sleep_emergency = bool(deep_due_emergency)
@@ -773,14 +957,32 @@ class HECSNTrainer:
             context_gain=context_gain,
         )
 
+        winner_consolidation = 0.0
+        if self.memory_warm_started:
+            winner_levels = [
+                self.model.memory_store.bucket_consolidation_level(int(winner.item()))
+                for winner in winners
+            ]
+            if winner_levels:
+                winner_consolidation = float(sum(winner_levels) / len(winner_levels))
+        wake_plasticity_scale = max(0.2, 1.0 - 0.8 * winner_consolidation)
+        effective_modulator = float(modulator) * wake_plasticity_scale
+
         assembly = self.model.competitive.process(
             routing_key,
             winners,
-            modulator,
+            effective_modulator,
             winner_strengths=strengths,
             eligibility_trace=local_trace,
             assembly_projection=self.model.W_assembly_project,
         )
+        abstraction_input = assembly.clone()
+        if self.model.abstraction_layer is not None:
+            self.model.abstraction_layer.observe(
+                abstraction_input,
+                update_weights=True,
+                precision_weight=self._context_precision_weight(),
+            )
         assembly, binding_strength = self._apply_binding(
             assembly,
             context_prediction,
@@ -813,7 +1015,7 @@ class HECSNTrainer:
         if self.memory_warm_started:
             memory_index = self.model.memory_store.update(
                 assembly,
-                importance=max(1e-3, abs(modulator)),
+                importance=max(1e-3, abs(effective_modulator)),
                 token_count=next_token,
                 bucket_id=winner_id,
                 input_pattern=x,
@@ -843,23 +1045,62 @@ class HECSNTrainer:
         metrics["token"] = self.token_count
         metrics["surprise"] = float(modulator)
         metrics["dopamine"] = float(self.model.surprise.dopamine)
+        metrics["serotonin"] = float(self.model.surprise.serotonin)
         metrics["acetylcholine"] = float(self.model.surprise.acetylcholine)
         metrics["norepinephrine"] = float(self.model.surprise.norepinephrine)
         metrics["network_reset_triggered"] = int(network_reset_triggered)
         metrics["plasticity_mode"] = str(self.config.plasticity_mode)
+        metrics["plasticity_spike_backend"] = (
+            str(self.model.competitive.local_plasticity.spike_backend)
+            if self.model.competitive.local_plasticity is not None
+            else "proxy"
+        )
         metrics["local_trace_available"] = int(local_trace is not None)
         metrics["local_trace_active_inputs"] = int((local_trace > 0).sum().item()) if local_trace is not None else 0
+        metrics["local_post_spike_fraction"] = (
+            float(self.model.competitive.local_plasticity.last_post_spike_fraction)
+            if self.model.competitive.local_plasticity is not None
+            else 0.0
+        )
+        metrics["local_mean_membrane_voltage"] = (
+            float(self.model.competitive.local_plasticity.last_mean_membrane_voltage)
+            if self.model.competitive.local_plasticity is not None
+            else 0.0
+        )
         metrics["capture_tag"] = float(capture_tag)
         metrics["mean_memory_capture_tag"] = float(memory_stats.get("mean_capture_tag", 0.0))
         metrics["mean_memory_prp_level"] = float(memory_stats.get("mean_prp_level", 0.0))
         metrics["mean_memory_capture_strength"] = float(memory_stats.get("mean_capture_strength", 0.0))
         metrics["mean_memory_consolidation_level"] = float(memory_stats.get("mean_consolidation_level", 0.0))
+        metrics["mean_memory_fragility"] = float(memory_stats.get("mean_fragility", 0.0))
+        metrics["winner_consolidation_level"] = float(winner_consolidation)
+        metrics["effective_modulator"] = float(effective_modulator)
         metrics["context_strength"] = float(context_prediction.sum().item()) if isinstance(context_prediction, torch.Tensor) else 0.0
         metrics["context_gain_mean"] = float(context_gain.mean().item()) if isinstance(context_gain, torch.Tensor) else 1.0
         metrics["context_precision_weight"] = (
             float(self.model.context_layer.last_precision_weight)
             if self.model.context_layer is not None
             else 1.0
+        )
+        metrics["abstraction_stability_mean"] = (
+            float(self.model.abstraction_layer.concept_stability.mean().item())
+            if self.model.abstraction_layer is not None
+            else 0.0
+        )
+        metrics["abstraction_certainty_mean"] = (
+            float(self.model.abstraction_layer.concept_certainty.mean().item())
+            if self.model.abstraction_layer is not None
+            else 0.0
+        )
+        metrics["abstraction_gain_mean"] = (
+            float(self.model.abstraction_layer.routing_gain().mean().item())
+            if self.model.abstraction_layer is not None
+            else 1.0
+        )
+        metrics["abstraction_gap_score_max"] = (
+            max((float(item["gap_score"]) for item in self.model.abstraction_layer.curiosity_gaps(top_n=4)), default=0.0)
+            if self.model.abstraction_layer is not None
+            else 0.0
         )
         metrics["binding_strength"] = float(binding_strength)
         metrics["winner"] = int(winners[0].item())
@@ -880,6 +1121,8 @@ class HECSNTrainer:
     def reset_context_state(self) -> None:
         if self.model.context_layer is not None:
             self.model.context_layer.reset_state()
+        if self.model.abstraction_layer is not None:
+            self.model.abstraction_layer.reset_state()
         if self.model.binding_layer is not None:
             self.model.binding_layer.reset_state()
 
@@ -910,7 +1153,8 @@ class HECSNTrainer:
         proto = self.model.competitive.prototypes[candidates]
         sim = torch.mv(proto, F.normalize(routing_key, dim=0))
         drive = self.model.competitive._input_drive(self.model.competitive.last_input_pattern, candidates)
-        combined = (1.0 - self.model.competitive.input_weight_blend) * sim + self.model.competitive.input_weight_blend * drive
+        input_blend = self._offline_input_blend()
+        combined = (1.0 - input_blend) * sim + input_blend * drive
 
         context_source, context_gain = self._offline_context_source_and_gain(
             blend_state=blend_context_state,
@@ -940,6 +1184,12 @@ class HECSNTrainer:
             return signature
         return signature / (signature.sum() + 1e-8)
 
+    def _offline_input_blend(self) -> float:
+        blend = float(self.model.competitive.input_weight_blend)
+        if self.encoder.uses_learned_chunking:
+            return max(blend, float(self.config.learned_chunk_query_blend_floor))
+        return blend
+
     def _offline_competition(self, pattern_vec: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         x = pattern_vec.to(self.model.device)
         routing_key = self.model.routing_key_from_pattern(x)
@@ -954,12 +1204,17 @@ class HECSNTrainer:
         )
         context_gain = None
         context_prediction, context_gain = self._context_prediction_and_gain()
-        winners, _, _ = self.model.competitive.compete(
-            routing_key,
-            candidates,
-            fallback_allowed=True,
-            context_gain=context_gain,
-        )
+        original_input_blend = float(self.model.competitive.input_weight_blend)
+        self.model.competitive.input_weight_blend = self._offline_input_blend()
+        try:
+            winners, _, _ = self.model.competitive.compete(
+                routing_key,
+                candidates,
+                fallback_allowed=True,
+                context_gain=context_gain,
+            )
+        finally:
+            self.model.competitive.input_weight_blend = original_input_blend
         assembly = self.model.competitive.winner_assembly(routing_key, winners)
         assembly, _ = self._apply_binding(assembly, context_prediction, update_weights=False)
         return winners, assembly
@@ -1048,10 +1303,9 @@ class HECSNTrainer:
         return len(self.column_anchors) if captured > 0 else 0
 
     def winner_for_pattern(self, pattern_vec: torch.Tensor) -> int:
-        """Deterministic nearest-prototype winner used for offline evaluation."""
-        routing_key = self.model.routing_key_from_pattern(pattern_vec)
-        sims = torch.mv(self.model.competitive.prototypes, routing_key)
-        return int(torch.argmax(sims).item())
+        """Deterministic offline winner used for evaluation and query readout."""
+        winners, _ = self._offline_competition(pattern_vec)
+        return int(winners[0].item())
 
     def routing_key_for_pattern(self, pattern_vec: torch.Tensor) -> torch.Tensor:
         """Expose routing key generation for clustering diagnostics."""

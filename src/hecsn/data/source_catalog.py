@@ -215,6 +215,19 @@ def _provider_topic_term_map(spec: Mapping[str, Any]) -> dict[str, list[str]]:
     return topic_terms
 
 
+def _provider_query_family_map(spec: Mapping[str, Any]) -> dict[str, list[str]]:
+    raw_map = spec.get("catalog_provider_query_families")
+    if not isinstance(raw_map, Mapping):
+        return {}
+    query_families: dict[str, list[str]] = {}
+    for raw_provider, raw_queries in raw_map.items():
+        provider = _normalize_text(raw_provider).lower()
+        if not provider:
+            continue
+        query_families[provider] = _normalized_text_list(raw_queries)
+    return query_families
+
+
 def _diversity_penalty(profile: set[str], selected_profiles: Sequence[set[str]]) -> float:
     if not profile or not selected_profiles:
         return 0.0
@@ -260,29 +273,47 @@ def _provider_queries(
     queries = _dedupe_keep_order(base_queries)
     limit = max(1, int(limit))
     provider_topic_terms = _provider_topic_term_map(spec).get(_normalize_text(provider).lower(), [])
-    if not provider_topic_terms or not queries:
+    if not queries:
         return queries[:limit]
-
     seed_query = queries[0]
-    seen_terms = {term.lower() for term in tokenize_terms(seed_query)}
-    expansion_terms: list[str] = []
-    for raw_phrase in provider_topic_terms:
-        phrase = _normalize_text(raw_phrase)
-        if not phrase:
+    prioritized_queries = list(queries)
+    if provider_topic_terms:
+        seen_terms = {term.lower() for term in tokenize_terms(seed_query)}
+        expansion_terms: list[str] = []
+        for raw_phrase in provider_topic_terms:
+            phrase = _normalize_text(raw_phrase)
+            if not phrase:
+                continue
+            phrase_terms = tokenize_terms(phrase)
+            if phrase_terms and all(term.lower() in seen_terms for term in phrase_terms):
+                continue
+            expansion_terms.append(phrase)
+            for term in phrase_terms:
+                seen_terms.add(term.lower())
+            if len(expansion_terms) >= 2:
+                break
+        if expansion_terms:
+            expanded_query = _normalize_text(f"{seed_query} {' '.join(expansion_terms)}")
+            prioritized_queries = [seed_query, expanded_query]
+            prioritized_queries.extend(queries[1:])
+    query_families = _provider_query_family_map(spec).get(_normalize_text(provider).lower(), [])
+    for raw_query in query_families:
+        query = _normalize_text(raw_query)
+        if not query:
             continue
-        phrase_terms = tokenize_terms(phrase)
-        if phrase_terms and all(term.lower() in seen_terms for term in phrase_terms):
+        query_terms = tokenize_terms(query)
+        if any(
+            query == existing
+            or (
+                query_terms
+                and set(query_terms).issubset({term.lower() for term in tokenize_terms(existing)})
+            )
+            for existing in prioritized_queries
+        ):
             continue
-        expansion_terms.append(phrase)
-        for term in phrase_terms:
-            seen_terms.add(term.lower())
-        if len(expansion_terms) >= 2:
+        prioritized_queries.append(query)
+        if len(prioritized_queries) >= limit:
             break
-    if not expansion_terms:
-        return queries[:limit]
-    expanded_query = _normalize_text(f"{seed_query} {' '.join(expansion_terms)}")
-    prioritized_queries = [seed_query, expanded_query]
-    prioritized_queries.extend(queries[1:])
     return _dedupe_keep_order(prioritized_queries)[:limit]
 
 

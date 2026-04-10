@@ -49,6 +49,28 @@ def _label_terms(tokens: Sequence[str], query_terms: set[str]) -> list[str]:
     return seen[:1]
 
 
+def _covered_fragment_match(match: dict[str, Any], matches: Sequence[dict[str, Any]]) -> bool:
+    focused_text = _normalize_text(match.get("_focused_text"))
+    if not focused_text:
+        return False
+    query_overlap = int(match.get("_query_overlap", 0))
+    expansion_chars = float(match.get("expansion_chars", 0.0))
+    for other in matches:
+        if other is match:
+            continue
+        other_text = _normalize_text(other.get("_focused_text"))
+        if not other_text or other_text == focused_text or len(other_text) <= len(focused_text):
+            continue
+        if focused_text not in other_text:
+            continue
+        if int(other.get("_query_overlap", 0)) < query_overlap:
+            continue
+        if float(other.get("expansion_chars", 0.0)) < expansion_chars:
+            continue
+        return True
+    return False
+
+
 def _normalize_signature(value: Any) -> torch.Tensor | None:
     if not isinstance(value, torch.Tensor):
         return None
@@ -981,6 +1003,13 @@ class ConceptStore:
             ),
             reverse=True,
         )
+        filtered_matches = [
+            match
+            for match in prepared_matches
+            if not _covered_fragment_match(match, prepared_matches)
+        ]
+        if filtered_matches:
+            prepared_matches = filtered_matches
 
         for match in prepared_matches:
             raw_window = _normalize_text(match.get("_focused_text") or match.get("text") or match.get("raw_window"))

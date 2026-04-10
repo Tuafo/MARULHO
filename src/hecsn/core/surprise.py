@@ -5,6 +5,10 @@ from typing import Dict, List
 import torch
 
 
+def _clamp01(value: float) -> float:
+    return float(max(0.0, min(1.0, value)))
+
+
 class SurpriseMonitor:
     """Layer-wise surprise with internally-derived neuromodulators."""
 
@@ -17,6 +21,7 @@ class SurpriseMonitor:
         self.dopamine = 0.5
         self.acetylcholine = 0.5
         self.norepinephrine = 0.5
+        self.serotonin = 0.5
 
     def update(self, layer_name: str, prediction: torch.Tensor, actual: torch.Tensor) -> None:
         err = torch.norm(prediction - actual).item()
@@ -34,16 +39,32 @@ class SurpriseMonitor:
         frac = (self.predicted_error - current_error) / baseline
         return float(torch.tanh(torch.tensor(frac * 3.0)).item())
 
+    def compute_serotonin_punishment(self, current_error: float) -> float:
+        baseline = self.predicted_error + 1e-6
+        frac = max(0.0, (current_error - self.predicted_error) / baseline)
+        return float(torch.tanh(torch.tensor(frac * 3.0)).item())
+
+    def compute_unexpected_uncertainty(self, current_error: float) -> float:
+        baseline = self.predicted_error + 1e-6
+        frac = abs(current_error - self.predicted_error) / baseline
+        return _clamp01(float(torch.tanh(torch.tensor(frac * 2.0)).item()))
+
+    def valence_balance(self) -> float:
+        return max(-1.0, min(1.0, 2.0 * (self.dopamine - self.serotonin)))
+
     def update_neuromodulators(self, current_error: float, novelty: float) -> None:
         rpe = self.compute_dopamine_rpe(current_error)
-        self.dopamine = (rpe + 1.0) / 2.0
-        self.update_predicted_error(current_error)
+        serotonin_drive = self.compute_serotonin_punishment(current_error)
+        unexpected_uncertainty = self.compute_unexpected_uncertainty(current_error)
+        novelty_drive = _clamp01(novelty)
 
-        self.acetylcholine = 0.9 * self.acetylcholine + 0.1 * max(0.0, min(1.0, novelty))
-        if abs(rpe) > 0.4:
-            self.norepinephrine = min(1.0, self.norepinephrine + 0.1)
-        else:
-            self.norepinephrine *= 0.95
+        self.dopamine = _clamp01(0.85 * self.dopamine + 0.15 * max(0.0, rpe))
+        self.serotonin = _clamp01(0.85 * self.serotonin + 0.15 * serotonin_drive)
+        self.acetylcholine = _clamp01(0.90 * self.acetylcholine + 0.10 * novelty_drive)
+        self.norepinephrine = _clamp01(0.85 * self.norepinephrine + 0.15 * unexpected_uncertainty)
+        if serotonin_drive > 0.4:
+            self.norepinephrine = _clamp01(self.norepinephrine + 0.10 * serotonin_drive)
+        self.update_predicted_error(current_error)
 
     def should_reset_network(self, threshold: float = 0.85) -> bool:
         """Return True when sustained norepinephrine exceeds *threshold*.
@@ -80,7 +101,8 @@ class SurpriseMonitor:
         surprise = recent - mean
 
         precision_weight = self.precision_weight(layer_name)
-
-        dopamine_factor = self.dopamine * 2.0 - 1.0
-        mod = surprise * precision_weight * dopamine_factor * self.acetylcholine
+        valence = self.valence_balance()
+        attention = 0.5 + 0.5 * self.acetylcholine
+        adaptation = 0.5 + 0.5 * self.norepinephrine
+        mod = surprise * precision_weight * valence * attention * adaptation
         return max(-1.0, min(1.0, float(mod)))

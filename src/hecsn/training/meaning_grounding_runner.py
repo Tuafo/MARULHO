@@ -27,8 +27,14 @@ def _benchmark_config() -> HECSNConfig:
         micro_sleep_interval_tokens=10**9,
         deep_sleep_interval_tokens=10**9,
         enable_context_layer=True,
+        enable_abstraction_layer=True,
         enable_binding_layer=True,
+        learned_chunk_feature_mode="concat",
     )
+
+
+def meaning_grounding_benchmark_config() -> HECSNConfig:
+    return _benchmark_config()
 
 
 def _scenario_payload(name: str) -> dict[str, Any]:
@@ -140,6 +146,10 @@ def _scenario_payload(name: str) -> dict[str, Any]:
         }
 
     raise ValueError(f"Unsupported meaning benchmark scenario: {name}")
+
+
+def meaning_grounding_scenario_payload(name: str) -> dict[str, Any]:
+    return _scenario_payload(name)
 
 
 def run_meaning_grounding_benchmark(

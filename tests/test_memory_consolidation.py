@@ -8,6 +8,7 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.consolidation.memory_store import DualMemoryStore
 from hecsn.training.runner_utils import set_seed
+from hecsn.training.memory_consolidation_runner import build_memory_consolidation_gate
 from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
 
 
@@ -173,6 +174,165 @@ class MemoryConsolidationTests(unittest.TestCase):
         decayed_entry = store.replay_entry(0, current_token=10)
 
         self.assertAlmostEqual(decayed_entry["capture_tag"], 0.5, places=4)
+
+    def test_fragility_priority_prefers_stale_unconsolidated_memories(self) -> None:
+        store = DualMemoryStore(
+            capacity=2,
+            ema_alpha=0.1,
+            slow_mean_decay=1.0,
+            capture_tag_decay=1.0,
+            tag_duration_weak=1e12,
+            tag_duration_strong=1e12,
+            prp_tau_weak=1e12,
+            prp_tau_strong=1e12,
+        )
+        store.update(torch.tensor([1.0, 0.0]), token_count=0, importance=0.8, bucket_id=0, routing_key=torch.tensor([1.0, 0.0]))
+        store.update(torch.tensor([0.0, 1.0]), token_count=0, importance=0.8, bucket_id=1, routing_key=torch.tensor([0.0, 1.0]))
+
+        store.slow_consolidation_level[0] = 0.95
+        store.slow_last_replay_token[0] = 35
+        store.slow_replay_count[0] = 4
+        store.slow_capture_tag[0] = 0.8
+        store.slow_local_prp[0] = 0.8
+
+        store.slow_consolidation_level[1] = 0.15
+        store.slow_last_replay_token[1] = 0
+        store.slow_replay_count[1] = 0
+        store.slow_capture_tag[1] = 0.1
+        store.slow_local_prp[1] = 0.1
+
+        scores = store.maintenance_scores(current_token=40)
+
+        self.assertGreater(float(scores[1].item()), float(scores[0].item()))
+        self.assertEqual(store.sample_replay_indices(n=1, current_token=40, strategy="maintenance"), [1])
+
+    def test_micro_sleep_refreshes_tags_without_weight_commit(self) -> None:
+        set_seed(7)
+        cfg = HECSNConfig(
+            n_columns=10,
+            column_latent_dim=20,
+            bootstrap_tokens=0,
+            memory_capacity=48,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[1:5] = 1.0
+        pattern = pattern / pattern.sum()
+
+        for _ in range(6):
+            trainer.train_step(pattern, raw_window="alpha memory trace")
+
+        tagged = trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=2.0)
+        self.assertGreater(tagged, 0)
+
+        before_proto = trainer.model.competitive.prototypes.detach().clone()
+        before_weights = trainer.model.competitive.input_weights.detach().clone()
+        before_levels = list(trainer.model.memory_store.slow_consolidation_level)
+        before_tags = list(trainer.model.memory_store.slow_capture_tag)
+
+        updates = trainer.run_sleep_maintenance(mode="micro", cycles=1)
+
+        self.assertGreater(updates, 0)
+        self.assertTrue(torch.allclose(before_proto, trainer.model.competitive.prototypes))
+        self.assertTrue(torch.allclose(before_weights, trainer.model.competitive.input_weights))
+        self.assertEqual(before_levels, trainer.model.memory_store.slow_consolidation_level)
+        self.assertGreater(sum(trainer.model.memory_store.slow_replay_count), 0)
+        self.assertLessEqual(
+            max(trainer.model.memory_store.slow_capture_tag),
+            max(before_tags),
+        )
+
+    def test_repair_sleep_reanchors_prototypes_without_consolidation(self) -> None:
+        set_seed(7)
+        cfg = HECSNConfig(
+            n_columns=6,
+            column_latent_dim=12,
+            bootstrap_tokens=0,
+            memory_capacity=16,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer.memory_warm_started = True
+        trainer.token_count = 10
+
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[2:6] = 1.0
+        pattern = pattern / pattern.sum()
+        routing_key = trainer.model.routing_key_from_pattern(pattern)
+        assembly = trainer.model.competitive.assembly_from_input(pattern.to(trainer.model.device)).detach().cpu()
+        trainer.model.memory_store.update(
+            assembly,
+            importance=1.0,
+            token_count=trainer.token_count,
+            bucket_id=0,
+            input_pattern=pattern,
+            routing_key=routing_key.detach().cpu(),
+            raw_window="repair memory trace",
+            text="repair memory trace",
+            capture_tag=0.4,
+        )
+
+        disturbed = torch.roll(routing_key.detach().cpu(), shifts=1, dims=0)
+        disturbed = torch.nn.functional.normalize(disturbed, dim=0).to(trainer.model.device)
+        trainer.model.competitive.prototypes[0] = disturbed
+        before_distance = float(torch.norm(trainer.model.competitive.prototypes[0] - routing_key.to(trainer.model.device)).item())
+        before_weights = trainer.model.competitive.input_weights.detach().clone()
+        before_levels = list(trainer.model.memory_store.slow_consolidation_level)
+
+        updates = trainer._sleep_replay("repair")
+        after_distance = float(torch.norm(trainer.model.competitive.prototypes[0] - routing_key.to(trainer.model.device)).item())
+
+        self.assertEqual(updates, 1)
+        self.assertLess(after_distance, before_distance)
+        self.assertTrue(torch.allclose(before_weights, trainer.model.competitive.input_weights))
+        self.assertEqual(before_levels, trainer.model.memory_store.slow_consolidation_level)
+
+    def test_wake_learning_reports_consolidation_resistance(self) -> None:
+        set_seed(7)
+        cfg = HECSNConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=10**9,
+        )
+        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[3:7] = 1.0
+        pattern = pattern / pattern.sum()
+
+        for _ in range(8):
+            trainer.train_step(pattern, raw_window="stable consolidated trace")
+
+        winner_id = int(trainer.last_winner)
+        matched = False
+        for idx, bucket_id in enumerate(trainer.model.memory_store.slow_bucket_ids):
+            if bucket_id == winner_id:
+                trainer.model.memory_store.slow_consolidation_level[idx] = 1.0
+                matched = True
+        self.assertTrue(matched)
+
+        metrics = trainer.train_step(pattern, raw_window="stable consolidated trace")
+
+        self.assertGreater(metrics["winner_consolidation_level"], 0.0)
+        self.assertLess(metrics["effective_modulator"], metrics["surprise"])
+
+    def test_memory_consolidation_gate_uses_absolute_threshold_at_numerical_floor(self) -> None:
+        gate = build_memory_consolidation_gate(
+            task_a_after_a=5e-7,
+            task_a_after_b=2.95e-4,
+            task_a_after_consolidation=2.91e-4,
+            task_a_overlap_after_consolidation=0.90,
+        )
+
+        self.assertTrue(gate["uses_absolute_degradation_gate"])
+        self.assertTrue(gate["task_a_degradation_ok"])
+        self.assertTrue(gate["task_a_recovery_nonnegative"])
+        self.assertTrue(gate["pass"])
 
     def test_nearest_prototype_distance_is_clamped_non_negative(self) -> None:
         layer = CompetitiveColumnLayer(

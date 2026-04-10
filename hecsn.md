@@ -2,22 +2,22 @@
 
 **A scalable, biologically-grounded architecture for autonomous knowledge accumulation.**
 
-Emergent concept formation via competitive learning with Kohonen/SOM updates, columnar organization with hierarchical approximate routing, adaptive sleep-replay consolidation, and predictive-coding bootstrap. Uses online-learned representations with Rate-Temporal Fusion encoding. GPU-accelerated sparse tensors with dual sparsity strategy (2:4 structured for fixed layers, CSR for dynamic connectivity) and hierarchical routing.
+Emergent concept formation via competitive learning with Kohonen/SOM updates, columnar organization with backend-aware hierarchical routing, adaptive sleep-replay consolidation, and predictive-coding bootstrap. Uses online-learned representations with Rate-Temporal Fusion encoding. GPU-accelerated sparse tensors with dual sparsity strategy (2:4 structured for fixed layers, CSR for dynamic connectivity) and device-native routing where the environment supports it.
 
 **Author:** Thiago Maceno Rocha Goulart · Brasil · [github.com/Tuafo](https://github.com/Tuafo)
 
 **Domain:** Computational Neuroscience · Unsupervised Learning
-**Status:** Executable Research Scaffold — maintained path now covers mechanism validation, memory consolidation, contextual routing, the Terminus runtime/service surface, HF active acquisition, registry-backed plus `live_remote_search` candidate pools with a default autonomous remote-search bootstrap, follow-up-question and weak-concept-driven remote probing, adaptive curiosity-budget growth, a boundary-free stream-form grounding bridge, abstraction-state-driven runtime autonomy focus plus query-time retrieval bias, a first local structural growth/prune policy inside the maintained concept layer, a provider-learning curriculum over the widened default live-remote registry (`wikipedia`, `arxiv`, `openalex`), raw recent-query identity preserved into provider/topic-family focus and candidate discovery, summary-first catalog priming that keeps focused evidence ahead of generic scaffolding, and a green maintained long-horizon Terminus benchmark/report for alternating-topic provider/topic-family retention plus recovered revisit-clause support. The maintained benchmark and public Terminus surface are green on the current tree, while learned segmentation, response-surface cleanup on already-grounded revisits, system-wide structural growth, self-expanded curriculum growth, and open-ended autonomous accumulation remain unfinished.
-**Stack:** PyTorch 2.1+ · CUDA · 2:4 Structured Sparsity · CSR Sparse Tensors · FAISS (CPU)
+**Status:** Executable Research Scaffold — maintained path now covers mechanism validation, memory consolidation, contextual routing, the Terminus runtime/service surface, HF active acquisition, registry-backed plus `live_remote_search` candidate pools with a default autonomous remote-search bootstrap, follow-up-question and weak-concept-driven remote probing, adaptive curiosity-budget growth, a boundary-free stream-form grounding bridge, abstraction-state-driven runtime autonomy focus plus query-time retrieval bias, a first live dedicated abstraction layer inside `HECSNModelLite` with slow-feature state, checkpointed stability/certainty traces, and direct top-down routing bias, a first geometric-curiosity landing that builds no-user-query retrieval focus from abstraction-space gaps plus an emergent lexicon, a first self-expanded curriculum landing that persists provider-specific query families from abstraction-gap hits and replays them as distinct live-remote probes, a first local structural growth/prune policy inside the maintained concept layer, a provider-learning curriculum over the widened default live-remote registry (`wikipedia`, `arxiv`, `openalex`), raw recent-query identity preserved into provider/topic-family focus and candidate discovery, summary-first catalog priming that keeps focused evidence ahead of generic scaffolding, a green maintained long-horizon Terminus benchmark/report for alternating-topic provider/topic-family retention plus recovered revisit-clause support, a green maintained Stage-0 protocol surface that now clears both the maintained proxy gate and the direct feedback gate with routing-key compositionality, semantic-triple grounding, and learned-chunk novelty probes, a first Stage-1 chunking precursor that now reaches both query-time evidence extraction and acquisition-query synthesis, a first four-channel neuromodulator split that separates dopamine/serotonin learning valence from acetylcholine/norepinephrine uncertainty while keeping the maintained path green, a first backend-aware routing rewrite that adds device-native `torch.topk` search plus HNSW / exact fallbacks with honest backend-device reporting and both smoke and 100K-scale baseline artifacts, a fragility-gated consolidation artifact that now backs the public benchmark surface, a first Stage-2 binding rewrite that replaces the old column-locked coincidence map with sparse subset bindings, independent binding counts, and growth hooks while keeping the maintained service/API surface green, and a first AdEx landing that now combines a standalone neuron module with an optional local-plasticity post-spike backend inside `HECSNModelLite`. The maintained benchmark and public Terminus surface are green on the current tree, while system-wide learned segmentation, broader provider/tool expansion from concept geometry, response-surface cleanup on already-grounded revisits, full recurrent/default AdEx integration, system-wide structural growth, and open-ended autonomous accumulation remain unfinished.
+**Stack:** PyTorch 2.1+ · CUDA · 2:4 Structured Sparsity · CSR Sparse Tensors · FAISS (CPU fallback/reference)
 
-**Executable status (2026-04-08):** The maintained mechanism smoke gate still passes (`silhouette ~= 0.675`, `DBI ~= 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`), and the public surface remains the **Terminus** runtime control plane (`/terminus`, `/terminus/configure`, `/terminus/start`, `/terminus/stop`, `/terminus/tick`) with observability over recent events, per-source progress, and autonomy focus. The maintained runtime still supports registry-backed and `live_remote_search` candidate banks, defaults enabled autonomy without a supplied candidate bank to `wikipedia` + `arxiv` + `openalex`, and now couples that path to provider-history ranking, remembered provider-topic query reuse, extract-backed and cross-provider content-aware remote probing, OpenAlex provider support with readable API fallback extraction, dense first-tick catalog priming, raw recent-query-term preservation inside provider/topic-family focus and candidate discovery, explicit matched-topic-family weighting during provider ranking, and summary-first catalog prefixes so focused evidence outranks generic `Terms:` scaffolding. The maintained phase-6 reference reruns (`phase6_memory_scale_rerun_20260406`, `phase6_hf_catalog_rerun_20260406`, `phase6_autonomy_baseline_feedback_tiebreak_20260407`, `phase6_memory_baseline_replay_fix_20260407`, `phase6_meaning_grounding_20260407`) plus the updated long-horizon report (`reports\phase6_long_horizon_autonomy_20260408\summary.json`) now form the validation picture on the current tree. That report now passes with `supported_step_count=4`, `supported_topic_coverage=1.0`, `answerability_growth_mean=0.5`, `concept_stability_mean=1.0`, `revisit_retention_rate=1.0`, `revisit_answerability_delta_mean=-0.125`, `revisit_provider_hit_rate=1.0`, and `tokens_per_supported_topic=144.0`, showing retained provider/topic-family routing plus recovered `submarine trim` revisit support across alternating `submarine` / `octopus` gaps with zero hand-authored candidate bank. The focused long-horizon regression surface is green on the current tree (`PYTHONPATH=src; python -m pytest tests\test_service_manager.py tests\test_autonomy_runner.py tests\test_terminus_long_horizon_runner.py -q` -> `57 passed, 3 warnings`), and repo validation is green too (`PYTHONPATH=src; python -m pytest -q` -> `167 passed, 3 warnings, 7 subtests passed`). The main remaining response limitation visible in the report is softer: the octopus revisit still quotes the right clause but leaves the auxiliary term `use` unsupported and can emit doubled punctuation from catalog-prefixed fragments. Terminus should still be treated as a continuously learning retrieval-and-acquisition runtime with partial grounded semantics, not yet as a solved semantic agent.
+**Executable status (2026-04-09):** The maintained mechanism smoke gate still passes (`silhouette ~= 0.675`, `DBI ~= 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`), and the public surface remains the **Terminus** runtime control plane (`/terminus`, `/terminus/configure`, `/terminus/start`, `/terminus/stop`, `/terminus/tick`) with observability over recent events, per-source progress, and autonomy focus. The maintained runtime still supports registry-backed and `live_remote_search` candidate banks, defaults enabled autonomy without a supplied candidate bank to `wikipedia` + `arxiv` + `openalex`, and now couples that path to provider-history ranking, remembered provider-topic query reuse, extract-backed and cross-provider content-aware remote probing, OpenAlex provider support with readable API fallback extraction, dense first-tick catalog priming, raw recent-query-term preservation inside provider/topic-family focus and candidate discovery, explicit matched-topic-family weighting during provider ranking, geometric query-family reuse that can raise per-provider query budgets after successful abstraction-gap acquisitions, and summary-first catalog prefixes so focused evidence outranks generic `Terms:` scaffolding. The maintained phase-6 reference reruns (`phase6_memory_scale_rerun_20260406`, `phase6_hf_catalog_rerun_20260406`, `phase6_autonomy_baseline_feedback_tiebreak_20260407`, `phase6_memory_baseline_replay_fix_20260407`, `phase6_meaning_grounding_20260407`) plus the updated long-horizon report (`reports\phase6_long_horizon_autonomy_20260408\summary.json`), the current Stage-0 evaluation protocol artifact (`reports\phase7_emergence_evaluation_protocol_20260409\summary.json`), the offline routing-scale smoke artifact (`reports\phase7_routing_scale_smoke\summary.json`), the local mechanism baseline artifact (`reports\phase7_mechanism_validation_baseline_20260409\summary.json`), the local representation baseline artifact (`reports\phase7_representation_baseline_20260409\summary.json`), the repaired local 100K routing-scale baseline artifact (`reports\phase7_routing_scale_baseline_20260409_faiss_fill\summary.json`), the maintained fragility-consolidation artifact (`reports\phase7_fragility_consolidation_smoke\summary.json`), the first AdEx stability smoke artifact (`reports\phase7_adex_stability_smoke\summary.json`), the first AdEx backend-comparison artifact (`reports\phase7_adex_backend_smoke\summary.json`), the first AdEx consolidation smoke artifact (`reports\phase7_adex_consolidation_smoke\summary.json`), the first abstraction-routing smoke artifact (`reports\phase7_abstraction_routing_smoke\summary.json`), the first geometric-curiosity smoke artifact (`reports\phase7_geometric_curiosity_smoke\summary.json`), and the first self-expanded-curriculum smoke artifact (`reports\phase7_self_expanded_curriculum_smoke\summary.json`) now form the validation picture on the current tree. The long-horizon report passes with `supported_step_count=4`, `supported_topic_coverage=1.0`, `answerability_growth_mean=0.5`, `concept_stability_mean=1.0`, `revisit_retention_rate=1.0`, `revisit_answerability_delta_mean=-0.125`, `revisit_provider_hit_rate=1.0`, and `tokens_per_supported_topic=144.0`, showing retained provider/topic-family routing plus recovered `submarine trim` revisit support across alternating `submarine` / `octopus` gaps with zero hand-authored candidate bank. The current Stage-0 protocol artifact now keeps the maintained proxy aggregate green **and** clears the direct feedback gate with `temporal_coherence_mean=0.991614`, `grounded_query_accuracy=1.0`, `compositional_query_accuracy=1.0`, `phase_a_interference_retention=0.999992`, `phase_a_final_retention=0.999993`, `supported_topic_coverage=1.0`, `answerability_growth_mean=0.5`, `revisit_retention_rate=1.0`, and `unique_acquired_source_count=2`. Those direct probes now run on the architecture’s actual learned representation surfaces: routing-key compositionality clears with `routing_key_between_score=0.996969` and `unique_winner_count=5`, direct semantic grounding clears with `semantic_triple_accuracy=0.714286` and `unique_winner_count=3`, and the learned-chunk novelty curve stays in-range with `direct_terminal_novelty_rate=0.099398` under a warm-up calibrated `prototype_shift_threshold=0.002120` (`first_half_nonzero_q90`). The same artifact still surfaces the remaining honest negatives directly: the mixed-corpus representation baseline still collapses the maintained competitive-only path to a single cluster, and the mechanism baseline still fails distributional clustering / behavior-B2 even though the repaired routing baseline is now green at 100K scale. The first Stage-1 chunking precursor now reaches both the maintained query path and acquisition planning: evidence extraction no longer relies only on whole-sentence fallback for raw unpunctuated memory windows, concept formation preserves full single-sentence context instead of collapsing to predicate fragments, reconstructed evidence is ranked ahead of equally matched shorter fragments, and boundary-free supported queries can now synthesize chunked retrieval phrases that flow into gap planning and `live_remote_search` provider queries. The maintained surprise path now exposes independent dopamine, serotonin, acetylcholine, and norepinephrine channels: dopamine and serotonin separate positive vs inhibitory learning pressure, acetylcholine tracks expected uncertainty / novelty, norepinephrine tracks unexpected uncertainty and self-repair pressure, and the column layer's scalar plasticity gate is now derived from that four-channel state rather than a collapsed three-signal bundle [27,32]. The maintained routing path now exposes explicit backend selection (`auto`, `faiss_hnsw`, `torch_topk`, `exact_cosine`), threads requested backend plus actual search-device reporting through runtime scope, and can run a sharded exact `torch_topk` Stage-1 search over normalized routing keys without the old per-query CPU HNSW bottleneck. On this CPU-only environment the routing smoke is intentionally honest: it proves the backend abstraction and sharded `torch.topk` path (`routing_backend_mode=torch_topk`, `index_type=sharded_torch_topk`, `search_device=cpu`) with `recall_at_k=1.0`, `top1_recall=1.0`, `mean_latency_ms=0.38075`, and `unreachable_fraction=0.0`, but the hierarchical-scale smoke still fails because the smoke stayed at `estimated_neurons=12800`, below the benchmark's 100K scale threshold. During the current baseline lane, upstream Hugging Face dataset endpoints returned repeated `503` errors, so the new baseline artifacts were run on a deterministic local mixed corpus built from `hecsn.md`, `feedback.md`, and the curated `research-sources\Brain-Cog\README.md`. Those baseline artifacts are intentionally honest rather than success-shaped: `reports\phase7_representation_baseline_20260409\summary.json` still collapses the maintained competitive-only probe to a single cluster on that mixed corpus even though `order_weighted_ascii` keeps the best baseline completion margin (`0.6145`) and online-kmeans silhouette (`0.0376`); `reports\phase7_mechanism_validation_baseline_20260409\summary.json` keeps ablation superiority (`trained_eval_recon_error 7.21e-09 < random_assignment 8.09e-04`) and healthy winner entropy (`1.836` bits) but still fails the overall mechanism gate because clustering and behavior-B2 remain negative; and the repaired routing baseline `reports\phase7_routing_scale_baseline_20260409_faiss_fill\summary.json` now clears the full hierarchical-scale gate on the current tree with `estimated_neurons=102400`, `recall_at_k=1.0`, `top1_recall=1.0`, `mean_latency_ms=4.696`, `p95_latency_ms=6.055`, `unreachable_fraction=0.0`, and `estimated_total_gpu_gb=8.94`. The maintained Phase-2 consolidation surface now prefers `reports\phase7_fragility_consolidation_smoke\summary.json`; that artifact passes with `mean_consolidation_level 0.492 -> 0.539`, `mean_fragility 0.677 -> 0.565`, `task_a_overlap_after_consolidation = 0.9036`, and `task_a_absolute_degradation_after_consolidation = 0.000290`. The maintained binding path is now structurally corrected: the live BindingLayer no longer assumes a 1:1 map to competitive columns; larger runs use a sparse subset coincidence population with learned output weights and growth hooks for uncovered co-activation pairs, while tiny 4-column service checkpoints keep a conservative default binding count so grounded synthesis stays tied to the measured evidence surface. The executable tree now also exposes a first AdEx integration surface in `src\hecsn\core\adex.py`: `AdExNeuron` implements a Heun-stable voltage step, spike/reset handling, NaN guard, and an inhibitory fast-spiking constructor; `LocalPlasticityCircuit` can now optionally use `plasticity_spike_backend="adex"` for local postsynaptic spikes while keeping the proxy backend as the default. The direct AdEx slice is green (`PYTHONPATH=src; python -m pytest tests\test_adex.py tests\test_adex_stability_runner.py -q` -> `6 passed, 3 warnings`), the optional local-plasticity backend slice is green (`PYTHONPATH=src; python -m pytest tests\test_local_plasticity.py tests\test_adex.py tests\test_adex_stability_runner.py -q` -> `16 passed, 3 warnings`), the first AdEx stability smoke artifact passes with `case_count=5`, `finite_case_fraction=1.0`, `spiking_case_fraction=1.0`, and `max_abs_adaptation=9.8446`, the backend-comparison smoke passes with identical `proxy` / `adex` mean reconstruction error (`0.047323`), identical mean active columns (`1.0`), and a positive `adex` mean post-spike fraction (`0.09375`), and the consolidation smoke passes with both proxy and AdEx memory-consolidation gates green while AdEx stays finite and improves Task-A post-consolidation overlap (`0.7008` vs `0.6772`) with slightly lower fragility. The executable tree now also exposes a first live Abstraction Layer surface in `src\hecsn\core\abstraction.py`: `HECSNModelLite` can enable a dedicated slow-feature feedback layer that tracks concept stability/certainty, persists through checkpoints, exposes curiosity-gap metrics, and multiplies top-down routing gain directly into column competition. The abstraction slice is green (`PYTHONPATH=src; python -m pytest tests\test_abstraction_layer.py tests\test_abstraction_routing_runner.py tests\test_local_plasticity.py tests\test_adex.py tests\test_adex_stability_runner.py -q` -> `21 passed, 3 warnings`), and the abstraction routing smoke passes with `mean_stability=0.7556`, `gain_margin=0.2616`, and an equal-score routing probe that flips the winner under learned abstraction gain (`neutral_winner=0`, `biased_winner=1`). The executable tree now also exposes a first Stage-3 autonomy surface spanning geometric curiosity plus self-expanded curriculum: `GeometricCuriosityController` builds an emergent lexicon from abstraction activations, synthesizes no-user-query retrieval focus from abstraction-space gaps plus nearest learned neighbors, and `HECSNServiceManager` can now persist provider-specific query families from successful geometric acquisitions and replay them as distinct provider probes on the next autonomy cycle. The Stage-3 autonomy slice is green (`PYTHONPATH=src; python -m pytest tests\test_source_catalog.py tests\test_service_manager.py tests\test_self_expanded_curriculum_runner.py tests\test_geometric_curiosity_runner.py -q` -> `48 passed, 3 warnings`); the curiosity smoke passes with `lexicon_concept_count=6`, `top_retrieval_query="bank credit loan current water stream"`, and non-empty `geometric_gaps` / `retrieval_queries`; and the curriculum smoke passes with `first_spec.catalog_queries_per_provider=3`, `second_spec.catalog_queries_per_provider=4`, `catalog_query_family_budget_bonus=1`, and matched `wikipedia` query families `["ent bank loan credit river stream", "river stream water"]`. The service/API surface is green (`PYTHONPATH=src; python -m pytest tests\test_service_api.py -q` -> `14 passed, 3 warnings`), the binding/grounding regression slice is green (`PYTHONPATH=src; python -m pytest tests\test_context_circuits.py tests\test_autonomy_runner.py tests\test_terminus_long_horizon_runner.py tests\test_meaning_grounding.py -q` -> `49 passed, 3 warnings`), and repo validation is green after the evaluation-protocol landing (`PYTHONPATH=src; python -m pytest -q` -> `224 passed, 3 warnings, 7 subtests passed`). The aggregate is intentionally honest about scope: it now combines fresh maintained meaning-grounding runs with checked-in memory-consolidation and long-horizon reports plus direct compositionality, grounding, and novelty probes, while the remaining honest negatives are concentrated in the mixed-corpus representation baseline and the mechanism baseline's distributional clustering / behavior-B2 failures. The routing rewrite should still be read as a first device-native backend landing rather than a claim that CUDA routing has already been proven in this environment. Terminus should still be treated as a continuously learning retrieval-and-acquisition runtime with partial grounded semantics, not yet as a solved semantic agent.
 
-**Main remaining gaps to the opening objective (2026-04-08):**
-1. **Boundary-free semantics are still heuristic, not learned.** The maintained grounding/gap/discovery path no longer depends on regex word tokens alone, but its soft boundary candidates and compound stream units are still heuristic overlays rather than a first-class learned segmentation layer operating directly over raw character streams.
+**Main remaining gaps to the opening objective (2026-04-09):**
+1. **Boundary-free semantics are still only partially rewritten.** The maintained path now has a first Stage-1 precursor across evidence extraction and acquisition-query synthesis: raw unpunctuated memory windows can be resegmented into denser query-focused chunks, single-sentence concept formation keeps full sentence context, evidence ranking prefers reconstructed spans over equally matched fragments, and boundary-free supported queries can now produce spaced retrieval phrases for gap planning and provider search. But the tokenizer and frontier/autonomy segmentation logic still depend on heuristic soft boundaries / compound stream units rather than a first-class learned segmentation layer operating directly over raw character streams.
 2. **Abstraction now steers autonomy and retrieval, but it is still not a full core layer.** `ConceptStore` / `OnlineSlowFeatureMap` now accumulates live state, can seed Terminus autonomy focus without a fresh user query, and can bias query-time retrieval toward concept-aligned evidence, but it still operates as an `online_sfa_proxy` over Memory Store routing signatures rather than a dedicated hierarchical layer that also drives segmentation, prediction, and retrieval end to end.
-3. **Self-directed curriculum is still scaffolded, not open-ended.** The runtime can now widen remote query breadth from weak-concept pressure, feed provider-level answerability history back into live-remote ordering/ranking, retain provider/topic-family EMAs after committed acquisitions, preserve raw recent query anchors inside provider focus and candidate discovery, and the long-horizon benchmark now proves full revisit retention plus perfect provider-family hits across alternating `submarine` / `octopus` gaps with the default `wikipedia` + `arxiv` + `openalex` bootstrap. But that bootstrap is still a small fixed provider scaffold, and the controller still does not expand its own provider/tool repertoire or carry topic-family memory into deeper multi-episode curriculum planning autonomously.
+3. **Self-directed curriculum is still scaffolded, not open-ended.** The runtime can now widen remote query breadth from weak-concept pressure, feed provider-level answerability history back into live-remote ordering/ranking, retain provider/topic-family EMAs after committed acquisitions, preserve raw recent query anchors inside provider focus and candidate discovery, persist provider-specific query families from geometric abstraction-gap hits, and replay those families as distinct provider probes with a higher per-provider query budget on the next autonomy cycle. But the provider bootstrap is still a small fixed scaffold, and the controller still does not expand its own provider/tool repertoire or carry that query-family memory into deeper multi-episode curriculum planning autonomously.
 4. **Capacity growth is now local, not system-wide.** The maintained concept layer can now accumulate persistent growth pressure, harden split thresholds, request wider slow-feature capacity, and prune redundant low-pressure duplicates, but that policy is still scoped to the `ConceptStore` / `OnlineSlowFeatureMap` proxy rather than growing routing structure, segmentation capacity, or memory topology end to end.
-5. **Evaluation is broader, but still not open-ended.** The maintained validation surface now includes a long-horizon autonomous benchmark with zero hand-authored candidate bank and explicit metrics for supported-topic coverage, answerability growth, concept stability, revisit retention, provider-hit rate, and token efficiency, and the current report now clears that gate with full revisit retention. But that world is still tiny, the response surface still shows some already-grounded auxiliary-term / formatting noise, and it does not yet prove open-ended novelty accumulation, low forgetting, or system growth over long naturalistic streams.
+5. **Evaluation is broader, but still not the final feedback-style probe.** The maintained validation surface now includes a Stage-0 protocol artifact (`reports\phase7_emergence_evaluation_protocol_20260409\summary.json`) that centralizes fresh grounded-query benchmarks plus the checked-in memory-retention and long-horizon autonomy reports, baseline comparisons, and all four direct feedback-aligned metrics. That artifact still clears a maintained-proxy gate with near-perfect concept temporal coherence, grounded-query recovery, compositional-query recovery, memory retention, and supported-topic coverage. But it explicitly keeps `feedback_emergence_gate.pass=False`: the direct compositionality probe is degenerate because all tested chunks collapse to one winner column, the direct grounding probe scores `0.0` for the same reason, and the direct novelty-rate curve starts healthy but then saturates to `0.0` across later checkpoints. The world is still small, the response surface still shows some already-grounded auxiliary-term / formatting noise, and the system still does not prove open-ended novelty accumulation, low forgetting, or system growth over long naturalistic streams. The same artifact makes the remaining honest negatives concrete: competitive-only representation clustering still collapses on a mixed technical corpus, the mechanism baseline still fails distributional clustering / behavior-B2, and only the repaired 100K routing baseline has fully crossed its current gate.
 
 ---
 
@@ -82,15 +82,16 @@ The objective is a **self-sustaining knowledge accumulation system**: a network 
 
 ```
 ╔═══════════════════════════════════════════════════════════════════╗
-║ [PARTIAL: Abstraction proxy — Stage 3 precursor]                  ║
-║ • Current: online slow-feature concept memory over stored episodes║
-║ • Full dedicated abstraction layer remains future                  ║
+║ [PARTIAL: Stage-3 abstraction + curiosity landing]                 ║
+║ • Current: dedicated slow-feature feedback over column assemblies  ║
+║ • Gap-to-query curiosity controller now shapes autonomy focus      ║
+║ • Full provider/query-family expansion from concept pressure future║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║ SURPRISE MONITOR [Precision-Weighted Error]                        ║
 ║ • Layer-specific prediction error computation                      ║
 ║ • Precision (inverse variance) for attention weighting             ║
 ║ • Internally-derived neuromodulation gates plasticity              ║
-║ • Generates dopaminergic/cholinergic/noradrenergic signals        ║
+║ • Generates dopamine/serotonin/ACh/NE control signals             ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║ BINDING LAYER [Event/Conjunction Detection]                        ║
 ║ • Binding neurons with coincidence detection (>threshold)          ║
@@ -104,7 +105,7 @@ The objective is a **self-sustaining knowledge accumulation system**: a network 
 ║ • Context→Competitive multiplicative gain modulation               ║
 ╠═══════════════════════════════════════════════════════════════════╣
 ║ COMPETITIVE LAYER [Competitive Learning]                           ║
-║ • Two-stage routing: HNSW (k candidates) → WTA (single winner)     ║
+║ • Two-stage routing: backend search (k candidates) → WTA winner    ║
 ║ • Kohonen/SOM competitive update for prototype learning            ║
 ║ • Log-STDP + excitatory/inhibitory STDP + synaptic scaling         ║
 ║ • Structural plasticity via spike correlation (activity-dependent) ║
@@ -118,11 +119,11 @@ The objective is a **self-sustaining knowledge accumulation system**: a network 
 ▲ feedforward (spikes) ▼ feedback (modulation)
 ```
 
-*Surprise Monitor implements precision-weighted predictive coding with internally-derived neuromodulation. Memory Store uses a dual-buffer architecture with an unbiased reservoir slow buffer, explicit tag/PRP/consolidation replay state on stored memories, and a fast EMA for drift / novelty baselining. Competitive Layer uses Kohonen/SOM competitive learning (not Oja's PCA), with both excitatory and inhibitory STDP for log-normal weight distributions and E/I balance. Two-stage hierarchical routing: HNSW (CPU-based) for O(log n) candidate selection → WTA inhibition for single winner selection.*
+*Surprise Monitor implements precision-weighted predictive coding with internally-derived neuromodulation. Memory Store uses a dual-buffer architecture with an unbiased reservoir slow buffer, explicit tag/PRP/consolidation replay state on stored memories, and a fast EMA for drift / novelty baselining. Competitive Layer uses Kohonen/SOM competitive learning (not Oja's PCA), with both excitatory and inhibitory STDP for log-normal weight distributions and E/I balance. Two-stage hierarchical routing now uses a backend-aware Stage-1 search surface: device-native exact `torch_topk` is the rewrite target, while CPU HNSW remains a maintained fallback/reference path, both followed by WTA inhibition for single winner selection.*
 
 > **Executable Scope Note**
 >
-> The maintained runtime implements the Competitive Layer, surprise modulation, a maintained local plasticity path (`plasticity_mode = local_stdp`) with log-STDP-style eligibility traces, iSTDP-style inhibitory balancing, synaptic scaling, and plastic latent projections, explicit tag/PRP/consolidation replay state in the memory store, and a multiscale recurrent Context/Binding path over column assemblies. Surprise-derived precision weighting now also scales live Context Layer integration, so the paper's Surprise -> Context pathway is no longer only descriptive. The full neuron-level recurrent AdEx / molecular-STC circuit described later in this document remains reference architecture rather than the current regression target, and the paper's Abstraction Layer is now only partially represented by the maintained `ConceptStore` / `OnlineSlowFeatureMap` proxy: it observes live runtime memory episodes continuously, but it is not yet a first-class dedicated core layer.
+> The maintained runtime implements the Competitive Layer, surprise modulation, a maintained local plasticity path (`plasticity_mode = local_stdp`) with log-STDP-style eligibility traces, iSTDP-style inhibitory balancing, synaptic scaling, and plastic latent projections, explicit tag/PRP/consolidation replay state in the memory store, a multiscale recurrent Context/Binding path over column assemblies, a first live Abstraction Layer landing over those column assemblies, and a first geometric-curiosity controller that converts abstraction-space gaps into Terminus autonomy focus. Surprise-derived precision weighting now also scales live Context Layer integration, so the paper's Surprise -> Context pathway is no longer only descriptive. The full neuron-level recurrent AdEx / molecular-STC circuit described later in this document remains reference architecture rather than the current regression target, and the service-side `ConceptStore` / `OnlineSlowFeatureMap` still exists as a parallel higher-level planner/readout abstraction surface rather than the only abstraction mechanism.
 
 ### Feedback Pathways (Top-Down Modulation)
 
@@ -167,12 +168,12 @@ To remove ambiguity between encoding, routing, and learning paths, HECSN adopts 
 | Symbol | Shape | Producer | Consumer | Purpose |
 |---|---|---|---|---|
 | `feature_vec` | `[input_dim]` (default `[128]`) | `RTFEncoder.feature_vector(chars)` | Routing + competitive learning | Active character-window routing features; maintained default is `order_weighted_ascii` |
-| `routing_key` | `[column_latent_dim]` (default `[256]`) | `W_project @ feature_vec` | HNSW Stage 1 | Candidate retrieval key |
-| `prototype_i` | `[column_latent_dim]` | Competitive layer | HNSW + WTA Stage 2 | Column centroid in latent space |
+| `routing_key` | `[column_latent_dim]` (default `[256]`) | `W_project @ feature_vec` | Routing backend Stage 1 | Candidate retrieval key |
+| `prototype_i` | `[column_latent_dim]` | Competitive layer | Routing backend + WTA Stage 2 | Column centroid in latent space |
 | `assembly_act` | `[n_columns]` | Competitive layer | Context, Binding, Memory logic | Sparse column activation pattern |
 
 Rules:
-1. HNSW search input is always `routing_key` (latent), not raw RTF burst tensors.
+1. Stage-1 routing search input is always `routing_key` (latent), not raw RTF burst tensors.
 2. Canonical maintained training uses `routing_key = W_project @ feature_vec` with `input_representation = order_weighted_ascii`.
 3. Alternate routing representations (`unigram_ascii`, `hashed_ngram`) are allowed only through the same `feature_vec -> W_project -> routing_key` contract and are treated as explicit ablations rather than separate runtime paths.
 4. `assembly_act` is a population activation vector and must not be used as a routing key unless explicitly projected to latent space.
@@ -264,29 +265,30 @@ Each layer's modulator M_layer(t) gates plasticity only in that layer, preventin
 
 ### Hierarchical Approximate Routing
 
-Instead of O(n) k-NN search, HECSN uses **HNSW (Hierarchical Navigable Small World) indexing** for O(log n) column routing:
+Instead of hard-wiring one CPU ANN path, HECSN now exposes a **backend-aware Stage-1 routing surface**:
 
-- Two-level hierarchy: coarse clusters (navigable graph) → fine columns within cluster
-- Cosine similarity for normalized assembly vectors (see note on Jaccard below)
-- **CPU-based via FAISS** — HNSW indices are not GPU-acceleratable in FAISS; routing is CPU-bound with asynchronous prefetch to overlap with GPU computation
-- Dynamic index updates as new columns form
+- `torch_topk`: exact cosine top-k over normalized routing keys on the model device; this is the current rewrite target because it can stay device-native on CUDA
+- `faiss_hnsw`: maintained approximate CPU fallback/reference path when FAISS is available or explicitly requested
+- `exact_cosine`: minimal numpy fallback when FAISS is unavailable
+- logical sharding over the same index API so per-shard candidates can be merged without changing caller code
+- dynamic add/remove/rebuild maintenance plus backend/device stats so the runtime and reports can say which path actually ran
 
 > **On Jaccard vs. Cosine Similarity**
 >
-> The original design specified Jaccard similarity approximated via cosine on binary vectors. For sparse binary vectors, cosine = |A∩B| / sqrt(|A|*|B|) while Jaccard = |A∩B| / |A∪B|. These diverge significantly for vectors of unequal cardinality. Since HECSN's assembly vectors are real-valued (continuous prototype vectors from competitive learning, not binary), cosine similarity is the appropriate metric. Jaccard applies only if assemblies are discretized to binary activation patterns for the HNSW index — in which case, use MinHash approximation (not cosine) for accurate Jaccard search at scale.
+> The original design specified Jaccard similarity approximated via cosine on binary vectors. For sparse binary vectors, cosine = |A∩B| / sqrt(|A|*|B|) while Jaccard = |A∩B| / |A∪B|. These diverge significantly for vectors of unequal cardinality. Since HECSN's assembly vectors are real-valued (continuous prototype vectors from competitive learning, not binary), cosine similarity is the appropriate metric. Jaccard applies only if assemblies are discretized to binary activation patterns for the HNSW fallback — in which case, use MinHash approximation (not cosine) for accurate Jaccard search at scale.
 
 > **Critical: HNSW Dynamic Update Limitations**
 >
-> HNSW can suffer from the "unreachable points phenomenon" during dynamic updates [3]. Frequent column insertion/deletion degrades graph connectivity, creating unreachable nodes. HECSN mitigates this via: (1) batched updates (rebuild index every N insertions), (2) tombstone marking instead of deletion, (3) periodic graph repair during sleep phases. Without these, routing fails at scale.
+> HNSW can suffer from the "unreachable points phenomenon" during dynamic updates [3]. Frequent column insertion/deletion degrades graph connectivity, creating unreachable nodes. When the HNSW fallback is active, HECSN mitigates this via: (1) batched updates (rebuild index every N insertions), (2) tombstone marking instead of deletion, and (3) periodic graph repair during sleep phases. Without these, routing fails at scale.
 
 ### Two-Stage Selection Protocol
 
-**Problem:** HNSW finds the nearest column to an input (winner selection). WTA inhibition also selects a winner within the column population. Two selection mechanisms existed for the same role with no stated interaction.
+**Problem:** Stage-1 search finds candidate columns while WTA inhibition also selects a winner within the column population. Two selection mechanisms existed for the same role with no stated interaction.
 
 **Solution:** Define a strict two-stage selection protocol:
 
 ```
-Stage 1 — Coarse routing (HNSW):
+Stage 1 — Coarse routing (backend search):
   Input: current pattern vector
   Output: top-k candidate columns (k = 5–20, configurable)
   Purpose: reduce computation from O(n_columns) to O(k)
@@ -298,7 +300,7 @@ Stage 2 — Fine selection (WTA):
   Purpose: enforce competitive learning within the relevant neighborhood
 
 Learning rule updates ONLY the Stage 2 WTA winner.
-HNSW index is updated ONLY after Stage 2 winner is determined.
+Stage-1 routing state is refreshed only after Stage 2 winner is determined; HNSW-specific rebuild/tombstone maintenance applies only when the HNSW backend is active.
 ```
 
 Add `k_routing: int = 10` to `HECSNConfig` as an explicit hyperparameter. Smaller k = faster but more routing errors; larger k = slower but more accurate competition.
@@ -454,125 +456,52 @@ Applied to synaptic weight matrices in the Competitive Layer and Context Layer w
 >
 > 2:4 structured sparsity delivers real speedups only on Ampere+ GPUs and only for large matrices. For the typical HECSN scale (10K–100K neurons, 10–20% connectivity), CSR sparse operations may actually be slower than dense operations due to indexing overhead. Profile before committing to sparse format at small scale. At 100K+ neurons, sparse becomes mandatory for memory.
 
-### Hierarchical Assembly Index (HNSW on CPU)
+### Hierarchical Assembly Index (Backend-Aware Routing)
 
-Pattern completion requires nearest-neighbor search over Memory Store assemblies. HECSN uses **HNSW** (CPU-based) with cosine similarity:
+Pattern completion and column routing now use a **backend-aware index surface**. The maintained code keeps the same caller API (`add`, `remove`, `rebuild`, `search`, `stats`) while letting the backend switch between device-native exact top-k and CPU fallback/reference paths:
 
 ```python
 # retrieval/hnsw_index.py
 
-import faiss
-import torch
-import numpy as np
-from typing import List, Tuple, Optional
-
-
 class HierarchicalAssemblyIndex:
-    """CPU-based approximate nearest neighbor index using HNSW.
+    def __init__(self, dim: int, rebuild_threshold: int = 1000, *, device=None, backend: str = "auto"):
+        self.device = torch.device("cpu") if device is None else torch.device(device)
+        self._backend = self._resolve_backend(backend)
+        self._use_faiss = self._backend == "faiss_hnsw"
+        self._torch_cache_dirty = True
 
-    CRITICAL: In upstream FAISS, HNSW search is CPU-bound in standard builds.
-    GPU acceleration is available for other index families; for HNSW-like GPU
-    paths, use the FAISS+cuVS route with separate validation and feature checks.
-    Routing is CPU-bound. Use asynchronous prefetch to overlap
-    with GPU spike computation.
+    def _resolve_backend(self, backend: str) -> str:
+        if backend == "auto":
+            if self.device.type == "cuda":
+                return "torch_topk"
+            return "faiss_hnsw" if faiss is not None else "exact_cosine"
+        if backend == "faiss_hnsw" and faiss is None:
+            raise ValueError("faiss_hnsw backend requested but faiss is unavailable")
+        return backend
 
-    Maintains a parallel _vector_store for rebuild capability.
-    Tombstone strategy: mark deletions, rebuild during sleep phases.
-    """
-
-    def __init__(self, dim: int, rebuild_threshold: int = 1000):
-        self.dim = dim
-        self.rebuild_threshold = rebuild_threshold
-        self.insertion_count = 0
-        self.tombstones: set = set()
-
-        # Parallel store for rebuild capability
-        self._vector_store: dict[int, np.ndarray] = {}
-
-        # HNSW index for O(log n) search — CPU only
-        self.index = faiss.IndexIDMap(faiss.IndexHNSWFlat(dim, 32))
-        self.index.hnsw.efConstruction = 200
-        self.index.hnsw.efSearch = 128
-
-    def add(self, assemblies: torch.Tensor, ids: np.ndarray) -> None:
-        """Add assemblies to index. Vectors are L2-normalized for cosine."""
-        norms = torch.norm(assemblies, dim=1, keepdim=True)
-        normalized = (assemblies / (norms + 1e-8)).cpu().numpy()
-
-        self.index.add_with_ids(normalized, ids)
-
-        # Store every vector for future rebuild
-        for i, id_ in enumerate(ids):
-            self._vector_store[int(id_)] = normalized[i].copy()
-
-        self.insertion_count += len(ids)
-
-        if self.insertion_count >= self.rebuild_threshold:
-            self.rebuild()
-
-    def remove(self, id_to_remove: int) -> None:
-        """Mark for deletion (tombstone). Also remove from vector store."""
-        self.tombstones.add(id_to_remove)
-        self._vector_store.pop(id_to_remove, None)
-
-    def rebuild(self) -> None:
-        """Rebuild index from vector store, excluding tombstoned entries.
-
-        O(n) but runs only during sleep phases — acceptable cost.
-        """
-        valid_ids = [id_ for id_ in self._vector_store
-                     if id_ not in self.tombstones]
-
-        if not valid_ids:
-            self.index = faiss.IndexIDMap(faiss.IndexHNSWFlat(self.dim, 32))
-            self.index.hnsw.efConstruction = 200
-            self.index.hnsw.efSearch = 128
-            self.insertion_count = 0
-            self.tombstones.clear()
-            return
-
-        vectors = np.stack([self._vector_store[id_] for id_ in valid_ids])
-        ids_array = np.array(valid_ids, dtype=np.int64)
-
-        # Rebuild fresh index
-        new_index = faiss.IndexIDMap(faiss.IndexHNSWFlat(self.dim, 32))
-        new_index.hnsw.efConstruction = 200
-        new_index.hnsw.efSearch = 128
-        new_index.add_with_ids(vectors, ids_array)
-
-        self.index = new_index
-        self.insertion_count = 0
-        self.tombstones.clear()
-
-    def search(self, query: torch.Tensor, k: int = 5
-               ) -> Tuple[List[List[int]], np.ndarray]:
-        """Return k nearest assembly IDs and distances. O(log n)."""
-        if self.index.ntotal == 0:
-            empty_ids = [[] for _ in range(query.shape[0])]
-            empty_dist = np.empty((query.shape[0], 0), dtype=np.float32)
-            return empty_ids, empty_dist
-
-        norms = torch.norm(query, dim=1, keepdim=True)
-        normalized = (query / (norms + 1e-8)).cpu().numpy()
-        D, I = self.index.search(normalized, k + len(self.tombstones))
-
-        # Filter tombstones from results
-        valid = [
-            [int(i) for i in row
-             if i >= 0 and i not in self.tombstones][:k]
-            for row in I
-        ]
-        return valid, D
+    def search(self, query: torch.Tensor, k: int = 5) -> tuple[list[list[int]], np.ndarray]:
+        if self._backend == "torch_topk":
+            if self._torch_cache_dirty:
+                self._rebuild_torch_cache()
+            normalized_query = F.normalize(query.to(self.device), dim=1)
+            sims = normalized_query @ self._torch_vectors.T
+            values, indices = torch.topk(sims, k=min(k, int(self._torch_vectors.shape[0])), dim=1)
+            ids = self._torch_ids[indices].detach().cpu().tolist()
+            dists = (1.0 - values).detach().cpu().numpy().astype(np.float32)
+            return [[int(candidate_id) for candidate_id in row] for row in ids], dists
+        # faiss_hnsw and exact_cosine fallback paths omitted here
 ```
+
+The current environment validated the sharded `torch_topk` path on CPU (`search_device=cpu`). That proves the backend abstraction and exact top-k routing logic, but it is not yet evidence that CUDA routing has been benchmarked in this repository environment.
 
 ### Hierarchical Column Routing (Two-Stage)
 
 Incoming patterns route via the two-stage protocol:
 
-1. **Stage 1 — HNSW routing:** Select top-k candidate columns (O(log n))
+1. **Stage 1 — routing backend:** Select top-k candidate columns (exact on `torch_topk`, approximate on HNSW)
 2. **Stage 2 — WTA selection:** Single winner from k candidates (O(k))
 
-This ensures O(log n) routing complexity regardless of network size, enabling million-neuron scales. CPU→GPU data transfer for routing results uses pinned memory and CUDA streams for overlap.
+This keeps the same two-stage contract while letting the executable path move toward device-native routing. When `torch_topk` runs on CUDA, Stage 1 can stay on the model device; when HNSW is active, the path remains CPU-bound and must still manage rebuild/tombstone maintenance explicitly.
 
 ### Memory Budget Analysis
 
@@ -1780,7 +1709,11 @@ class SurpriseMonitor:
     All neuromodulatory signals are internally derived — no external
     reward signal.
 
-        Dopamine = Reward Prediction Error (RPE), not sliding average.
+        Four-channel split:
+        - dopamine: positive prediction improvement
+        - serotonin: inhibitory / punishment pressure
+        - acetylcholine: expected uncertainty / novelty
+        - norepinephrine: unexpected uncertainty / reset pressure
     """
 
     def __init__(self, layer_names: List[str],
@@ -1794,13 +1727,11 @@ class SurpriseMonitor:
         }
         self.history_len = history_len
 
-        # Internally-derived neuromodulator levels
-        self.dopamine = 0.5      # RPE signal (signed)
-        self.acetylcholine = 0.5 # Input novelty / arousal
-        self.norepinephrine = 0.5 # Global surprise magnitude
-
-        # Predicted error baseline for RPE computation
         self.predicted_error = 0.5
+        self.dopamine = 0.5
+        self.serotonin = 0.5
+        self.acetylcholine = 0.5
+        self.norepinephrine = 0.5
 
     def update(self, layer_name: str, prediction: torch.Tensor,
                actual: torch.Tensor) -> None:
@@ -1815,49 +1746,20 @@ class SurpriseMonitor:
             variance = torch.var(error_tensor).item()
             self.layers[layer_name]['precision'] = 1.0 / (variance + 1e-6)
 
-    def get_modulator(self, layer_name: str) -> float:
-        """Layer-specific modulator M(t) with precision weighting."""
-        errors = list(self.layers[layer_name]['errors'])
-        if len(errors) < 10:
-            return 0.5
-
-        recent_error = errors[-1]
-        mean_error = sum(errors) / len(errors)
-
-        surprise = recent_error - mean_error
-
-        # Normalize precision via sigmoid to bounded [0, 1]
-        raw_precision = self.layers[layer_name]['precision']
-        precision_weight = torch.sigmoid(
-            torch.tensor(0.1 * (raw_precision - 10.0))
-        ).item()
-
-        dopamine_factor = self.dopamine * 2 - 1
-        ach_factor = self.acetylcholine
-
-        modulator = surprise * precision_weight * dopamine_factor * ach_factor
-
-        if abs(surprise) > 0.1:
-            self.norepinephrine = min(1.0, self.norepinephrine + 0.1)
-        else:
-            self.norepinephrine *= 0.95
-
-        return max(-1.0, min(1.0, modulator))
-
-    def compute_dopamine_rpe(self, current_error: float,
-                             predicted_error: float) -> float:
-        """Compute dopamine as true Reward Prediction Error.
-
-        RPE = predicted_error - current_error
-        Positive RPE (error < predicted): better than expected → LTP boost
-        Negative RPE (error > predicted): worse than expected → LTD boost
-
-        Normalized by baseline error magnitude. The tanh input is the
-        fractional improvement, not the absolute difference.
-        """
-        baseline = predicted_error + 1e-6
-        fractional_rpe = (predicted_error - current_error) / baseline
+    def compute_dopamine_rpe(self, current_error: float) -> float:
+        baseline = self.predicted_error + 1e-6
+        fractional_rpe = (self.predicted_error - current_error) / baseline
         return float(torch.tanh(torch.tensor(fractional_rpe * 3.0)))
+
+    def compute_serotonin_punishment(self, current_error: float) -> float:
+        baseline = self.predicted_error + 1e-6
+        fractional_penalty = max(0.0, (current_error - self.predicted_error) / baseline)
+        return float(torch.tanh(torch.tensor(fractional_penalty * 3.0)))
+
+    def compute_unexpected_uncertainty(self, current_error: float) -> float:
+        baseline = self.predicted_error + 1e-6
+        fractional_shift = abs(current_error - self.predicted_error) / baseline
+        return float(torch.tanh(torch.tensor(fractional_shift * 2.0)))
 
     def update_predicted_error(self, actual_error: float,
                                 alpha: float = 0.01) -> None:
@@ -1870,25 +1772,42 @@ class SurpriseMonitor:
                                 + (1 - alpha) * self.predicted_error)
 
     def update_neuromodulators(self, current_error: float,
-                                novelty: float) -> None:
-        """Update neuromodulators from internal prediction dynamics.
+                                 novelty: float) -> None:
+        dopamine_drive = max(0.0, self.compute_dopamine_rpe(current_error))
+        serotonin_drive = self.compute_serotonin_punishment(current_error)
+        norepinephrine_drive = self.compute_unexpected_uncertainty(current_error)
 
-        Args:
-            current_error: Current prediction error.
-            novelty: Distance of current input to nearest prototype.
-        """
-        # Dopamine = RPE
-        self.dopamine = self.compute_dopamine_rpe(
-            current_error, self.predicted_error
-        )
-        self.dopamine = (self.dopamine + 1) / 2  # map [-1,1] to [0,1]
+        self.dopamine = 0.85 * self.dopamine + 0.15 * dopamine_drive
+        self.serotonin = 0.85 * self.serotonin + 0.15 * serotonin_drive
+        self.acetylcholine = 0.90 * self.acetylcholine + 0.10 * novelty
+        self.norepinephrine = 0.85 * self.norepinephrine + 0.15 * norepinephrine_drive
+        if serotonin_drive > 0.4:
+            self.norepinephrine = min(1.0, self.norepinephrine + 0.10 * serotonin_drive)
 
-        # Update predicted error baseline
         self.update_predicted_error(current_error)
 
-        # Acetylcholine: novelty / arousal
-        self.acetylcholine = 0.9 * self.acetylcholine + 0.1 * novelty
-        self.acetylcholine = max(0.0, min(1.0, self.acetylcholine))
+    def get_modulator(self, layer_name: str) -> float:
+        errors = list(self.layers[layer_name]['errors'])
+        if len(errors) < 10:
+            return 0.5
+
+        recent_error = errors[-1]
+        mean_error = sum(errors) / len(errors)
+        surprise = recent_error - mean_error
+        raw_precision = self.layers[layer_name]['precision']
+        precision_weight = torch.sigmoid(torch.tensor(0.1 * (raw_precision - 10.0))).item()
+        valence_balance = max(-1.0, min(1.0, 2.0 * (self.dopamine - self.serotonin)))
+        attention_gate = 0.5 + 0.5 * self.acetylcholine
+        adaptation_gate = 0.5 + 0.5 * self.norepinephrine
+
+        modulator = (
+            surprise
+            * precision_weight
+            * valence_balance
+            * attention_gate
+            * adaptation_gate
+        )
+        return max(-1.0, min(1.0, modulator))
 
     def should_reset_network(self) -> bool:
         """Check if norepinephrine-triggered reset is needed."""
@@ -2626,13 +2545,21 @@ Implement DualMemoryStore and adaptive sleep-replay triggered by drift detection
 - Exploratory late-consolidation branches (`balanced`, `protected`, `frozen`, and emergency-only `adaptive`) were removed from the runnable Phase-2 surface after they failed the 50K overlap gate. The maintained executable path now keeps only the validated `micro`/`deep` replay schedule plus the explicit no-final-consolidation scale-robust preset.
 - Superseded rerun note: an older local rerun (`reports/recheck_phase2_scale_robust_20260331/summary.json`) had reported `task_a_overlap_after_consolidation ~= 0.498` and `task_a_relative_degradation_after_consolidation ~= 0.0620`, but that no longer describes the current tree.
 - Current Phase-2 recovery on this tree: aligning `capture_tag_decay` with the documented functional-minute time base restored durable capture pressure through later replay. The post-fix smoke rerun (`reports/phase2_smoke_after/summary.json`) now passes with `task_a_relative_degradation_after_consolidation ~= -0.985` and `task_a_overlap_after_consolidation ~= 0.980`, and the maintained `memory_consolidation_hf_scale_robust` rerun (`reports/phase2_scale_robust_after/summary.json`) now passes clearly with `task_a_relative_degradation_after_consolidation ~= 0.0103` and `task_a_overlap_after_consolidation ~= 0.99999`.
-- Scope note on this result: this validates the current executable consolidation path for the `HECSNModelLite` scaffold, including explicit capture-to-consolidation state, replay-priority spacing, and anchored column maintenance, but it is still a phenomenological proxy for full molecular STC and does not yet implement the full log-STDP / iSTDP / PRP state stack described for the long-term architecture.
+- Current fragility-gated consolidation milestone on this tree: `reports\phase7_fragility_consolidation_smoke\summary.json` now passes on the maintained path with `mean_consolidation_level 0.492 -> 0.539`, `mean_fragility 0.677 -> 0.565`, `task_a_overlap_after_consolidation = 0.9036`, and `task_a_absolute_degradation_after_consolidation = 0.000290`; the public benchmark loader now prefers this artifact over the older refactor-only path.
+- Current binding-structure recovery on this tree: the live BindingLayer no longer ties one binding unit to one competitive column. It now uses sparse subset source connectivity, an independent binding population, learned output weights, and explicit growth for uncovered high-correlation pairs; tiny 4-column service checkpoints keep the binding count conservative while larger maintained runs oversubscribe the binding pool. This recovery keeps grounded synthesis and live-remote follow-up probes green (`PYTHONPATH=src; python -m pytest tests\test_service_api.py -q` -> `14 passed, 3 warnings`) while preserving the broader binding/grounding regression surface (`PYTHONPATH=src; python -m pytest tests\test_context_circuits.py tests\test_autonomy_runner.py tests\test_terminus_long_horizon_runner.py tests\test_meaning_grounding.py -q` -> `49 passed, 3 warnings`).
+- Current AdEx numerical-stability landing on this tree: `src\hecsn\core\adex.py` now exposes a standalone `AdExNeuron` with a Heun-style stable voltage step, explicit spike/reset handling, NaN guards, and an inhibitory fast-spiking constructor, and `LocalPlasticityCircuit` now exposes an optional `plasticity_spike_backend="adex"` integration path for local postsynaptic spikes. The direct AdEx slice now passes (`PYTHONPATH=src; python -m pytest tests\test_adex.py tests\test_adex_stability_runner.py -q` -> `6 passed, 3 warnings`), the optional local-plasticity backend slice passes (`PYTHONPATH=src; python -m pytest tests\test_local_plasticity.py tests\test_adex.py tests\test_adex_stability_runner.py -q` -> `16 passed, 3 warnings`), `reports\phase7_adex_stability_smoke\summary.json` passes with `case_count=5`, `finite_case_fraction=1.0`, `spiking_case_fraction=1.0`, and `max_abs_adaptation=9.8446`, `reports\phase7_adex_backend_smoke\summary.json` passes with identical proxy/adex mean reconstruction error (`0.047323`), identical mean active columns (`1.0`), and positive AdEx post-spike activity (`mean_post_spike_fraction=0.09375`), and `reports\phase7_adex_consolidation_smoke\summary.json` passes with both proxy and AdEx memory-consolidation gates green while the AdEx path stays finite and improves Task-A post-consolidation overlap (`0.7008` vs `0.6772`); repo validation stays green after the landing (`PYTHONPATH=src; python -m pytest -q` -> `203 passed, 3 warnings, 7 subtests passed`).
+- Scope note on this result: this validates the current executable consolidation, binding, and first AdEx-module path for the `HECSNModelLite` scaffold, including explicit capture-to-consolidation state, replay-priority spacing, anchored column maintenance, a structurally corrected sparse binding layer, and a standalone tested AdEx neuron surface, but it is still a phenomenological proxy for full molecular STC and does not yet implement the full log-STDP / iSTDP / PRP state stack or wire the full neuron-level recurrent circuit into the maintained runtime.
+- Current first-class abstraction landing on this tree: `src\hecsn\core\abstraction.py` now exposes a dedicated `AbstractionLayer` with fast/slow concept traces, stability/certainty tracking, curiosity-gap scoring, learned feedback weights, and checkpoint persistence; `HECSNModelLite` can now enable that layer so routing gains are multiplied directly into column competition. The abstraction slice now passes (`PYTHONPATH=src; python -m pytest tests\test_abstraction_layer.py tests\test_abstraction_routing_runner.py tests\test_local_plasticity.py tests\test_adex.py tests\test_adex_stability_runner.py -q` -> `21 passed, 3 warnings`), `reports\phase7_abstraction_routing_smoke\summary.json` passes with `mean_stability=0.7556`, `gain_margin=0.2616`, and an equal-score routing probe that flips the winner under learned abstraction gain (`neutral_winner=0`, `biased_winner=1`), and repo validation stays green after the landing (`PYTHONPATH=src; python -m pytest -q` -> `208 passed, 3 warnings, 7 subtests passed`).
+- Scope note on this result: the executable tree now has a real live abstraction layer rather than only a planner-side proxy, but full end-to-end abstraction control over segmentation, prediction, and recurrent retrieval remains future rewrite work.
+- Current geometric-curiosity landing on this tree: `src\hecsn\semantics\geometric_curiosity.py` now exposes a `GeometricCuriosityController` that builds an emergent lexicon from abstraction activations, finds high-gap concepts in abstraction space, looks up nearest learned neighbors, and synthesizes retrieval focus without a user query; `HECSNServiceManager` now persists that controller and merges its focus output into Terminus autonomy planning whenever the live abstraction layer is enabled. The Stage-3 autonomy slice now passes (`PYTHONPATH=src; python -m pytest tests\test_source_catalog.py tests\test_service_manager.py tests\test_self_expanded_curriculum_runner.py tests\test_geometric_curiosity_runner.py -q` -> `48 passed, 3 warnings`), `reports\phase7_geometric_curiosity_smoke\summary.json` passes with `lexicon_concept_count=6`, `top_retrieval_query="bank credit loan current water stream"`, and non-empty `geometric_gaps` / `retrieval_queries`, and the current tree remains repo-green (`PYTHONPATH=src; python -m pytest -q` -> `215 passed, 3 warnings, 7 subtests passed`).
+- Current self-expanded curriculum landing on this tree: `HECSNServiceManager` now persists provider-specific `query_families` beside `topic_families`, only activates them when the current autonomy focus is geometric, threads those learned query families into `catalog_provider_query_families`, and lets `src\hecsn\data\source_catalog.py` emit them as distinct provider probes rather than only topic-term suffix expansions. `reports\phase7_self_expanded_curriculum_smoke\summary.json` now passes with `first_spec.catalog_queries_per_provider=3`, `second_spec.catalog_queries_per_provider=4`, `catalog_query_family_budget_bonus=1`, and matched `wikipedia` query families `["ent bank loan credit river stream", "river stream water"]`.
+- Scope note on this Stage-3 result: the system can now produce an internal gap-to-query focus signal and reuse successful provider-specific query families on the next autonomy cycle, but broader provider-set expansion, larger-scale autonomous acquisition evaluation, and fully label-free geometric benchmarking remain future rewrite work.
 
 ### Phase 3: Autonomy & Context — *Metacognition*
 
 Implement Surprise Monitor with RPE-based internally-derived neuromodulation. Activate Context Layer approximate attractor with SST+ inhibition and Binding Layer with STP. Network begins context-dependent routing for polysemy disambiguation.
 
-- Current executable Phase-3 mainline adds a runnable multiscale recurrent `ContextLayer` and short-term-plasticity `BindingLayer` around the existing `SurpriseMonitor`: the context state integrates fast/medium/slow traces over column assemblies, emits multiplicative competitive gain, and the binding path tracks coincidence with facilitation/depression-style short-term dynamics plus PV-like inhibition.
+- Current executable Phase-3 mainline adds a runnable multiscale recurrent `ContextLayer` and a sparse-subset short-term-plasticity `BindingLayer` around the existing `SurpriseMonitor`: the context state integrates fast/medium/slow traces over column assemblies, emits multiplicative competitive gain, and the binding path now tracks coincidence over subsets of source columns with facilitation/depression-style short-term dynamics plus PV-like inhibition instead of a 1:1 column binding map.
 - The executable validation path is `contextual_routing_runner.py`, which trains on interleaved HF blocks from `ag_news` and `wikitext-103-raw-v1`, then primes the model with task-specific context windows and measures whether the same probe bank routes differently under Task-A versus Task-B context.
 - The maintained Phase-3 runner now also exports checkpoints directly with `--checkpoint-out`, so the same context-enabled model can be reopened later by `query_runner.py` for raw-text probing instead of being usable only inside the benchmark process.
 - Current maintained smoke validation on the executable Phase-3 path (`order_weighted_ascii`, contextual routing on, binding-conjunction memory on) passes with context-state separation `1.000`, probe winner switch rate approximately `0.154`, mean probe assembly distance approximately `0.122`, and a direct B3 `bank` lexical-bundle probe family accuracy `0.875` with positive signature margin approximately `0.00028`. On the current maintained path the top-column bank winner sequence no longer separates reliably across contexts, so the signature-level family separation rather than winner-switching is the honest regression point for contextual disambiguation.
@@ -2666,9 +2593,9 @@ Implement Surprise Monitor with RPE-based internally-derived neuromodulation. Ac
 Scale to 100K+ neurons (100+ columns) with dual sparsity strategy and HNSW routing. Full Wikipedia corpus. Distributed training across multiple GPUs with column-level sharding. Vocabulary emerges from character statistics.
 
 - The executable hierarchical-scale path now lives in `hierarchical_scale_runner.py`. It builds a large-column benchmark over the same `HECSNModelLite` scaffold, enables logical column sharding in the routing index, trains on a streaming Wikipedia proxy (`wikitext-103-raw-v1`), and then measures routing recall, routing latency, index integrity, shard balance, throughput, and the paper-aligned memory budget estimate.
-- Phase-4 implementation detail that mattered in practice: the first scale pass exposed a real routing-maintenance bug. Dead-column revival updated prototypes in the competitive layer without synchronizing those revived columns back into the routing index, which made the ANN integrity check fail after long runs. The maintained fix now tracks revived column IDs, feeds them through the same index-update path as winners, avoids duplicate ID accumulation inside FAISS HNSW, and forces a clean rebuild before the Phase-4 evaluation sweep.
+- Phase-4 implementation detail that mattered in practice: the local 100K mixed-corpus baseline exposed a second routing-integrity issue even after the earlier dead-column revival and rebuild fixes were in place. On rebuilt small FAISS HNSW shards, candidate rows could still return incomplete unique-ID sets, so the maintained fix now exact-fills any missing unique shard candidates from the live in-memory vector store before the global merge step; that closes the full-bank self-recall gap without changing the higher-level routing contract.
 - Validated smoke result: the maintained `hierarchical_scale_hf_smoke` preset uses `12K` training tokens, `1.5K` eval tokens, `256` columns, `4` routing shards, and `k=12`. It now reaches perfect routing quality on the sharded FAISS HNSW path (`recall@k = 1.000`, `top1_recall = 1.000`, `unreachable_fraction = 0.000`) with mean routing latency approximately `1.04 ms`; the only failing gate is the intended scale threshold because the smoke preset represents only `25.6K` neuron-equivalent capacity.
-- Validated baseline result: the maintained `hierarchical_scale_hf_baseline` preset uses `30K` training tokens, `4K` eval tokens, `1024` columns, `8` routing shards, `k=16`, rebuild threshold `128`, and shard candidate factor `2`. Under the reporting assumption of `100` neurons per column this corresponds to `102,400` neuron-equivalent scale, and the executable hierarchical-scale gate passed on the FAISS-backed sharded HNSW path: `recall@k = 1.000`, `top1_recall = 1.000`, mean routing latency approximately `2.28 ms` (`p95 ~= 4.40 ms`), `unreachable_fraction = 0.000`, shard balance ratio `1.0`, winner coverage `1.0`, throughput approximately `156 tokens/s` (`~1560 chars/s`), and estimated total GPU budget approximately `8.94 GB`.
+- Validated baseline result: the repaired local mixed-corpus baseline at `reports\phase7_routing_scale_baseline_20260409_faiss_fill\summary.json` uses the maintained `hierarchical_scale_hf_baseline` preset (`30K` training tokens, `4K` eval tokens, `1024` columns, `8` routing shards, `k=16`, rebuild threshold `128`, shard candidate factor `2`) over the deterministic local corpus assembled from `hecsn.md`, `feedback.md`, and `research-sources\Brain-Cog\README.md`. Under the reporting assumption of `100` neurons per column this corresponds to `102,400` neuron-equivalent scale, and the executable hierarchical-scale gate now passes on the repaired FAISS-backed sharded HNSW path with `recall@k = 1.000`, `top1_recall = 1.000`, mean routing latency approximately `4.70 ms` (`p95 ~= 6.05 ms`), `unreachable_fraction = 0.000`, shard balance ratio `1.0`, winner coverage `0.125`, throughput approximately `33.8 tokens/s` (`~337.6 chars/s`), and estimated total GPU budget approximately `8.94 GB`.
 - The maintained Phase-4 baseline also kept the routing compression ratio in the intended sparse regime: only `16 / 1024 = 1.5625%` of columns participate in Stage-2 competition for a given query.
 - Practical input path: the current executable interface accepts raw text directly. `query_runner.py` converts the input stream into rolling character windows, encodes each window with the same `RTFEncoder.routing_vector` contract used during training, and can either feed those windows through `trainer.train_step(...)` for continued online learning or query the current model state without changing weights.
 - This input/retrieval path is no longer Phase-4-only: the maintained Stage-0, Phase-2, Phase-3, Phase-4, autonomy, and acquisition runners can all emit checkpoints, so the same raw-text query interface can probe the base learner, the consolidation path, the context-enabled learner, the scale benchmark, or the active-information-seeking variants without needing a separate conversion step.
@@ -2679,25 +2606,29 @@ Scale to 100K+ neurons (100+ columns) with dual sparsity strategy and HNSW routi
 - Additional integration check: saved Phase-2 and autonomy-acquisition smoke checkpoints were also reopened successfully through `query_runner.py`, confirming that the shared checkpoint/query contract now spans sequential consolidation and active source-acquisition runs as well, not only the base/context/scale demos.
 - Scope note on this result: within the executable scaffold, Phase 4 is now complete as a hierarchy-and-scale proxy. The maintained path validates sharded HNSW routing, large-column scaling, and the memory/latency gate in one process. It is still a logical sharding implementation rather than a full multi-process NCCL trainer, but the routing contract and scale diagnostics needed for the current roadmap are now in place.
 
-### Stage 3 (Future): Abstraction Layer
+### Stage 3: Abstraction Layer (First landing)
 
-**Partial maintained precursor exists, but the full dedicated layer is still future work.**
+**A first dedicated abstraction layer and a first geometric-curiosity controller now exist on the executable tree, but the full self-expanding acquisition loop is still future work.**
 
-Current maintained precursor:
-- `ConceptStore` + `OnlineSlowFeatureMap` now observe stored Memory Store episodes not only during query-time concept readout but also during live Terminus `feed`, respond-time learn-back, background ticks, and acquisition training.
-- This makes abstraction accumulation partially continuous on the maintained runtime without introducing labels or a separate pretrained semantic module.
-- However, this precursor still rides on Memory Store episode text plus stored routing signatures; it is not yet the paper's full dedicated abstraction layer with its own long-timescale update schedule and direct top-down influence.
+Current maintained landing:
+- `src\hecsn\core\abstraction.py` now implements a live `AbstractionLayer` over competitive-column assemblies with fast/slow traces, stability/certainty state, learned feedforward/feedback weights, curiosity-gap scoring, and top-down routing gain.
+- `HECSNModelLite` can now enable this layer directly, so abstraction is no longer only a planner-side or concept-store observer; its learned feedback gain now modifies competitive routing during training.
+- The layer persists through trainer checkpoints, exposes runtime metrics (`abstraction_stability_mean`, `abstraction_certainty_mean`, `abstraction_gain_mean`, `abstraction_gap_score_max`), and is backed by `reports\phase7_abstraction_routing_smoke\summary.json`, which passes with `mean_stability=0.7556`, `gain_margin=0.2616`, and an equal-score routing probe that flips the winner under learned abstraction gain.
+- `src\hecsn\semantics\geometric_curiosity.py` now implements a `GeometricCuriosityController` that builds a lexicon from abstraction activations, finds the highest-gap concepts, retrieves nearest learned neighbors in concept space, and turns those into no-user-query retrieval focus for Terminus autonomy.
+- `HECSNServiceManager` now persists that controller through checkpoints and merges its `geometric_abstraction_gap_focus` output into live autonomy plans; `reports\phase7_geometric_curiosity_smoke\summary.json` passes with `lexicon_concept_count=6`, `top_retrieval_query="bank credit loan current water stream"`, and non-empty `geometric_gaps` / `retrieval_queries`.
+- `ConceptStore` + `OnlineSlowFeatureMap` still remain as a parallel service/planner abstraction surface over stored Memory Store episodes rather than being deleted prematurely.
 
-Planned implementation using Slow Feature Analysis (Wiskott & Sejnowski 2002):
-- Input: Binding Layer activation sequence over N episodes
-- Learns: linear projection W such that W*x changes minimally across time
-- Update: minimize d/dt(W*x)^2 subject to unit variance constraint
-- Learning: gradient-free, solvable by eigendecomposition of temporal derivative covariance matrix (offline, during sleep)
+Remaining Stage-3 work:
+- Grow the abstraction-neighbor lexicon and query surface beyond the current first-hop/top-neighbor synthesis.
+- Expand provider/query curriculum from those internal geometric gaps rather than from fixed scaffold terms alone.
+- Run larger no-user-query acquisition evaluations that measure novelty coverage and answerability gain from the new geometric planner path.
 
 ---
 
 ## 8. Evaluation Protocol
 
+**Current maintained Stage-0 protocol surface (2026-04-09, refreshed after the routing-key probe rewrite and learned-chunk novelty calibration).** `reports\phase7_emergence_evaluation_protocol_20260409\summary.json` now centralizes the maintained evidence before the rewrite moves further into GPU-native routing and full learned segmentation. It clears both the maintained-proxy gate and the direct feedback gate with `temporal_coherence_mean=0.991614`, `grounded_query_accuracy=1.0`, `compositional_query_accuracy=1.0`, `phase_a_interference_retention=0.999992`, `phase_a_final_retention=0.999993`, `supported_topic_coverage=1.0`, `answerability_growth_mean=0.5`, `revisit_retention_rate=1.0`, and `unique_acquired_source_count=2`. The direct routing-key compositionality score now clears comfortably (`routing_key_between_score=0.996969`, `unique_winner_count=5`), the direct semantic grounding probe now clears the feedback threshold (`semantic_triple_accuracy=0.714286`, `unique_winner_count=3`), and the direct learned-chunk novelty curve now stabilizes in-range (`terminal_novelty_rate=0.099398`, `prototype_shift_threshold=0.002120`, source `first_half_nonzero_q90`). The same report still surfaces the current honest negatives directly: the representation baseline still collapses the maintained competitive-only path to a single cluster, the mechanism baseline still fails distributional clustering / behavior-B2, and the repaired 100K routing baseline is now green.
+ 
 ### 1. Assembly Quality Metrics
 
 **Drift Rate:** Mean Jaccard distance between consecutive exposures to similar patterns. Target < 0.04 for stable concepts.
@@ -2898,6 +2829,8 @@ Citation-integrity note (2026-03-31): earlier draft placeholder preprints with u
 
 [26] Johnson, J., Douze, M., & Jegou, H. (2021). Billion-scale similarity search with GPUs. *IEEE Transactions on Big Data*, 7(3), 535–547.
 
+[27] Doya, K. (2002). Metalearning and neuromodulation. *Neural Networks*, 15(4-6), 495–506.
+
 [28] Schuman, C. D. et al. (2022). Opportunities for neuromorphic computing algorithms and applications. *Nature Computational Science*, 2(1), 10–19.
 
 [29] Zenke, F. & Vogels, T. P. (2021). The Remarkable Robustness of Surrogate Gradient Learning. *Neural Computation*, 33(4), 899–925.
@@ -2905,6 +2838,8 @@ Citation-integrity note (2026-03-31): earlier draft placeholder preprints with u
 [30] Gilson, M. & Fukai, T. (2011). Stability versus neuronal specialization for STDP. *Neural Computation*, 23(6), 1514–1529.
 
 [31] Roy, D. et al. (2019). Lifelong Learning of Spatiotemporal Representations. *Frontiers in Neural Networks*, 12:765.
+
+[32] Yu, A. J. & Dayan, P. (2005). Uncertainty, neuromodulation, and attention. *Neuron*, 46(4), 681–692.
 
 [33] Yang, W. et al. (2014). Differences in E/I balance between cortical layers. *Journal of Neuroscience*, 34(34), 11206–11213.
 

@@ -27,6 +27,7 @@ def _surprise_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
         "layers": layers,
         "predicted_error": float(trainer.model.surprise.predicted_error),
         "dopamine": float(trainer.model.surprise.dopamine),
+        "serotonin": float(trainer.model.surprise.serotonin),
         "acetylcholine": float(trainer.model.surprise.acetylcholine),
         "norepinephrine": float(trainer.model.surprise.norepinephrine),
     }
@@ -45,6 +46,7 @@ def _restore_surprise(trainer: HECSNTrainer, snapshot: dict[str, Any]) -> None:
 
     trainer.model.surprise.predicted_error = float(snapshot.get("predicted_error", 0.5))
     trainer.model.surprise.dopamine = float(snapshot.get("dopamine", 0.5))
+    trainer.model.surprise.serotonin = float(snapshot.get("serotonin", 0.5))
     trainer.model.surprise.acetylcholine = float(snapshot.get("acetylcholine", 0.5))
     trainer.model.surprise.norepinephrine = float(snapshot.get("norepinephrine", 0.5))
 
@@ -70,6 +72,7 @@ def _model_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
         "W_assembly_project": trainer.model.W_assembly_project.detach().clone().cpu(),
         "surprise": _surprise_snapshot(trainer),
         "context_layer": None if trainer.model.context_layer is None else trainer.model.context_layer.state_dict(),
+        "abstraction_layer": None if trainer.model.abstraction_layer is None else trainer.model.abstraction_layer.state_dict(),
         "binding_layer": None if trainer.model.binding_layer is None else trainer.model.binding_layer.state_dict(),
         "memory_store": trainer.model.memory_store.snapshot(),
         "bootstrap": {
@@ -106,6 +109,9 @@ def _restore_model(trainer: HECSNTrainer, snapshot: dict[str, Any]) -> None:
     if trainer.model.context_layer is not None and snapshot.get("context_layer") is not None:
         trainer.model.context_layer.load_state_dict(snapshot["context_layer"])
 
+    if trainer.model.abstraction_layer is not None and snapshot.get("abstraction_layer") is not None:
+        trainer.model.abstraction_layer.load_state_dict(snapshot["abstraction_layer"])
+
     if trainer.model.binding_layer is not None and snapshot.get("binding_layer") is not None:
         trainer.model.binding_layer.load_state_dict(snapshot["binding_layer"])
 
@@ -129,6 +135,7 @@ def save_trainer_checkpoint(path: str | Path, trainer: HECSNTrainer, metadata: d
     payload = {
         "config": config_snapshot,
         "model": _model_snapshot(trainer),
+        "encoder": trainer.encoder.state_dict(),
         "trainer": {
             "token_count": int(trainer.token_count),
             "is_bootstrap": bool(trainer.is_bootstrap),
@@ -170,6 +177,9 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[HECSNTrainer, dict[str, A
     model = HECSNModelLite(cfg)
     trainer = HECSNTrainer(model, cfg)
     _restore_model(trainer, payload["model"])
+    encoder_snapshot = payload.get("encoder")
+    if isinstance(encoder_snapshot, dict):
+        trainer.encoder.load_state_dict(encoder_snapshot)
 
     trainer_snapshot = payload.get("trainer", {})
     trainer.token_count = int(trainer_snapshot.get("token_count", 0))

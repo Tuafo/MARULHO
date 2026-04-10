@@ -80,9 +80,11 @@ def plot_contextual_routing_summary(output_dir: Path, summary: dict[str, Any], m
         sampled = metrics_rows[::sample_step]
         tokens = [int(row["token"]) for row in sampled]
         dopamine = [float(row["dopamine"]) for row in sampled]
+        serotonin = [float(row.get("serotonin", float("nan"))) for row in sampled]
         acetylcholine = [float(row["acetylcholine"]) for row in sampled]
         norepinephrine = [float(row["norepinephrine"]) for row in sampled]
         axes[0].plot(tokens, dopamine, color="#1565c0", linewidth=1.8, label="Dopamine")
+        axes[0].plot(tokens, serotonin, color="#6a1b9a", linewidth=1.8, label="Serotonin")
         axes[0].plot(tokens, acetylcholine, color="#2e7d32", linewidth=1.8, label="Acetylcholine")
         axes[0].plot(tokens, norepinephrine, color="#ef6c00", linewidth=1.8, label="Norepinephrine")
         axes[0].set_title("Neuromodulator Traces")

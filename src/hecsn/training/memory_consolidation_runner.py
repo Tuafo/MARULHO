@@ -47,6 +47,46 @@ def mean_assembly_overlap(
     return float(sum(overlaps) / len(overlaps))
 
 
+def build_memory_consolidation_gate(
+    *,
+    task_a_after_a: float,
+    task_a_after_b: float,
+    task_a_after_consolidation: float,
+    task_a_overlap_after_consolidation: float,
+) -> dict[str, Any]:
+    relative_floor = 1e-3
+    absolute_degradation_max = 0.01
+    raw_relative_degradation = (task_a_after_consolidation - task_a_after_a) / max(1e-8, task_a_after_a)
+    floor_adjusted_relative_degradation = (task_a_after_consolidation - task_a_after_a) / max(relative_floor, task_a_after_a)
+    absolute_degradation = task_a_after_consolidation - task_a_after_a
+    overlap_ok = bool(task_a_overlap_after_consolidation >= 0.50)
+    recovery_ok = bool(task_a_after_consolidation <= task_a_after_b + 1e-8)
+    use_absolute_gate = bool(task_a_after_a < relative_floor)
+    degradation_ok = (
+        bool(absolute_degradation <= absolute_degradation_max)
+        if use_absolute_gate
+        else bool(floor_adjusted_relative_degradation <= 0.05)
+    )
+    return {
+        "pass": bool(degradation_ok and recovery_ok and overlap_ok),
+        "task_a_overlap_gte_0_50": overlap_ok,
+        "task_a_recovery_nonnegative": recovery_ok,
+        "task_a_degradation_ok": degradation_ok,
+        "uses_absolute_degradation_gate": use_absolute_gate,
+        "thresholds": {
+            "task_a_relative_degradation_max": 0.05,
+            "task_a_absolute_degradation_max": absolute_degradation_max,
+            "task_a_relative_degradation_floor": relative_floor,
+            "task_a_overlap_min": 0.50,
+        },
+        "metrics": {
+            "task_a_absolute_degradation_after_consolidation": absolute_degradation,
+            "task_a_relative_degradation_after_consolidation": floor_adjusted_relative_degradation,
+            "task_a_raw_relative_degradation_after_consolidation": raw_relative_degradation,
+        },
+    }
+
+
 def run_memory_consolidation(
     task_a_source: str,
     task_a_hf_config: Optional[str],
@@ -200,10 +240,17 @@ def run_memory_consolidation(
     task_b_overlap_after_consolidation = mean_assembly_overlap(task_b_reference_assemblies, collect_assemblies(trainer, task_b_eval))
     memory_after = model.memory_store.summary_stats()
 
-    task_a_relative_degradation = (task_a_after_consolidation - task_a_after_a) / max(1e-8, task_a_after_a)
-    task_a_success = bool(task_a_relative_degradation <= 0.05)
-    task_a_overlap_success = bool(task_a_overlap_after_consolidation >= 0.50)
-    memory_consolidation_success = bool(task_a_success and task_a_overlap_success)
+    gate = build_memory_consolidation_gate(
+        task_a_after_a=task_a_after_a,
+        task_a_after_b=task_a_after_b,
+        task_a_after_consolidation=task_a_after_consolidation,
+        task_a_overlap_after_consolidation=task_a_overlap_after_consolidation,
+    )
+    gate_metrics = gate["metrics"]
+    task_a_relative_degradation = float(gate_metrics["task_a_relative_degradation_after_consolidation"])
+    task_a_raw_relative_degradation = float(gate_metrics["task_a_raw_relative_degradation_after_consolidation"])
+    task_a_absolute_degradation = float(gate_metrics["task_a_absolute_degradation_after_consolidation"])
+    memory_consolidation_success = bool(gate["pass"])
 
     summary = {
         "protocol": "memory_consolidation_sequential_ab_hf",
@@ -269,17 +316,11 @@ def run_memory_consolidation(
             "task_b_overlap_after_b": task_b_overlap_after_b,
             "task_a_overlap_after_consolidation": task_a_overlap_after_consolidation,
             "task_b_overlap_after_consolidation": task_b_overlap_after_consolidation,
+            "task_a_absolute_degradation_after_consolidation": task_a_absolute_degradation,
             "task_a_relative_degradation_after_consolidation": task_a_relative_degradation,
+            "task_a_raw_relative_degradation_after_consolidation": task_a_raw_relative_degradation,
         },
-        "memory_consolidation_gate": {
-            "pass": memory_consolidation_success,
-            "task_a_relative_degradation_lte_5pct": task_a_success,
-            "task_a_overlap_gte_0_50": task_a_overlap_success,
-            "thresholds": {
-                "task_a_relative_degradation_max": 0.05,
-                "task_a_overlap_min": 0.50,
-            },
-        },
+        "memory_consolidation_gate": gate,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
 

@@ -142,7 +142,7 @@ class BenchmarkReportsTests(unittest.TestCase):
             )
             _write_summary(
                 root,
-                "refactor_memory_consolidation_smoke",
+                "phase7_fragility_consolidation_smoke",
                 {
                     "metrics": {
                         "task_a_recovery_delta": 0.12,
@@ -177,6 +177,7 @@ class BenchmarkReportsTests(unittest.TestCase):
                 {
                     "training_diagnostics": {
                         "mean_dopamine": 0.1,
+                        "mean_serotonin": 0.15,
                         "mean_acetylcholine": 0.2,
                         "mean_norepinephrine": 0.3,
                         "mean_context_gain": 0.4,
@@ -218,21 +219,232 @@ class BenchmarkReportsTests(unittest.TestCase):
                     "hierarchical_scale_gate": {"pass": True},
                 },
             )
+            _write_summary(
+                root,
+                "refactor_emergence_evaluation_smoke",
+                {
+                    "metrics": {
+                        "temporal_coherence_mean": 0.99,
+                        "grounded_query_accuracy": 1.0,
+                        "compositional_query_accuracy": 1.0,
+                        "phase_a_interference_retention": 0.76,
+                        "phase_a_final_retention": 0.83,
+                        "supported_topic_coverage": 1.0,
+                        "answerability_growth_mean": 0.5,
+                    },
+                    "novelty_coverage": {
+                        "supported_topic_coverage": 1.0,
+                        "answerability_growth_mean": 0.5,
+                        "revisit_retention_rate": 1.0,
+                        "unique_acquired_source_count": 2,
+                    },
+                    "meaning_grounding": {"mixed_world": {"gate_pass": True}},
+                    "emergence_evaluation_gate": {"pass": True},
+                },
+            )
 
             reports = load_benchmark_reports(reports_root=root)
             benchmarks = {item["benchmark_id"]: item for item in reports["benchmarks"]}
 
             self.assertIn("mechanism_validation", benchmarks)
+            self.assertIn("emergence_evaluation", benchmarks)
             self.assertIn("memory_consolidation", benchmarks)
             self.assertIn("contextual_routing", benchmarks)
             self.assertIn("hierarchical_scale", benchmarks)
+            self.assertTrue(benchmarks["emergence_evaluation"]["summary"]["gate_pass"])
             self.assertTrue(benchmarks["memory_consolidation"]["summary"]["gate_pass"])
             self.assertTrue(benchmarks["contextual_routing"]["summary"]["gate_pass"])
             self.assertTrue(benchmarks["hierarchical_scale"]["summary"]["gate_pass"])
+            self.assertIn(
+                "Serotonin",
+                [item["label"] for item in benchmarks["contextual_routing"]["regulator_series"]],
+            )
             self.assertTrue(
                 str(benchmarks["mechanism_validation"]["summary_path"]).endswith(
                     "refactor_mechanism_validation_smoke/summary.json"
                 )
+            )
+
+    def test_load_benchmark_reports_supports_current_phase6_phase7_artifact_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_summary(
+                root,
+                "phase7_emergence_evaluation_protocol_20260409",
+                {
+                    "metrics": {
+                        "temporal_coherence_mean": 0.995,
+                        "grounded_query_accuracy": 1.0,
+                        "compositional_query_accuracy": 1.0,
+                        "phase_a_interference_retention": 0.77,
+                        "phase_a_final_retention": 0.84,
+                        "supported_topic_coverage": 1.0,
+                        "answerability_growth_mean": 0.55,
+                    },
+                    "novelty_coverage": {
+                        "supported_topic_coverage": 1.0,
+                        "answerability_growth_mean": 0.55,
+                        "revisit_retention_rate": 1.0,
+                        "unique_acquired_source_count": 3,
+                    },
+                    "meaning_grounding": {"mixed_world": {"gate_pass": True}},
+                    "emergence_evaluation_gate": {"pass": True},
+                },
+            )
+            _write_summary(
+                root,
+                "phase7_mechanism_validation_baseline_20260409",
+                {
+                    "drift_mean": 0.1,
+                    "surprise_mean": 0.2,
+                    "sparsity_mean": 0.3,
+                    "recon_error_mean": 0.4,
+                    "winner_entropy_bits": 1.2,
+                    "winner_max_share": 0.25,
+                    "mechanism_validation_gate": {"pass": True},
+                },
+            )
+            _write_metrics(
+                root,
+                "phase7_mechanism_validation_baseline_20260409",
+                [
+                    {
+                        "token": 1,
+                        "drift": 0.1,
+                        "surprise": 0.2,
+                        "recon_error": 0.3,
+                        "pred_error": 0.4,
+                        "drift_floor": 0.05,
+                        "sleep_events_total": 0,
+                    }
+                ],
+            )
+            _write_summary(
+                root,
+                "phase7_representation_baseline_20260409",
+                {
+                    "data_setup": {
+                        "source": "wikitext",
+                        "source_type": "hf",
+                        "train_windows": 64,
+                        "eval_windows": 16,
+                    },
+                    "benchmark_setup": {
+                        "probe_samples": 8,
+                    },
+                    "results": [
+                        {
+                            "representation": "order_weighted_ascii",
+                            "feature_dim": 128,
+                            "completion_coherence": {"mean_margin": 0.15, "success_rate": 1.0},
+                            "online_kmeans": {"silhouette": 0.42, "davies_bouldin": 0.71},
+                            "hecsn_competitive_only": {"silhouette": 0.68, "davies_bouldin": 0.33},
+                        },
+                        {
+                            "representation": "unigram_ascii",
+                            "feature_dim": 128,
+                            "completion_coherence": {"mean_margin": 0.03, "success_rate": 0.5},
+                            "online_kmeans": {"silhouette": 0.35, "davies_bouldin": 0.82},
+                            "hecsn_competitive_only": {"silhouette": 0.44, "davies_bouldin": 0.61},
+                        },
+                    ],
+                },
+            )
+            _write_summary(
+                root,
+                "phase7_routing_scale_smoke",
+                {
+                    "routing_metrics": {
+                        "recall_at_k": 0.98,
+                        "top1_recall": 0.95,
+                        "mean_latency_ms": 2.0,
+                        "p95_latency_ms": 3.0,
+                    },
+                    "training_diagnostics": {
+                        "eval_recon_error": 0.2,
+                        "throughput_chars_per_sec": 1200.0,
+                    },
+                    "sharding": {
+                        "index_shard_sizes": [16, 16],
+                        "primary_query_shard_counts": [10, 9],
+                        "winner_shard_counts": [8, 7],
+                        "index_shard_balance_ratio": 1.0,
+                        "winner_shard_coverage": 1.0,
+                    },
+                    "hierarchical_scale_gate": {"pass": True},
+                },
+            )
+            _write_summary(
+                root,
+                "phase6_autonomy_baseline_feedback_tiebreak_20260407",
+                {
+                    "policy_results": {
+                        "active": {
+                            "final_gap_by_source": {"news": 0.11},
+                            "final_diagnostic_gap_score_by_source": {"news": 0.21},
+                            "final_info_gain_by_source": {"news": 0.31},
+                            "source_visit_counts": {"news": 4},
+                            "final_mean_gap": 0.11,
+                            "final_mean_gap_score": 0.07,
+                            "final_mean_info_gain": 0.31,
+                            "mean_selected_gap_reduction": 0.02,
+                            "episode_history": [
+                                {
+                                    "phase": "seek",
+                                    "episode_index": 1,
+                                    "selected_gap_reduction": 0.02,
+                                    "selected_gap_score_reduction": 0.01,
+                                }
+                            ],
+                        },
+                        "round_robin": {
+                            "final_gap_by_source": {"news": 0.15},
+                            "final_diagnostic_gap_score_by_source": {"news": 0.26},
+                            "final_info_gain_by_source": {"news": 0.27},
+                            "source_visit_counts": {"news": 4},
+                            "final_mean_gap": 0.15,
+                            "final_mean_gap_score": 0.09,
+                            "final_mean_info_gain": 0.27,
+                        },
+                    }
+                },
+            )
+
+            reports = load_benchmark_reports(reports_root=root)
+            benchmarks = {item["benchmark_id"]: item for item in reports["benchmarks"]}
+
+            self.assertTrue(
+                str(benchmarks["emergence_evaluation"]["summary_path"]).endswith(
+                    "phase7_emergence_evaluation_protocol_20260409/summary.json"
+                )
+            )
+            self.assertTrue(
+                str(benchmarks["mechanism_validation"]["summary_path"]).endswith(
+                    "phase7_mechanism_validation_baseline_20260409/summary.json"
+                )
+            )
+            self.assertTrue(
+                str(benchmarks["representation_benchmark"]["summary_path"]).endswith(
+                    "phase7_representation_baseline_20260409/summary.json"
+                )
+            )
+            self.assertTrue(
+                str(benchmarks["hierarchical_scale"]["summary_path"]).endswith(
+                    "phase7_routing_scale_smoke/summary.json"
+                )
+            )
+            self.assertTrue(
+                str(benchmarks["knowledge_gap_seeking"]["summary_path"]).endswith(
+                    "phase6_autonomy_baseline_feedback_tiebreak_20260407/summary.json"
+                )
+            )
+            self.assertEqual(
+                benchmarks["representation_benchmark"]["summary"]["maintained_default"],
+                "order_weighted_ascii",
+            )
+            self.assertEqual(
+                benchmarks["knowledge_gap_seeking"]["summary"]["active_mean_gap"],
+                0.11,
             )
 
 
