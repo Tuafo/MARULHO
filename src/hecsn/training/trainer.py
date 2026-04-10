@@ -11,9 +11,11 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.abstraction import AbstractionLayer
 from hecsn.core.columns import CompetitiveColumnLayer
-from hecsn.core.context import BindingLayer, ContextLayer
+from hecsn.core.context import BindingLayer, ContextLayer, create_context_layer
+from hecsn.core.cross_modal import CrossModalGroundingLayer
 from hecsn.core.surprise import SurpriseMonitor
 from hecsn.consolidation.memory_store import DualMemoryStore
+from hecsn.data.base_encoder import BaseEncoder
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from hecsn.training.bootstrap import PredictiveBootstrap
@@ -63,21 +65,42 @@ class HECSNModelLite:
             projection_plasticity_scale=self.config.projection_plasticity_scale,
             assembly_projection_plasticity_scale=self.config.assembly_projection_plasticity_scale,
             projection_norm_target=self.config.projection_norm_target,
+            plasticity_rule=self.config.plasticity_rule,
+            triplet_tau_plus=self.config.triplet_tau_plus,
+            triplet_tau_minus=self.config.triplet_tau_minus,
+            triplet_tau_y=self.config.triplet_tau_y,
+            triplet_A2_plus=self.config.triplet_A2_plus,
+            triplet_A2_minus=self.config.triplet_A2_minus,
+            triplet_A3_plus=self.config.triplet_A3_plus,
+            triplet_A3_minus=self.config.triplet_A3_minus,
         )
         self.surprise = SurpriseMonitor(layer_names=["competitive"])
-        self.context_layer = ContextLayer(
-            n_columns=self.config.n_columns,
-            device=self.device,
-            decay=self.config.context_decay,
-            transition_lr=self.config.context_transition_lr,
-            modulation_strength=self.config.context_modulation_strength,
-            fast_rate=self.config.context_fast_rate,
-            medium_rate=self.config.context_medium_rate,
-            slow_rate=self.config.context_slow_rate,
-            recurrent_density=self.config.context_recurrent_density,
-            recurrent_scale=self.config.context_recurrent_scale,
-            inhibition_strength=self.config.context_inhibition_strength,
-        ) if self.config.enable_context_layer else None
+        if not self.config.enable_context_layer:
+            self.context_layer = None
+        elif self.config.context_mode == "adaptive":
+            self.context_layer = create_context_layer(
+                mode="adaptive",
+                n_columns=self.config.n_columns,
+                device=self.device,
+                inhibition_strength=self.config.context_inhibition_strength,
+                modulation_strength=self.config.context_modulation_strength,
+                transition_lr=self.config.context_transition_lr,
+            )
+        else:
+            self.context_layer = create_context_layer(
+                mode="fixed",
+                n_columns=self.config.n_columns,
+                device=self.device,
+                decay=self.config.context_decay,
+                transition_lr=self.config.context_transition_lr,
+                modulation_strength=self.config.context_modulation_strength,
+                fast_rate=self.config.context_fast_rate,
+                medium_rate=self.config.context_medium_rate,
+                slow_rate=self.config.context_slow_rate,
+                recurrent_density=self.config.context_recurrent_density,
+                recurrent_scale=self.config.context_recurrent_scale,
+                inhibition_strength=self.config.context_inhibition_strength,
+            )
         self.abstraction_layer = AbstractionLayer(
             n_columns=self.config.n_columns,
             n_concepts=self.config.abstraction_n_concepts,
@@ -104,6 +127,16 @@ class HECSNModelLite:
             pv_threshold=self.config.binding_pv_threshold,
             pv_gain=self.config.binding_pv_gain,
         ) if self.config.enable_binding_layer else None
+        self.cross_modal = CrossModalGroundingLayer(
+            dim_text=self.config.n_columns,
+            dim_visual=self.config.cross_modal_dim_visual,
+            dim_audio=self.config.cross_modal_dim_audio,
+            A_plus=self.config.cross_modal_A_plus,
+            A_minus=self.config.cross_modal_A_minus,
+            tau_trace=self.config.cross_modal_tau_trace,
+            confidence_alpha=self.config.cross_modal_confidence_alpha,
+            device=self.device,
+        ) if self.config.enable_cross_modal else None
         self.memory_store = DualMemoryStore(
             capacity=self.config.memory_capacity,
             ema_alpha=self.config.ema_alpha,
@@ -255,7 +288,7 @@ class HECSNTrainer:
         self.last_network_reset_token: int = -10**9
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
-        self.encoder = RTFEncoder.from_config(self.config)
+        self.encoder: BaseEncoder = RTFEncoder.from_config(self.config)
         self._recent_stream_text = ""
         self._last_raw_window_text: str | None = None
         self._cached_episode_text: str | None = None
@@ -304,7 +337,7 @@ class HECSNTrainer:
             self._recent_stream_text = self._recent_stream_text[-512:]
             self._last_episode_refresh_length = min(self._last_episode_refresh_length, len(self._recent_stream_text))
 
-        if self.encoder.uses_learned_chunking:
+        if getattr(self.encoder, "uses_learned_chunking", False):
             cached_terms = {
                 token.lower()
                 for token in re.findall(r"[A-Za-z0-9']+", str(self._cached_episode_text or ""))
@@ -339,7 +372,7 @@ class HECSNTrainer:
             for segment in re.split(r"(?<=[.!?])\s+|\n+", text)
             if segment and segment.strip()
         ]
-        if self.encoder.uses_learned_chunking and len(sentence_like_segments) <= 1:
+        if getattr(self.encoder, "uses_learned_chunking", False) and len(sentence_like_segments) <= 1:
             window_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", raw_window)}
             tail_chars = max(96, min(192, len(raw_window) * 8))
             learned_segments = self.encoder.segment_text(text[-tail_chars:])
@@ -845,6 +878,17 @@ class HECSNTrainer:
                 self.deep_sleep_events += 1
                 self.last_deep_sleep_token = self.token_count
 
+        # SFA correction during deep sleep (§4.8)
+        if mode == "deep" and applied > 0 and self.model.abstraction_layer is not None:
+            sfa_samples = self.model.memory_store.sample_for_sfa(
+                n=min(100, max(10, applied)),
+            )
+            if len(sfa_samples) >= 2:
+                self.model.abstraction_layer.sfa_correction_step(
+                    sfa_samples,
+                    lr=0.01,
+                )
+
         return applied
 
     def train_step(self, pattern_vec: torch.Tensor, raw_window: Optional[str] = None) -> Dict[str, Any]:
@@ -1186,7 +1230,7 @@ class HECSNTrainer:
 
     def _offline_input_blend(self) -> float:
         blend = float(self.model.competitive.input_weight_blend)
-        if self.encoder.uses_learned_chunking:
+        if getattr(self.encoder, "uses_learned_chunking", False):
             return max(blend, float(self.config.learned_chunk_query_blend_floor))
         return blend
 

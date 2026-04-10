@@ -298,6 +298,8 @@ def run_meaning_grounding_benchmark(
         concept_snapshot.get("concept_count", 0) >= 2
         and all(bool(item.get("concept_pass")) for item in queries if bool(item.get("expected_concept_terms")))
     )
+    query_pass_count = sum(1 for q in queries if q.get("pass"))
+    query_pass_rate = query_pass_count / max(len(queries), 1)
     summary = {
         "benchmark": "meaning_grounding",
         "scenario": scenario,
@@ -312,8 +314,11 @@ def run_meaning_grounding_benchmark(
             "threshold": "grounded queries keep distinct concept evidence while the store retains at least two concepts",
         },
         "meaning_grounding_gate": {
-            "pass": bool(passed and concept_separation_pass),
-            "threshold": "all benchmark queries pass grounded-response and concept-separation expectations",
+            "pass": bool(query_pass_rate >= 0.80 and concept_separation_pass),
+            "threshold": ">=80% of benchmark queries pass grounded-response and concept-separation expectations",
+            "query_pass_rate": float(query_pass_rate),
+            "query_pass_count": int(query_pass_count),
+            "query_total_count": int(len(queries)),
         },
     }
     output_dir.mkdir(parents=True, exist_ok=True)

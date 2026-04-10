@@ -56,6 +56,14 @@ class LocalPlasticityCircuit:
         projection_plasticity_scale: float,
         assembly_projection_plasticity_scale: float,
         spike_backend: str = "proxy",
+        plasticity_rule: str = "pair",
+        triplet_tau_plus: float = 16.8,
+        triplet_tau_minus: float = 33.7,
+        triplet_tau_y: float = 114.0,
+        triplet_A2_plus: float = 5e-10,
+        triplet_A2_minus: float = 7e-3,
+        triplet_A3_plus: float = 6.2e-3,
+        triplet_A3_minus: float = 2.3e-4,
     ) -> None:
         self.n_columns = int(n_columns)
         self.input_dim = int(input_dim)
@@ -79,11 +87,30 @@ class LocalPlasticityCircuit:
         self.spike_backend = str(spike_backend)
         if self.spike_backend not in {"proxy", "adex"}:
             raise ValueError("spike_backend must be 'proxy' or 'adex'")
+        self.plasticity_rule = str(plasticity_rule)
+        if self.plasticity_rule not in {"pair", "triplet"}:
+            raise ValueError("plasticity_rule must be 'pair' or 'triplet'")
+
+        # Triplet STDP parameters (Pfister & Gerstner 2006)
+        self.triplet_tau_plus = float(triplet_tau_plus)
+        self.triplet_tau_minus = float(triplet_tau_minus)
+        self.triplet_tau_y = float(triplet_tau_y)
+        self.triplet_A2_plus = float(triplet_A2_plus)
+        self.triplet_A2_minus = float(triplet_A2_minus)
+        self.triplet_A3_plus = float(triplet_A3_plus)
+        self.triplet_A3_minus = float(triplet_A3_minus)
 
         self.pre_trace = torch.zeros(self.input_dim, device=self.device)
         self.post_trace = torch.zeros(self.n_columns, device=self.device)
         self.projected_trace = torch.zeros(self.column_dim, device=self.device)
         self.assembly_trace = torch.zeros(self.n_columns, device=self.device)
+
+        # Triplet STDP traces: r1 (pre, τ+), o1 (post-fast, τ-), o2 (post-slow, τy)
+        # r2 (pre-slow) is used in the LTD triplet term
+        self.r1_trace = torch.zeros(self.input_dim, device=self.device)
+        self.o1_trace = torch.zeros(self.n_columns, device=self.device)
+        self.o2_trace = torch.zeros(self.n_columns, device=self.device)
+        self.r2_trace = torch.zeros(self.input_dim, device=self.device)
 
         self.input_eligibility = torch.zeros(self.n_columns, self.input_dim, device=self.device)
         self.projection_eligibility = torch.zeros(self.input_dim, self.column_dim, device=self.device)
@@ -111,6 +138,15 @@ class LocalPlasticityCircuit:
 
     def _eligibility_decay(self) -> float:
         return math.exp(-1.0 / max(self.eligibility_tau, 1e-6))
+
+    def _triplet_decays(self) -> tuple[float, float, float, float]:
+        """Decay constants for the four triplet traces: r1, o1, o2, r2."""
+        return (
+            math.exp(-1.0 / max(self.triplet_tau_plus, 1e-6)),
+            math.exp(-1.0 / max(self.triplet_tau_minus, 1e-6)),
+            math.exp(-1.0 / max(self.triplet_tau_y, 1e-6)),
+            math.exp(-1.0 / max(self.triplet_tau_plus, 1e-6)),  # r2 same as r1
+        )
 
     def inhibition(self, candidates: torch.Tensor | None = None) -> torch.Tensor:
         if candidates is None:
@@ -186,6 +222,52 @@ class LocalPlasticityCircuit:
         )
         return ltp - ltd
 
+    def _triplet_stdp_delta(
+        self,
+        *,
+        weights: torch.Tensor,
+        pre_signal: torch.Tensor,
+        post_signal: torch.Tensor,
+    ) -> torch.Tensor:
+        """Triplet STDP (Pfister & Gerstner 2006) combined with log-STDP.
+
+        LTP at post-spike: A2+ * r1 + A3+ * r1 * o2(t-ε)
+        LTD at pre-spike:  -(A2- + A3- * r2(t-ε)) * o1 * f_sublinear(w)
+        """
+        # LTP: pair term + triplet term (modulated by o2 slow post trace)
+        pair_ltp = self.triplet_A2_plus * self.r1_trace.unsqueeze(0)  # [n_col, input_dim]
+        triplet_ltp = self.triplet_A3_plus * self.r1_trace.unsqueeze(0) * self.o2_trace.unsqueeze(1)
+        ltp = (
+            torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_plus)
+            * post_signal.unsqueeze(1)
+            * (pair_ltp + triplet_ltp)
+        )
+
+        # LTD: sublinear depression with triplet modulation
+        f_sub = 1.0 / (1.0 + torch.clamp(weights, min=1e-6))
+        ltd_coeff = self.triplet_A2_minus + self.triplet_A3_minus * self.r2_trace.unsqueeze(0)
+        ltd = (
+            f_sub
+            * self.o1_trace.unsqueeze(1)
+            * pre_signal.unsqueeze(0)
+            * ltd_coeff
+        )
+
+        return ltp - ltd
+
+    def _update_triplet_traces(
+        self,
+        pre_signal: torch.Tensor,
+        post_signal: torch.Tensor,
+    ) -> None:
+        """Update the four triplet traces: r1, o1, o2, r2."""
+        dr1, do1, do2, dr2 = self._triplet_decays()
+        # Decay then add spikes (traces are "just before" the spike)
+        self.r1_trace = self.r1_trace * dr1 + pre_signal
+        self.o1_trace = self.o1_trace * do1 + post_signal
+        self.o2_trace = self.o2_trace * do2 + post_signal
+        self.r2_trace = self.r2_trace * dr2 + pre_signal
+
     def _renormalize_input_rows(self, input_weights: torch.Tensor) -> torch.Tensor:
         target = self.input_row_target * self.synaptic_scale.unsqueeze(1)
         row_sums = torch.clamp(input_weights.sum(dim=1, keepdim=True), min=1e-8)
@@ -231,13 +313,23 @@ class LocalPlasticityCircuit:
         self.projected_trace = self.projected_trace * trace_decay + projected_signal
         self.assembly_trace = self.assembly_trace * trace_decay + assembly_signal
 
-        input_delta = self._log_stdp_delta(
-            weights=input_weights,
-            pre_signal=pre_signal,
-            post_signal=post_signal,
-            pre_trace=self.pre_trace,
-            post_trace=self.post_trace,
-        )
+        # Update triplet traces (always maintained; only used when rule == "triplet")
+        self._update_triplet_traces(pre_signal, post_signal)
+
+        if self.plasticity_rule == "triplet":
+            input_delta = self._triplet_stdp_delta(
+                weights=input_weights,
+                pre_signal=pre_signal,
+                post_signal=post_signal,
+            )
+        else:
+            input_delta = self._log_stdp_delta(
+                weights=input_weights,
+                pre_signal=pre_signal,
+                post_signal=post_signal,
+                pre_trace=self.pre_trace,
+                post_trace=self.post_trace,
+            )
         self.input_eligibility = self.input_eligibility * eligibility_decay + input_delta
 
         projection_delta = (
@@ -312,6 +404,8 @@ class LocalPlasticityCircuit:
         self.synaptic_scale[indices] = 1.0
         self.inhibitory_trace[indices] = 0.0
         self.inhibitory_tone[indices] = 0.0
+        self.o1_trace[indices] = 0.0
+        self.o2_trace[indices] = 0.0
 
     def state_dict(self) -> dict[str, Any]:
         return {
@@ -319,6 +413,10 @@ class LocalPlasticityCircuit:
             "post_trace": self.post_trace.detach().clone().cpu(),
             "projected_trace": self.projected_trace.detach().clone().cpu(),
             "assembly_trace": self.assembly_trace.detach().clone().cpu(),
+            "r1_trace": self.r1_trace.detach().clone().cpu(),
+            "o1_trace": self.o1_trace.detach().clone().cpu(),
+            "o2_trace": self.o2_trace.detach().clone().cpu(),
+            "r2_trace": self.r2_trace.detach().clone().cpu(),
             "input_eligibility": self.input_eligibility.detach().clone().cpu(),
             "projection_eligibility": self.projection_eligibility.detach().clone().cpu(),
             "assembly_projection_eligibility": self.assembly_projection_eligibility.detach().clone().cpu(),
@@ -326,6 +424,7 @@ class LocalPlasticityCircuit:
             "synaptic_scale": self.synaptic_scale.detach().clone().cpu(),
             "inhibitory_trace": self.inhibitory_trace.detach().clone().cpu(),
             "inhibitory_tone": self.inhibitory_tone.detach().clone().cpu(),
+            "plasticity_rule": self.plasticity_rule,
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:
@@ -334,6 +433,10 @@ class LocalPlasticityCircuit:
             "post_trace",
             "projected_trace",
             "assembly_trace",
+            "r1_trace",
+            "o1_trace",
+            "o2_trace",
+            "r2_trace",
             "input_eligibility",
             "projection_eligibility",
             "assembly_projection_eligibility",

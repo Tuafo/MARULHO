@@ -51,6 +51,14 @@ class CompetitiveColumnLayer:
         projection_plasticity_scale: float = 0.35,
         assembly_projection_plasticity_scale: float = 0.25,
         projection_norm_target: float = 0.1,
+        plasticity_rule: str = "pair",
+        triplet_tau_plus: float = 16.8,
+        triplet_tau_minus: float = 33.7,
+        triplet_tau_y: float = 114.0,
+        triplet_A2_plus: float = 5e-10,
+        triplet_A2_minus: float = 7e-3,
+        triplet_A3_plus: float = 6.2e-3,
+        triplet_A3_minus: float = 2.3e-4,
     ) -> None:
         self.n_columns = int(n_columns)
         self.column_dim = int(column_dim)
@@ -129,6 +137,14 @@ class CompetitiveColumnLayer:
                 projection_plasticity_scale=projection_plasticity_scale,
                 assembly_projection_plasticity_scale=assembly_projection_plasticity_scale,
                 spike_backend=self.plasticity_spike_backend,
+                plasticity_rule=plasticity_rule,
+                triplet_tau_plus=triplet_tau_plus,
+                triplet_tau_minus=triplet_tau_minus,
+                triplet_tau_y=triplet_tau_y,
+                triplet_A2_plus=triplet_A2_plus,
+                triplet_A2_minus=triplet_A2_minus,
+                triplet_A3_plus=triplet_A3_plus,
+                triplet_A3_minus=triplet_A3_minus,
             )
 
     def get_lr(self) -> float:

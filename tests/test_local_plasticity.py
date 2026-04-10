@@ -12,9 +12,9 @@ from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
 
 
 class LocalPlasticityConfigTests(unittest.TestCase):
-    def test_legacy_alias_normalizes_to_local_stdp(self) -> None:
-        cfg = HECSNConfig(plasticity_mode="spike_eligibility")
-        self.assertEqual(cfg.plasticity_mode, "local_stdp")
+    def test_invalid_plasticity_mode_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            HECSNConfig(plasticity_mode="spike_eligibility")
 
     def test_local_stdp_allows_hashed_ngram_inputs(self) -> None:
         cfg = HECSNConfig(

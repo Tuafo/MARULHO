@@ -12,7 +12,9 @@ class HECSNConfig:
     n_ascii: int = 128
     window_size: int = 10
     input_representation: Literal["order_weighted_ascii", "unigram_ascii", "hashed_ngram"] = "order_weighted_ascii"
-    plasticity_mode: Literal["lite", "local_stdp", "spike_eligibility"] = "lite"
+    context_mode: Literal["fixed", "adaptive"] = "adaptive"
+    plasticity_mode: Literal["lite", "local_stdp"] = "lite"
+    plasticity_rule: Literal["pair", "triplet"] = "triplet"
     plasticity_spike_backend: Literal["proxy", "adex"] = "proxy"
     spike_trace_tau: float = 6.0
     spike_burst_decay: float = 0.85
@@ -20,6 +22,14 @@ class HECSNConfig:
     stdp_eligibility_tau: float = 200.0
     stdp_mu_plus: float = 0.0
     stdp_mu_minus: float = 1.0
+    # Triplet STDP parameters (Pfister & Gerstner 2006, hippocampal fit)
+    triplet_tau_plus: float = 16.8
+    triplet_tau_minus: float = 33.7
+    triplet_tau_y: float = 114.0
+    triplet_A2_plus: float = 5e-10
+    triplet_A2_minus: float = 7e-3
+    triplet_A3_plus: float = 6.2e-3
+    triplet_A3_minus: float = 2.3e-4
     synaptic_scaling_alpha: float = 0.1
     inhibitory_plasticity_lr: float = 0.05
     inhibitory_decay: float = 0.95
@@ -142,6 +152,14 @@ class HECSNConfig:
     binding_pv_threshold: float = 0.12
     binding_pv_gain: float = 0.60
 
+    enable_cross_modal: bool = False
+    cross_modal_dim_visual: int = 256
+    cross_modal_dim_audio: int = 64
+    cross_modal_A_plus: float = 0.010
+    cross_modal_A_minus: float = 0.012
+    cross_modal_tau_trace: float = 10.0
+    cross_modal_confidence_alpha: float = 0.01
+
     acquisition_concept_novelty_weight: float = 0.08  # Reduced from 0.20 to prevent cold-start uncertainty inflation
     acquisition_concept_uncertainty_weight: float = 0.10  # Reduced from 0.25 to prevent cold-start uncertainty inflation
 
@@ -154,7 +172,7 @@ class HECSNConfig:
 
     def __post_init__(self) -> None:
         valid_representations = {"order_weighted_ascii", "unigram_ascii", "hashed_ngram"}
-        valid_plasticity_modes = {"lite", "local_stdp", "spike_eligibility"}
+        valid_plasticity_modes = {"lite", "local_stdp"}
         valid_spike_backends = {"proxy", "adex"}
         if self.input_representation not in valid_representations:
             raise ValueError(f"input_representation must be one of {sorted(valid_representations)}")
@@ -162,8 +180,6 @@ class HECSNConfig:
             raise ValueError(f"plasticity_mode must be one of {sorted(valid_plasticity_modes)}")
         if self.plasticity_spike_backend not in valid_spike_backends:
             raise ValueError(f"plasticity_spike_backend must be one of {sorted(valid_spike_backends)}")
-        if self.plasticity_mode == "spike_eligibility":
-            self.plasticity_mode = "local_stdp"
         if self.spike_trace_tau <= 0.0:
             raise ValueError("spike_trace_tau must be positive")
         if not 0.0 < self.spike_burst_decay <= 1.0:

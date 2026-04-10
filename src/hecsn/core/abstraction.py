@@ -193,3 +193,96 @@ class AbstractionLayer:
             value = snapshot.get(attr)
             setattr(self, attr, None if value is None else value.to(self.device))
         self.updates = int(snapshot.get("updates", self.updates))
+
+    def sfa_correction_step(
+        self,
+        samples: list[torch.Tensor],
+        lr: float = 0.01,
+    ) -> dict[str, float]:
+        """Mini-batch SFA correction during deep sleep (§4.8).
+
+        Takes a batch of assembly snapshots from slow memory, computes
+        the true covariance and temporal-derivative covariance, and
+        performs one gradient step toward the exact SFA solution.
+
+        Args:
+            samples: List of assembly vectors [n_columns] from slow memory.
+            lr: Learning rate for the correction step.
+
+        Returns:
+            Metrics: pre/post variance and decorrelation improvement.
+        """
+        if len(samples) < 2:
+            return {"variance_reduction": 0.0, "decorrelation": 0.0, "n_samples": 0}
+
+        # Stack and project through feedforward
+        X = torch.stack([
+            _normalize_nonnegative(s.to(self.device), eps=self.eps)
+            for s in samples
+        ])  # [N, n_columns]
+        Y = X @ self.feedforward.t()  # [N, n_concepts]
+
+        # Temporal derivative: Y[t] - Y[t-1]
+        dY = Y[1:] - Y[:-1]  # [N-1, n_concepts]
+
+        # Covariance of outputs (want whitened)
+        Y_centered = Y - Y.mean(dim=0, keepdim=True)
+        C_y = (Y_centered.t() @ Y_centered) / max(1, Y_centered.shape[0] - 1)
+
+        # Covariance of temporal derivative (want minimized)
+        dY_centered = dY - dY.mean(dim=0, keepdim=True)
+        C_dy = (dY_centered.t() @ dY_centered) / max(1, dY_centered.shape[0] - 1)
+
+        # Pre-correction metrics
+        pre_output_var = float(torch.diag(C_y).sum().item())
+        pre_deriv_var = float(torch.diag(C_dy).sum().item())
+
+        # Off-diagonal magnitude (correlation between concepts)
+        mask = 1.0 - torch.eye(self.n_concepts, device=self.device)
+        pre_offdiag = float((C_y * mask).abs().sum().item())
+
+        # SFA gradient: minimize E[||dY/dt||²] subject to whitening
+        # Approximate: push feedforward toward directions that minimize
+        # temporal derivative variance while decorrelating outputs
+        #
+        # Gradient on W: dL/dW = 2 * C_dy @ W @ X^T X / N
+        #                      - λ * (C_y - I) @ W @ X^T X / N
+        # Simplified: update W to reduce C_dy diagonal and push C_y → I
+
+        # Decorrelation: push off-diagonal of C_y toward zero
+        decorr_gradient = (C_y - torch.eye(self.n_concepts, device=self.device))
+        decorr_update = decorr_gradient @ self.feedforward  # [n_concepts, n_columns]
+
+        # Temporal slowness: reduce variance of temporal derivative
+        slowness_gradient = C_dy  # [n_concepts, n_concepts]
+        slowness_update = slowness_gradient @ self.feedforward  # [n_concepts, n_columns]
+
+        # Combined update
+        total_update = 0.5 * decorr_update + 0.5 * slowness_update
+        self.feedforward = F.normalize(
+            torch.clamp(self.feedforward - lr * total_update, min=1e-6),
+            dim=1,
+        )
+
+        # Recompute post-correction metrics
+        Y_post = X @ self.feedforward.t()
+        dY_post = Y_post[1:] - Y_post[:-1]
+        Y_post_c = Y_post - Y_post.mean(dim=0, keepdim=True)
+        C_y_post = (Y_post_c.t() @ Y_post_c) / max(1, Y_post_c.shape[0] - 1)
+        C_dy_post = (dY_post.t() @ dY_post) / max(1, dY_post.shape[0] - 1)
+
+        post_output_var = float(torch.diag(C_y_post).sum().item())
+        post_deriv_var = float(torch.diag(C_dy_post).sum().item())
+        post_offdiag = float((C_y_post * mask).abs().sum().item())
+
+        return {
+            "n_samples": len(samples),
+            "pre_output_var": pre_output_var,
+            "post_output_var": post_output_var,
+            "pre_deriv_var": pre_deriv_var,
+            "post_deriv_var": post_deriv_var,
+            "variance_reduction": max(0.0, pre_deriv_var - post_deriv_var),
+            "pre_offdiag": pre_offdiag,
+            "post_offdiag": post_offdiag,
+            "decorrelation": max(0.0, pre_offdiag - post_offdiag),
+        }

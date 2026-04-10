@@ -633,6 +633,15 @@ class DualMemoryStore:
         chosen.sort(key=lambda item: float(scores[item].item()), reverse=True)
         return chosen
 
+    def sample_for_sfa(self, n: int = 100) -> list[torch.Tensor]:
+        """Sample assembly vectors from slow memory for SFA correction (§4.8)."""
+        count = len(self.slow_buffer)
+        if count == 0 or n <= 0:
+            return []
+        k = min(count, int(n))
+        perm = torch.randperm(count)[:k]
+        return [self.slow_buffer[int(i)].detach().clone() for i in perm]
+
     def refresh_maintenance(
         self,
         indices: Sequence[int],
