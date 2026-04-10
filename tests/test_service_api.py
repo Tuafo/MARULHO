@@ -1348,6 +1348,51 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("memory_fill", anim)
         self.assertEqual(len(anim["activations"]), anim["n_columns"])
 
+    def test_quick_start_presets_endpoint(self) -> None:
+        """GET /terminus/presets returns available preset list."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ckpt = _build_checkpoint(root, test_case="service_api_presets")
+            app = create_app(ckpt, trace_dir=root / "traces")
+            with TestClient(app) as client:
+                resp = client.get("/terminus/presets")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIsInstance(data, list)
+            self.assertGreater(len(data), 0)
+            ids = [p["id"] for p in data]
+            self.assertIn("wikipedia", ids)
+            for preset in data:
+                self.assertIn("label", preset)
+                self.assertIn("description", preset)
+                self.assertIn("source_count", preset)
+
+    def test_quick_start_configures_and_starts_terminus(self) -> None:
+        """POST /terminus/quick-start with default preset configures + starts brain."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "quick_start_source.txt"
+            source_path.write_text("The platypus is an egg-laying mammal found in eastern Australia. " * 5)
+            ckpt = _build_checkpoint(root, test_case="service_api_quick_start")
+            app = create_app(ckpt, trace_dir=root / "traces")
+            with TestClient(app) as client:
+                resp = client.post("/terminus/quick-start?preset=wikipedia")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertTrue(data["terminus_runtime"]["configured"])
+            self.assertFalse(data.get("already_running", False))
+            self.assertEqual(data.get("preset_applied"), "wikipedia")
+
+    def test_quick_start_rejects_unknown_preset(self) -> None:
+        """POST /terminus/quick-start with bad preset returns 422."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ckpt = _build_checkpoint(root, test_case="service_api_qs_bad")
+            app = create_app(ckpt, trace_dir=root / "traces")
+            with TestClient(app) as client:
+                resp = client.post("/terminus/quick-start?preset=nonexistent")
+            self.assertEqual(resp.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

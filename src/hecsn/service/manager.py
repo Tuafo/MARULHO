@@ -47,6 +47,43 @@ AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT = 4
 AUTO_FOCUS_SHORTLIST_MAX_SIZE = 3
 AUTO_FOCUS_SHORTLIST_GAP_WEIGHT = 0.2
 AUTO_FOCUS_SHORTLIST_AFFINITY_WEIGHT = 0.8
+
+TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
+    "wikipedia": {
+        "label": "Wikipedia (wikitext-103)",
+        "description": "General knowledge from English Wikipedia. Good all-around starting point.",
+        "source_bank": [
+            {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
+        ],
+        "tick_tokens": 256,
+        "sleep_interval_seconds": 0.5,
+        "repeat_sources": True,
+    },
+    "wikipedia_news": {
+        "label": "Wikipedia + News",
+        "description": "Wikipedia paired with AG News for broader topic coverage.",
+        "source_bank": [
+            {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
+            {"name": "news", "source": "ag_news", "source_type": "hf", "hf_config": None, "text_field": "text"},
+        ],
+        "tick_tokens": 256,
+        "sleep_interval_seconds": 0.5,
+        "repeat_sources": True,
+    },
+    "diverse": {
+        "label": "Diverse (Wiki + News + Reviews)",
+        "description": "Three domains for maximum coverage: Wikipedia, AG News, and IMDB reviews.",
+        "source_bank": [
+            {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
+            {"name": "news", "source": "ag_news", "source_type": "hf", "hf_config": None, "text_field": "text"},
+            {"name": "reviews", "source": "imdb", "source_type": "hf", "hf_config": None, "text_field": "text"},
+        ],
+        "tick_tokens": 256,
+        "sleep_interval_seconds": 0.5,
+        "repeat_sources": True,
+    },
+}
+
 _IRREGULAR_TOPIC_SINGULARS = {
     "octopi": "octopus",
     "octopuses": "octopus",
@@ -535,6 +572,40 @@ class HECSNServiceManager:
                 "state_revision": int(self._state_revision),
                 "token_count": int(self._trainer.token_count),
             }
+
+    def quick_start_terminus(self, *, preset: str = "wikipedia") -> dict[str, Any]:
+        """Configure and start Terminus in one atomic call using a named preset."""
+        if preset not in TERMINUS_QUICK_START_PRESETS:
+            raise ValueError(f"Unknown preset '{preset}'. Available: {', '.join(sorted(TERMINUS_QUICK_START_PRESETS))}")
+        with self._lock:
+            if self._brain_running and self._brain_thread is not None and self._brain_thread.is_alive():
+                return {
+                    "terminus_runtime": self._brain_runtime_snapshot_locked(),
+                    "dirty_state": bool(self._dirty_state),
+                    "state_revision": int(self._state_revision),
+                    "token_count": int(self._trainer.token_count),
+                    "already_running": True,
+                }
+        config = TERMINUS_QUICK_START_PRESETS[preset]
+        self.configure_terminus(
+            source_bank=config["source_bank"],
+            tick_tokens=config["tick_tokens"],
+            sleep_interval_seconds=config["sleep_interval_seconds"],
+            repeat_sources=config["repeat_sources"],
+            autonomy=None,
+        )
+        result = self.start_terminus()
+        result["already_running"] = False
+        result["preset_applied"] = preset
+        return result
+
+    @staticmethod
+    def quick_start_presets() -> list[dict[str, Any]]:
+        """Return available quick-start presets for the UI."""
+        return [
+            {"id": key, "label": val["label"], "description": val["description"], "source_count": len(val["source_bank"])}
+            for key, val in TERMINUS_QUICK_START_PRESETS.items()
+        ]
 
     def close(self) -> None:
         thread = self._request_brain_stop(reason="shutdown")

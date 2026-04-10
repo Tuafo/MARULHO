@@ -191,6 +191,17 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.post("/terminus/quick-start")
+    def terminus_quick_start(preset: str = Query("wikipedia")) -> dict[str, Any]:
+        try:
+            return manager.quick_start_terminus(preset=preset)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/terminus/presets")
+    def terminus_presets() -> list[dict[str, Any]]:
+        return HECSNServiceManager.quick_start_presets()
+
     @app.get("/traces", response_model=TraceHistoryResponse)
     def traces(limit: int = Query(20, ge=1, le=200)) -> TraceHistoryResponse:
         return TraceHistoryResponse(traces=manager.recent_traces(limit=limit))
