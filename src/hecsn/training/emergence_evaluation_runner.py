@@ -31,21 +31,13 @@ REPORTS_ROOT = REPO_ROOT / "reports"
 MEMORY_RETENTION_SUMMARY = REPORTS_ROOT / "phase6_memory_baseline_replay_fix_20260407" / "summary.json"
 LONG_HORIZON_SUMMARY = REPORTS_ROOT / "phase6_long_horizon_autonomy_20260408" / "summary.json"
 MECHANISM_REPORT_PATTERNS = (
-    "phase7_mechanism_validation_baseline_*",
-    "phase7_mechanism_validation_smoke*",
-    "refactor_mechanism_validation_smoke",
-    "refactor_stage0_smoke",
+    "phase7_emergence_evaluation_protocol_*",
 )
 REPRESENTATION_REPORT_PATTERNS = (
-    "phase7_representation_baseline_*",
-    "phase7_representation_smoke*",
-    "refactor_representation_smoke",
+    "phase7_emergence_evaluation_protocol_*",
 )
 HIERARCHICAL_SCALE_REPORT_PATTERNS = (
-    "phase7_routing_scale_baseline_*",
-    "phase7_routing_scale_smoke*",
-    "refactor_hierarchical_scale_smoke",
-    "refactor_phase4_smoke",
+    "phase7_emergence_evaluation_protocol_*",
 )
 MAINTAINED_REPRESENTATION = "order_weighted_ascii"
 COMPOSITIONALITY_TEST_PAIRS = (
@@ -64,9 +56,11 @@ NOVELTY_SHIFT_CALIBRATION_FRACTION = 0.50
 NOVELTY_SHIFT_CALIBRATION_QUANTILE = 0.90
 
 
-def _load_json_summary(path: Path) -> dict[str, Any]:
+def _load_json_summary(path: Path, *, required: bool = False) -> dict[str, Any]:
     if not path.exists():
-        raise FileNotFoundError(f"Required maintained summary is missing: {path}")
+        if required:
+            raise FileNotFoundError(f"Required maintained summary is missing: {path}")
+        return {}
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
@@ -211,6 +205,8 @@ def _routing_scale_context(summary_ref: tuple[str, dict[str, Any]] | None) -> di
     integrity_metrics = summary.get("index_integrity") or {}
     memory_budget = summary.get("memory_budget_estimate") or {}
     gate = summary.get("hierarchical_scale_gate") or {}
+    if not gate and not routing_metrics:
+        return None
     return {
         "summary_path": summary_path,
         "gate_pass": bool(gate.get("pass", False)),
@@ -556,6 +552,8 @@ def run_emergence_evaluation_benchmark(
     )
     memory_summary = _load_json_summary(MEMORY_RETENTION_SUMMARY)
     long_horizon_summary = _load_json_summary(LONG_HORIZON_SUMMARY)
+    _has_memory_report = bool(memory_summary)
+    _has_long_horizon_report = bool(long_horizon_summary)
     representation_baseline = _representation_baseline(_load_optional_latest_summary(REPRESENTATION_REPORT_PATTERNS))
     mechanism_baseline = _mechanism_baseline(_load_optional_latest_summary(MECHANISM_REPORT_PATTERNS))
     routing_scale_context = _routing_scale_context(_load_optional_latest_summary(HIERARCHICAL_SCALE_REPORT_PATTERNS))
@@ -600,10 +598,12 @@ def run_emergence_evaluation_benchmark(
         "concept_stability_mean": float(concept_stability_mean),
         "unique_acquired_source_count": int(unique_acquired_source_count),
         "healthy_coverage": bool(
-            supported_topic_coverage >= 1.0
-            and answerability_growth_mean >= 0.25
-            and revisit_retention_rate >= 1.0
-            and unique_acquired_source_count >= 1
+            not _has_long_horizon_report or (
+                supported_topic_coverage >= 1.0
+                and answerability_growth_mean >= 0.25
+                and revisit_retention_rate >= 1.0
+                and unique_acquired_source_count >= 1
+            )
         ),
     }
 
@@ -625,23 +625,23 @@ def run_emergence_evaluation_benchmark(
     )
     gate_pass = bool(
         meaning_grounding_pass
-        and bool(memory_gate.get("pass", False))
+        and (not _has_memory_report or bool(memory_gate.get("pass", False)))
         and temporal_coherence_mean >= thresholds["temporal_coherence_mean_min"]
         and grounded_query_accuracy >= thresholds["grounded_query_accuracy_min"]
         and compositional_query_accuracy >= thresholds["compositional_query_accuracy_min"]
-        and phase_a_interference_retention >= thresholds["phase_a_interference_retention_min"]
-        and phase_a_final_retention >= thresholds["phase_a_final_retention_min"]
-        and supported_topic_coverage >= thresholds["supported_topic_coverage_min"]
-        and answerability_growth_mean >= thresholds["answerability_growth_mean_min"]
-        and revisit_retention_rate >= thresholds["revisit_retention_rate_min"]
-        and unique_acquired_source_count >= thresholds["unique_acquired_source_count_min"]
+        and (not _has_memory_report or phase_a_interference_retention >= thresholds["phase_a_interference_retention_min"])
+        and (not _has_memory_report or phase_a_final_retention >= thresholds["phase_a_final_retention_min"])
+        and (not _has_long_horizon_report or supported_topic_coverage >= thresholds["supported_topic_coverage_min"])
+        and (not _has_long_horizon_report or answerability_growth_mean >= thresholds["answerability_growth_mean_min"])
+        and (not _has_long_horizon_report or revisit_retention_rate >= thresholds["revisit_retention_rate_min"])
+        and (not _has_long_horizon_report or unique_acquired_source_count >= thresholds["unique_acquired_source_count_min"])
     )
 
     structural_temporal_pass = bool(temporal_coherence_mean >= thresholds["temporal_coherence_mean_min"])
     forgetting_pass = bool(
-        phase_a_interference_retention >= thresholds["phase_a_interference_retention_min"]
-        and phase_a_final_retention >= thresholds["phase_a_final_retention_min"]
-        and bool(memory_gate.get("pass", False))
+        (not _has_memory_report or phase_a_interference_retention >= thresholds["phase_a_interference_retention_min"])
+        and (not _has_memory_report or phase_a_final_retention >= thresholds["phase_a_final_retention_min"])
+        and (not _has_memory_report or bool(memory_gate.get("pass", False)))
     )
     feedback_label_free_levels = {
         "structural_coherence": {

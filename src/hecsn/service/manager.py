@@ -213,6 +213,7 @@ class HECSNServiceManager:
                 "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
                 "drift": float(drift_value),
                 "drift_floor": float(self._trainer.current_rolling_drift_floor if self._trainer.current_rolling_drift_floor is not None else drift_value),
+                "animation": self._animation_snapshot_locked(),
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
             }
 
@@ -540,6 +541,118 @@ class HECSNServiceManager:
         self._join_brain_thread(thread)
         with self._lock:
             self._close_brain_sources_locked()
+
+    def architecture_summary(self) -> dict[str, Any]:
+        """Return a runtime-driven description of the active model architecture."""
+        with self._lock:
+            model = self._trainer.model
+            config = self._trainer.config
+            layers: list[dict[str, Any]] = []
+            layers.append({
+                "id": "input_encoding",
+                "name": "Input Encoding (RTF)",
+                "enabled": True,
+                "type": "encoder",
+                "params": {
+                    "input_dim": int(config.input_dim),
+                    "representation": config.input_representation,
+                    "learned_chunking": bool(config.enable_learned_chunking),
+                },
+            })
+            layers.append({
+                "id": "competitive_routing",
+                "name": "Competitive Column Routing",
+                "enabled": True,
+                "type": "core",
+                "params": {
+                    "n_columns": int(config.n_columns),
+                    "k_routing": int(config.k_routing),
+                    "plasticity_mode": config.plasticity_mode,
+                    "plasticity_rule": config.plasticity_rule,
+                },
+            })
+            layers.append({
+                "id": "context_prediction",
+                "name": f"Context Prediction ({config.context_mode})",
+                "enabled": model.context_layer is not None,
+                "type": "context",
+                "params": {
+                    "context_mode": config.context_mode,
+                },
+            })
+            layers.append({
+                "id": "binding",
+                "name": "Temporal Binding (STP)",
+                "enabled": model.binding_layer is not None,
+                "type": "binding",
+                "params": {
+                    "n_bindings": int(config.binding_n_bindings),
+                    "fan_in": int(config.binding_fan_in),
+                } if model.binding_layer is not None else {},
+            })
+            layers.append({
+                "id": "abstraction",
+                "name": "Abstraction Layer",
+                "enabled": model.abstraction_layer is not None,
+                "type": "abstraction",
+                "params": {
+                    "n_concepts": int(config.abstraction_n_concepts),
+                } if model.abstraction_layer is not None else {},
+            })
+            layers.append({
+                "id": "cross_modal_grounding",
+                "name": "Cross-Modal Grounding",
+                "enabled": model.cross_modal is not None,
+                "type": "grounding",
+                "params": {
+                    "dim_visual": int(config.cross_modal_dim_visual),
+                    "dim_audio": int(config.cross_modal_dim_audio),
+                    "visual_confidence": float(model.cross_modal.visual_confidence) if model.cross_modal else 0.0,
+                    "audio_confidence": float(model.cross_modal.audio_confidence) if model.cross_modal else 0.0,
+                },
+            })
+            layers.append({
+                "id": "memory_consolidation",
+                "name": "Dual Memory Store",
+                "enabled": True,
+                "type": "memory",
+                "params": {
+                    "memory_capacity": int(config.memory_capacity),
+                    "stc_tag_duration_strong": float(config.stc_tag_duration_strong),
+                },
+            })
+            return {
+                "model_name": "HECSNModelLite",
+                "version": "v4",
+                "layers": layers,
+                "config": {
+                    "context_mode": config.context_mode,
+                    "plasticity_rule": config.plasticity_rule,
+                },
+            }
+
+    def run_grounding_probe(self) -> dict[str, Any]:
+        """Run the 50-triple grounding probe and return results."""
+        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe
+        with self._lock:
+            trainer = self._trainer
+            encoder = self._encoder
+
+            def _vector_fn(text: str) -> torch.Tensor:
+                patterns = list(encoder.iter_char_patterns(text, window_size=8, learn=False))
+                if not patterns:
+                    return torch.zeros(trainer.config.n_columns, device=trainer.model.device)
+                vecs = [trainer.model.routing_key_from_pattern(p[1]) for p in patterns]
+                return torch.stack(vecs).mean(dim=0)
+
+            result = evaluate_grounding_probe(_vector_fn)
+            return {
+                "total_accuracy": float(result.total_accuracy),
+                "concrete_accuracy": float(result.concrete_accuracy),
+                "abstract_accuracy": float(result.abstract_accuracy),
+                "concreteness_gap": float(result.concreteness_gap),
+                "sample_count": int(result.concrete_accuracy * 25 + result.abstract_accuracy * 25),
+            }
 
     def terminus_tick(self, *, steps: int = 1) -> dict[str, Any]:
         tick_summaries: list[dict[str, Any]] = []
@@ -1446,6 +1559,33 @@ class HECSNServiceManager:
         }
         self._brain_last_acquisition_summary = summary
         return summary
+
+    def _animation_snapshot_locked(self) -> dict[str, Any]:
+        """Lightweight snapshot for UI animation: active column, spike counts, STDP state."""
+        model = self._trainer.model
+        competitive = model.competitive
+        n_columns = int(competitive.n_columns)
+        winner = self._trainer.last_winner
+        activations = competitive.thresholds.detach().cpu().tolist()
+        spike_counts = competitive.spike_counts.detach().cpu().tolist() if hasattr(competitive, "spike_counts") else [0] * n_columns
+        cross_modal_state = None
+        if model.cross_modal is not None:
+            cross_modal_state = {
+                "visual_confidence": float(model.cross_modal.visual_confidence),
+                "audio_confidence": float(model.cross_modal.audio_confidence),
+            }
+        context_tau = None
+        if model.context_layer is not None and hasattr(model.context_layer, "log_tau"):
+            context_tau = torch.exp(model.context_layer.log_tau).detach().cpu().tolist()
+        return {
+            "n_columns": n_columns,
+            "winner_id": None if winner is None else int(winner),
+            "activations": activations,
+            "spike_counts": spike_counts,
+            "cross_modal": cross_modal_state,
+            "context_tau": context_tau,
+            "memory_fill": float(model.memory_store.summary_stats().get("slow_buffer_fill_fraction", 0.0)),
+        }
 
     def _brain_runtime_snapshot_locked(self) -> dict[str, Any]:
         autonomy = self._brain_config.get("autonomy")

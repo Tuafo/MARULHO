@@ -195,6 +195,14 @@ def create_app(
     def traces(limit: int = Query(20, ge=1, le=200)) -> TraceHistoryResponse:
         return TraceHistoryResponse(traces=manager.recent_traces(limit=limit))
 
+    @app.get("/architecture")
+    def architecture() -> dict[str, Any]:
+        return manager.architecture_summary()
+
+    @app.post("/grounding-probe/run")
+    def grounding_probe_run() -> dict[str, Any]:
+        return manager.run_grounding_probe()
+
     @app.get("/stream/status")
     async def stream_status(interval: float = Query(1.0, ge=0.25, le=10.0)) -> StreamingResponse:
         async def event_stream() -> AsyncIterator[str]:

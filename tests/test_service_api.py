@@ -1284,6 +1284,70 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertEqual(presets_response.status_code, 404)
             self.assertEqual(reports_response.status_code, 404)
 
+    def test_architecture_endpoint_returns_layer_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_architecture"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                resp = client.get("/architecture")
+
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["model_name"], "HECSNModelLite")
+            self.assertEqual(data["version"], "v4")
+            layers = data["layers"]
+            self.assertIsInstance(layers, list)
+            self.assertGreater(len(layers), 0)
+            layer_ids = [l["id"] for l in layers]
+            self.assertIn("input_encoding", layer_ids)
+            self.assertIn("competitive_routing", layer_ids)
+            self.assertIn("memory_consolidation", layer_ids)
+            for layer in layers:
+                self.assertIn("id", layer)
+                self.assertIn("name", layer)
+                self.assertIn("enabled", layer)
+                self.assertIn("type", layer)
+                self.assertIn("params", layer)
+            enabled_layers = [l for l in layers if l["enabled"]]
+            self.assertGreaterEqual(len(enabled_layers), 3)
+
+    def test_grounding_probe_endpoint_returns_accuracy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_grounding_probe"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                resp = client.post("/grounding-probe/run")
+
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertIn("total_accuracy", data)
+            self.assertIn("concrete_accuracy", data)
+            self.assertIn("abstract_accuracy", data)
+            self.assertIn("concreteness_gap", data)
+            self.assertIsInstance(data["total_accuracy"], float)
+            self.assertGreaterEqual(data["total_accuracy"], 0.0)
+            self.assertLessEqual(data["total_accuracy"], 1.0)
+
+    def test_telemetry_snapshot_includes_animation_data(self) -> None:
+        """telemetry_snapshot includes animation sub-object for SSE consumers."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            from hecsn.service.manager import HECSNServiceManager
+            mgr = HECSNServiceManager(
+                _build_checkpoint(root, test_case="service_api_animation"),
+                trace_dir=root / "traces",
+            )
+            snapshot = mgr.telemetry_snapshot()
+            mgr.close()
+
+        self.assertIn("animation", snapshot)
+        anim = snapshot["animation"]
+        self.assertIn("n_columns", anim)
+        self.assertIn("activations", anim)
+        self.assertIn("spike_counts", anim)
+        self.assertIn("memory_fill", anim)
+        self.assertEqual(len(anim["activations"]), anim["n_columns"])
+
 
 if __name__ == "__main__":
     unittest.main()
