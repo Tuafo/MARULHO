@@ -277,6 +277,81 @@ class CrossModalGroundingLayer:
         self.visual_trace.zero_()
         self.audio_trace.zero_()
 
+    # -- §7.4 self-criticism loop -------------------------------------------
+
+    def run_self_criticism(
+        self,
+        recent_visual_frames: list[torch.Tensor],
+        confidence_threshold: float = 0.7,
+        alignment_floor: float = 0.2,
+        penalty: float = 0.10,
+        blacklist: dict[int, int] | None = None,
+        blacklist_strikes: int = 2,
+    ) -> dict[str, Any]:
+        """Self-criticism loop (§7.4): verify high-confidence groundings.
+
+        For each text dimension with confidence > *confidence_threshold*:
+        1. Generate visual prediction from W_tv.
+        2. Score against *recent_visual_frames*.
+        3. If max alignment < *alignment_floor* → confidence -= penalty,
+           and increment blacklist counter.
+        4. If blacklisted (>= *blacklist_strikes*), zero the association weights
+           for that dimension so re-learning can start fresh.
+
+        Returns dict with statistics (checked, penalised, blacklisted counts).
+        """
+        if blacklist is None:
+            blacklist = {}
+
+        high_conf = (self.visual_confidence > confidence_threshold).nonzero(as_tuple=True)[0]
+        checked = 0
+        penalised = 0
+        blacklisted_count = 0
+
+        for idx in high_conf:
+            i = int(idx.item())
+            # Generate visual prediction from text dimension i
+            w_row = self.W_tv[i]  # shape (dim_visual,)
+            if w_row.norm() < 1e-6:
+                continue
+
+            pred_visual = F.normalize(w_row, dim=0)
+
+            # Score against recent frames
+            best_score = 0.0
+            for frame in recent_visual_frames:
+                if frame.norm() < 1e-6:
+                    continue
+                frame_norm = F.normalize(frame.flatten()[:pred_visual.shape[0]], dim=0)
+                sim = float(F.cosine_similarity(
+                    pred_visual.unsqueeze(0), frame_norm.unsqueeze(0)
+                ).item())
+                best_score = max(best_score, sim)
+
+            checked += 1
+            if best_score < alignment_floor:
+                # Grounding is probably wrong — reduce confidence
+                self.visual_confidence[i] = max(
+                    0.0, float(self.visual_confidence[i]) - penalty
+                )
+                penalised += 1
+
+                # Track blacklist strikes
+                blacklist[i] = blacklist.get(i, 0) + 1
+                if blacklist[i] >= blacklist_strikes:
+                    # Zero association weights so re-learning starts fresh
+                    self.W_tv[i].zero_()
+                    self.W_vt[:, i].zero_()
+                    self.visual_confidence[i] = 0.0
+                    blacklisted_count += 1
+
+        return {
+            "checked": checked,
+            "penalised": penalised,
+            "blacklisted": blacklisted_count,
+            "blacklist_state": blacklist,
+        }
+
     # -- serialization ------------------------------------------------------
 
     def state_dict(self) -> dict[str, Any]:

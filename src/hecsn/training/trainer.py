@@ -293,6 +293,12 @@ class HECSNTrainer:
         self._last_raw_window_text: str | None = None
         self._cached_episode_text: str | None = None
         self._last_episode_refresh_length = 0
+        # §7.4 self-criticism state
+        self._recent_visual_frames: list[torch.Tensor] = []
+        self._visual_frame_limit = 100
+        self._self_criticism_interval = 5000
+        self._last_self_criticism_token = 0
+        self._self_criticism_blacklist: dict[int, int] = {}
 
     def _update_stream_text(self, raw_window: Optional[str]) -> Optional[str]:
         if raw_window is None:
@@ -1078,6 +1084,21 @@ class HECSNTrainer:
 
             cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
             cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())
+
+            # Buffer visual frames for self-criticism (§7.4)
+            if visual_spikes is not None:
+                self._recent_visual_frames.append(vs.detach().clone())
+                if len(self._recent_visual_frames) > self._visual_frame_limit:
+                    self._recent_visual_frames = self._recent_visual_frames[-self._visual_frame_limit:]
+
+            # Periodic self-criticism loop (§7.4)
+            if (self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
+                    and len(self._recent_visual_frames) >= 10):
+                self.model.cross_modal.run_self_criticism(
+                    recent_visual_frames=self._recent_visual_frames,
+                    blacklist=self._self_criticism_blacklist,
+                )
+                self._last_self_criticism_token = self.token_count
 
         updated_indices = winners
         if int(self.model.competitive.last_revived_indices.numel()) > 0:

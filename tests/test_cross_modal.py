@@ -196,5 +196,59 @@ class TestReset(unittest.TestCase):
         self.assertEqual(layer.text_trace.sum().item(), 0.0)
 
 
+class TestSelfCriticism(unittest.TestCase):
+    """Tests for §7.4 self-criticism loop."""
+
+    def _make_layer(self) -> CrossModalGroundingLayer:
+        return CrossModalGroundingLayer(dim_text=10, dim_visual=16, dim_audio=8)
+
+    def test_no_criticism_when_low_confidence(self) -> None:
+        layer = self._make_layer()
+        frames = [torch.rand(16) for _ in range(10)]
+        result = layer.run_self_criticism(frames)
+        self.assertEqual(result["checked"], 0)
+        self.assertEqual(result["penalised"], 0)
+
+    def test_penalises_wrong_high_confidence(self) -> None:
+        layer = self._make_layer()
+        # Set high confidence on dim 0 and a strong W_tv association
+        layer.visual_confidence[0] = 0.9
+        layer.W_tv[0] = torch.randn(16)
+        # Use zero frames — no alignment possible
+        frames = [torch.zeros(16) for _ in range(10)]
+        result = layer.run_self_criticism(frames, alignment_floor=0.2)
+        self.assertEqual(result["checked"], 1)
+        self.assertEqual(result["penalised"], 1)
+        self.assertLess(float(layer.visual_confidence[0]), 0.9)
+
+    def test_blacklist_after_repeated_penalties(self) -> None:
+        layer = self._make_layer()
+        layer.visual_confidence[0] = 0.9
+        layer.W_tv[0] = torch.randn(16)
+        frames = [torch.zeros(16) for _ in range(10)]
+        blacklist: dict[int, int] = {}
+        # First pass — should penalise but not blacklist
+        layer.visual_confidence[0] = 0.9
+        layer.run_self_criticism(frames, blacklist=blacklist, blacklist_strikes=2)
+        self.assertEqual(blacklist.get(0, 0), 1)
+        # Second pass — should blacklist and zero weights
+        layer.visual_confidence[0] = 0.9
+        result = layer.run_self_criticism(frames, blacklist=blacklist, blacklist_strikes=2)
+        self.assertEqual(result["blacklisted"], 1)
+        self.assertEqual(float(layer.visual_confidence[0]), 0.0)
+        self.assertEqual(float(layer.W_tv[0].norm()), 0.0)
+
+    def test_no_penalty_when_alignment_found(self) -> None:
+        layer = self._make_layer()
+        layer.visual_confidence[0] = 0.9
+        direction = torch.randn(16)
+        layer.W_tv[0] = direction
+        # Provide a frame that closely matches the prediction
+        frames = [direction.clone() for _ in range(10)]
+        result = layer.run_self_criticism(frames)
+        self.assertEqual(result["penalised"], 0)
+        self.assertAlmostEqual(float(layer.visual_confidence[0]), 0.9, places=3)
+
+
 if __name__ == "__main__":
     unittest.main()

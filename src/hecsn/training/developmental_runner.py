@@ -325,10 +325,26 @@ def run_stage_3(
             conf = _compute_grounding_confidence(trainer.model.cross_modal)
             grounding_deltas.append(conf)
 
-    # Remaining tokens
+    # Remaining tokens with self-criticism loop every 5000 tokens
     remaining = max(0, n_tokens - tokens_processed)
+    self_criticism_stats: dict[str, Any] = {}
+    blacklist: dict[int, int] = {}
     if remaining > 0:
         tokens_processed += _train_on_corpus(trainer, encoder, corpus, remaining)
+
+    # Run self-criticism if cross-modal is enabled (§7.4)
+    if trainer.model.cross_modal is not None:
+        # Collect recent visual frames (synthetic in dev mode)
+        recent_frames: list[torch.Tensor] = []
+        dim_visual = trainer.model.cross_modal.W_tv.shape[1]
+        rng = torch.Generator(device=trainer.model.device)
+        rng.manual_seed(seed + 99)
+        for _ in range(100):
+            recent_frames.append(torch.rand(dim_visual, device=trainer.model.device, generator=rng))
+        self_criticism_stats = trainer.model.cross_modal.run_self_criticism(
+            recent_visual_frames=recent_frames,
+            blacklist=blacklist,
+        )
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     post_probe = evaluate_grounding_probe(vector_fn)
@@ -347,6 +363,9 @@ def run_stage_3(
             "confirmation_cycles": confirmation_cycles,
             "gap_queries_produced": gap_queries_produced,
             "mean_grounding_confidence": sum(grounding_deltas) / max(1, len(grounding_deltas)),
+            "self_criticism_checked": self_criticism_stats.get("checked", 0),
+            "self_criticism_penalised": self_criticism_stats.get("penalised", 0),
+            "self_criticism_blacklisted": self_criticism_stats.get("blacklisted", 0),
         },
         diagnostics={
             "completion_criteria": {
