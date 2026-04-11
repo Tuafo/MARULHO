@@ -24,6 +24,7 @@ from hecsn.training.behavioral_metrics import novelty_coverage_curve
 from hecsn.training.query_runner import feed_text, text_pattern_stream
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.developmental_runner import run_full_developmental_protocol
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -788,6 +789,27 @@ def run_emergence_evaluation_benchmark(
         and all(bool(level["pass"]) for level in feedback_label_free_levels.values())
     )
 
+    # Developmental protocol evaluation (§7.2–§7.5)
+    dev_results = run_full_developmental_protocol(
+        n_tokens_per_stage=500,
+        seed=seed,
+        output_dir=output_dir / "developmental",
+    )
+    dev_summary = {
+        "stages_run": len(dev_results),
+        "stages_passed": sum(1 for r in dev_results if r.passed),
+        "all_passed": all(r.passed for r in dev_results),
+        "per_stage": [
+            {
+                "stage": r.stage,
+                "passed": r.passed,
+                "tokens": r.tokens_processed,
+                "key_metrics": {k: v for k, v in r.metrics.items() if isinstance(v, (int, float)) and v is not None},
+            }
+            for r in dev_results
+        ],
+    }
+
     summary = {
         "benchmark": "emergence_evaluation",
         "scenario": "maintained_proxy_aggregate",
@@ -891,6 +913,7 @@ def run_emergence_evaluation_benchmark(
         "supporting_scaffolds": {
             "routing_scale": routing_scale_context,
         },
+        "developmental_protocol": dev_summary,
         "feedback_emergence_gate": {
             "pass": bool(feedback_gate_pass),
             "direct_levels_ready": feedback_direct_levels_ready,

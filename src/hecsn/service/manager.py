@@ -1564,7 +1564,23 @@ class HECSNServiceManager:
             return None
         token_delta = int(self._trainer.token_count) - int(self._brain_last_acquisition_token_count)
         trigger_interval = int(autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS))
-        if token_delta < trigger_interval:
+
+        # Curiosity-based trigger: allow early acquisition when gap score exceeds threshold
+        curiosity_gap_threshold = float(autonomy.get("curiosity_gap_threshold", 0.0))
+        curiosity_cooldown = int(autonomy.get("curiosity_cooldown_tokens", trigger_interval // 2))
+        curiosity_triggered = False
+        trigger_reason = "interval"
+
+        if curiosity_gap_threshold > 0.0 and token_delta >= curiosity_cooldown:
+            abstraction = getattr(self._trainer.model, "abstraction_layer", None)
+            if abstraction is not None:
+                gaps = abstraction.curiosity_gaps(top_n=1)
+                max_gap = float(gaps[0]["gap_score"]) if gaps else 0.0
+                if max_gap >= curiosity_gap_threshold:
+                    curiosity_triggered = True
+                    trigger_reason = "curiosity_gap"
+
+        if not curiosity_triggered and token_delta < trigger_interval:
             return None
         if self._brain_skip_next_autonomy_for_grounded_query:
             self._brain_skip_next_autonomy_for_grounded_query = False
@@ -1617,6 +1633,7 @@ class HECSNServiceManager:
             self._mark_mutated()
         summary = {
             "executed_at": datetime.now(timezone.utc).isoformat(),
+            "trigger_reason": trigger_reason,
             "policy": str(result.get("policy", autonomy.get("policy", "active"))),
             "tokens_trained_total": int(result.get("tokens_trained_total", 0)),
             "acquired_sources": list(result.get("acquired_sources", [])),

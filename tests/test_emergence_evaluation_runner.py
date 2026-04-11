@@ -45,6 +45,11 @@ class EmergenceEvaluationRunnerTests(unittest.TestCase):
             self.assertFalse(summary["baseline_comparison"]["mechanism"]["distributional_clustering_pass"])
         if summary["supporting_scaffolds"]["routing_scale"] is not None:
             self.assertTrue(summary["supporting_scaffolds"]["routing_scale"]["gate_pass"])
+        # Developmental protocol checks
+        self.assertIn("developmental_protocol", summary)
+        dev = summary["developmental_protocol"]
+        self.assertGreater(dev["stages_run"], 0)
+        self.assertIsInstance(dev["all_passed"], bool)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,8 @@ from hecsn.training.developmental_runner import (
     run_stage_1,
     run_stage_2,
     run_stage_3,
-    run_stage_45,
+    run_stage_4,
+    run_stage_5,
     run_full_developmental_protocol,
     _make_config_for_stage,
     _compute_grounding_confidence,
@@ -76,24 +77,38 @@ class TestStage3(unittest.TestCase):
         self.assertEqual(result.stage, 3)
         self.assertIsInstance(result.passed, bool)
         self.assertIn("probe_accuracy", result.metrics)
-        self.assertIn("ungrounded_rate", result.metrics)
-        self.assertIn("confirmation_rate", result.metrics)
+        self.assertIn("confirmation_cycles", result.metrics)
+        self.assertIn("gap_queries_produced", result.metrics)
+
+    def test_probe_accuracy_reported(self) -> None:
+        result = run_stage_3(n_tokens=200, seed=42)
+        self.assertIsInstance(result.metrics["probe_accuracy"], float)
 
 
-class TestStage45(unittest.TestCase):
+class TestStage4(unittest.TestCase):
     def test_runs_and_returns_result(self) -> None:
-        result = run_stage_45(n_tokens=200, seed=42)
-        self.assertEqual(result.stage, 45)
+        result = run_stage_4(n_tokens=200, seed=42)
+        self.assertEqual(result.stage, 4)
         self.assertIsInstance(result.passed, bool)
         self.assertIn("final_probe_accuracy", result.metrics)
         self.assertIn("accuracy_delta", result.metrics)
+        self.assertIn("acquisitions_made", result.metrics)
+
+
+class TestStage5(unittest.TestCase):
+    def test_runs_and_returns_result(self) -> None:
+        result = run_stage_5(n_tokens=200, seed=42)
+        self.assertEqual(result.stage, 5)
+        self.assertIsInstance(result.passed, bool)
+        self.assertIn("final_probe_accuracy", result.metrics)
+        self.assertIn("autonomous_cycles", result.metrics)
+        self.assertIn("no_catastrophic_forgetting", result.metrics)
 
 
 class TestFullProtocol(unittest.TestCase):
     def test_runs_all_stages(self) -> None:
         results = run_full_developmental_protocol(n_tokens_per_stage=100, seed=42)
         self.assertGreater(len(results), 0)
-        # At least stage 1 should run
         self.assertEqual(results[0].stage, 1)
 
     def test_writes_output(self) -> None:

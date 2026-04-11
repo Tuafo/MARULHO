@@ -251,9 +251,18 @@ class CharNGramEmbedder:
                 ngrams.append(padded[i : i + n])
         return ngrams
 
+    @staticmethod
+    def _stable_hash(s: str) -> int:
+        """FNV-1a 32-bit hash for cross-run reproducibility (Python hash() is randomized)."""
+        h = 2166136261
+        for ch in s.encode("utf-8"):
+            h ^= ch
+            h = (h * 16777619) & 0xFFFFFFFF
+        return h
+
     def _ngram_hashes(self, word: str) -> list[int]:
         """Hash character n-grams to bucket indices."""
-        return [hash(ng) % self.n_buckets for ng in self._char_ngrams(word)]
+        return [self._stable_hash(ng) % self.n_buckets for ng in self._char_ngrams(word)]
 
     def get_word_vector(self, word: str) -> np.ndarray:
         """Get the vector representation of a word."""
