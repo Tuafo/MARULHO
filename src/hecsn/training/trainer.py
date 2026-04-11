@@ -891,7 +891,13 @@ class HECSNTrainer:
 
         return applied
 
-    def train_step(self, pattern_vec: torch.Tensor, raw_window: Optional[str] = None) -> Dict[str, Any]:
+    def train_step(
+        self,
+        pattern_vec: torch.Tensor,
+        raw_window: Optional[str] = None,
+        visual_spikes: Optional[torch.Tensor] = None,
+        audio_spikes: Optional[torch.Tensor] = None,
+    ) -> Dict[str, Any]:
         metrics: Dict[str, Any] = {}
         x = pattern_vec.to(self.model.device)
         context_gain = None
@@ -1009,8 +1015,19 @@ class HECSNTrainer:
             ]
             if winner_levels:
                 winner_consolidation = float(sum(winner_levels) / len(winner_levels))
-        wake_plasticity_scale = max(0.2, 1.0 - 0.8 * winner_consolidation)
-        effective_modulator = float(modulator) * wake_plasticity_scale
+
+        # Neuromodulator-specific plasticity gates (§4.5, §4.7):
+        #   DA (dopamine): scales LTP gain — positive RPE amplifies learning
+        #   5-HT (serotonin): modulates consolidation patience — high 5-HT
+        #     suppresses plasticity on consolidated winners (patience gate)
+        #   NE: already wired to network reset via should_reset_network()
+        #   ACh: already wired to context precision via _context_precision_weight()
+        da = self.model.surprise.dopamine
+        ht = self.model.surprise.serotonin
+        da_ltp_gain = 0.8 + 0.4 * da  # range [0.8, 1.2]: DA amplifies learning
+        ht_patience = max(0.2, 1.0 - 0.6 * ht)  # high 5-HT → reduced wake plasticity
+        wake_plasticity_scale = max(0.2, 1.0 - 0.8 * winner_consolidation) * ht_patience
+        effective_modulator = float(modulator) * wake_plasticity_scale * da_ltp_gain
 
         assembly = self.model.competitive.process(
             routing_key,
@@ -1039,6 +1056,28 @@ class HECSNTrainer:
                 update_weights=True,
                 precision_weight=self._context_precision_weight(),
             )
+
+        # Cross-modal grounding updates (§5): wire assembly as text spike,
+        # feed visual/audio spikes when multimodal data is available.
+        cross_modal_visual_conf = 0.0
+        cross_modal_audio_conf = 0.0
+        if self.model.cross_modal is not None:
+            # Text assembly drives cross-modal text trace & weight updates
+            text_spike = assembly.detach()
+            if text_spike.dim() > 1:
+                text_spike = text_spike.mean(dim=0)
+            self.model.cross_modal.on_text_spike(text_spike)
+
+            # Visual/audio spikes from multimodal encoders (when available)
+            if visual_spikes is not None:
+                vs = visual_spikes.to(self.model.device)
+                self.model.cross_modal.on_visual_spike(vs)
+            if audio_spikes is not None:
+                aus = audio_spikes.to(self.model.device)
+                self.model.cross_modal.on_audio_spike(aus)
+
+            cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
+            cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())
 
         updated_indices = winners
         if int(self.model.competitive.last_revived_indices.numel()) > 0:
@@ -1119,6 +1158,8 @@ class HECSNTrainer:
         metrics["mean_memory_fragility"] = float(memory_stats.get("mean_fragility", 0.0))
         metrics["winner_consolidation_level"] = float(winner_consolidation)
         metrics["effective_modulator"] = float(effective_modulator)
+        metrics["da_ltp_gain"] = float(da_ltp_gain)
+        metrics["ht_patience_gate"] = float(ht_patience)
         metrics["context_strength"] = float(context_prediction.sum().item()) if isinstance(context_prediction, torch.Tensor) else 0.0
         metrics["context_gain_mean"] = float(context_gain.mean().item()) if isinstance(context_gain, torch.Tensor) else 1.0
         metrics["context_precision_weight"] = (
@@ -1147,6 +1188,8 @@ class HECSNTrainer:
             else 0.0
         )
         metrics["binding_strength"] = float(binding_strength)
+        metrics["cross_modal_visual_confidence"] = cross_modal_visual_conf
+        metrics["cross_modal_audio_confidence"] = cross_modal_audio_conf
         metrics["winner"] = int(winners[0].item())
         metrics["active_columns"] = int((assembly > 0).sum().item())
         metrics["sparsity"] = float((assembly > 0).float().mean().item())

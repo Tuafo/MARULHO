@@ -1,0 +1,203 @@
+# COMPREHENSIVE AUDIT: HECSN v4 Paper vs. Implementation
+Generated: 2025-04-10
+Scope: HECSN_Paper_v4.md Sections 3-8 and 11 vs. src/hecsn/ codebase
+
+===============================================================================
+QUICK SUMMARY
+===============================================================================
+
+✅ IMPLEMENTED & VALIDATED (6/7 system layers, most core mechanisms)
+⚠️  IMPLEMENTED BUT NOT FULLY VALIDATED (GPU benchmarking, full protocols)
+❌ NOT IMPLEMENTED (Stages 4-5, autonomous loops, GNG alternative)
+
+CRITICAL GAPS FOR PUBLICATION:
+  1. ❌ GPU routing benchmarks (§6.1) - scalability claims unverified
+  2. ❌ Grounding probe threshold calibration (§8.7) - emergence claims need baseline
+  3. ❌ Concreteness gap measurement - THE core claim of the paper
+  4. ❌ Visual-text sub-probe - core multimodal claim needs separate validation
+
+===============================================================================
+SECTION 3: SYSTEM ARCHITECTURE (7 LAYERS)
+===============================================================================
+
+LAYER 0 - MULTIMODAL ENCODERS
+  ✅ RTFEncoder (order_weighted_ascii implementation)
+  ✅ EventCameraEncoder (temporal contrast spike simulation)
+  ✅ CochleagramEncoder (mel-filterbank with log-compression)
+  ⚠️  RTF is misnamed (§4.2 critique: not true Li et al. burst coding)
+  ❌ Requires 4-way encoding ablation before publication
+
+LAYER 1 - CHUNKING LAYER
+  ✅ LearnedChunkingLayer implemented (predictability-based boundaries)
+  ⚠️  No convergence proof in online setting (acknowledged in paper)
+  ❌ GNG alternative not implemented
+
+LAYER 2 - ENCODING (RTF)
+  ⚠️  Implemented but misnamed (order_weighted_ascii, not true RTF)
+  ❌ Required 4-way ablation not done
+
+LAYER 3 - SURPRISE MONITOR
+  ✅ Four independent channels: DA, ACh, NE, 5-HT
+  ⚠️  5-HT mapping oversimplified (acknowledged in §4.7)
+  ❌ Paper recommends: map 5-HT to consolidation gate (not done)
+
+LAYER 4 - CONTEXT LAYER
+  ✅ Fixed version (3 traces, 15-token window)
+  ✅ Adaptive version (learnable tau [2, 500]) - ADDRESSES §4.3 CRITIQUE
+  ❌ Empirical validation (B3 test) not completed
+
+LAYER 5 - COMPETITIVE LAYER
+  ✅ Triplet STDP with correct parameters (Pfister & Gerstner 2006)
+  ✅ Log-STDP, iSTDP, intrinsic plasticity, synaptic scaling
+  ✅ Winner-local drift stability mechanism
+  ⚠️  No SOM convergence proof (but works in practice)
+  ❌ Column census mechanism not implemented
+
+LAYER 6 - BINDING LAYER
+  ✅ Sparse random connectivity (fan_in=4)
+  ✅ Tsodyks-Markram STP dynamics
+  ❌ Topographic binding not implemented
+
+LAYER 7 - ABSTRACTION LAYER
+  ✅ Online SFA anti-Hebbian update
+  ✅ Concept stability and certainty tracking
+  ⚠️  Online approximation loses convergence guarantee
+  ❌ Mini-batch SFA during sleep not fully implemented
+
+CROSS-MODAL GROUNDING LAYER
+  ✅ Four weight matrices (W_tv, W_vt, W_ta, W_at)
+  ✅ Temporal co-occurrence STDP
+  ✅ Grounding confidence EMA tracking
+  ❌ Separate audio-text and visual-text metrics not split
+
+MEMORY & SLEEP
+  ✅ DualMemoryStore with reservoir sampling
+  ✅ STC phenomenological model (tags, PRP, consolidation level)
+  ✅ Three-phase sleep framework
+  ⚠️  Sleep scheduling not fully integrated into training loop
+  ❌ Sensitivity analysis on functional_minute not done
+
+===============================================================================
+SECTION 4: CRITICAL MECHANISMS
+===============================================================================
+
+4.1 - CHUNKING: ⚠️ Working in practice, no convergence proof
+4.2 - RTF ENCODING: ⚠️ Implemented but misnamed, ablation required
+4.3 - CONTEXT LAYER: ✅ ADAPTIVE VERSION ADDRESSES CRITIQUE
+4.4 - TRIPLET STDP: ✅ FULLY IMPLEMENTED (all parameters)
+4.5 - COMPETITIVE LEARNING: ⚠️ Working, but SOM convergence unproven
+4.6 - ADEX NEURON: ✅ Implemented
+4.7 - NEUROMODULATION: ⚠️ 5-HT simplified, mapping not updated
+4.8 - ONLINE SFA: ⚠️ Working but mini-batch refinement not done
+4.9 - STC CALIBRATION: ⚠️ Self-calibration exists, sensitivity not tested
+4.10 - GROUNDING PROBE: ❌ 0.65 threshold not calibrated against baselines
+
+===============================================================================
+SECTION 5: MULTIMODAL GROUNDING
+===============================================================================
+
+✅ CrossModalGroundingLayer fully implemented
+✅ Four STDP weight matrices working
+⚠️  Alignment filter designed but not fully integrated
+❌ Separate audio-text / visual-text metrics not split (required by §5.2)
+❌ Adaptive threshold not implemented (currently hardcoded at 0.4)
+
+===============================================================================
+SECTION 6: SCALABILITY
+===============================================================================
+
+✅ IVFRouter implemented (pure PyTorch, GPU-ready)
+✅ TurboQuantPrototypeStore implemented (rotation Gaussianization + 3-bit)
+⚠️  GPU routing logic complete, latency NOT BENCHMARKED (critical gap)
+❌ Benchmark results (§6.1) missing before publication
+
+===============================================================================
+SECTION 7: DEVELOPMENTAL PROTOCOL
+===============================================================================
+
+✅ Stage 1-3 frameworks exist (StageResult, runners, criteria functions)
+⚠️  Stage 1 end-to-end pipeline not integrated
+⚠️  Stage 2 alignment filter integration scattered
+⚠️  Stage 3 confirmation-seeking and self-criticism loops incomplete
+❌ Stages 4-5 (autonomous) not implemented
+❌ Unified checkpoint/advancement system not complete
+
+===============================================================================
+SECTION 8: EVALUATION PROTOCOL
+===============================================================================
+
+✅ All 8 levels defined and mostly implemented:
+   Level 1 (Assembly quality): ✅ Complete
+   Level 2 (Weight distribution): ✅ Complete
+   Level 3 (Temporal coherence): ✅ Complete (0.9916 validated)
+   Level 4 (Behavioral): ✅ Complete (B1, B2, B3 tests exist)
+   Level 5 (Compositionality): ✅ Complete (1.0 validated)
+   Level 6 (Grounding probe): ⚠️ Framework exists, NO RESULTS YET
+   Level 7 (Novelty): ✅ Complete (0.0994 validated)
+   Level 8 (Forgetting): ⚠️ 10K/10K validated, 50K/50K not done
+
+❌ CRITICAL: 50-triple grounding probe not measured
+❌ CRITICAL: Baseline calibration (word2vec, fastText) not done
+❌ CRITICAL: Concreteness gap not computed (target >0.10)
+❌ CRITICAL: Visual-text sub-probe not separated from audio-text
+
+===============================================================================
+SECTION 11: IMPLEMENTATION ROADMAP
+===============================================================================
+
+Phase 0 (Foundation): ✅ Mostly done (except GPU benchmarking)
+Phase 1 (Evaluation): ⚠️ Framework exists, baselines incomplete
+Phase 2 (Adaptive context): ✅ Done
+Phase 3 (Chunking/Abstraction): ✅ Done
+Phase 4 (Sleep): ⚠️ Implemented, not sensitivity-tested
+Phase 5 (Multimodal encoders): ✅ Done
+Phase 6 (Stage 1 training): ⚠️ Framework exists, not end-to-end
+Phase 7 (Stages 2-3): ⚠️ Frameworks exist, not fully integrated
+Phase 8 (Paper): ❌ Cannot complete without Phase 1,6,7 results
+
+===============================================================================
+DEAD CODE ANALYSIS
+===============================================================================
+
+NO TRUE DEAD CODE found. All Python files serve a purpose:
+  - Core modules (layers, plasticity, routing)
+  - Training infrastructure (runners, trainers)
+  - Evaluation framework (probes, baselines)
+  - Service layer (API, manager, responder)
+  - Semantics (curiosity, concepts, grounding text)
+
+Single-purpose test runners (not dead, used for validation):
+  - adex_stability_runner.py
+  - adex_consolidation_runner.py
+  - representation_runner.py
+  - geometric_curiosity_runner.py
+  - emergence_evaluation_runner.py
+
+All files are referenced or used directly in testing.
+
+===============================================================================
+CRITICAL PATH TO PUBLICATION
+===============================================================================
+
+Current Status: 80-85% complete (architecture sound, validation incomplete)
+
+MUST DO (blocking publication):
+  1. GPU routing benchmarks (Flat at 1K/10K/50K/100K; IVF at 100K/500K)
+  2. Baseline calibration (word2vec skip-gram, fastText on same corpus)
+  3. 50-triple grounding probe evaluation (full 50-triple, not 7-triple)
+  4. Concreteness gap computation (target >0.10 - THE core claim)
+  5. Visual-text sub-probe (separate from audio-text)
+
+SHOULD DO (but less critical):
+  6. Sensitivity analysis on STC (functional_minute at 100/500/2000/10000)
+  7. B3 context window validation (at 5/15/50/200 tokens)
+  8. RTF encoding ablation (4-way comparison)
+  9. End-to-end Stages 1-3 validation
+
+NOT NEEDED (for paper, but nice to have):
+  10. Stages 4-5 full autonomous operation
+  11. GNG variant for chunking
+  12. Column census mechanism
+  13. Topographic binding improvements
+
+===============================================================================

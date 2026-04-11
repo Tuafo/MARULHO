@@ -76,7 +76,11 @@ def _compute_grounding_confidence(cross_modal: CrossModalGroundingLayer) -> floa
 def _make_vector_fn(
     trainer: HECSNTrainer, encoder: RTFEncoder, cfg: HECSNConfig
 ):
-    """Build vector_fn callable for grounding probe from trainer + encoder."""
+    """Build vector_fn callable for grounding probe from trainer + encoder.
+
+    When cross-modal grounding is enabled, blends the routing key with
+    visual feedback so that the probe measures cross-modal state (§8.7).
+    """
 
     def vector_fn(text: str) -> torch.Tensor:
         patterns = list(
@@ -85,7 +89,18 @@ def _make_vector_fn(
         if not patterns:
             return torch.zeros(cfg.input_dim)
         vecs = [p for _, p in patterns]
-        return torch.stack(vecs).mean(dim=0)
+        routing_key = torch.stack(vecs).mean(dim=0)
+
+        cross_modal = trainer.model.cross_modal
+        if cross_modal is not None and routing_key.shape[0] == cross_modal.W_tv.shape[0]:
+            pred_visual = torch.mv(cross_modal.W_tv.T, routing_key)
+            visual_conf = float(cross_modal.visual_confidence.mean().item())
+            if pred_visual.norm() > 1e-6 and visual_conf > 0.01:
+                visual_feedback = torch.mv(cross_modal.W_vt.T, pred_visual)
+                if visual_feedback.shape == routing_key.shape:
+                    blend = min(0.3, visual_conf)
+                    routing_key = (1.0 - blend) * routing_key + blend * visual_feedback
+        return routing_key
 
     return vector_fn
 

@@ -82,6 +82,18 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "sleep_interval_seconds": 0.1,
         "repeat_sources": True,
     },
+    "diverse_fast": {
+        "label": "Diverse — Fast (Wiki + News + Reviews)",
+        "description": "Same three domains but with larger batches and shorter sleep for faster throughput. Use when you want quicker training at the cost of slightly chunkier UI updates.",
+        "source_bank": [
+            {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
+            {"name": "news", "source": "ag_news", "source_type": "hf", "hf_config": None, "text_field": "text"},
+            {"name": "reviews", "source": "imdb", "source_type": "hf", "hf_config": None, "text_field": "text"},
+        ],
+        "tick_tokens": 256,
+        "sleep_interval_seconds": 0.05,
+        "repeat_sources": True,
+    },
 }
 
 _IRREGULAR_TOPIC_SINGULARS = {
@@ -678,8 +690,8 @@ class HECSNServiceManager:
                 "params": {
                     "dim_visual": int(config.cross_modal_dim_visual),
                     "dim_audio": int(config.cross_modal_dim_audio),
-                    "visual_confidence": float(model.cross_modal.visual_confidence) if model.cross_modal else 0.0,
-                    "audio_confidence": float(model.cross_modal.audio_confidence) if model.cross_modal else 0.0,
+                    "visual_confidence": float(model.cross_modal.visual_confidence.mean().item()) if model.cross_modal else 0.0,
+                    "audio_confidence": float(model.cross_modal.audio_confidence.mean().item()) if model.cross_modal else 0.0,
                 },
             })
             layers.append({
@@ -703,18 +715,37 @@ class HECSNServiceManager:
             }
 
     def run_grounding_probe(self) -> dict[str, Any]:
-        """Run the 50-triple grounding probe and return results."""
+        """Run the 50-triple grounding probe and return results.
+
+        When cross-modal grounding is enabled, the probe vector blends
+        the routing key with the visual prediction from W_tv, so that
+        concrete concepts with strong visual grounding produce distinct
+        representations from abstract concepts (§8.7).
+        """
         from hecsn.evaluation.grounding_probe import evaluate_grounding_probe
         with self._lock:
             trainer = self._trainer
             encoder = self._encoder
+            cross_modal = trainer.model.cross_modal
 
             def _vector_fn(text: str) -> torch.Tensor:
                 patterns = list(encoder.iter_char_patterns(text, window_size=8, learn=False))
                 if not patterns:
                     return torch.zeros(trainer.config.n_columns, device=trainer.model.device)
                 vecs = [trainer.model.routing_key_from_pattern(p[1]) for p in patterns]
-                return torch.stack(vecs).mean(dim=0)
+                routing_key = torch.stack(vecs).mean(dim=0)
+
+                if cross_modal is not None and routing_key.shape[0] == cross_modal.W_tv.shape[0]:
+                    # Predict visual representation and blend with routing key
+                    pred_visual = torch.mv(cross_modal.W_tv.T, routing_key)
+                    visual_conf = float(cross_modal.visual_confidence.mean().item())
+                    if pred_visual.norm() > 1e-6 and visual_conf > 0.01:
+                        # Project visual prediction back to text space
+                        visual_feedback = torch.mv(cross_modal.W_vt.T, pred_visual)
+                        if visual_feedback.shape == routing_key.shape:
+                            blend = min(0.3, visual_conf)
+                            routing_key = (1.0 - blend) * routing_key + blend * visual_feedback
+                return routing_key
 
             result = evaluate_grounding_probe(_vector_fn)
             return {
@@ -722,7 +753,11 @@ class HECSNServiceManager:
                 "concrete_accuracy": float(result.concrete_accuracy),
                 "abstract_accuracy": float(result.abstract_accuracy),
                 "concreteness_gap": float(result.concreteness_gap),
-                "sample_count": int(result.concrete_accuracy * 25 + result.abstract_accuracy * 25),
+                "visual_text_accuracy": float(result.visual_text_accuracy),
+                "audio_text_accuracy": float(result.audio_text_accuracy),
+                "visual_text_count": result.visual_text_count,
+                "audio_text_count": result.audio_text_count,
+                "sample_count": result.total_count,
             }
 
     def terminus_tick(self, *, steps: int = 1) -> dict[str, Any]:
@@ -1659,8 +1694,8 @@ class HECSNServiceManager:
         cross_modal_state = None
         if model.cross_modal is not None:
             cross_modal_state = {
-                "visual_confidence": float(model.cross_modal.visual_confidence),
-                "audio_confidence": float(model.cross_modal.audio_confidence),
+                "visual_confidence": float(model.cross_modal.visual_confidence.mean().item()),
+                "audio_confidence": float(model.cross_modal.audio_confidence.mean().item()),
             }
         context_tau = None
         if model.context_layer is not None and hasattr(model.context_layer, "log_tau"):
