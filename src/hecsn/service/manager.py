@@ -55,8 +55,8 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "source_bank": [
             {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
         ],
-        "tick_tokens": 256,
-        "sleep_interval_seconds": 0.5,
+        "tick_tokens": 128,
+        "sleep_interval_seconds": 0.1,
         "repeat_sources": True,
     },
     "wikipedia_news": {
@@ -66,8 +66,8 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
             {"name": "news", "source": "ag_news", "source_type": "hf", "hf_config": None, "text_field": "text"},
         ],
-        "tick_tokens": 256,
-        "sleep_interval_seconds": 0.5,
+        "tick_tokens": 128,
+        "sleep_interval_seconds": 0.1,
         "repeat_sources": True,
     },
     "diverse": {
@@ -78,8 +78,8 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             {"name": "news", "source": "ag_news", "source_type": "hf", "hf_config": None, "text_field": "text"},
             {"name": "reviews", "source": "imdb", "source_type": "hf", "hf_config": None, "text_field": "text"},
         ],
-        "tick_tokens": 256,
-        "sleep_interval_seconds": 0.5,
+        "tick_tokens": 128,
+        "sleep_interval_seconds": 0.1,
         "repeat_sources": True,
     },
 }
