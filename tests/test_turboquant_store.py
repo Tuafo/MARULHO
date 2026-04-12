@@ -58,8 +58,10 @@ class TestCompression(unittest.TestCase):
 
     def test_codes_in_range(self) -> None:
         self.store.compress_all()
-        self.assertTrue((self.store._codes >= 0).all())
-        self.assertTrue((self.store._codes < self.store.n_levels).all())
+        from hecsn.retrieval.turboquant_store import unpack_codes
+        unpacked = unpack_codes(self.store._codes, self.store.bits, self.store.dim)
+        self.assertTrue((unpacked >= 0).all())
+        self.assertTrue((unpacked < self.store.n_levels).all())
 
     def test_residual_signs_are_pm1_or_zero(self) -> None:
         self.store.compress_all()
@@ -132,6 +134,8 @@ class TestQJLCorrection(unittest.TestCase):
         store.set_all(protos.clone())
         store.compress_all()
 
+        from hecsn.retrieval.turboquant_store import unpack_codes
+
         total_err_qjl = 0.0
         total_err_base = 0.0
         n_queries = 50
@@ -141,8 +145,9 @@ class TestQJLCorrection(unittest.TestCase):
             _, qjl = store.route(q, k=50)
             # Compute base (no QJL) scores manually
             q_rot = torch.mv(store.rotation, q)
+            unpacked = unpack_codes(store._codes, store.bits, store.dim)
             decompressed = (
-                store._codes.float() * store._scales.unsqueeze(1)
+                unpacked.float() * store._scales.unsqueeze(1)
                 + store._offsets.unsqueeze(1)
             )
             base = torch.mv(decompressed, q_rot)
@@ -186,6 +191,45 @@ class TestQJLCorrection(unittest.TestCase):
 
         # Higher projections should give lower or similar variance
         self.assertLessEqual(var_high / n_q, var_low / n_q + 0.01)
+
+
+class TestBitPacking(unittest.TestCase):
+    """Validate bit-pack/unpack roundtrip for various bit widths."""
+
+    def test_roundtrip_3bit(self) -> None:
+        from hecsn.retrieval.turboquant_store import pack_codes, unpack_codes
+        codes = torch.randint(0, 8, (10, 256), dtype=torch.int16)
+        packed = pack_codes(codes, 3)
+        recovered = unpack_codes(packed, 3, 256)
+        self.assertTrue(torch.equal(codes, recovered))
+
+    def test_roundtrip_4bit(self) -> None:
+        from hecsn.retrieval.turboquant_store import pack_codes, unpack_codes
+        codes = torch.randint(0, 16, (5, 128), dtype=torch.int16)
+        packed = pack_codes(codes, 4)
+        recovered = unpack_codes(packed, 4, 128)
+        self.assertTrue(torch.equal(codes, recovered))
+
+    def test_roundtrip_8bit(self) -> None:
+        from hecsn.retrieval.turboquant_store import pack_codes, unpack_codes
+        codes = torch.randint(0, 256, (5, 64), dtype=torch.int16)
+        packed = pack_codes(codes, 8)
+        recovered = unpack_codes(packed, 8, 64)
+        self.assertTrue(torch.equal(codes, recovered))
+
+    def test_packed_size_3bit(self) -> None:
+        """3-bit: 256 codes → 96 bytes (8 codes per 3 bytes)."""
+        from hecsn.retrieval.turboquant_store import pack_codes
+        codes = torch.randint(0, 8, (1, 256), dtype=torch.int16)
+        packed = pack_codes(codes, 3)
+        self.assertEqual(packed.shape[-1], 96)
+
+    def test_packed_size_4bit(self) -> None:
+        """4-bit: 256 codes → 128 bytes (2 codes per byte)."""
+        from hecsn.retrieval.turboquant_store import pack_codes
+        codes = torch.randint(0, 16, (1, 256), dtype=torch.int16)
+        packed = pack_codes(codes, 4)
+        self.assertEqual(packed.shape[-1], 128)
 
 
 class TestCosineAccuracy(unittest.TestCase):

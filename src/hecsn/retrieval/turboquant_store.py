@@ -4,7 +4,7 @@ Implements the two-stage TurboQuant architecture (arXiv:2504.19874):
 
   Stage 1 — PolarQuant: Random orthogonal rotation to Gaussianise
   heavy-tailed prototype distributions, then uniform scalar quantisation
-  to low-bit (3-bit default).
+  to low-bit (3-bit default) with bit-packed storage.
 
   Stage 2 — QJL residual correction: 1-bit Quantised Johnson-Lindenstrauss
   projection of the quantisation residual.  At query time the sign-packed
@@ -21,17 +21,108 @@ Near-optimal Distortion Rate", arXiv:2504.19874, 2025.
 from __future__ import annotations
 
 import math
+from math import gcd
 from typing import Any
 
 import torch
 import torch.nn.functional as F
 
 
+# ---------------------------------------------------------------------------
+# Bit-packing utilities
+# ---------------------------------------------------------------------------
+
+def _packed_dim(dim: int, bits: int) -> int:
+    """Number of uint8 bytes needed to store *dim* codes at *bits* each."""
+    if bits >= 8:
+        return dim
+    lcm_bits = bits * 8 // gcd(bits, 8)
+    codes_per_group = lcm_bits // bits
+    bytes_per_group = lcm_bits // 8
+    n_groups = (dim + codes_per_group - 1) // codes_per_group
+    return n_groups * bytes_per_group
+
+
+def pack_codes(codes: torch.Tensor, bits: int) -> torch.Tensor:
+    """Bit-pack integer codes (0 .. 2^bits-1) into uint8 bytes.
+
+    Args:
+        codes: (..., dim) tensor of integer codes.
+        bits: bits per code (1-8).
+
+    Returns:
+        (..., packed_dim) uint8 tensor.
+    """
+    if bits >= 8:
+        return codes.to(torch.uint8)
+
+    *batch, dim = codes.shape
+    lcm_bits = bits * 8 // gcd(bits, 8)
+    cpg = lcm_bits // bits          # codes per group
+    bpg = lcm_bits // 8             # bytes per group
+    n_groups = (dim + cpg - 1) // cpg
+    padded = n_groups * cpg
+
+    if padded > dim:
+        pad = torch.zeros(*batch, padded - dim, dtype=codes.dtype,
+                          device=codes.device)
+        codes = torch.cat([codes, pad], dim=-1)
+
+    codes = codes.reshape(*batch, n_groups, cpg).long()
+    combined = torch.zeros(*batch, n_groups, dtype=torch.int64,
+                           device=codes.device)
+    for j in range(cpg):
+        combined = combined | (codes[..., j] << (j * bits))
+
+    byte_list = [(combined >> (b * 8)) & 0xFF for b in range(bpg)]
+    packed = torch.stack(byte_list, dim=-1).reshape(
+        *batch, n_groups * bpg
+    ).to(torch.uint8)
+    return packed
+
+
+def unpack_codes(packed: torch.Tensor, bits: int, dim: int) -> torch.Tensor:
+    """Unpack uint8 bit-packed bytes back to integer codes.
+
+    Args:
+        packed: (..., packed_dim) uint8 tensor.
+        bits: bits per code (1-8).
+        dim: original number of codes per entry.
+
+    Returns:
+        (..., dim) int16 tensor of codes.
+    """
+    if bits >= 8:
+        return packed[..., :dim].to(torch.int16)
+
+    *batch, n_packed = packed.shape
+    lcm_bits = bits * 8 // gcd(bits, 8)
+    cpg = lcm_bits // bits
+    bpg = lcm_bits // 8
+    n_groups = n_packed // bpg
+
+    packed = packed.reshape(*batch, n_groups, bpg).long()
+    combined = torch.zeros(*batch, n_groups, dtype=torch.int64,
+                           device=packed.device)
+    for b in range(bpg):
+        combined = combined | (packed[..., b] << (b * 8))
+
+    mask = (1 << bits) - 1
+    code_list = [(combined >> (j * bits)) & mask for j in range(cpg)]
+    codes = torch.stack(code_list, dim=-1).reshape(
+        *batch, n_groups * cpg
+    )
+    return codes[..., :dim].to(torch.int16)
+
+
+# ---------------------------------------------------------------------------
+# Random rotation
+# ---------------------------------------------------------------------------
+
 def _random_rotation_matrix(dim: int, device: torch.device) -> torch.Tensor:
     """Generate a random orthogonal matrix via QR decomposition."""
     H = torch.randn(dim, dim, device=device)
     Q, R = torch.linalg.qr(H)
-    # Ensure proper rotation (det = +1)
     d = torch.diag(R)
     ph = d.sign()
     Q = Q * ph.unsqueeze(0)
@@ -81,8 +172,10 @@ class TurboQuantPrototypeStore:
         # Full-precision store (updated on learning events)
         self._fp32 = torch.zeros(n_cols, dim, device=self.device)
 
-        # Stage 1: quantised codes + per-prototype scale/offset
-        self._codes = torch.zeros(n_cols, dim, dtype=torch.int16, device=self.device)
+        # Stage 1: bit-packed codes (uint8) + per-prototype scale/offset
+        pd = _packed_dim(dim, self.bits)
+        self._codes = torch.zeros(n_cols, pd, dtype=torch.uint8,
+                                  device=self.device)
         self._scales = torch.ones(n_cols, device=self.device)
         self._offsets = torch.zeros(n_cols, device=self.device)
 
@@ -124,20 +217,20 @@ class TurboQuantPrototypeStore:
             i = int(idx.item())
             rotated = torch.mv(self.rotation, self._fp32[i])
 
-            # Stage 1: PolarQuant — uniform scalar quantisation
+            # Stage 1: PolarQuant — uniform scalar quantisation + bit-pack
             vmin, vmax = rotated.min().item(), rotated.max().item()
             span = max(vmax - vmin, 1e-8)
             scale = span / (self.n_levels - 1)
             codes = ((rotated - vmin) / scale).round().clamp(
                 0, self.n_levels - 1
-            ).to(torch.int16)
+            )
 
-            self._codes[i] = codes
+            self._codes[i] = pack_codes(codes.unsqueeze(0), self.bits).squeeze(0)
             self._scales[i] = scale
             self._offsets[i] = vmin
 
             # Stage 2: QJL residual correction
-            dequantised = codes.float() * scale + vmin
+            dequantised = codes * scale + vmin
             residual = rotated - dequantised
             self._residual_norms[i] = residual.norm()
             projected = torch.mv(self._projection, residual)  # (m,)
@@ -160,9 +253,10 @@ class TurboQuantPrototypeStore:
         q = F.normalize(query.to(self.device).float(), dim=0)
         q_rot = torch.mv(self.rotation, q)  # (dim,)
 
-        # Stage 1: base inner products via batch decompression
+        # Stage 1: unpack bit-packed codes and decompress
+        unpacked = unpack_codes(self._codes, self.bits, self.dim)  # (n_cols, dim)
         decompressed = (
-            self._codes.float() * self._scales.unsqueeze(1)
+            unpacked.float() * self._scales.unsqueeze(1)
             + self._offsets.unsqueeze(1)
         )
         base_scores = torch.mv(decompressed, q_rot)  # (n_cols,)
@@ -228,9 +322,9 @@ class TurboQuantPrototypeStore:
     # -- memory stats ------------------------------------------------------
 
     def memory_bytes(self) -> dict[str, int | float]:
-        """Report memory usage including QJL overhead."""
+        """Report memory usage with bit-packed codes and QJL overhead."""
         fp32_bytes = self._fp32.nelement() * 4
-        code_bytes = self._codes.nelement() * 2  # int16
+        code_bytes = self._codes.nelement() * 1  # uint8 bit-packed
         meta_bytes = self._scales.nelement() * 4 + self._offsets.nelement() * 4
         rotation_bytes = self.rotation.nelement() * 4
         projection_bytes = self._projection.nelement() * 4
