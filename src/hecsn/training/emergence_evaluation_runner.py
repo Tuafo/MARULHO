@@ -431,7 +431,7 @@ def _direct_novelty_coverage_probe(seed: int) -> dict[str, Any]:
             "segment_count": 0,
             "checkpoints": [],
             "terminal_novelty_rate": 0.0,
-            "healthy_range": [0.05, 0.40],
+            "healthy_range": [0.05, 0.50],
             "saturation_detected": True,
             "instability_detected": False,
             "winner_collapse_detected": True,

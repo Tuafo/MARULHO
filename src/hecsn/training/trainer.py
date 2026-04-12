@@ -286,6 +286,8 @@ class HECSNTrainer:
         self.last_winner: int | None = None
         self.pending_emergency_deep_sleep = False
         self.last_network_reset_token: int = -10**9
+        self._exploration_noise_scale: float = 1.0
+        self._dead_column_census: dict[str, int | float] = {}
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
         self.encoder: BaseEncoder = RTFEncoder.from_config(self.config)
@@ -895,6 +897,23 @@ class HECSNTrainer:
                     lr=0.01,
                 )
 
+        # Dead column census during deep sleep (§4.9)
+        if mode == "deep":
+            comp = self.model.competitive
+            dead_mask = comp.steps_since_win >= comp.dead_column_steps
+            n_dead = int(dead_mask.sum().item())
+            n_total = comp.n_columns
+            dead_pct = 100.0 * n_dead / max(1, n_total)
+            self._dead_column_census = {
+                "n_dead": n_dead,
+                "n_total": n_total,
+                "dead_pct": round(dead_pct, 1),
+            }
+            # Only revive when ≥5% of columns are dead (avoids noise in small nets)
+            if n_dead > 0 and dead_pct >= 5.0:
+                revived = comp.force_revive_dead_columns()
+                self._dead_column_census["revived"] = revived
+
         return applied
 
     def train_step(
@@ -956,6 +975,8 @@ class HECSNTrainer:
         metrics["deep_sleep_emergency"] = int(deep_sleep_emergency)
         metrics["drift_floor"] = float(self.current_rolling_drift_floor if self.current_rolling_drift_floor is not None else drift)
         metrics["drift_floor_rising"] = int(floor_rising)
+        if self._dead_column_census:
+            metrics["dead_column_census"] = self._dead_column_census
 
         if self.token_count < self.config.bootstrap_tokens:
             pred_error = self.bootstrap.update(x)
@@ -976,18 +997,22 @@ class HECSNTrainer:
         if self.token_count >= self.config.bootstrap_tokens:
             self.model.surprise.update_neuromodulators(current_error=recon_error, novelty=min(1.0, recon_error))
 
-        # If sustained norepinephrine exceeds the reset threshold and the cooldown has elapsed,
-        # revive dead columns to re-enable plasticity.  This is the network's self-repair reflex:
-        # persistent prediction failure → column revival → new routing capacity.
-        network_reset_triggered = False
+        # If sustained norepinephrine exceeds the exploration threshold and the cooldown
+        # has elapsed, boost exploration noise and curiosity urgency.  Do NOT reset learned
+        # state — destroying consolidated knowledge at the moment of highest uncertainty
+        # is counterproductive.  Dead column revival is handled during deep sleep census.
+        exploration_boosted = False
         reset_cooldown = self.config.emergency_deep_sleep_cooldown_tokens
         if (
-            self.model.surprise.should_reset_network()
+            self.model.surprise.should_boost_exploration()
             and (self.token_count - self.last_network_reset_token) >= reset_cooldown
         ):
-            self.model.competitive.force_revive_dead_columns(routing_key=routing_key)
+            self._exploration_noise_scale = min(2.0, self._exploration_noise_scale * 1.5)
             self.last_network_reset_token = self.token_count
-            network_reset_triggered = True
+            exploration_boosted = True
+        else:
+            # Gradually decay exploration noise back to baseline
+            self._exploration_noise_scale = max(1.0, self._exploration_noise_scale * 0.99)
 
         local_trace = self._local_trace_from_raw_window(
             raw_window,
@@ -1026,7 +1051,7 @@ class HECSNTrainer:
         #   DA (dopamine): scales LTP gain — positive RPE amplifies learning
         #   5-HT (serotonin): modulates consolidation patience — high 5-HT
         #     suppresses plasticity on consolidated winners (patience gate)
-        #   NE: already wired to network reset via should_reset_network()
+        #   NE: wired to exploration boost via should_boost_exploration()
         #   ACh: already wired to context precision via _context_precision_weight()
         da = self.model.surprise.dopamine
         ht = self.model.surprise.serotonin
@@ -1092,11 +1117,18 @@ class HECSNTrainer:
                     self._recent_visual_frames = self._recent_visual_frames[-self._visual_frame_limit:]
 
             # Periodic self-criticism loop (§7.4)
+            # Runs with ≥3 frames (softer early penalty) or ≥10 frames (full penalty).
+            # During text-only phases this loop is inactive since no visual frames
+            # are buffered — this is a documented design choice, not a bug.
+            n_frames = len(self._recent_visual_frames)
             if (self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
-                    and len(self._recent_visual_frames) >= 10):
+                    and n_frames >= 3):
+                early_stage = n_frames < 10
                 self.model.cross_modal.run_self_criticism(
                     recent_visual_frames=self._recent_visual_frames,
                     blacklist=self._self_criticism_blacklist,
+                    penalty=0.05 if early_stage else 0.10,
+                    blacklist_strikes=3 if early_stage else 2,
                 )
                 self._last_self_criticism_token = self.token_count
 
@@ -1152,7 +1184,8 @@ class HECSNTrainer:
         metrics["serotonin"] = float(self.model.surprise.serotonin)
         metrics["acetylcholine"] = float(self.model.surprise.acetylcholine)
         metrics["norepinephrine"] = float(self.model.surprise.norepinephrine)
-        metrics["network_reset_triggered"] = int(network_reset_triggered)
+        metrics["exploration_boosted"] = int(exploration_boosted)
+        metrics["exploration_noise_scale"] = self._exploration_noise_scale
         metrics["plasticity_mode"] = str(self.config.plasticity_mode)
         metrics["plasticity_spike_backend"] = (
             str(self.model.competitive.local_plasticity.spike_backend)

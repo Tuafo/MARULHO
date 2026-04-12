@@ -65,10 +65,8 @@ CONCRETE_AUDIO_INDICES: frozenset[int] = frozenset({2, 8, 16})
 # grounding is indirect)
 # ---------------------------------------------------------------------------
 ABSTRACT_TRIPLES: tuple[tuple[str, str, str], ...] = (
-    ("democracy", "voting", "monarchy"),
-    ("justice", "fairness", "oppression"),
-    ("theory", "hypothesis", "proof"),
-    ("love", "affection", "hatred"),
+    ("justice", "equality", "tyranny"),
+    ("theory", "hypothesis", "evidence"),
     ("freedom", "liberty", "captivity"),
     ("courage", "bravery", "cowardice"),
     ("wisdom", "knowledge", "ignorance"),
@@ -77,19 +75,22 @@ ABSTRACT_TRIPLES: tuple[tuple[str, str, str], ...] = (
     ("hope", "optimism", "despair"),
     ("grief", "sorrow", "joy"),
     ("progress", "advance", "decline"),
-    ("beauty", "elegance", "ugliness"),
     ("truth", "honesty", "deception"),
     ("power", "authority", "weakness"),
     ("mercy", "compassion", "cruelty"),
     ("pride", "dignity", "shame"),
     ("patience", "endurance", "impatience"),
-    ("friendship", "companion", "enemy"),
     ("ambition", "drive", "apathy"),
     ("honor", "respect", "disgrace"),
     ("curiosity", "wonder", "indifference"),
     ("gratitude", "thankful", "resentment"),
     ("innovation", "creativity", "stagnation"),
-    ("empathy", "understanding", "coldness"),
+    # Purely linguistic/function-word triples — no visual correlate at all
+    ("therefore", "hence", "however"),
+    ("whereas", "unless", "although"),
+    ("perhaps", "possibly", "certainly"),
+    ("moreover", "furthermore", "nevertheless"),
+    ("indeed", "truly", "hardly"),
 )
 
 GROUNDING_PROBE_TRIPLES_50: tuple[tuple[str, str, str], ...] = (

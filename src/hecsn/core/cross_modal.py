@@ -288,17 +288,11 @@ class CrossModalGroundingLayer:
         blacklist: dict[int, int] | None = None,
         blacklist_strikes: int = 2,
     ) -> dict[str, Any]:
-        """Self-criticism loop (§7.4): verify high-confidence groundings.
+        """Visual self-criticism loop (§7.4): verify high-confidence visual groundings.
 
-        For each text dimension with confidence > *confidence_threshold*:
-        1. Generate visual prediction from W_tv.
-        2. Score against *recent_visual_frames*.
-        3. If max alignment < *alignment_floor* → confidence -= penalty,
-           and increment blacklist counter.
-        4. If blacklisted (>= *blacklist_strikes*), zero the association weights
-           for that dimension so re-learning can start fresh.
-
-        Returns dict with statistics (checked, penalised, blacklisted counts).
+        Modality-specific: only affects W_tv/W_vt and visual_confidence.
+        Audio associations (W_ta/W_at/audio_confidence) are untouched — a wrong
+        visual association does not imply a wrong audio association.
         """
         if blacklist is None:
             blacklist = {}
@@ -310,14 +304,12 @@ class CrossModalGroundingLayer:
 
         for idx in high_conf:
             i = int(idx.item())
-            # Generate visual prediction from text dimension i
-            w_row = self.W_tv[i]  # shape (dim_visual,)
+            w_row = self.W_tv[i]
             if w_row.norm() < 1e-6:
                 continue
 
             pred_visual = F.normalize(w_row, dim=0)
 
-            # Score against recent frames
             best_score = 0.0
             for frame in recent_visual_frames:
                 if frame.norm() < 1e-6:
@@ -330,19 +322,79 @@ class CrossModalGroundingLayer:
 
             checked += 1
             if best_score < alignment_floor:
-                # Grounding is probably wrong — reduce confidence
                 self.visual_confidence[i] = max(
                     0.0, float(self.visual_confidence[i]) - penalty
                 )
                 penalised += 1
 
-                # Track blacklist strikes
                 blacklist[i] = blacklist.get(i, 0) + 1
                 if blacklist[i] >= blacklist_strikes:
-                    # Zero association weights so re-learning starts fresh
+                    # Zero ONLY visual association weights
                     self.W_tv[i].zero_()
                     self.W_vt[:, i].zero_()
                     self.visual_confidence[i] = 0.0
+                    blacklisted_count += 1
+
+        return {
+            "checked": checked,
+            "penalised": penalised,
+            "blacklisted": blacklisted_count,
+            "blacklist_state": blacklist,
+        }
+
+    def run_self_criticism_audio(
+        self,
+        recent_audio_frames: list[torch.Tensor],
+        confidence_threshold: float = 0.7,
+        alignment_floor: float = 0.2,
+        penalty: float = 0.10,
+        blacklist: dict[int, int] | None = None,
+        blacklist_strikes: int = 2,
+    ) -> dict[str, Any]:
+        """Audio self-criticism loop: verify high-confidence audio groundings.
+
+        Modality-specific: only affects W_ta/W_at and audio_confidence.
+        Visual associations are untouched.
+        """
+        if blacklist is None:
+            blacklist = {}
+
+        high_conf = (self.audio_confidence > confidence_threshold).nonzero(as_tuple=True)[0]
+        checked = 0
+        penalised = 0
+        blacklisted_count = 0
+
+        for idx in high_conf:
+            i = int(idx.item())
+            w_row = self.W_ta[i]
+            if w_row.norm() < 1e-6:
+                continue
+
+            pred_audio = F.normalize(w_row, dim=0)
+
+            best_score = 0.0
+            for frame in recent_audio_frames:
+                if frame.norm() < 1e-6:
+                    continue
+                frame_norm = F.normalize(frame.flatten()[:pred_audio.shape[0]], dim=0)
+                sim = float(F.cosine_similarity(
+                    pred_audio.unsqueeze(0), frame_norm.unsqueeze(0)
+                ).item())
+                best_score = max(best_score, sim)
+
+            checked += 1
+            if best_score < alignment_floor:
+                self.audio_confidence[i] = max(
+                    0.0, float(self.audio_confidence[i]) - penalty
+                )
+                penalised += 1
+
+                blacklist[i] = blacklist.get(i, 0) + 1
+                if blacklist[i] >= blacklist_strikes:
+                    # Zero ONLY audio association weights
+                    self.W_ta[i].zero_()
+                    self.W_at[:, i].zero_()
+                    self.audio_confidence[i] = 0.0
                     blacklisted_count += 1
 
         return {

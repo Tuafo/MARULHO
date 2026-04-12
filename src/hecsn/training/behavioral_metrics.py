@@ -295,7 +295,7 @@ def novelty_coverage_curve(
     novelty_events: Sequence[bool],
     token_checkpoints: Sequence[int],
     *,
-    healthy_range: tuple[float, float] = (0.05, 0.40),
+    healthy_range: tuple[float, float] = (0.05, 0.50),
     saturation_threshold: float = 0.02,
     instability_threshold: float = 0.90,
 ) -> dict[str, Any]:

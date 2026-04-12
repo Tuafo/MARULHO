@@ -27,6 +27,8 @@ class RoutingBenchmarkResult:
     device: str
     method: str
     ms_per_query: float
+    ms_p95: float = 0.0
+    ms_p99: float = 0.0
     recall_at_k: float = 1.0
     k: int = 32
     n_queries: int = 1000
@@ -253,12 +255,16 @@ def benchmark_routing(
         if dev.type == "cuda":
             torch.cuda.synchronize()
 
-        t0 = time.perf_counter()
+        latencies: list[float] = []
         for i in range(n_queries):
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+            t_start = time.perf_counter()
             router.search(queries[i], k=k)
-        if dev.type == "cuda":
-            torch.cuda.synchronize()
-        t1 = time.perf_counter()
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+            t_end = time.perf_counter()
+            latencies.append((t_end - t_start) * 1000)
 
         recall = router.recall_at_k(n_queries=min(50, n_queries), k=k)
     else:
@@ -271,17 +277,25 @@ def benchmark_routing(
         if dev.type == "cuda":
             torch.cuda.synchronize()
 
-        t0 = time.perf_counter()
+        latencies = []
         for i in range(n_queries):
-            sims = queries[i:i+1] @ prototypes.T
+            q = queries[i:i+1]
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+            t_start = time.perf_counter()
+            sims = q @ prototypes.T
             sims.topk(min(k, n_cols), dim=1)
-        if dev.type == "cuda":
-            torch.cuda.synchronize()
-        t1 = time.perf_counter()
+            if dev.type == "cuda":
+                torch.cuda.synchronize()
+            t_end = time.perf_counter()
+            latencies.append((t_end - t_start) * 1000)
 
         recall = 1.0  # Flat is exact
 
-    ms_per_query = (t1 - t0) * 1000 / n_queries
+    lat_tensor = torch.tensor(latencies)
+    ms_per_query = float(lat_tensor.median().item())
+    ms_p95 = float(lat_tensor.quantile(0.95).item())
+    ms_p99 = float(lat_tensor.quantile(0.99).item())
 
     return RoutingBenchmarkResult(
         n_cols=n_cols,
@@ -289,6 +303,8 @@ def benchmark_routing(
         device=str(dev),
         method=method,
         ms_per_query=ms_per_query,
+        ms_p95=ms_p95,
+        ms_p99=ms_p99,
         recall_at_k=recall,
         k=k,
         n_queries=n_queries,
