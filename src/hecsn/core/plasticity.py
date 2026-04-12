@@ -59,6 +59,7 @@ class LocalPlasticityCircuit:
         plasticity_rule: str = "pair",
         triplet_tau_plus: float = 16.8,
         triplet_tau_minus: float = 33.7,
+        triplet_tau_x: float = 101.0,
         triplet_tau_y: float = 114.0,
         triplet_A2_plus: float = 5e-10,
         triplet_A2_minus: float = 7e-3,
@@ -91,9 +92,10 @@ class LocalPlasticityCircuit:
         if self.plasticity_rule not in {"pair", "triplet"}:
             raise ValueError("plasticity_rule must be 'pair' or 'triplet'")
 
-        # Triplet STDP parameters (Pfister & Gerstner 2006)
+        # Triplet STDP parameters (Pfister & Gerstner 2006, all-to-all model)
         self.triplet_tau_plus = float(triplet_tau_plus)
         self.triplet_tau_minus = float(triplet_tau_minus)
+        self.triplet_tau_x = float(triplet_tau_x)
         self.triplet_tau_y = float(triplet_tau_y)
         self.triplet_A2_plus = float(triplet_A2_plus)
         self.triplet_A2_minus = float(triplet_A2_minus)
@@ -105,8 +107,8 @@ class LocalPlasticityCircuit:
         self.projected_trace = torch.zeros(self.column_dim, device=self.device)
         self.assembly_trace = torch.zeros(self.n_columns, device=self.device)
 
-        # Triplet STDP traces: r1 (pre, τ+), o1 (post-fast, τ-), o2 (post-slow, τy)
-        # r2 (pre-slow) is used in the LTD triplet term
+        # Triplet STDP traces (Pfister & Gerstner 2006, all-to-all model):
+        # r1 (pre-fast, τ+), r2 (pre-slow, τx), o1 (post-fast, τ-), o2 (post-slow, τy)
         self.r1_trace = torch.zeros(self.input_dim, device=self.device)
         self.o1_trace = torch.zeros(self.n_columns, device=self.device)
         self.o2_trace = torch.zeros(self.n_columns, device=self.device)
@@ -140,12 +142,16 @@ class LocalPlasticityCircuit:
         return math.exp(-1.0 / max(self.eligibility_tau, 1e-6))
 
     def _triplet_decays(self) -> tuple[float, float, float, float]:
-        """Decay constants for the four triplet traces: r1, o1, o2, r2."""
+        """Decay constants for the four triplet traces: r1 (τ+), o1 (τ-), o2 (τy), r2 (τx).
+
+        Per Pfister & Gerstner 2006 all-to-all model: r2 uses its own time
+        constant τx (slow pre-synaptic trace), distinct from r1's τ+.
+        """
         return (
             math.exp(-1.0 / max(self.triplet_tau_plus, 1e-6)),
             math.exp(-1.0 / max(self.triplet_tau_minus, 1e-6)),
             math.exp(-1.0 / max(self.triplet_tau_y, 1e-6)),
-            math.exp(-1.0 / max(self.triplet_tau_plus, 1e-6)),  # r2 same as r1
+            math.exp(-1.0 / max(self.triplet_tau_x, 1e-6)),
         )
 
     def inhibition(self, candidates: torch.Tensor | None = None) -> torch.Tensor:

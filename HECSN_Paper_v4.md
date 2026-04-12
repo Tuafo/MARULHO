@@ -388,21 +388,28 @@ class AdaptiveContextLayer:
         Adapt tau via Hebbian rule (no gradient): neurons that contribute to
         context-dependent routing → slow down; neurons contributing little → speed up.
         
+        routing_differentiation: [n_neurons], per-neuron variance of neuron
+        state over a sliding window of recent wake observations.  High
+        variance → neuron differentiates between contexts → increase tau.
+        
         All weight updates are local Hebbian updates, not backprop.
         This preserves the bio-plausible constraint of no end-to-end gradient flow.
         """
-        # routing_differentiation: [n_neurons], computed externally
-        # by measuring how much each neuron changes routing outcomes
-        # under different context primes
-        
-        # Neurons with high differentiation → increase tau (slower)
-        # Neurons with low differentiation → decrease tau (faster)
         lr_tau = 0.001
-        self.log_tau.data += lr_tau * (routing_differentiation - 
-                                        routing_differentiation.mean())
+        self.log_tau += lr_tau * (routing_differentiation - 
+                                    routing_differentiation.mean())
         # Clamp to [log(tau_min), log(tau_max)]
-        self.log_tau.data.clamp_(math.log(2.0), math.log(500.0))
+        self.log_tau.clamp_(math.log(2.0), math.log(500.0))
 ```
+
+**Computing `routing_differentiation` (implemented in `context.py:compute_routing_differentiation`):**
+
+The `routing_differentiation` vector is the per-neuron variance of `neuron_state` over a sliding window of the last 100 wake observations. During each wake `observe()` call (not replay), the current `neuron_state` snapshot is appended to a circular buffer. At deep-sleep time, `compute_routing_differentiation()` stacks the buffer and returns `var(dim=0)` — the variance of each neuron's activity across recent contexts.
+
+- **High variance** neurons: their state changes substantially across different input contexts → they usefully differentiate contexts → τ is increased (slower decay retains context information longer).
+- **Low variance** neurons: their state is context-invariant → they contribute little to routing → τ is decreased (faster decay reduces computational cost).
+
+The update is called once per deep-sleep cycle from the trainer, after SFA correction and dead-column census. Replay and offline context-priming observations are excluded from the buffer to avoid polluting the differentiation signal with artificial state distributions.
 
 **Immediate consequence:** Extending `tau_max` from 15 to 500 tokens means the slow context neurons integrate over approximately 100 English characters — enough for word-level context. Setting `tau_max = 2000` would cover phrase-level context. The cost is memory (each neuron's state is one float per timestep) and the computational overhead of maintaining 500-token-window exponentially-weighted sums. At 256 context neurons this is trivial. The gain in context-dependent routing is expected to be substantial based on the DH-SNN literature.
 
@@ -418,10 +425,13 @@ This is not a minor quantitative correction. Pair-based STDP predicts qualitativ
 
 **The triplet rule (Pfister & Gerstner 2006):**
 
-The minimal triplet model uses three variables:
-- `r1(t)`: pre-synaptic trace (incremented by each pre-spike, decays with τ+)
-- `o1(t)`: post-synaptic fast trace (incremented by each post-spike, decays with τ−)
-- `o2(t)`: post-synaptic slow trace (incremented by each post-spike, decays with τy)
+HECSN implements the **full (all-to-all) triplet model**, which uses four trace variables:
+- `r1(t)`: pre-synaptic fast trace (incremented by each pre-spike, decays with τ+ = 16.8ms)
+- `r2(t)`: pre-synaptic slow trace (incremented by each pre-spike, decays with τx = 101ms)
+- `o1(t)`: post-synaptic fast trace (incremented by each post-spike, decays with τ− = 33.7ms)
+- `o2(t)`: post-synaptic slow trace (incremented by each post-spike, decays with τy = 114ms)
+
+> **Note:** The *minimal* (nearest-spike) model uses only three traces (r1, o1, o2) and the LTD triplet term uses r1. The full model adds a fourth trace r2 with its own time constant τx, which captures the recency of pre-synaptic firing on a slower timescale. HECSN uses the full model because it better captures frequency-dependent plasticity across the entire spike train, not just nearest-neighbour pairs.
 
 Weight update at post-spike time `t_post`:
 ```
@@ -437,8 +447,8 @@ Weight update at pre-spike time `t_pre`:
 
 With A3+ = 0 and A3- = 0, this reduces to the classical pair rule — so triplet STDP is strictly more general.
 
-**Parameters (from hippocampal culture fit, Pfister & Gerstner 2006):**
-- τ+ = 16.8ms, τ− = 33.7ms, τy = 114ms
+**Parameters (from hippocampal culture fit, Pfister & Gerstner 2006 Table 3, all-to-all model):**
+- τ+ = 16.8ms, τ− = 33.7ms, τx = 101ms, τy = 114ms
 - A2+ = 5×10⁻¹⁰, A2- = 7×10⁻³, A3+ = 6.2×10⁻³, A3- = 2.3×10⁻⁴
 
 The key property: `o2(t)` is a slow post-synaptic trace that effectively implements a rate detector. At high burst frequencies, `o2` accumulates and amplifies the LTP term, producing the observed frequency-dependent potentiation.
@@ -451,7 +461,7 @@ The key property: `o2(t)` is a slow post-synaptic trace that effectively impleme
 
 Where `f_sublinear(w) = 1 / (1 + w)` implements the sublinear LTD that prevents weight saturation.
 
-**Implementation cost:** Two additional trace variables per synapse (r2, o2) plus two additional parameters (A3+, A3-). At 15% connectivity density and 10K neurons: ~15M synapses × 2 floats = 30MB additional memory. Negligible at target scale.
+**Implementation cost:** Four trace variables per synapse (r1, r2, o1, o2) plus four time constants (τ+, τx, τ−, τy) and four amplitude parameters (A2+, A2-, A3+, A3-). At 15% connectivity density and 10K neurons: ~15M synapses × 4 floats = 60MB additional memory. Negligible at target scale.
 
 ### 4.5 Kohonen/SOM Competitive Learning: Honest Limitations
 
@@ -759,7 +769,7 @@ def benchmark_routing(n_cols: int, dim: int, n_queries: int = 1000,
 
 IVF is faster than flat at 100K because it searches only top-8 of sqrt(N)=316 cells (~2500 candidates) instead of all 100K.
 
-> **Concurrency note:** IVF centroid reassignment (re-clustering cell boundaries) must not occur during Phase B consolidation, which modifies prototype weights that the centroids index. The correct ordering is: complete Phase B consolidation → update IVF centroids from consolidated prototypes → resume routing. In the current implementation, reassignment is triggered only in the post-consolidation hook (`_post_consolidation_rebuild`), avoiding the race condition. If future work adds background reassignment, this ordering constraint must be preserved.
+> **Concurrency note:** HNSW/IVF index rebuilds must not occur during Phase B consolidation, which modifies prototype weights that the index references. The correct ordering is: complete Phase B consolidation (anchor_lr prototype updates) → rebuild index from consolidated prototypes → resume routing. In the current implementation (`trainer.py:_sleep_replay`), the HNSW rebuild is placed after the consolidation loop completes, ensuring all prototype positions are final before the index is reconstructed. If future work adds background reassignment or parallel rebuilds, this ordering constraint must be preserved.
 
 ### 6.2 TurboQuant Implementation
 
@@ -912,8 +922,10 @@ Secondary Tier (high alignment, moderate scale):
 **Completion criterion:**
 1. Alignment filter precision on held-out pairs (fraction of accepted pairs whose text–visual cosine similarity exceeds 0.5 after one consolidation cycle) > 0.65
 2. Grounding probe accuracy (50-triple) > 0.60
+3. Self-criticism find-rate (fraction of high-confidence groundings flagged as incorrect per cycle) < 10%, measured over a rolling window of the last 5 self-criticism cycles with a minimum of 50 evaluated pairs
+4. Grounding confidence growth rate > 0.001 per 1K tokens, computed as the slope of a linear fit to the last 10K tokens of grounding confidence history
 
-> **Note:** The v3 criterion referenced "HTM-AA benchmark" which is external and not measurable within the HECSN pipeline. The criterion above uses only internal metrics: alignment filter precision is measured on the last 1000 pairs held out during training, and grounding probe accuracy uses the 50-triple evaluation suite (§8.7).
+> **Note:** The v3 criterion referenced "HTM-AA benchmark" which is external and not measurable within the HECSN pipeline. Criteria 1–2 use internal metrics: alignment filter precision is measured on the last 1,000 pairs held out during training, and grounding probe accuracy uses the 50-triple evaluation suite (§8.7). Criteria 3–4 are fully self-monitored and require no external ground truth — the system can autonomously detect when Stage 2 is complete.
 
 ### 7.4 Stage 3: Active Confirmation-Seeking
 
@@ -1035,13 +1047,22 @@ Random: ~0.50. Emerging structure: 0.55–0.65. Real compositionality: > 0.65.
 ...
 ```
 
-**Abstract triples (25):** Social/relational concepts (harder — perceptual grounding is indirect)
+**Abstract triples (25):** Social/relational concepts and function-word triples (harder — perceptual grounding is indirect or absent)
 ```
-("democracy", "voting", "monarchy")
-("justice", "fairness", "oppression")
-("theory", "hypothesis", "proof")
+("justice", "equality", "tyranny")
+("theory", "hypothesis", "evidence")
+("freedom", "liberty", "captivity")
+("courage", "bravery", "cowardice")
+("wisdom", "knowledge", "ignorance")
 ...
+("therefore", "hence", "however")        [function-word: no visual correlate]
+("whereas", "unless", "although")        [function-word: no visual correlate]
+("perhaps", "possibly", "certainly")     [function-word: no visual correlate]
+("moreover", "furthermore", "nevertheless")
+("indeed", "truly", "hardly")
 ```
+
+> **Design note (v4.3):** The v4.1 abstract set included triples like ("democracy", "voting", "monarchy") where "voting" has clear visual correlates (polling stations, ballot papers, queues). This inflates the abstract-category score and shrinks the concreteness gap, making the central test easier to pass for the wrong reason. The current set replaces all visually concrete anchors with purely relational/dispositional concepts and adds five function-word triples that have *no* visual correlate at all. This ensures the concreteness gap genuinely measures perceptual grounding rather than incidental visual associations.
 
 Primary threshold (with multimodal training): **grounding probe > 0.65**
 
@@ -1109,7 +1130,7 @@ Prediction error trajectory is from real Wikipedia training (1,152 tokens), mono
 
 **Tokens 0–128:** Reconstruction error high (pred_error = 1.63 nats, KL divergence). Dopamine near zero (0.006 — no prediction baseline yet). Chunk size unstable. Temporal coherence low. This is correct behavior — the bootstrap phase is doing its job.
 
-> **Units note:** All prediction error values in this paper are KL divergence measured in **nats** (natural units, base-e). The `PredictiveBootstrap` module computes `KL(p_actual || p_predicted)` between actual and predicted next-byte probability distributions. For reference, a uniform-prediction baseline yields ~5.5 nats on English text; a well-tuned 4-gram character model achieves ~2.5–3.0 nats. HECSN's trajectory from 1.63 to 0.66 nats in 1,152 tokens already outperforms the 4-gram baseline regime, though formal 4-gram comparison has not been run.
+> **Units note:** All prediction error values in this paper are KL divergence measured in **nats** (natural units, base-e). The `PredictiveBootstrap` module computes `KL(p_actual || p_predicted)` between actual and predicted next-byte probability distributions. For reference, a uniform-prediction baseline yields ~5.5 nats on English text; a well-tuned 4-gram character model trained on a large corpus achieves ~2.5–3.0 nats on held-out data. HECSN's training error reaches 0.66 nats at 1,152 tokens — this is measured on training data, not held-out. A direct comparison against a 4-gram baseline would require evaluating both models on the same held-out window from the same corpus; this experiment has not been run. The 4-gram reference range (2.5–3.0 nats) is for well-trained models evaluated on held-out text from large corpora and cannot be directly compared to HECSN's training-set trajectory.
 
 **Tokens 128–256:** Rapid improvement begins. Prediction error drops to 1.20. Dopamine rises to 0.431 as RPE becomes positive (error dropping faster than baseline). First micro-sleep triggered at token 256 — the network autonomously detects "enough new information to consolidate."
 
@@ -1233,7 +1254,7 @@ Adaptive timescale context with learnable tau not yet implemented. Current imple
 - `ChunkingLayer` implemented with statistical chunking, learned boundary detection
 - `AbstractionLayer` with online SFA (slow-feature analysis), anti-Hebbian learning
 - Routing bias and boundary bias validated
-- *Mini-batch SFA during deep sleep not yet implemented (see §4.8 critique)*
+- ✅ Mini-batch SFA correction during deep sleep: `abstraction_layer.sfa_correction_step()` called with samples from `memory_store.sample_for_sfa()` during each deep-sleep cycle (trainer.py lines 889–898)
 
 ### Phase 4: Fragility-Gated Sleep ✅ COMPLETE
 
@@ -1258,7 +1279,7 @@ Self-criticism loop implemented and tested. Alignment filter implemented and tes
 
 ### Phase 8: Paper ⬜ IN PROGRESS
 
-This paper (HECSN_Paper_v4.md, v4.1) is the current publication draft. Architecture complete, results partially validated, remaining work identified. 8–10 page submission format not yet prepared.
+This paper (HECSN_Paper_v4.md, v4.3) is the current publication draft. Architecture complete, results partially validated, remaining work identified. 8–10 page submission format not yet prepared.
 
 ---
 
@@ -1346,6 +1367,16 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 - Real training validated on Wikipedia streaming data
 - Test suite expanded from 167 to 440 passed tests
 
+**v4.3 additions:**
+- Triplet STDP corrected to full all-to-all model with 4 traces (r1, r2, o1, o2) per Pfister & Gerstner 2006; r2 now uses independent τx = 101ms (was incorrectly using τ+ = 16.8ms)
+- AdaptiveContextLayer: `compute_routing_differentiation()` implemented as per-neuron variance over sliding window; `update_timescales()` wired into deep-sleep cycle
+- Mini-batch SFA marked as implemented (was incorrectly listed as pending)
+- Abstract triple examples corrected: removed visually concrete words ("voting"), added function-word triples
+- 4-gram comparison in §9.1 corrected: explicitly states training-data measurement, not held-out
+- Stage 2 completion criteria now include self-monitored thresholds (find-rate < 10%, growth > 0.001/1K)
+- HNSW rebuild ordering documented with explicit code reference
+- Paper pseudocode fixed: removed `.data` accessor on non-parameter tensor
+
 ### 12.4 What Remains Unimplemented (Honest Assessment)
 
 The following paper-described components are **not yet implemented** or are **config-only stubs**:
@@ -1353,8 +1384,8 @@ The following paper-described components are **not yet implemented** or are **co
 | Component | Status | Blocker |
 |---|---|---|
 | Binding Layer (Layer 6) | Config exists, no runtime | Needs sparse connectivity + grow() |
-| Adaptive Context Layer | Fixed 3-timescale STC | Needs learnable tau per neuron |
-| Mini-batch SFA during sleep | Not implemented | §4.8 identifies this as important |
+| Adaptive Context Layer | ✅ Implemented | Per-neuron tau with routing_differentiation; update_timescales wired into deep sleep |
+| Mini-batch SFA during sleep | ✅ Implemented | sfa_correction_step called during deep sleep (trainer.py:889–898) |
 | EventCameraEncoder | Not implemented | Blocks multimodal Stage 1 |
 | CochleagramEncoder | Not implemented | Blocks multimodal Stage 1 |
 | Multimodal data loaders | Not implemented | MNIST-DVS, TI-46, HTM-AA needed |
@@ -1473,7 +1504,7 @@ The following paper-described components are **not yet implemented** or are **co
 
 *Thiago Maceno Rocha Goulart · Brasil · github.com/Tuafo*
 
-*HECSN v4.2 — Hierarchical Emergent Concept Spiking Networks: Developmental Architecture with Honest Critique*
+*HECSN v4.3 — Hierarchical Emergent Concept Spiking Networks: Developmental Architecture with Honest Critique*
 
 *PyTorch 2.1+ · pip install -e . · FastAPI/Uvicorn · React/Vite*
 

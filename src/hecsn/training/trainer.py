@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.abstraction import AbstractionLayer
 from hecsn.core.columns import CompetitiveColumnLayer
-from hecsn.core.context import BindingLayer, ContextLayer, create_context_layer
+from hecsn.core.context import AdaptiveContextLayer, BindingLayer, ContextLayer, create_context_layer
 from hecsn.core.cross_modal import CrossModalGroundingLayer
 from hecsn.core.surprise import SurpriseMonitor
 from hecsn.consolidation.memory_store import DualMemoryStore
@@ -68,6 +68,7 @@ class HECSNModelLite:
             plasticity_rule=self.config.plasticity_rule,
             triplet_tau_plus=self.config.triplet_tau_plus,
             triplet_tau_minus=self.config.triplet_tau_minus,
+            triplet_tau_x=self.config.triplet_tau_x,
             triplet_tau_y=self.config.triplet_tau_y,
             triplet_A2_plus=self.config.triplet_A2_plus,
             triplet_A2_minus=self.config.triplet_A2_minus,
@@ -851,6 +852,9 @@ class HECSNTrainer:
 
         if applied > 0:
             if mode == "deep":
+                # HNSW approximate index rebuild AFTER consolidation loop (§4.8).
+                # Avoids stale-cell issue: prototype positions shift during
+                # anchor_lr updates above; rebuilding now uses final positions.
                 uniq = sorted(set(updated_ids))
                 id_arr = np.asarray(uniq, dtype=np.int64)
                 vecs = self.model.competitive.prototypes[id_arr].detach()
@@ -913,6 +917,12 @@ class HECSNTrainer:
             if n_dead > 0 and dead_pct >= 5.0:
                 revived = comp.force_revive_dead_columns()
                 self._dead_column_census["revived"] = revived
+
+        # Adaptive timescale update during deep sleep (§4.3)
+        if mode == "deep" and isinstance(self.model.context_layer, AdaptiveContextLayer):
+            rd = self.model.context_layer.compute_routing_differentiation()
+            if rd.sum().item() > 0:
+                self.model.context_layer.update_timescales(rd)
 
         return applied
 

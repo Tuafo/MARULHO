@@ -25,6 +25,7 @@ class HECSNConfig:
     # Triplet STDP parameters (Pfister & Gerstner 2006, hippocampal fit)
     triplet_tau_plus: float = 16.8
     triplet_tau_minus: float = 33.7
+    triplet_tau_x: float = 101.0
     triplet_tau_y: float = 114.0
     triplet_A2_plus: float = 5e-10
     triplet_A2_minus: float = 7e-3

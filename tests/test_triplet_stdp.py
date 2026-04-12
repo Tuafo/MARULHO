@@ -97,6 +97,7 @@ class TestTripletSTDPInit(unittest.TestCase):
         c = _make_circuit("triplet")
         self.assertAlmostEqual(c.triplet_tau_plus, 16.8, places=1)
         self.assertAlmostEqual(c.triplet_tau_minus, 33.7, places=1)
+        self.assertAlmostEqual(c.triplet_tau_x, 101.0, places=1)
         self.assertAlmostEqual(c.triplet_tau_y, 114.0, places=1)
 
 
@@ -177,11 +178,14 @@ class TestTripletDecays(unittest.TestCase):
         expected_r1 = math.exp(-1.0 / 16.8)
         expected_o1 = math.exp(-1.0 / 33.7)
         expected_o2 = math.exp(-1.0 / 114.0)
+        expected_r2 = math.exp(-1.0 / 101.0)
 
         self.assertAlmostEqual(dr1, expected_r1, places=6)
         self.assertAlmostEqual(do1, expected_o1, places=6)
         self.assertAlmostEqual(do2, expected_o2, places=6)
-        self.assertEqual(dr2, dr1)  # r2 same tau as r1
+        self.assertAlmostEqual(dr2, expected_r2, places=6)
+        # r2 (pre-slow, τx=101) must have a DIFFERENT decay from r1 (pre-fast, τ+=16.8)
+        self.assertNotAlmostEqual(dr2, dr1, places=4)
 
     def test_o2_decays_slower_than_o1(self) -> None:
         c = _make_circuit("triplet")

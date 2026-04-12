@@ -1,0 +1,10 @@
+torch>=2.0
+numpy
+fastapi
+uvicorn[standard]
+datasets
+tiktoken
+
+[dev]
+pytest
+httpx

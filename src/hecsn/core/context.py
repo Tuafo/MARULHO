@@ -280,9 +280,14 @@ class AdaptiveContextLayer:
         w_out = torch.randn(self.n_columns, self.n_neurons, device=device) * 0.1
         self.w_out = w_out / (torch.norm(w_out, dim=1, keepdim=True) + 1e-8)
 
+        # Sliding window for routing_differentiation computation (§4.3)
+        self._neuron_state_buffer: list[torch.Tensor] = []
+        self._neuron_state_buffer_maxlen = 100
+
     def reset_state(self) -> None:
         self.neuron_state.zero_()
         self.state.zero_()
+        self._neuron_state_buffer.clear()
 
     def _tau(self) -> torch.Tensor:
         """Effective time constants, clamped to [tau_min, tau_max]."""
@@ -379,7 +384,29 @@ class AdaptiveContextLayer:
             norms = torch.norm(self.w_in, dim=1, keepdim=True)
             self.w_in = self.w_in / (norms + 1e-8)
 
+        # Record neuron state snapshot for routing_differentiation (wake only)
+        if update_weights:
+            self._neuron_state_buffer.append(self.neuron_state.detach().clone())
+            if len(self._neuron_state_buffer) > self._neuron_state_buffer_maxlen:
+                self._neuron_state_buffer.pop(0)
+
         return self.state
+
+    def compute_routing_differentiation(self) -> torch.Tensor:
+        """Per-neuron variance over recent observations (§4.3).
+
+        High variance means the neuron's state changes substantially across
+        different input contexts → it differentiates between contexts →
+        increase its tau so it integrates more slowly and retains context
+        longer.  Low variance → neuron is context-invariant → decrease tau.
+
+        Returns a tensor of shape [n_neurons].  Returns zeros if fewer than
+        10 observations have been collected.
+        """
+        if len(self._neuron_state_buffer) < 10:
+            return torch.zeros(self.n_neurons, device=self.device)
+        stacked = torch.stack(self._neuron_state_buffer)  # [T, n_neurons]
+        return stacked.var(dim=0)  # [n_neurons]
 
     def update_timescales(
         self,
