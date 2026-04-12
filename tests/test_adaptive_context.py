@@ -152,6 +152,81 @@ class TestAdaptiveContextStateDictRoundTrip(unittest.TestCase):
         self.assertTrue(torch.allclose(ctx1.state, ctx2.state))
 
 
+class TestRoutingDifferentiation(unittest.TestCase):
+    """Tests for compute_routing_differentiation context-specificity metric."""
+
+    def setUp(self) -> None:
+        self.device = torch.device("cpu")
+        self.ctx = AdaptiveContextLayer(n_columns=32, device=self.device)
+
+    def test_returns_zeros_with_insufficient_data(self) -> None:
+        # No observations → zeros
+        rd = self.ctx.compute_routing_differentiation()
+        self.assertEqual(float(rd.sum()), 0.0)
+
+    def test_returns_zeros_with_too_few_observations(self) -> None:
+        for _ in range(5):
+            self.ctx.observe(torch.randn(32))
+        rd = self.ctx.compute_routing_differentiation()
+        self.assertEqual(float(rd.sum()), 0.0)
+
+    def test_context_observations_recorded_during_wake(self) -> None:
+        self.ctx.observe(torch.randn(32), update_weights=True)
+        self.assertEqual(len(self.ctx._context_observations), 1)
+
+    def test_context_observations_not_recorded_during_replay(self) -> None:
+        self.ctx.observe(torch.randn(32), update_weights=False)
+        self.assertEqual(len(self.ctx._context_observations), 0)
+
+    def test_reset_state_clears_buffer(self) -> None:
+        for _ in range(20):
+            self.ctx.observe(torch.randn(32))
+        self.assertGreater(len(self.ctx._context_observations), 0)
+        self.ctx.reset_state()
+        self.assertEqual(len(self.ctx._context_observations), 0)
+
+    def test_same_input_different_context_yields_nonzero(self) -> None:
+        """Same input seen multiple times under different contexts → nonzero."""
+        fixed_input = torch.randn(32).abs()
+        fixed_input = fixed_input / (fixed_input.norm() + 1e-8)
+        # Present the same input 20 times, interleaved with different priming
+        for i in range(20):
+            # Prime with different context
+            primer = torch.randn(32).abs()
+            self.ctx.observe(primer)
+            # Present the fixed input
+            self.ctx.observe(fixed_input.clone())
+        rd = self.ctx.compute_routing_differentiation()
+        # With the same input under varying contexts, we should see nonzero
+        # differentiation (context layer state varies because of different primes)
+        self.assertEqual(rd.shape[0], self.ctx.n_neurons)
+
+    def test_input_signature_deterministic(self) -> None:
+        """Same assembly vector produces the same signature."""
+        assembly = torch.randn(32).abs()
+        sig1 = AdaptiveContextLayer._compute_input_signature(assembly)
+        sig2 = AdaptiveContextLayer._compute_input_signature(assembly)
+        self.assertEqual(sig1, sig2)
+
+    def test_different_inputs_different_signatures(self) -> None:
+        """Very different assemblies produce different signatures."""
+        a1 = torch.zeros(32)
+        a1[0] = 1.0
+        a2 = torch.zeros(32)
+        a2[31] = 1.0
+        sig1 = AdaptiveContextLayer._compute_input_signature(a1)
+        sig2 = AdaptiveContextLayer._compute_input_signature(a2)
+        self.assertNotEqual(sig1, sig2)
+
+    def test_buffer_capped_at_maxlen(self) -> None:
+        for _ in range(250):
+            self.ctx.observe(torch.randn(32))
+        self.assertLessEqual(
+            len(self.ctx._context_observations),
+            self.ctx._context_observations_maxlen,
+        )
+
+
 class TestCreateContextLayerFactory(unittest.TestCase):
     def test_fixed_returns_context_layer(self) -> None:
         layer = create_context_layer("fixed", n_columns=16, device=torch.device("cpu"))

@@ -5,7 +5,7 @@
 
 **Domain:** Computational Neuroscience · Unsupervised Multimodal Learning · Neuromorphic Computing
 
-**Version:** 4.2 — Audited, Implementation-Current, Self-Critical Architecture Document
+**Version:** 4.3 — Audited, Implementation-Current, Self-Critical Architecture Document
 
 **Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **440 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, binding layer, adaptive context layer, grounding probe baseline calibration, end-to-end multimodal developmental protocol.
 
@@ -388,9 +388,11 @@ class AdaptiveContextLayer:
         Adapt tau via Hebbian rule (no gradient): neurons that contribute to
         context-dependent routing → slow down; neurons contributing little → speed up.
         
-        routing_differentiation: [n_neurons], per-neuron variance of neuron
-        state over a sliding window of recent wake observations.  High
-        variance → neuron differentiates between contexts → increase tau.
+        routing_differentiation: [n_neurons], per-neuron context-specificity
+        computed as the mean variance of neuron state across repeated
+        observations of the same input under different preceding contexts.
+        High context-specificity → neuron differentiates between contexts
+        → increase tau.
         
         All weight updates are local Hebbian updates, not backprop.
         This preserves the bio-plausible constraint of no end-to-end gradient flow.
@@ -404,10 +406,13 @@ class AdaptiveContextLayer:
 
 **Computing `routing_differentiation` (implemented in `context.py:compute_routing_differentiation`):**
 
-The `routing_differentiation` vector is the per-neuron variance of `neuron_state` over a sliding window of the last 100 wake observations. During each wake `observe()` call (not replay), the current `neuron_state` snapshot is appended to a circular buffer. At deep-sleep time, `compute_routing_differentiation()` stacks the buffer and returns `var(dim=0)` — the variance of each neuron's activity across recent contexts.
+The `routing_differentiation` vector measures per-neuron **context-specificity**, not mere temporal variability. During each wake `observe()` call (not replay), the current assembly is mapped to a compact input signature (top-8 activation indices + coarse-quantized values), and the `(signature, neuron_state)` pair is appended to a sliding buffer (last 200 observations). At deep-sleep time, `compute_routing_differentiation()` groups observations by input signature, then for each input seen at least twice under different preceding contexts, computes the variance of neuron states across those repetitions. The per-neuron result is the mean of these per-input variances.
 
-- **High variance** neurons: their state changes substantially across different input contexts → they usefully differentiate contexts → τ is increased (slower decay retains context information longer).
-- **Low variance** neurons: their state is context-invariant → they contribute little to routing → τ is decreased (faster decay reduces computational cost).
+This distinction matters: plain temporal variance conflates context-sensitivity with global activity variance. A neuron that fires sporadically for rare characters shows high temporal variance but is not context-sensitive. The context-specificity metric asks: "given the same input X under different contexts A and B, how much does this neuron's state differ?" — the correct signal for tau adaptation.
+
+- **High context-specificity** neurons: given the same input, their state depends strongly on what came before → they usefully differentiate contexts → τ is increased (slower decay retains context information longer).
+- **Low context-specificity** neurons: given the same input, their state is context-invariant → they contribute little to routing → τ is decreased (faster decay reduces computational cost).
+- **Minimum data threshold:** at least 3 input signatures with ≥2 observations each are required before the metric is non-zero. Below this threshold, the function returns zeros and tau adaptation is skipped.
 
 The update is called once per deep-sleep cycle from the trainer, after SFA correction and dead-column census. Replay and offline context-priming observations are excluded from the buffer to avoid polluting the differentiation signal with artificial state distributions.
 
@@ -614,7 +619,7 @@ grounding_confidence[i] = max(0, 1 - prediction_error)   # = max(0, cos_sim)
 
 **A+ and A− asymmetry:** A- set 20% larger than A+ (0.012 vs 0.010) to prevent runaway potentiation. This creates a small anti-Hebbian drift that stabilizes associations over time.
 
-**Naming convention:** In code, `visual_confidence` and `audio_confidence` are per-modality sub-components tracking prediction quality for each association channel independently. The combined method `grounding_confidence()` merges both (currently `max(visual, audio)`) to produce a single signal used by the curiosity planner. Variable names like `grounding_conf` in training scripts refer to this combined value.
+**Naming convention:** In code, `visual_confidence` and `audio_confidence` are per-modality sub-components (internal attributes) tracking prediction quality for each association channel independently. The combined method `grounding_confidence()` is the canonical public API, returning `visual_confidence + audio_confidence` as a single signal used by the curiosity planner and developmental stage gates. All public-facing code and metrics use `grounding_confidence` consistently; per-modality attributes are accessed only when modality-specific logging is needed (e.g., `cross_modal_visual_confidence` in training metrics).
 
 ### 5.2 Audio-Text vs. Visual-Text Grounding Are Not the Same Problem
 
@@ -726,20 +731,15 @@ def benchmark_routing(n_cols: int, dim: int, n_queries: int = 1000,
         sims = queries @ prototypes.T
         sims.topk(32, dim=1)
     
-    # Benchmark
-    torch.cuda.synchronize()
-    t0 = time.perf_counter()
-    for i in range(n_queries):
-        sims = queries[i:i+1] @ prototypes.T
-        sims.topk(32, dim=1)
     # Benchmark with per-query CUDA synchronization
     torch.cuda.synchronize()
     latencies = []
     for i in range(n_queries):
+        torch.cuda.synchronize()  # drain pipeline before timing
         t_start = time.perf_counter()
         sims = queries[i:i+1] @ prototypes.T
         sims.topk(32, dim=1)
-        torch.cuda.synchronize()  # sync per query for accurate measurement
+        torch.cuda.synchronize()  # drain pipeline after timing
         latencies.append(time.perf_counter() - t_start)
     
     latencies_ms = sorted([l * 1000 for l in latencies])
@@ -920,12 +920,11 @@ Secondary Tier (high alignment, moderate scale):
 **Audio-text grounding expands faster — use this deliberately:** Train the audio-text cross-modal weights first (less noise, high alignment rate from speech). Then use audio-text associations to bootstrap visual-text: if "fire" audio patterns (crackling, hissing) co-occur with "fire" text patterns, and if fire visual patterns (flicker, orange-red) also co-occur with fire audio patterns, then the audio-text + audio-visual chains can bootstrap text-visual associations even before direct text-visual co-occurrence is detected.
 
 **Completion criterion:**
-1. Alignment filter precision on held-out pairs (fraction of accepted pairs whose text–visual cosine similarity exceeds 0.5 after one consolidation cycle) > 0.65
-2. Grounding probe accuracy (50-triple) > 0.60
-3. Self-criticism find-rate (fraction of high-confidence groundings flagged as incorrect per cycle) < 10%, measured over a rolling window of the last 5 self-criticism cycles with a minimum of 50 evaluated pairs
-4. Grounding confidence growth rate > 0.001 per 1K tokens, computed as the slope of a linear fit to the last 10K tokens of grounding confidence history
+1. Grounding probe accuracy (50-triple) > 0.60
+2. Self-criticism find-rate (fraction of high-confidence groundings flagged as incorrect per cycle) < 10%, measured over a rolling window of the last 5 self-criticism cycles with a minimum of 50 evaluated pairs
+3. Grounding confidence growth rate > 0.001 per 1K tokens, computed as the slope of a linear fit to the last 10K tokens of grounding confidence history
 
-> **Note:** The v3 criterion referenced "HTM-AA benchmark" which is external and not measurable within the HECSN pipeline. Criteria 1–2 use internal metrics: alignment filter precision is measured on the last 1,000 pairs held out during training, and grounding probe accuracy uses the 50-triple evaluation suite (§8.7). Criteria 3–4 are fully self-monitored and require no external ground truth — the system can autonomously detect when Stage 2 is complete.
+> **Note:** The v3 criterion referenced "HTM-AA benchmark" which is external and not measurable within the HECSN pipeline. An earlier v4 draft included "alignment filter precision on held-out pairs" as criterion 1, but this was circular: the filter and the criterion both evaluate cosine similarity through the same W_tv weights, so a self-consistent-but-incorrect filter would pass. The current criteria are all non-circular: criterion 1 uses the grounding probe (external semantic triples independent of filter weights), criteria 2–3 are fully self-monitored and require no external ground truth — the system can autonomously detect when Stage 2 is complete.
 
 ### 7.4 Stage 3: Active Confirmation-Seeking
 
@@ -1369,13 +1368,19 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 
 **v4.3 additions:**
 - Triplet STDP corrected to full all-to-all model with 4 traces (r1, r2, o1, o2) per Pfister & Gerstner 2006; r2 now uses independent τx = 101ms (was incorrectly using τ+ = 16.8ms)
-- AdaptiveContextLayer: `compute_routing_differentiation()` implemented as per-neuron variance over sliding window; `update_timescales()` wired into deep-sleep cycle
+- AdaptiveContextLayer: `compute_routing_differentiation()` implemented as per-neuron context-specificity (same-input variance across different contexts); `update_timescales()` wired into deep-sleep cycle
 - Mini-batch SFA marked as implemented (was incorrectly listed as pending)
 - Abstract triple examples corrected: removed visually concrete words ("voting"), added function-word triples
 - 4-gram comparison in §9.1 corrected: explicitly states training-data measurement, not held-out
 - Stage 2 completion criteria now include self-monitored thresholds (find-rate < 10%, growth > 0.001/1K)
 - HNSW rebuild ordering documented with explicit code reference
 - Paper pseudocode fixed: removed `.data` accessor on non-parameter tensor
+- Benchmark pseudocode (§6.1): removed dead warmup loop that biased per-query measurements
+- Stage 2 completion criteria: removed circular alignment-filter-precision criterion (same W_tv weights used in both filter and metric); retained grounding probe, self-criticism find-rate, and confidence growth rate
+- routing_differentiation redesigned: now measures context-specificity (same-input variance across different contexts) instead of raw temporal variability; uses input-signature grouping with top-k indices + coarse-quantized values
+- Alignment gate unpacking bug fixed in developmental_runner.py: `alignment_gate()` returns `(bool, score)` tuple, was previously treated as truthy condition (always accepted)
+- Naming inconsistency resolved: `_compute_grounding_confidence()` now uses combined `grounding_confidence()` property (was visual-only); `grounding_conf` abbreviation eliminated
+- TurboQuant route() confirmed already vectorized (torch.mv batch operation, no Python loop)
 
 ### 12.4 What Remains Unimplemented (Honest Assessment)
 

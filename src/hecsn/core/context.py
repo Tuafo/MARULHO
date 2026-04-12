@@ -280,14 +280,17 @@ class AdaptiveContextLayer:
         w_out = torch.randn(self.n_columns, self.n_neurons, device=device) * 0.1
         self.w_out = w_out / (torch.norm(w_out, dim=1, keepdim=True) + 1e-8)
 
-        # Sliding window for routing_differentiation computation (§4.3)
-        self._neuron_state_buffer: list[torch.Tensor] = []
-        self._neuron_state_buffer_maxlen = 100
+        # Context-specificity buffer for routing_differentiation (§4.3).
+        # Each entry is (input_signature, neuron_state_snapshot).
+        # input_signature groups observations by "what input was presented"
+        # so we can measure "how much did different contexts change the response."
+        self._context_observations: list[tuple[tuple[int, ...], torch.Tensor]] = []
+        self._context_observations_maxlen = 200
 
     def reset_state(self) -> None:
         self.neuron_state.zero_()
         self.state.zero_()
-        self._neuron_state_buffer.clear()
+        self._context_observations.clear()
 
     def _tau(self) -> torch.Tensor:
         """Effective time constants, clamped to [tau_min, tau_max]."""
@@ -384,29 +387,68 @@ class AdaptiveContextLayer:
             norms = torch.norm(self.w_in, dim=1, keepdim=True)
             self.w_in = self.w_in / (norms + 1e-8)
 
-        # Record neuron state snapshot for routing_differentiation (wake only)
+        # Record (input_signature, neuron_state) for routing_differentiation (wake only)
         if update_weights:
-            self._neuron_state_buffer.append(self.neuron_state.detach().clone())
-            if len(self._neuron_state_buffer) > self._neuron_state_buffer_maxlen:
-                self._neuron_state_buffer.pop(0)
+            sig = self._compute_input_signature(current)
+            self._context_observations.append((sig, self.neuron_state.detach().clone()))
+            if len(self._context_observations) > self._context_observations_maxlen:
+                self._context_observations.pop(0)
 
         return self.state
 
-    def compute_routing_differentiation(self) -> torch.Tensor:
-        """Per-neuron variance over recent observations (§4.3).
+    @staticmethod
+    def _compute_input_signature(assembly: torch.Tensor, k: int = 8) -> tuple[int, ...]:
+        """Compact hash of assembly for grouping same-input observations.
 
-        High variance means the neuron's state changes substantially across
-        different input contexts → it differentiates between contexts →
-        increase its tau so it integrates more slowly and retains context
-        longer.  Low variance → neuron is context-invariant → decrease tau.
+        Uses top-k indices + coarse quantized values (3 bins: low/mid/high)
+        to group observations by input identity while tolerating minor noise.
+        """
+        k_actual = min(k, assembly.numel())
+        vals, idxs = torch.topk(assembly.abs(), k_actual)
+        # Quantize values into 3 bins for noise tolerance
+        if vals.max() > 0:
+            normalised = vals / vals.max()
+        else:
+            normalised = vals
+        bins = (normalised * 2.99).long().clamp(0, 2)  # 0, 1, 2
+        # Interleave: (idx0, bin0, idx1, bin1, ...)
+        parts: list[int] = []
+        for i in range(k_actual):
+            parts.append(int(idxs[i].item()))
+            parts.append(int(bins[i].item()))
+        return tuple(parts)
+
+    def compute_routing_differentiation(self) -> torch.Tensor:
+        """Per-neuron context-specificity over recent observations (§4.3).
+
+        Groups observations by input signature (what assembly was presented),
+        then for each input seen multiple times under different preceding
+        contexts, computes the variance of neuron states.  High variance for
+        the *same* input means the neuron is context-sensitive — its state
+        depends on what came before, not just the current stimulus.
 
         Returns a tensor of shape [n_neurons].  Returns zeros if fewer than
-        10 observations have been collected.
+        3 input signatures have been observed at least twice.
         """
-        if len(self._neuron_state_buffer) < 10:
+        if len(self._context_observations) < 10:
             return torch.zeros(self.n_neurons, device=self.device)
-        stacked = torch.stack(self._neuron_state_buffer)  # [T, n_neurons]
-        return stacked.var(dim=0)  # [n_neurons]
+
+        # Group neuron states by input signature
+        groups: dict[tuple[int, ...], list[torch.Tensor]] = {}
+        for sig, state in self._context_observations:
+            groups.setdefault(sig, []).append(state)
+
+        # Compute per-neuron variance within each group that has ≥2 observations
+        variances: list[torch.Tensor] = []
+        for states in groups.values():
+            if len(states) >= 2:
+                stacked = torch.stack(states)  # [n_repeats, n_neurons]
+                variances.append(stacked.var(dim=0))  # [n_neurons]
+
+        if len(variances) < 3:
+            return torch.zeros(self.n_neurons, device=self.device)
+
+        return torch.stack(variances).mean(dim=0)  # [n_neurons]
 
     def update_timescales(
         self,

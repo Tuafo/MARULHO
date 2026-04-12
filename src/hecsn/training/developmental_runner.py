@@ -64,8 +64,8 @@ def _make_config_for_stage(
 
 
 def _compute_grounding_confidence(cross_modal: CrossModalGroundingLayer) -> float:
-    """Compute mean grounding confidence across top-100 text dims."""
-    conf = cross_modal.visual_confidence.detach()
+    """Compute mean grounding confidence (visual + audio) across top-100 text dims."""
+    conf = cross_modal.grounding_confidence().detach()
     if conf.numel() == 0:
         return 0.0
     top_k = min(100, conf.numel())
@@ -164,9 +164,9 @@ def run_stage_1(
             model.cross_modal.on_visual_spike(visual_spike)
             model.cross_modal.on_audio_spike(audio_spike)
 
-    grounding_conf = 0.0
+    grounding_confidence = 0.0
     if model.cross_modal is not None:
-        grounding_conf = _compute_grounding_confidence(model.cross_modal)
+        grounding_confidence = _compute_grounding_confidence(model.cross_modal)
 
     # Visual/audio encoder sparsity checks
     frame_a = torch.rand(32, 32) * 255
@@ -178,13 +178,13 @@ def run_stage_1(
     a_spikes = audio_encoder.encode(torch.randn(16000))
     audio_sparsity = float((a_spikes > 0).float().mean().item())
 
-    passed = grounding_conf > 0.20
+    passed = grounding_confidence > 0.20
 
     return StageResult(
         stage=1,
         passed=passed,
         metrics={
-            "grounding_confidence": grounding_conf,
+            "grounding_confidence": grounding_confidence,
             "visual_sparsity": visual_sparsity,
             "audio_sparsity": audio_sparsity,
         },
@@ -226,9 +226,9 @@ def run_stage_2(
         for _ in range(min(50, n_tokens // 10)):
             ts = torch.randn(dim_text).abs() * 0.1
             visual_spike = torch.randn(cfg.cross_modal_dim_visual).abs() * 0.1
-            gate = model.cross_modal.alignment_gate(ts, visual_spike)
+            accepted_flag, _score = model.cross_modal.alignment_gate(ts, visual_spike)
             total_pairs += 1
-            if gate:
+            if accepted_flag:
                 accepted += 1
                 model.cross_modal.on_text_spike(ts)
                 model.cross_modal.on_visual_spike(visual_spike)
