@@ -496,3 +496,61 @@ class CompetitiveColumnLayer:
             "input_weights": self.input_weights.detach().clone(),
             "last_projected_input": None if self.last_projected_input is None else self.last_projected_input.detach().clone(),
         }
+
+    def state_dict(self) -> dict[str, Any]:
+        """Serialize all learned state for checkpoint persistence."""
+        def _clone_opt(t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
+            return None if t is None else t.detach().clone().cpu()
+
+        return {
+            "W_project": self.W_project.detach().clone().cpu(),
+            "input_weights": self.input_weights.detach().clone().cpu(),
+            "prototypes": self.prototypes.detach().clone().cpu(),
+            "prototype_velocity": self.prototype_velocity.detach().clone().cpu(),
+            "last_input_pattern": _clone_opt(self.last_input_pattern),
+            "last_projected_input": _clone_opt(self.last_projected_input),
+            "thresholds": self.thresholds.detach().clone().cpu(),
+            "target_firing_rate": float(self.target_firing_rate),
+            "win_rate_ema": self.win_rate_ema.detach().clone().cpu(),
+            "steps_since_win": self.steps_since_win.detach().clone().cpu(),
+            "update_count": int(self.update_count),
+            "last_revived_indices": self.last_revived_indices.detach().clone().cpu(),
+            "local_plasticity": (
+                None if self.local_plasticity is None
+                else self.local_plasticity.state_dict()
+            ),
+        }
+
+    def load_state_dict(self, snapshot: dict[str, Any]) -> None:
+        """Restore learned state from a checkpoint snapshot."""
+        for attr in (
+            "W_project", "input_weights", "prototypes",
+            "prototype_velocity", "thresholds",
+            "win_rate_ema", "steps_since_win",
+        ):
+            value = snapshot.get(attr)
+            if isinstance(value, torch.Tensor):
+                setattr(self, attr, value.to(self.device))
+
+        for attr in ("last_input_pattern", "last_projected_input"):
+            value = snapshot.get(attr)
+            if value is None:
+                setattr(self, attr, None)
+            elif isinstance(value, torch.Tensor):
+                setattr(self, attr, value.to(self.device))
+
+        self.target_firing_rate = float(
+            snapshot.get("target_firing_rate", 1.0 / max(1, self.n_columns))
+        )
+        self.update_count = int(snapshot.get("update_count", 0))
+        revived = snapshot.get("last_revived_indices")
+        if isinstance(revived, torch.Tensor):
+            self.last_revived_indices = revived.to(self.device)
+        else:
+            self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
+
+        if (
+            self.local_plasticity is not None
+            and snapshot.get("local_plasticity") is not None
+        ):
+            self.local_plasticity.load_state_dict(snapshot["local_plasticity"])

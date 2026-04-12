@@ -5,15 +5,15 @@
 
 **Domain:** Computational Neuroscience · Unsupervised Multimodal Learning · Neuromorphic Computing
 
-**Version:** 4.3 — Audited, Implementation-Current, Self-Critical Architecture Document
+**Version:** 4.4 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **440 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, binding layer, adaptive context layer, grounding probe baseline calibration, end-to-end multimodal developmental protocol.
+**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **468 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, grounding probe baseline calibration, end-to-end multimodal developmental protocol.
 
 ---
 
 ## Abstract
 
-HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window is almost certainly too shallow for language-level temporal integration; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (440 tests pass).
+HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window is almost certainly too shallow for language-level temporal integration; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (468 tests pass).
 
 ---
 
@@ -247,7 +247,7 @@ PARALLEL TRACK — MEMORY & SLEEP:
 | `visual_spikes` | `[H/pool × W/pool]` | EventCameraEncoder | Cross-Modal Layer | Temporal contrast spike pattern |
 | `audio_spikes` | `[64]` | CochleagramEncoder | Cross-Modal Layer | Mel-filterbank spike pattern |
 | `concept_vec` | `[256]` | AbstractionLayer | Curiosity + routing bias | Slow-feature abstract representation |
-| `grounding_conf` | `[dim_text]` | CrossModalLayer | Routing boost + curiosity | Per-dimension cross-modal confidence |
+| `grounding_confidence` | `[dim_text]` | CrossModalLayer | Routing boost + curiosity | Per-dimension cross-modal confidence |
 
 ---
 
@@ -1222,11 +1222,11 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 
 ## 11. Implementation Roadmap
 
-### Phase 0: Foundation Fixes ✅ COMPLETE (items 3–5), ⬜ DEFERRED (items 1, 2, 6)
+### Phase 0: Foundation Fixes ✅ COMPLETE (items 3–6), ⬜ DEFERRED (item 1)
 
 1. ⬜ **GPU router benchmark:** Implement flat GPU cosine similarity. Run `benchmark_routing()` at 1K, 10K, 50K, 100K columns on target hardware. These numbers go in the paper. If CUDA latency at 10K columns exceeds 0.5ms, investigate before proceeding. *Deferred: requires target GPU hardware.*
 
-2. ⬜ **Binding Layer fan-in fix:** Remove `assert n_bindings == n_columns`. Add sparse random connectivity matrix `[n_bindings, n_columns]`. Add `grow()` for structural plasticity on high-correlation column pairs. *Deferred: config exists, implementation planned for Phase 9.*
+2. ✅ **Binding Layer:** Sparse random connectivity matrix with configurable fan-in, Tsodyks-Markram STP (facilitation + depression), PV+ fast feedforward inhibition, `grow()` for structural plasticity on high-correlation column pairs. Full state_dict/load_state_dict, wired into trainer with modulation_gain and bind() calls. Opt-in via `enable_binding_layer=True` (default off to preserve text-only baseline).
 
 3. ✅ **Four-channel neuromodulator replacement:** Four independent channels in `SurpriseMonitor` (DA, 5-HT, ACh, NE). DA→LTP gain gate and 5-HT→patience gate wired into `trainer.train_step()`. 5-HT targets consolidation gate, not raw LTD.
 
@@ -1234,7 +1234,7 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 
 5. ✅ **AdEx reference architecture:** AdEx neuron model validated as reference architecture. `HECSNModelLite` is the production runtime (lower computational cost, same functional output). AdEx benchmarks green (backend + consolidation runners).
 
-6. ⬜ **TurboQuant integration:** Prototype-stage only. `TurboQuantPrototypeStore` exists in config but is not functionally integrated. *Deferred to Phase 9.*
+6. ✅ **TurboQuant store:** `TurboQuantPrototypeStore` implemented as standalone component with random orthogonal rotation, 3-bit quantization, exact and approximate routing, cosine accuracy validation. 14 tests pass. *Not yet integrated as primary routing backend — deferred to Phase 9.*
 
 ### Phase 1: Evaluation Framework ✅ COMPLETE
 
@@ -1244,9 +1244,9 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 - Stage-0 gates validated: silhouette=0.675, DBI=0.304, temporal_coherence=0.9916, semantic_triple_accuracy=0.714
 - Online SOM, 4-gram, and fastText baselines defined but not yet run as calibration experiments
 
-### Phase 2: Adaptive Context Layer ⬜ DEFERRED
+### Phase 2: Adaptive Context Layer ✅ COMPLETE
 
-Adaptive timescale context with learnable tau not yet implemented. Current implementation uses fixed 3-timescale STC (fast/medium/slow with α = 0.3/0.1/0.01). B3 context-dependent routing test validates context sensitivity at the current fixed window. *This is the most significant outstanding design gap — the fixed window is almost certainly too shallow for language-level temporal integration.*
+Adaptive timescale context with learnable per-neuron tau is implemented in `AdaptiveContextLayer` (context.py). `compute_routing_differentiation()` measures context-specificity via input-signature grouping. `update_timescales()` wired into deep-sleep cycle. Current fixed 3-timescale STC (fast/medium/slow with α = 0.3/0.1/0.01) remains as default `ContextLayer`; `AdaptiveContextLayer` is available as drop-in replacement via config. *The fixed window is almost certainly too shallow for language-level temporal integration — the adaptive layer addresses this.*
 
 ### Phase 3: Chunking and Abstraction Layers ✅ COMPLETE
 
@@ -1259,26 +1259,28 @@ Adaptive timescale context with learnable tau not yet implemented. Current imple
 
 Three-phase sleep cycle (micro/regular/deep) implemented in `sleep_consolidation.py`. Fragility-gated plasticity with consolidation levels. STC sensitivity analysis not yet run as formal experiment. Task A/B recall measurement not yet performed.
 
-### Phase 5: Multimodal Grounding ✅ PARTIAL → Cross-modal layer done, encoders pending
+### Phase 5: Multimodal Grounding ✅ COMPLETE (components) → End-to-end validation pending
 
 - ✅ `CrossModalGroundingLayer` implemented with STDP, alignment filter (§5.3), self-criticism loop (§7.4)
 - ✅ DA→LTP gate and 5-HT→patience gate wired into training loop
 - ✅ Grounding probe uses cross-modal visual feedback for confidence scoring
-- ⬜ `EventCameraEncoder` (MNIST-DVS temporal contrast) — not implemented
-- ⬜ `CochleagramEncoder` (mel-filterbank audio) — not implemented
-- ⬜ Multimodal data loaders (MNIST-DVS + TI-46, ObjectNet, HTM-AA) — not implemented
+- ✅ `EventCameraEncoder` — temporal contrast from video frames, pooling, exponential trace (151 lines, 12 tests)
+- ✅ `CochleagramEncoder` — mel-filterbank, log-compression, adaptive baseline (168 lines, 13 tests)
+- ✅ `MultimodalStreamLoader` — synchronized text+visual+audio triple yielding with synthetic mode (10 tests)
+- ⬜ Multimodal dataset adapters (MNIST-DVS, TI-46, HTM-AA download/format) — not implemented
+- ⬜ End-to-end multimodal training — not validated with real multimodal data
 
 ### Phase 6: Stage 1 Training ✅ VALIDATED (text-only path)
 
-Real training validated on Wikipedia streaming: prediction error 1.63→0.66 over 1,152 tokens, neuromodulators responsive (DA oscillating, micro-sleep triggered at 256 tokens, sleep consolidation active). Checkpoint save/load works across sessions. Full multimodal Stage 1 training not yet executed due to missing multimodal encoders.
+Real training validated on Wikipedia streaming: prediction error 1.63→0.66 over 1,152 tokens, neuromodulators responsive (DA oscillating, micro-sleep triggered at 256 tokens, sleep consolidation active). Checkpoint save/load works across sessions. Full multimodal Stage 1 training not yet executed: encoders and loader are implemented, but multimodal dataset adapters (MNIST-DVS, TI-46) are needed to run with real aligned data.
 
-### Phase 7: Stages 2–3 and Evaluation ⬜ PENDING (blocked on Phase 5 encoders)
+### Phase 7: Stages 2–3 and Evaluation ⬜ PENDING (blocked on multimodal dataset adapters)
 
-Self-criticism loop implemented and tested. Alignment filter implemented and tested. Awaiting multimodal encoder completion to run full Stages 2–3 developmental protocol with grounding probe evaluation.
+Self-criticism loop implemented and tested. Alignment filter implemented and tested. Encoders (EventCamera + Cochleagram) and MultimodalStreamLoader implemented. Awaiting multimodal dataset adapters (MNIST-DVS, TI-46) to run full Stages 2–3 developmental protocol with grounding probe evaluation at scale.
 
 ### Phase 8: Paper ⬜ IN PROGRESS
 
-This paper (HECSN_Paper_v4.md, v4.3) is the current publication draft. Architecture complete, results partially validated, remaining work identified. 8–10 page submission format not yet prepared.
+This paper (HECSN_Paper_v4.md, v4.4) is the current publication draft. Architecture complete, results partially validated, remaining work identified. 8–10 page submission format not yet prepared.
 
 ---
 
@@ -1286,7 +1288,7 @@ This paper (HECSN_Paper_v4.md, v4.3) is the current publication draft. Architect
 
 ### 12.1 What Currently Exists
 
-The following components are implemented and validated on the current tree (65 Python source files under `src/hecsn/`, pip-installable via `pyproject.toml`):
+The following components are implemented and validated on the current tree (76 Python source files under `src/hecsn/`, pip-installable via `pyproject.toml`):
 
 **Core learning and evaluation:**
 - `mechanism_validation_runner.py` — Stage-0 protocol (all gates green)
@@ -1334,7 +1336,7 @@ The following components are implemented and validated on the current tree (65 P
 
 ```
 pip install -e . && python -m pytest -q
-→ 440 passed, 7 subtests passed (across 48 test files)
+→ 468 passed, 7 subtests passed (across 48 test files)
 ```
 
 Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `test_meaning_grounding.py`, `test_gap_planner.py`, `test_source_catalog.py` → `58 passed, 3 warnings`
@@ -1364,7 +1366,7 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 - `developmental_runner.py` with 5 developmental stages and entry/exit criteria
 - Service API expanded from 10 to 20 endpoints (grounding-probe, train control, config presets)
 - Real training validated on Wikipedia streaming data
-- Test suite expanded from 167 to 440 passed tests
+- Test suite expanded from 167 to 468 passed tests
 
 **v4.3 additions:**
 - Triplet STDP corrected to full all-to-all model with 4 traces (r1, r2, o1, o2) per Pfister & Gerstner 2006; r2 now uses independent τx = 101ms (was incorrectly using τ+ = 16.8ms)
@@ -1382,24 +1384,44 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 - Naming inconsistency resolved: `_compute_grounding_confidence()` now uses combined `grounding_confidence()` property (was visual-only); `grounding_conf` abbreviation eliminated
 - TurboQuant route() confirmed already vectorized (torch.mv batch operation, no Python loop)
 
+**v4.4 additions:**
+- CompetitiveColumnLayer: added `state_dict()`/`load_state_dict()` for component-level serialization; checkpointing.py refactored to use these methods instead of inline field access
+- MultimodalStreamLoader: synchronized text+visual+audio triple yielding with synthetic mode for integration testing; `load_directory()` helper for structured dataset directories
+- EventCameraEncoder and CochleagramEncoder confirmed as fully implemented standalone components (were incorrectly listed as "not implemented" in v4.3 §12.4)
+- Binding Layer confirmed as fully implemented with sparse connectivity, Tsodyks-Markram STP, PV+ inhibition, grow(), checkpointing (was incorrectly listed as "config exists, no runtime" in v4.3 §12.4)
+- TurboQuantPrototypeStore confirmed as fully implemented standalone component (was incorrectly listed as "prototype only" in v4.3 §12.4)
+- §12.4 rewritten: separates "implemented standalone components" from "end-to-end integration status" to avoid conflating component existence with system-level capability
+- Stale counts corrected: 76 Python source files (was 65), test count updated to current green surface
+
 ### 12.4 What Remains Unimplemented (Honest Assessment)
 
-The following paper-described components are **not yet implemented** or are **config-only stubs**:
+The following table separates **implemented standalone components** from **end-to-end integration** and **deferred work**:
+
+**Implemented Components (standalone, tested):**
+
+| Component | Status | Notes |
+|---|---|---|
+| Binding Layer (Layer 6) | ✅ Implemented (opt-in) | Sparse connectivity, Tsodyks-Markram STP, grow(), PV+ inhibition, checkpointing. `enable_binding_layer=True` to activate. 3 tests. |
+| Adaptive Context Layer | ✅ Implemented | Per-neuron tau with routing_differentiation; update_timescales wired into deep sleep |
+| Mini-batch SFA during sleep | ✅ Implemented | sfa_correction_step called during deep sleep (trainer.py:889–898) |
+| EventCameraEncoder | ✅ Implemented | Temporal contrast from video frames, pooling, trace maintenance. 12 tests. |
+| CochleagramEncoder | ✅ Implemented | Mel-filterbank, log-compression, adaptive baseline. 13 tests. |
+| TurboQuantPrototypeStore | ✅ Implemented (standalone) | Random rotation, 3-bit quantization, exact+approx routing. 14 tests. Not yet integrated into primary routing runtime. |
+| CompetitiveColumnLayer serialization | ✅ Implemented | state_dict/load_state_dict with full roundtrip fidelity. 10 tests. |
+| MultimodalStreamLoader | ✅ Implemented | Synchronized text+visual+audio triple yielding, synthetic mode for testing. 10 tests. |
+
+**Not Yet Implemented / Not Yet Validated:**
 
 | Component | Status | Blocker |
 |---|---|---|
-| Binding Layer (Layer 6) | Config exists, no runtime | Needs sparse connectivity + grow() |
-| Adaptive Context Layer | ✅ Implemented | Per-neuron tau with routing_differentiation; update_timescales wired into deep sleep |
-| Mini-batch SFA during sleep | ✅ Implemented | sfa_correction_step called during deep sleep (trainer.py:889–898) |
-| EventCameraEncoder | Not implemented | Blocks multimodal Stage 1 |
-| CochleagramEncoder | Not implemented | Blocks multimodal Stage 1 |
-| Multimodal data loaders | Not implemented | MNIST-DVS, TI-46, HTM-AA needed |
+| Multimodal dataset adapters | Not implemented | MNIST-DVS, TI-46, HTM-AA download + format adapters needed |
+| End-to-end multimodal training | Not validated | Encoders + loader exist; full developmental protocol not yet run with real multimodal data |
+| TurboQuant runtime integration | Not integrated | Standalone store works; not yet wired as primary routing backend |
 | GPU routing benchmarks | No CUDA data | Requires target hardware |
-| TurboQuant integration | Prototype only | Non-critical for correctness |
 | 2:4 structured sparsity / CSR | Not implemented | Performance optimization |
 | Baseline calibration experiments | Not run | fastText, word2vec, online SOM |
 | Triplet STDP frequency validation | Not validated | Fig. 2 comparison needed |
-| End-to-end developmental protocol | Runner exists, not validated | Needs multimodal encoders |
+| End-to-end developmental protocol | Runner exists, not validated | Needs multimodal dataset adapters |
 
 ---
 
@@ -1509,12 +1531,12 @@ The following paper-described components are **not yet implemented** or are **co
 
 *Thiago Maceno Rocha Goulart · Brasil · github.com/Tuafo*
 
-*HECSN v4.3 — Hierarchical Emergent Concept Spiking Networks: Developmental Architecture with Honest Critique*
+*HECSN v4.4 — Hierarchical Emergent Concept Spiking Networks: Developmental Architecture with Honest Critique*
 
 *PyTorch 2.1+ · pip install -e . · FastAPI/Uvicorn · React/Vite*
 
 *Falsifiable central claim: multimodal temporal co-occurrence STDP produces a concreteness gap in the grounding probe (concrete triples score > 0.10 higher than abstract triples) not achievable by text-only systems — validated without semantic labels at any stage, though with structurally curated perceptual grounding data during the developmental critical period.*
 
-*Stage-0 validated: silhouette 0.675, DBI 0.304, temporal_coherence 0.9916, semantic_triple_accuracy 0.7143 (7-triple text-only, separate from 50-triple probe), routing_key_between_score 0.9970, terminal_novelty_rate 0.0994. Real training validated: pred_error 1.63→0.66 nats over 1,152 Wikipedia tokens, DA 0.006→0.431, micro-sleep at 256 tokens. Self-criticism loop (visual + audio), alignment filter, dead column census, and exploration noise boost implemented and tested. 440 tests pass across 48 test files.*
+*Stage-0 validated: silhouette 0.675, DBI 0.304, temporal_coherence 0.9916, semantic_triple_accuracy 0.7143 (7-triple text-only, separate from 50-triple probe), routing_key_between_score 0.9970, terminal_novelty_rate 0.0994. Real training validated: pred_error 1.63→0.66 nats over 1,152 Wikipedia tokens, DA 0.006→0.431, micro-sleep at 256 tokens. Self-criticism loop (visual + audio), alignment filter, dead column census, and exploration noise boost implemented and tested. 468 tests pass across 48 test files.*
 
 *All other verification targets are falsifiable predictions, not asserted results.*

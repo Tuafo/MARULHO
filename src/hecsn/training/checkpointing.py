@@ -54,21 +54,7 @@ def _restore_surprise(trainer: HECSNTrainer, snapshot: dict[str, Any]) -> None:
 def _model_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
     competitive = trainer.model.competitive
     return {
-        "competitive": {
-            "W_project": competitive.W_project.detach().clone().cpu(),
-            "input_weights": competitive.input_weights.detach().clone().cpu(),
-            "prototypes": competitive.prototypes.detach().clone().cpu(),
-            "prototype_velocity": competitive.prototype_velocity.detach().clone().cpu(),
-            "last_input_pattern": _clone_optional_tensor(competitive.last_input_pattern),
-            "last_projected_input": _clone_optional_tensor(competitive.last_projected_input),
-            "thresholds": competitive.thresholds.detach().clone().cpu(),
-            "target_firing_rate": float(competitive.target_firing_rate),
-            "win_rate_ema": competitive.win_rate_ema.detach().clone().cpu(),
-            "steps_since_win": competitive.steps_since_win.detach().clone().cpu(),
-            "update_count": int(competitive.update_count),
-            "last_revived_indices": competitive.last_revived_indices.detach().clone().cpu(),
-            "local_plasticity": None if competitive.local_plasticity is None else competitive.local_plasticity.state_dict(),
-        },
+        "competitive": competitive.state_dict(),
         "W_assembly_project": trainer.model.W_assembly_project.detach().clone().cpu(),
         "surprise": _surprise_snapshot(trainer),
         "context_layer": None if trainer.model.context_layer is None else trainer.model.context_layer.state_dict(),
@@ -85,23 +71,7 @@ def _model_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
 
 def _restore_model(trainer: HECSNTrainer, snapshot: dict[str, Any]) -> None:
     competitive = trainer.model.competitive
-    competitive_snapshot = snapshot["competitive"]
-    competitive.W_project = competitive_snapshot["W_project"].to(trainer.model.device)
-    competitive.input_weights = competitive_snapshot["input_weights"].to(trainer.model.device)
-    competitive.prototypes = competitive_snapshot["prototypes"].to(trainer.model.device)
-    competitive.prototype_velocity = competitive_snapshot["prototype_velocity"].to(trainer.model.device)
-    last_input_pattern = competitive_snapshot.get("last_input_pattern")
-    competitive.last_input_pattern = None if last_input_pattern is None else last_input_pattern.to(trainer.model.device)
-    last_projected_input = competitive_snapshot.get("last_projected_input")
-    competitive.last_projected_input = None if last_projected_input is None else last_projected_input.to(trainer.model.device)
-    competitive.thresholds = competitive_snapshot["thresholds"].to(trainer.model.device)
-    competitive.target_firing_rate = float(competitive_snapshot["target_firing_rate"])
-    competitive.win_rate_ema = competitive_snapshot["win_rate_ema"].to(trainer.model.device)
-    competitive.steps_since_win = competitive_snapshot["steps_since_win"].to(trainer.model.device)
-    competitive.update_count = int(competitive_snapshot["update_count"])
-    competitive.last_revived_indices = competitive_snapshot.get("last_revived_indices", torch.empty(0, dtype=torch.long)).to(trainer.model.device)
-    if competitive.local_plasticity is not None and competitive_snapshot.get("local_plasticity") is not None:
-        competitive.local_plasticity.load_state_dict(competitive_snapshot["local_plasticity"])
+    competitive.load_state_dict(snapshot["competitive"])
 
     trainer.model.W_assembly_project = snapshot["W_assembly_project"].to(trainer.model.device)
     _restore_surprise(trainer, snapshot["surprise"])
