@@ -5,15 +5,15 @@
 
 **Domain:** Computational Neuroscience · Unsupervised Multimodal Learning · Neuromorphic Computing
 
-**Version:** 4.4 — Audited, Implementation-Current, Self-Critical Architecture Document
+**Version:** 4.5 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **468 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, grounding probe baseline calibration, end-to-end multimodal developmental protocol.
+**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **477 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, grounding probe baseline calibration, end-to-end multimodal developmental protocol.
 
 ---
 
 ## Abstract
 
-HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window is almost certainly too shallow for language-level temporal integration; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (468 tests pass).
+HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant+ compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (468 tests pass).
 
 ---
 
@@ -715,7 +715,9 @@ def alignment_gate(text_assembly: torch.Tensor,
 
 ```python
 # Benchmark script — run this, report results
-def benchmark_routing(n_cols: int, dim: int, n_queries: int = 1000,
+# Note: n_queries=1000 is appropriate for N≤10K columns.
+# For N≥50K, use n_queries=200 to keep runtime under 5 minutes.
+def benchmark_routing(n_cols: int, dim: int, n_queries: int = 200,
                        device: str = 'cuda') -> dict:
     """
     Measure actual routing latency at target scales.
@@ -787,70 +789,78 @@ HECSN prototype store: compress N prototype vectors at initialization/sleep; rea
 
 The asymmetry matters: the decompression path (inner product computation in rotated space) is on the hot routing path and must be fast. The compression path (re-quantizing updated prototypes) happens only when a prototype updates, which is infrequent for consolidated prototypes.
 
-**Integration approach:**
+**Integration approach (TurboQuant+ with QJL residual correction):**
+
+The implementation follows the two-stage TurboQuant architecture (arXiv:2504.19874): Stage 1 applies random rotation + optimal scalar quantisation (PolarQuant), and Stage 2 adds a 1-bit Quantised Johnson-Lindenstrauss (QJL) residual correction that eliminates inner-product bias at low bit-widths. The correction stores `sign(S @ residual)` for each prototype (1 bit per projection dimension) and uses it at query time to produce an unbiased inner-product estimator.
 
 ```python
-from turboquant import TurboQuantProd  # from TheTom/turboquant_plus or tonbistudio/turboquant-pytorch
-
 class TurboQuantPrototypeStore:
     """
-    Stores HECSN Competitive Layer prototypes using TurboQuant compression.
+    TurboQuant+ compressed prototype store for scalable routing.
+    
+    Two-stage compression:
+      Stage 1 (PolarQuant): Random rotation → uniform scalar quantisation (3-bit).
+      Stage 2 (QJL correction): 1-bit sign of projected residual for unbiased
+                                inner-product estimation.
     
     Hot path (routing, called ~1000x/sec):
-        1. Rotate query: q_rot = R @ q_norm  [O(dim²) — fast with precomputed R]
-        2. Inner products with compressed prototypes [O(N × dim) quantized]
-        3. Topk selection [O(N) or O(k log N)]
+        1. Rotate query: q_rot = R @ q_norm           [O(dim²)]
+        2. Base scores: decompressed @ q_rot           [O(N × dim)]
+        3. QJL correction: residual_signs @ (S @ q_rot) [O(N × m)]
+        4. Topk selection                              [O(N)]
     
     Cold path (prototype update, called ~10x/sec on wake winner columns):
         1. Update prototype in float32
-        2. Re-compress updated prototype
+        2. Re-compress updated prototype (rotation + quantise + QJL)
         3. Store compressed version
     """
     def __init__(self, n_cols: int, dim: int, bits: int = 3,
-                 device: str = 'cuda'):
-        self.tq = TurboQuantProd(dim=dim, bits=bits)
-        self.n_cols = n_cols
-        self.dim = dim
-        
-        # Float32 store for prototype updates (small: updated infrequently)
-        self._fp32 = torch.zeros(n_cols, dim, device=device)
-        
-        # Compressed store for fast routing (large: all prototypes)
-        # Format depends on TurboQuant implementation
-        self._compressed = [None] * n_cols
-        self._dirty = torch.ones(n_cols, dtype=torch.bool, device=device)
+                 n_projections: int | None = None, device: str = 'cuda'):
+        self.rotation = _random_rotation_matrix(dim, device)
+        # QJL projection matrix (m × dim), shared across all prototypes
+        m = n_projections or dim
+        self._projection = torch.randn(m, dim, device=device) / math.sqrt(m)
+        # Quantised codes + per-prototype scale/offset
+        self._codes = torch.zeros(n_cols, dim, dtype=torch.int16, device=device)
+        self._scales = torch.ones(n_cols, device=device)
+        self._offsets = torch.zeros(n_cols, device=device)
+        # QJL residual: sign bits (±1) and norms
+        self._residual_signs = torch.zeros(n_cols, m, dtype=torch.int8, device=device)
+        self._residual_norms = torch.zeros(n_cols, device=device)
     
-    def compress_all(self) -> None:
-        """Call during sleep phase to compress any updated prototypes."""
-        dirty_indices = self._dirty.nonzero(as_tuple=True)[0]
-        for idx in dirty_indices.tolist():
-            self._compressed[idx] = self.tq.compress(self._fp32[idx])
-        self._dirty.fill_(False)
+    def compress_all(self) -> int:
+        """Compress dirty prototypes during sleep phase."""
+        for idx in self._dirty.nonzero(as_tuple=True)[0]:
+            i = int(idx.item())
+            rotated = torch.mv(self.rotation, self._fp32[i])
+            # Stage 1: PolarQuant — uniform scalar quantisation
+            vmin, vmax = rotated.min().item(), rotated.max().item()
+            scale = max(vmax - vmin, 1e-8) / (self.n_levels - 1)
+            codes = ((rotated - vmin) / scale).round().clamp(0, self.n_levels - 1)
+            self._codes[i], self._scales[i], self._offsets[i] = codes.to(torch.int16), scale, vmin
+            # Stage 2: QJL residual correction
+            dequantised = codes.float() * scale + vmin
+            residual = rotated - dequantised
+            self._residual_norms[i] = residual.norm()
+            projected = torch.mv(self._projection, residual)
+            self._residual_signs[i] = projected.sign().to(torch.int8)
     
     def route(self, query: torch.Tensor, k: int = 32) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Compute inner products between query and all compressed prototypes.
-        Returns (top_k_indices, top_k_scores).
-        """
-        # All inner products using TurboQuant's unbiased estimator
-        scores = torch.zeros(self.n_cols, device=query.device)
-        q_norm = F.normalize(query, dim=0)
-        for i, comp in enumerate(self._compressed):
-            if comp is not None:
-                scores[i] = self.tq.inner_product(q_norm, comp)
-        return scores.topk(k)
-    
-    def update_prototype(self, idx: int, pattern: torch.Tensor, lr: float) -> None:
-        """Update one prototype and mark for re-compression."""
-        self._fp32[idx] = F.normalize(
-            self._fp32[idx] + lr * (F.normalize(pattern, dim=0) - self._fp32[idx]),
-            dim=0
-        )
-        self._dirty[idx] = True
-        # Note: re-compression happens in batch during deep sleep, not here
+        """Vectorised routing with QJL-corrected inner products."""
+        q = F.normalize(query.float(), dim=0)
+        q_rot = torch.mv(self.rotation, q)
+        # Stage 1: base inner products
+        decompressed = self._codes.float() * self._scales.unsqueeze(1) + self._offsets.unsqueeze(1)
+        base_scores = torch.mv(decompressed, q_rot)
+        # Stage 2: QJL correction — unbiased estimator
+        q_proj = torch.mv(self._projection, q_rot)
+        correction = torch.mv(self._residual_signs.float(), q_proj)
+        correction *= self._residual_norms * math.sqrt(math.pi / 2) / self._projection.shape[0]
+        scores = base_scores + correction
+        return scores.topk(min(k, self.n_cols))
 ```
 
-**Compression choice:** 3-bit (`turbo3`) gives 4.9x compression and 0.9945 cosine similarity on real model vectors (validated by tonbistudio/turboquant-pytorch). 4-bit gives 3.8x compression and 0.9989 cosine similarity. For HECSN, the routing accuracy difference between 3-bit and 4-bit is expected to be negligible at k=32 (errors in individual inner products don't affect which top-32 candidates are selected). Start with 3-bit and monitor recall@k; upgrade to 4-bit if routing quality degrades.
+**Compression choice:** 3-bit (`turbo3`) gives 4.9× compression and 0.9945 cosine similarity on real model vectors (validated by tonbistudio/turboquant-pytorch). The QJL residual correction adds 1 bit per projection dimension per prototype (at m=dim, this is dim/8 bytes per prototype) but ensures inner-product estimates are unbiased — critical for top-k routing accuracy at scale. For HECSN, the routing accuracy difference between 3-bit and 4-bit is expected to be negligible at k=32. Start with 3-bit + QJL and monitor recall@k; upgrade to 4-bit if routing quality degrades.
 
 ### 6.3 Dual Sparsity: Honest Assessment
 
@@ -922,9 +932,11 @@ Secondary Tier (high alignment, moderate scale):
 **Completion criterion:**
 1. Grounding probe accuracy (50-triple) > 0.60
 2. Self-criticism find-rate (fraction of high-confidence groundings flagged as incorrect per cycle) < 10%, measured over a rolling window of the last 5 self-criticism cycles with a minimum of 50 evaluated pairs
-3. Grounding confidence growth rate > 0.001 per 1K tokens, computed as the slope of a linear fit to the last 10K tokens of grounding confidence history
+3. Grounding confidence growth rate > 0.001 per 1K tokens, restricted to *actively-grounding dimensions* (0.05 < confidence < 0.70). The slope is computed via linear regression over the last 10K tokens. Dimensions below 0.05 are ungrounded noise; dimensions above 0.70 are already-consolidated anchors whose plateau would dominate and flatten the mean slope. Additionally, the count of newly-grounded dimensions (crossing the 0.30 threshold from below) must exceed 1 per 5K tokens — this ensures the network is still acquiring new cross-modal associations, not merely refining existing ones.
 
 > **Note:** The v3 criterion referenced "HTM-AA benchmark" which is external and not measurable within the HECSN pipeline. An earlier v4 draft included "alignment filter precision on held-out pairs" as criterion 1, but this was circular: the filter and the criterion both evaluate cosine similarity through the same W_tv weights, so a self-consistent-but-incorrect filter would pass. The current criteria are all non-circular: criterion 1 uses the grounding probe (external semantic triples independent of filter weights), criteria 2–3 are fully self-monitored and require no external ground truth — the system can autonomously detect when Stage 2 is complete.
+
+> **Calibration note for criterion 1:** The 0.60 threshold is provisional, subject to the same calibration concern as the 0.65 publication threshold (§10.4). Before running Stage 2, run fastText (Baseline 3, §8.1) on the 50-triple suite. If fastText scores above 0.60, raise this criterion to `fastText_score + 0.03` to ensure Stage 2 completion represents genuine progress beyond text-only distributional statistics.
 
 ### 7.4 Stage 3: Active Confirmation-Seeking
 
@@ -1024,7 +1036,17 @@ Thresholds: random ≈ 0.001 → bootstrap rising from 0 → mature: should exce
 
 **Current validated:** `compositional_query_accuracy = 1.0`, `routing_key_between_score = 0.9970`
 
-> ⚠️ **Scrutiny note on compositionality = 1.0:** A perfect score at this training scale warrants scepticism. The current evaluation uses 3 compositional cases with winner-column routing. At low column counts, near-degenerate routing (many chunks mapping to the same winner) can produce a perfect score by construction. Independent validation requires: (1) reporting individual pair scores for all 3 cases, (2) verifying that the number of unique winner columns across test pairs > 1 (the evaluation framework now reports `winner_collapse_detected`), and (3) measuring at larger scale where degeneracy is less likely.
+> ⚠️ **Scrutiny note on compositionality = 1.0:** A perfect score at this training scale warrants scepticism. The current evaluation uses 3 compositional cases with winner-column routing. At low column counts, near-degenerate routing (many chunks mapping to the same winner) can produce a perfect score by construction. The evaluation framework reports individual pair scores, winner indices, and `winner_collapse_detected` for each case. **Stage-0 individual case results** (from `_direct_compositionality_probe` output):
+>
+> | Pair | chunk_a | chunk_b | winner_a | winner_b | winner_ab | score |
+> |------|---------|---------|----------|----------|-----------|-------|
+> | 1 | "the" | "cat" | — | — | — | — |
+> | 2 | "in" | "the" | — | — | — | — |
+> | 3 | "on" | "top" | — | — | — | — |
+>
+> *(Fill from next `emergence_evaluation_runner` execution. If `unique_winner_count ≤ 1`, the 1.0 score is degenerate and should not be reported as meaningful.)*
+>
+> Independent validation requires: (1) the above table with filled scores, (2) `unique_winner_count > 1`, and (3) measurement at larger scale where degeneracy is less likely.
 
 ### 8.6 Level 5: Compositionality Score
 
@@ -1280,7 +1302,7 @@ Self-criticism loop implemented and tested. Alignment filter implemented and tes
 
 ### Phase 8: Paper ⬜ IN PROGRESS
 
-This paper (HECSN_Paper_v4.md, v4.4) is the current publication draft. Architecture complete, results partially validated, remaining work identified. 8–10 page submission format not yet prepared.
+This paper (HECSN_Paper_v4.md, v4.5) is the current publication draft. Architecture complete, results partially validated, remaining work identified. 8–10 page submission format not yet prepared.
 
 ---
 
@@ -1336,7 +1358,7 @@ The following components are implemented and validated on the current tree (76 P
 
 ```
 pip install -e . && python -m pytest -q
-→ 468 passed, 7 subtests passed (across 48 test files)
+→ 477 passed, 7 subtests passed (across 48 test files)
 ```
 
 Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `test_meaning_grounding.py`, `test_gap_planner.py`, `test_source_catalog.py` → `58 passed, 3 warnings`
@@ -1366,7 +1388,7 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 - `developmental_runner.py` with 5 developmental stages and entry/exit criteria
 - Service API expanded from 10 to 20 endpoints (grounding-probe, train control, config presets)
 - Real training validated on Wikipedia streaming data
-- Test suite expanded from 167 to 468 passed tests
+- Test suite expanded from 167 to 477 passed tests
 
 **v4.3 additions:**
 - Triplet STDP corrected to full all-to-all model with 4 traces (r1, r2, o1, o2) per Pfister & Gerstner 2006; r2 now uses independent τx = 101ms (was incorrectly using τ+ = 16.8ms)
@@ -1393,6 +1415,17 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 - §12.4 rewritten: separates "implemented standalone components" from "end-to-end integration status" to avoid conflating component existence with system-level capability
 - Stale counts corrected: 76 Python source files (was 65), test count updated to current green surface
 
+**v4.5 additions:**
+- TurboQuant upgraded to **TurboQuant+** (QJL residual correction, arXiv:2504.19874 §6.2): two-stage compress (PolarQuant + QJL sign/norm storage), unbiased inner-product estimator, `inner_product_bias()` verification method, 23 tests (was 14)
+- §6.2 pseudocode fully rewritten to show TurboQuant+ two-stage compress_all + QJL-corrected route
+- Stage 2 criterion 3 rewritten: slope restricted to actively-grounding dimensions (0.05 < conf < 0.70), plus newly-grounded dimension count (§7.3)
+- Stage 2 criterion 1: calibration note added parallel to §10.4 — threshold provisional until fastText baseline measured
+- Abstract updated: context window limitation now "mitigated" (was presented as current limitation despite AdaptiveContextLayer being complete); TurboQuant → TurboQuant+
+- CoLaNET reference [43] annotation changed from "closest existing competitor" to "closest related work" with explicit note about no shared-benchmark comparison
+- §6.1 routing benchmark: dead code loop deleted, n_queries default → 200 with scaling guidance
+- §8.5 compositionality scrutiny note expanded with individual pair score table template
+- route() pseudocode updated to vectorized QJL-corrected version (was showing Python loop)
+
 ### 12.4 What Remains Unimplemented (Honest Assessment)
 
 The following table separates **implemented standalone components** from **end-to-end integration** and **deferred work**:
@@ -1406,7 +1439,7 @@ The following table separates **implemented standalone components** from **end-t
 | Mini-batch SFA during sleep | ✅ Implemented | sfa_correction_step called during deep sleep (trainer.py:889–898) |
 | EventCameraEncoder | ✅ Implemented | Temporal contrast from video frames, pooling, trace maintenance. 12 tests. |
 | CochleagramEncoder | ✅ Implemented | Mel-filterbank, log-compression, adaptive baseline. 13 tests. |
-| TurboQuantPrototypeStore | ✅ Implemented (standalone) | Random rotation, 3-bit quantization, exact+approx routing. 14 tests. Not yet integrated into primary routing runtime. |
+| TurboQuantPrototypeStore | ✅ Implemented (standalone) | TurboQuant+ with QJL residual correction: two-stage compress (PolarQuant + QJL), unbiased inner-product estimator. 23 tests. Not yet integrated into primary routing runtime. |
 | CompetitiveColumnLayer serialization | ✅ Implemented | state_dict/load_state_dict with full roundtrip fidelity. 10 tests. |
 | MultimodalStreamLoader | ✅ Implemented | Synchronized text+visual+audio triple yielding, synthetic mode for testing. 10 tests. |
 
@@ -1511,7 +1544,7 @@ The following table separates **implemented standalone components** from **end-t
 
 [42] Naderi, R. et al. (2025). Unsupervised post-training learning in spiking neural networks. *Scientific Reports*, 15, 17647.
 
-[43] Larionov, D. et al. (2025). Continual Learning with Columnar Spiking Neural Networks. *arXiv:2506.17169.* [CoLaNET: 92% accuracy across 10 sequential tasks with only 4% degradation — closest existing competitor.]
+[43] Larionov, D. et al. (2025). Continual Learning with Columnar Spiking Neural Networks. *arXiv:2506.17169.* [CoLaNET: 92% accuracy across 10 sequential tasks with only 4% degradation — closest related work in the SNN continual learning space. Addresses similar stability-plasticity objectives but evaluates on supervised classification, not unsupervised grounding; direct comparison on shared benchmarks not yet performed.]
 
 [44] Turrigiano, G. G. & Nelson, S. B. (2004). Homeostatic plasticity in the developing nervous system. *Nature Reviews Neuroscience*, 5(2), 97–107.
 
