@@ -102,13 +102,15 @@ def _make_vector_fn(
     """Build vector_fn callable for grounding probe from trainer + encoder.
 
     Produces a grounded representation by:
-    1. Encoding text → routing_key (input_dim)
+    1. Encoding text → routing_key (input_dim) as text base
     2. Projecting to assembly space (n_columns) via competitive layer
     3. Predicting visual/audio from assembly via cross-modal weights
-    4. Concatenating [assembly, visual_pred * v_conf, audio_pred * a_conf]
+    4. Concatenating [routing_key, visual_pred * v_conf, audio_pred * a_conf]
 
-    This ensures the probe measures cross-modal grounding (§8.7), not
-    just text routing.
+    The routing_key preserves text discrimination (128-dim), while
+    cross-modal predictions add grounding signal.  As confidence grows,
+    semantically grounded words gain additional visual/audio structure
+    that text-only representations lack.
     """
 
     def vector_fn(text: str) -> torch.Tensor:
@@ -124,7 +126,7 @@ def _make_vector_fn(
         if cross_modal is None:
             return routing_key
 
-        # Get assembly representation (n_columns dim)
+        # Get assembly representation (n_columns dim) for cross-modal prediction
         assembly = trainer.contextual_assembly_for_pattern(routing_key)
 
         # Predict visual/audio from assembly via cross-modal weights
@@ -143,13 +145,13 @@ def _make_vector_fn(
         pred_visual = pred_visual * min(1.0, v_conf)
         pred_audio = pred_audio * min(1.0, a_conf)
 
-        # Normalize each part to prevent dimensionality imbalance
+        # Normalize each part independently to prevent dimensionality imbalance
         def _norm(t: torch.Tensor) -> torch.Tensor:
             n = t.norm()
             return t / n if n > 1e-8 else t
 
-        # Concatenate: [assembly, visual_pred, audio_pred]
-        grounded = torch.cat([_norm(assembly), _norm(pred_visual), _norm(pred_audio)])
+        # Concatenate: [routing_key(text), visual_pred, audio_pred]
+        grounded = torch.cat([_norm(routing_key), _norm(pred_visual), _norm(pred_audio)])
         return grounded
 
     return vector_fn

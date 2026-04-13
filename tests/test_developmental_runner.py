@@ -272,12 +272,12 @@ class TestProbeUsesGroundedVectors(unittest.TestCase):
         self.assertGreater(diff, 1e-6, "Probe must be sensitive to cross-modal weights")
 
     def test_probe_vector_includes_visual_and_audio(self) -> None:
-        """Probe output dimension must be assembly + visual + audio (grounded)."""
+        """Probe output dimension must be routing_key + visual + audio (grounded)."""
         _result, state = run_stage_1(n_tokens=200, seed=42)
         cfg = state.config
         vfn = _make_vector_fn(state.trainer, state.text_encoder, cfg)
         vec = vfn("fire")
-        expected_dim = cfg.n_columns + cfg.cross_modal_dim_visual + cfg.cross_modal_dim_audio
+        expected_dim = cfg.input_dim + cfg.cross_modal_dim_visual + cfg.cross_modal_dim_audio
         self.assertEqual(vec.shape[0], expected_dim,
                          f"Probe vector should be {expected_dim}-dim (grounded), got {vec.shape[0]}")
 
