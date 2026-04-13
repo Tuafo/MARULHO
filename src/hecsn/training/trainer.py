@@ -305,6 +305,8 @@ class HECSNTrainer:
         self._last_self_criticism_token = 0
         self._self_criticism_blacklist: dict[int, int] = {}
         self._self_criticism_audio_blacklist: dict[int, int] = {}
+        # Self-criticism history for find-rate computation (§7.3 criterion 2)
+        self._self_criticism_history: list[dict[str, int]] = []
 
         # Per-word grounding confidence (§5.3): tracks cross-modal prediction
         # quality per concept word.  Updated by the developmental runner when
@@ -1263,20 +1265,32 @@ class HECSNTrainer:
             if (self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
                     and (n_visual >= 3 or n_audio >= 3)):
                 early_stage = n_visual < 10
+                sc_checked = 0
+                sc_penalised = 0
                 if n_visual >= 3:
-                    self.model.cross_modal.run_self_criticism(
+                    sc_vis = self.model.cross_modal.run_self_criticism(
                         recent_visual_frames=self._recent_visual_frames,
                         blacklist=self._self_criticism_blacklist,
                         penalty=0.05 if early_stage else 0.10,
                         blacklist_strikes=3 if early_stage else 2,
                     )
+                    sc_checked += sc_vis["checked"]
+                    sc_penalised += sc_vis["penalised"]
                 if n_audio >= 3:
-                    self.model.cross_modal.run_self_criticism_audio(
+                    sc_aud = self.model.cross_modal.run_self_criticism_audio(
                         recent_audio_frames=self._recent_audio_frames,
                         blacklist=self._self_criticism_audio_blacklist,
                         penalty=0.05 if early_stage else 0.10,
                         blacklist_strikes=3 if early_stage else 2,
                     )
+                    sc_checked += sc_aud["checked"]
+                    sc_penalised += sc_aud["penalised"]
+                if sc_checked > 0:
+                    self._self_criticism_history.append({
+                        "checked": sc_checked,
+                        "penalised": sc_penalised,
+                        "token": self.token_count,
+                    })
                 self._last_self_criticism_token = self.token_count
 
         updated_indices = winners
@@ -1601,6 +1615,21 @@ class HECSNTrainer:
     def routing_key_for_pattern(self, pattern_vec: torch.Tensor) -> torch.Tensor:
         """Expose routing key generation for clustering diagnostics."""
         return self.model.routing_key_from_pattern(pattern_vec)
+
+    def self_criticism_find_rate(self, last_n: int = 5) -> float:
+        """Compute self-criticism find-rate over the last N cycles (§7.3 criterion 2).
+
+        Returns fraction of checked groundings that were penalised.
+        If no cycles have run or none had checked > 0, returns 0.0.
+        """
+        recent = self._self_criticism_history[-last_n:]
+        if not recent:
+            return 0.0
+        total_checked = sum(e["checked"] for e in recent)
+        total_penalised = sum(e["penalised"] for e in recent)
+        if total_checked == 0:
+            return 0.0
+        return total_penalised / total_checked
 
     def train_stream(self, stream: Iterable[torch.Tensor]) -> Iterable[Dict[str, Any]]:
         for vec in stream:

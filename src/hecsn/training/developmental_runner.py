@@ -615,6 +615,11 @@ def run_stage_2(
     Receives Stage 1's trained state.  Trainer.developmental_stage=2
     activates alignment_gate() in train_step() after a bootstrap
     budget of ungated pairs.
+
+    Completion criteria (§7.3):
+    1. Grounding probe accuracy (50-triple) > 0.60
+    2. Self-criticism find-rate < 10% over last 5 cycles
+    3. Grounding confidence growth on active dimensions
     """
     set_seed(seed)
 
@@ -649,6 +654,11 @@ def run_stage_2(
         seed=seed,
     )
 
+    # Snapshot confidence before training for growth rate computation
+    initial_confidence = 0.0
+    if trainer.model.cross_modal is not None:
+        initial_confidence = _compute_grounding_confidence(trainer.model.cross_modal)
+
     tokens_processed, visual_pairs, audio_pairs = _train_multimodal_on_corpus(
         trainer, encoder, corpus, n_tokens, signatures, dim_visual, dim_audio,
     )
@@ -656,15 +666,30 @@ def run_stage_2(
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     probe_result = evaluate_grounding_probe(vector_fn)
 
-    # Compute filter statistics from trainer's gating metrics
+    # Compute grounding confidence (mean of top-100 dimensions)
     grounding_confidence = 0.0
     if trainer.model.cross_modal is not None:
         grounding_confidence = _compute_grounding_confidence(trainer.model.cross_modal)
 
-    # Criteria (§7.3): probe > 0.60 AND grounding growth
+    # Criterion 2: self-criticism find-rate < 10% over last 5 cycles
+    find_rate = trainer.self_criticism_find_rate(last_n=5)
+    # If no cycles ran yet, treat as passing (system hasn't had
+    # enough data to self-criticize, which is fine early on)
+    sc_history_len = len(trainer._self_criticism_history)
+    find_rate_ok = (sc_history_len == 0) or (find_rate < 0.10)
+
+    # Criterion 3: grounding confidence grew during Stage 2
+    confidence_growth = grounding_confidence - initial_confidence
+    # At 5K tokens the growth rate per 1K is confidence_growth / (n_tokens / 1000)
+    tokens_k = max(1.0, tokens_processed / 1000.0)
+    growth_rate_per_k = confidence_growth / tokens_k
+    growth_ok = growth_rate_per_k > 0.001
+
+    # Full criteria (§7.3): all three must pass
     passed = (
         probe_result.total_accuracy > 0.60
-        and grounding_confidence > 0.30
+        and find_rate_ok
+        and growth_ok
     )
 
     out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg,
@@ -679,13 +704,18 @@ def run_stage_2(
             "abstract_accuracy": probe_result.abstract_accuracy,
             "concreteness_gap": probe_result.concreteness_gap,
             "grounding_confidence": grounding_confidence,
+            "grounding_confidence_initial": initial_confidence,
+            "confidence_growth_rate_per_k": growth_rate_per_k,
+            "self_criticism_find_rate": find_rate,
+            "self_criticism_cycles": sc_history_len,
             "visual_pairs_sent": visual_pairs,
             "audio_pairs_sent": audio_pairs,
         },
         diagnostics={
             "completion_criteria": {
-                "probe_accuracy_target": "> 0.60",
-                "grounding_confidence_target": "> 0.30",
+                "criterion_1_probe": f"accuracy={probe_result.total_accuracy:.2f} > 0.60: {'PASS' if probe_result.total_accuracy > 0.60 else 'FAIL'}",
+                "criterion_2_find_rate": f"find_rate={find_rate:.3f} < 0.10: {'PASS' if find_rate_ok else 'FAIL'} ({sc_history_len} cycles)",
+                "criterion_3_growth": f"growth_rate={growth_rate_per_k:.4f}/1K > 0.001: {'PASS' if growth_ok else 'FAIL'}",
             },
         },
         tokens_processed=tokens_processed,
