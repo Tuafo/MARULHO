@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.cross_modal import CrossModalGroundingLayer
@@ -102,15 +103,15 @@ def _make_vector_fn(
     """Build vector_fn callable for grounding probe from trainer + encoder.
 
     Produces a grounded representation by:
-    1. Encoding text → routing_key (input_dim) as text base
-    2. Projecting to assembly space (n_columns) via competitive layer
-    3. Predicting visual/audio from assembly via cross-modal weights
-    4. Concatenating [routing_key, visual_pred * v_conf, audio_pred * a_conf]
+    1. Encoding text → routing_key via competitive column assembly
+    2. Predicting visual/audio from raw text pattern via cross-modal weights
+    3. Weighting predictions by per-word grounding confidence
+    4. Concatenating [routing_key_norm, visual * word_conf, audio * word_conf]
 
-    The routing_key preserves text discrimination (128-dim), while
-    cross-modal predictions add grounding signal.  As confidence grows,
-    semantically grounded words gain additional visual/audio structure
-    that text-only representations lack.
+    Per-word confidence is key: only words that were actually trained with
+    cross-modal pairs develop high confidence.  Abstract words that were
+    never paired with sensory data retain near-zero confidence, so their
+    cross-modal predictions are suppressed → positive concreteness gap.
     """
 
     def vector_fn(text: str) -> torch.Tensor:
@@ -118,40 +119,36 @@ def _make_vector_fn(
             encoder.iter_char_patterns(text, cfg.window_size, learn=False)
         )
         if not patterns:
-            return torch.zeros(cfg.input_dim)
+            return torch.zeros(cfg.column_latent_dim)
         vecs = [p for _, p in patterns]
-        routing_key = torch.stack(vecs).mean(dim=0)
+        raw_pattern = torch.stack(vecs).mean(dim=0)
+
+        routing_key = trainer.model.routing_key_from_pattern(raw_pattern)
 
         cross_modal = trainer.model.cross_modal
         if cross_modal is None:
             return routing_key
 
-        # Get assembly representation (n_columns dim) for cross-modal prediction
-        assembly = trainer.contextual_assembly_for_pattern(routing_key)
+        # Use L2-normalized raw pattern for cross-modal predictions
+        # (matches the text_spike used during training)
+        text_spike = F.normalize(raw_pattern.unsqueeze(0), dim=1).squeeze(0)
+        pred_visual = cross_modal.predict_visual(text_spike)
+        pred_audio = cross_modal.predict_audio(text_spike)
 
-        # Predict visual/audio from assembly via cross-modal weights
-        pred_visual = torch.mv(cross_modal.W_tv.T, assembly)
-        pred_audio = torch.mv(cross_modal.W_ta.T, assembly)
+        # Per-word grounding confidence: look up learned confidence for
+        # this word.  Words trained with consistent cross-modal pairs have
+        # high confidence; unseen or abstract words default to 0.
+        word = text.lower().strip()
+        word_conf = trainer.word_grounding_confidence.get(word, 0.0)
 
-        # Assembly-weighted confidence (per-column, weighted by assembly activation)
-        a_abs = assembly.abs()
-        a_sum = a_abs.sum()
-        if a_sum > 1e-8:
-            v_conf = float((a_abs * cross_modal.visual_confidence).sum() / a_sum)
-            a_conf = float((a_abs * cross_modal.audio_confidence).sum() / a_sum)
-        else:
-            v_conf = 0.0
-            a_conf = 0.0
-        pred_visual = pred_visual * min(1.0, v_conf)
-        pred_audio = pred_audio * min(1.0, a_conf)
+        # Normalize each component to unit norm before concatenation
+        rk_norm = F.normalize(routing_key.unsqueeze(0), dim=1).squeeze(0)
+        vis_n = pred_visual.norm()
+        aud_n = pred_audio.norm()
+        vis_part = (pred_visual / vis_n) * word_conf if vis_n > 1e-8 else pred_visual
+        aud_part = (pred_audio / aud_n) * word_conf if aud_n > 1e-8 else pred_audio
 
-        # Normalize each part independently to prevent dimensionality imbalance
-        def _norm(t: torch.Tensor) -> torch.Tensor:
-            n = t.norm()
-            return t / n if n > 1e-8 else t
-
-        # Concatenate: [routing_key(text), visual_pred, audio_pred]
-        grounded = torch.cat([_norm(routing_key), _norm(pred_visual), _norm(pred_audio)])
+        grounded = torch.cat([rk_norm, vis_part, aud_part])
         return grounded
 
     return vector_fn
@@ -359,6 +356,22 @@ def _train_multimodal_on_corpus(
                     visual_spikes=vs,
                     audio_spikes=aus,
                 )
+                # Per-word grounding confidence update: after each multimodal
+                # pairing, measure how well the cross-modal layer predicted the
+                # actual sensory input for each concept word in this window.
+                if vs is not None or aus is not None:
+                    words_in_window = set(raw_window.lower().split())
+                    matched = [c for c in signatures if c in words_in_window]
+                    if matched:
+                        text_spike = F.normalize(
+                            pattern_vec.detach().unsqueeze(0), dim=1,
+                        ).squeeze(0)
+                        for concept in matched:
+                            trainer.update_word_grounding(
+                                concept, text_spike,
+                                actual_visual=vs,
+                                actual_audio=aus,
+                            )
                 total += 1
                 if vs is not None:
                     visual_count += 1
@@ -368,6 +381,71 @@ def _train_multimodal_on_corpus(
                     return total, visual_count, audio_count
 
     return total, visual_count, audio_count
+
+
+def _build_concept_corpus() -> list[str]:
+    """Build corpus containing every CONCEPT_VOCABULARY word at least once.
+
+    Each sentence uses the exact word form so ``_concept_spikes_for_text``
+    can match it and pair with the correct visual/audio signature.
+    Sentences are grouped by concept family for natural co-occurrence.
+    """
+    return [
+        # Fire family
+        "the fire is bright and warm",
+        "a flame dances in the night",
+        "heat rises from the ground",
+        "burn the old dry wood",
+        # Water family
+        "water is cold and clear",
+        "the deep ocean stretches far",
+        "a wave crashes on the shore",
+        "flow of the river is strong",
+        "rain falls from dark clouds",
+        "the ground is wet after the storm",
+        # Cold family
+        "ice covers the still pond",
+        "snow blankets the quiet land",
+        "cold wind cuts through the air",
+        "frost forms on the glass",
+        "freeze the water into solid ice",
+        # Earth family
+        "the rock is heavy and rough",
+        "a stone sits by the path",
+        "mountain peaks touch the sky",
+        "earth and soil are rich",
+        "sand shifts under the hot sun",
+        "the wall is hard and thick",
+        # Air family
+        "wind blows through the trees",
+        "a gentle breeze cools the skin",
+        "cloud drifts across the blue sky",
+        # Plant family
+        "the tall tree grows strong",
+        "a green leaf falls to the ground",
+        "flower blooms in the spring",
+        "the red rose smells sweet",
+        "a soft petal floats down",
+        # Animal family
+        "the dog runs across the field",
+        "a bird sits on the branch",
+        "fish swim in the clear stream",
+        # Light family
+        "the sun is bright and warm",
+        "light fills the open room",
+        "lightning strikes the tall tree",
+        "a flash of light cuts the dark",
+        # Sound family
+        "thunder rolls across the sky",
+        "that sound is very loud",
+        "the dog began to bark",
+        # Misc concrete
+        "a star shines in the night sky",
+        "the moon is full and bright",
+        "the river flows to the sea",
+        "smoke rises from the fire",
+        "the volcano erupts with force",
+    ]
 
 
 # ------------------------------------------------------------------
@@ -406,13 +484,9 @@ def run_stage_1(
 
     trainer.developmental_stage = 1
 
-    corpus = [
-        "the fire burns bright in the dark",
-        "water flows down the rocky stream",
-        "the tall tree grows in the forest",
-        "a small bird flies above the mountain",
-        "warm sunlight covers the sandy beach",
-    ]
+    # Corpus must include every CONCEPT_VOCABULARY word in exact form so
+    # _concept_spikes_for_text can match them and pair with visual/audio.
+    corpus = _build_concept_corpus()
 
     dim_visual = cfg.cross_modal_dim_visual
     dim_audio = cfg.cross_modal_dim_audio
@@ -485,14 +559,7 @@ def run_stage_2(
         trainer._stage2_bootstrap_used_audio = 0
         trainer._stage2_bootstrap_used = 0
 
-    corpus = [
-        "fire burns bright",
-        "water flows down",
-        "tree grows tall",
-        "rock is heavy",
-        "bird flies high",
-        "sun shines warm",
-    ]
+    corpus = _build_concept_corpus()
 
     dim_visual = cfg.cross_modal_dim_visual
     dim_audio = cfg.cross_modal_dim_audio

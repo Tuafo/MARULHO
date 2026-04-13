@@ -129,7 +129,7 @@ class HECSNModelLite:
             pv_gain=self.config.binding_pv_gain,
         ) if self.config.enable_binding_layer else None
         self.cross_modal = CrossModalGroundingLayer(
-            dim_text=self.config.n_columns,
+            dim_text=self.config.input_dim,
             dim_visual=self.config.cross_modal_dim_visual,
             dim_audio=self.config.cross_modal_dim_audio,
             A_plus=self.config.cross_modal_A_plus,
@@ -303,6 +303,13 @@ class HECSNTrainer:
         self._last_self_criticism_token = 0
         self._self_criticism_blacklist: dict[int, int] = {}
 
+        # Per-word grounding confidence (§5.3): tracks cross-modal prediction
+        # quality per concept word.  Updated by the developmental runner when
+        # multimodal pairs are processed — words with consistent visual/audio
+        # associations develop high confidence, words never paired stay at 0.
+        self.word_grounding_confidence: dict[str, float] = {}
+        self._word_grounding_alpha: float = 0.05  # EMA rate
+
         # Developmental stage (§7): controls cross-modal gating behaviour.
         # Stage 1: accept all visual/audio (no filter)
         # Stage 2+: apply alignment_gate() before cross-modal updates
@@ -315,6 +322,49 @@ class HECSNTrainer:
         self._stage2_bootstrap_used_audio: int = 0
         # Legacy alias kept for checkpoint backward compat
         self._stage2_bootstrap_used: int = 0
+
+    def update_word_grounding(
+        self,
+        word: str,
+        text_spike: torch.Tensor,
+        actual_visual: torch.Tensor | None = None,
+        actual_audio: torch.Tensor | None = None,
+    ) -> float:
+        """Update per-word grounding confidence from cross-modal prediction quality.
+
+        Computes cosine similarity between the predicted and actual sensory
+        patterns, then updates the word's EMA confidence.  Returns the
+        current confidence for this word.
+        """
+        if self.model.cross_modal is None:
+            return 0.0
+
+        qualities: list[float] = []
+        cm = self.model.cross_modal
+        if actual_visual is not None and actual_visual.norm() > 1e-6:
+            pred = cm.predict_visual(text_spike)
+            if pred.norm() > 1e-6:
+                cos = F.cosine_similarity(
+                    pred.unsqueeze(0), actual_visual.unsqueeze(0),
+                ).item()
+                qualities.append(max(0.0, cos))
+        if actual_audio is not None and actual_audio.norm() > 1e-6:
+            pred = cm.predict_audio(text_spike)
+            if pred.norm() > 1e-6:
+                cos = F.cosine_similarity(
+                    pred.unsqueeze(0), actual_audio.unsqueeze(0),
+                ).item()
+                qualities.append(max(0.0, cos))
+
+        if not qualities:
+            return self.word_grounding_confidence.get(word, 0.0)
+
+        quality = sum(qualities) / len(qualities)
+        prev = self.word_grounding_confidence.get(word, quality)
+        alpha = self._word_grounding_alpha
+        updated = (1.0 - alpha) * prev + alpha * quality
+        self.word_grounding_confidence[word] = updated
+        return updated
 
     def _update_stream_text(self, raw_window: Optional[str]) -> Optional[str]:
         if raw_window is None:
@@ -1111,22 +1161,23 @@ class HECSNTrainer:
                 precision_weight=self._context_precision_weight(),
             )
 
-        # Cross-modal grounding updates (§5): wire assembly as text spike,
-        # feed visual/audio spikes when multimodal data is available.
-        # Stage-aware gating (§7): Stage 1 accepts all pairs; Stage 2+
-        # applies alignment_gate() to filter unreliable associations,
+        # Cross-modal grounding updates (§5): sensory spikes fire BEFORE
+        # text so that on_text_spike() sees the current visual/audio traces
+        # (not stale traces from a previous concept).  Stage-aware gating
+        # (§7): Stage 1 accepts all pairs; Stage 2+ applies alignment_gate()
         # with a bootstrap budget so confidence can build from zero.
         cross_modal_visual_conf = 0.0
         cross_modal_audio_conf = 0.0
         cross_modal_visual_accepted = None
         cross_modal_audio_accepted = None
         if self.model.cross_modal is not None:
-            text_spike = assembly.detach()
-            if text_spike.dim() > 1:
-                text_spike = text_spike.mean(dim=0)
-            self.model.cross_modal.on_text_spike(text_spike)
+            # Use L2-normalized raw pattern as text representation for
+            # cross-modal Hebbian learning.  With hashed_ngram encoding
+            # different words are nearly orthogonal, giving each word its
+            # own cross-modal association without column contamination.
+            text_spike = F.normalize(x.detach().unsqueeze(0), dim=1).squeeze(0)
 
-            # Visual path with stage-aware gating
+            # Visual path — fire BEFORE text
             if visual_spikes is not None:
                 vs = visual_spikes.to(self.model.device)
                 accept_visual = True
@@ -1141,7 +1192,7 @@ class HECSNTrainer:
                 if accept_visual:
                     self.model.cross_modal.on_visual_spike(vs)
 
-            # Audio path with stage-aware gating
+            # Audio path — fire BEFORE text
             if audio_spikes is not None:
                 aus = audio_spikes.to(self.model.device)
                 accept_audio = True
@@ -1155,6 +1206,9 @@ class HECSNTrainer:
                 cross_modal_audio_accepted = accept_audio
                 if accept_audio:
                     self.model.cross_modal.on_audio_spike(aus)
+
+            # Text spike LAST — now visual/audio traces contain current data
+            self.model.cross_modal.on_text_spike(text_spike)
 
             cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
             cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())

@@ -277,7 +277,7 @@ class TestProbeUsesGroundedVectors(unittest.TestCase):
         cfg = state.config
         vfn = _make_vector_fn(state.trainer, state.text_encoder, cfg)
         vec = vfn("fire")
-        expected_dim = cfg.input_dim + cfg.cross_modal_dim_visual + cfg.cross_modal_dim_audio
+        expected_dim = cfg.column_latent_dim + cfg.cross_modal_dim_visual + cfg.cross_modal_dim_audio
         self.assertEqual(vec.shape[0], expected_dim,
                          f"Probe vector should be {expected_dim}-dim (grounded), got {vec.shape[0]}")
 

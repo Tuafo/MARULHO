@@ -52,6 +52,7 @@ class CrossModalGroundingLayer:
         self.tau_trace = float(tau_trace)
         self.confidence_alpha = float(confidence_alpha)
         self.device = device or torch.device("cpu")
+        self.max_weight_norm = 1.0  # Synaptic scaling bound (Turrigiano 2008)
 
         # Four cross-modal weight matrices
         self.W_tv = torch.randn(dim_text, dim_visual, device=self.device) * 0.01
@@ -76,6 +77,18 @@ class CrossModalGroundingLayer:
         self.text_trace *= factor
         self.visual_trace *= factor
         self.audio_trace *= factor
+
+    def _synaptic_scaling(self) -> None:
+        """Row-wise max-norm clipping (Turrigiano 2008 synaptic scaling).
+
+        Prevents unbounded Hebbian growth by keeping each row's L2 norm
+        below max_weight_norm. Preserves directional information in each
+        row while bounding overall weight magnitudes.
+        """
+        for W in (self.W_tv, self.W_vt, self.W_ta, self.W_at):
+            norms = W.norm(dim=1, keepdim=True).clamp(min=1e-8)
+            scale = torch.clamp(self.max_weight_norm / norms, max=1.0)
+            W.data.mul_(scale)
 
     # -- spike events -------------------------------------------------------
 
@@ -106,6 +119,7 @@ class CrossModalGroundingLayer:
         self._update_visual_confidence(t)
         self._update_audio_confidence(t)
 
+        self._synaptic_scaling()
         self._decay_traces()
 
     def on_visual_spike(self, visual_spikes: torch.Tensor) -> None:
@@ -123,6 +137,7 @@ class CrossModalGroundingLayer:
         text_inactive = 1.0 - torch.clamp(self.text_trace, 0, 1)
         self.W_vt -= self.A_minus * torch.outer(v, text_inactive) * self.W_vt.abs()
 
+        self._synaptic_scaling()
         self._decay_traces()
 
     def on_audio_spike(self, audio_spikes: torch.Tensor) -> None:
@@ -140,6 +155,7 @@ class CrossModalGroundingLayer:
         text_inactive = 1.0 - torch.clamp(self.text_trace, 0, 1)
         self.W_at -= self.A_minus * torch.outer(a, text_inactive) * self.W_at.abs()
 
+        self._synaptic_scaling()
         self._decay_traces()
 
     # -- grounding confidence -----------------------------------------------
