@@ -579,7 +579,7 @@ If word2vec trained on the same text corpus scores 0.78 on the 50 triples, then 
 
 The `meaningful_margin` should be at least 0.05 — a difference that would not arise by chance across different random initializations. If the 50-triple suite has high variance (consistent grounding is hard), the margin may need to be larger.
 
-**The concreteness gap test remains the strongest evidence.** Regardless of the absolute probe score, if HECSN shows concrete concepts scoring 0.10+ higher than abstract concepts — a pattern that cannot be produced by pure text statistics because both are equally frequent — that is genuine evidence of perceptual grounding that word2vec cannot replicate.
+**The concreteness gap test measures per-word multimodal enrichment.** If HECSN shows concrete concepts scoring 0.10+ higher than abstract concepts on in-vocabulary triples — a pattern that text-only systems do not produce — that is evidence of effective multimodal grounding for trained words. However, this gap does not transfer to unseen concrete words (held-out gap = −0.26, §10.4). The claim is: multimodal co-occurrence enriches representations of words that receive multimodal training, not that the system learns a general "concreteness" dimension.
 
 ---
 
@@ -1179,6 +1179,8 @@ Failure: >15% degradation without sleep. Success: <5% degradation with adaptive 
 | Concrete accuracy (25-triple) | ~0.50 | **0.44** | **0.52** | measure | **0.84** (median, range 0.80–0.88) |
 | Abstract accuracy (25-triple) | ~0.50 | **0.44** | **0.44** | measure | **0.48** (median, range 0.44–0.56) |
 | Concreteness gap | N/A | **0.00** | **+0.08** | ~0.00 | **+0.36** (median, range +0.24 to +0.40) |
+| Held-out concrete (10-triple) | ~0.50 | measure | measure | measure | **0.30** (words NOT in training vocab) |
+| Held-out concreteness gap | N/A | measure | measure | ~0.00 | **−0.26** (no transfer to unseen words) |
 | Compositionality | N/A | N/A | measure | **1.0** ⚠️ | measure |
 | Novelty rate @100K | N/A | N/A | measure | **0.099** | measure |
 | Prediction error (first 1K tokens) | N/A | N/A | N/A | **1.63→0.66** | measure |
@@ -1187,6 +1189,8 @@ Failure: >15% degradation without sleep. Success: <5% degradation with adaptive 
 Bold = current validated results. ⚠️ = requires scrutiny (see below). Others require measurement before publication.
 
 **50-triple grounding probe results (validated 2026-06-11):** The full 50-triple grounding probe (25 concrete + 25 abstract) has been measured on trained checkpoints across 3 seeds after full 5-stage developmental protocol completion (5,000 tokens per stage). Results: total accuracy 0.64–0.74 (median 0.68), concrete 0.80–0.88 (median 0.84), abstract 0.44–0.56 (median 0.48), concreteness gap +0.24 to +0.40 (median +0.36). All results substantially exceed both baselines (fastText 0.44, SOM 0.48) and the 0.65 publication threshold (at concrete level). The large concreteness gap (+0.36 vs SOM's +0.08 and fastText's 0.00) confirms genuine cross-modal grounding: concrete words paired with sensory data develop distinct representations, while abstract words without sensory pairing remain at baseline text-similarity levels.
+
+> **Closed-world disclosure (v4.7):** All 75 words in the 25 concrete triples overlap with `CONCEPT_VOCABULARY` (the training vocabulary for multimodal episodes). Zero words in the 25 abstract triples appear in `CONCEPT_VOCABULARY`. This means the concreteness gap measures **per-word multimodal enrichment**, not **transfer of grounding to unseen concrete words**. A held-out probe (10 concrete triples using words NOT in `CONCEPT_VOCABULARY`) confirms this: held-out concrete accuracy = 0.30, below abstract accuracy = 0.56, held-out gap = −0.26. This is expected: per-word EMA signatures only accumulate for words encountered in multimodal context. The concreteness gap is genuine evidence that multimodal co-occurrence produces richer representations for trained words, but it does not demonstrate that the system has learned a general "concreteness" dimension that transfers to unseen words. Achieving transfer would require either (a) broader multimodal vocabulary coverage, or (b) column-level structure that generalizes beyond per-word associations. The extended 60-triple probe (25 in-vocab concrete + 10 held-out concrete + 25 abstract) is implemented in `evaluate_grounding_probe_extended()` for ongoing monitoring.
 
 Prediction error trajectory is from real Wikipedia training (1,152 tokens), monotonically decreasing with active neuromodulator dynamics (DA 0.006→0.431) and autonomous micro-sleep at 256 tokens.
 
@@ -1288,6 +1292,8 @@ The 0.65 threshold for "genuine semantic organization" has been calibrated again
 
 Both text-only baselines score well below the 0.65 threshold, confirming that any HECSN score above 0.60 represents genuine structure that text-only methods cannot produce on this corpus. The thresholds remain as specified: Stage 2 criterion = 0.60, publication threshold = 0.65.
 
+> **Closed-world probe disclosure (v4.7):** All 75 words across the 25 concrete triples are members of `CONCEPT_VOCABULARY` — the training vocabulary for multimodal episodes. Zero abstract-triple words appear in `CONCEPT_VOCABULARY`. The measured concreteness gap (+0.16 to +0.40) therefore reflects **per-word multimodal enrichment** of trained words, not generalized concreteness awareness. An extended 60-triple probe with 10 held-out concrete triples (words NOT in training vocabulary) confirms: held-out concrete accuracy = 0.30 vs abstract = 0.56, held-out gap = −0.26. Per-word EMA signatures accumulate only for words encountered in multimodal context, so this outcome is architecturally expected. The concreteness gap remains valid evidence that multimodal co-occurrence enriches trained-word representations beyond what text-only statistics produce — but the claim should not be interpreted as showing emergent "concreteness" transfer. Achieving transfer would require broader vocabulary coverage or column-level structural generalization.
+
 ### 10.5 Visual-Text Grounding May Fail at Scale Even If Audio-Text Succeeds
 
 Audio-text grounding is easy (speech IS text; high alignment rate). Visual-text grounding is hard (narration often describes something other than what's currently visible). The alignment filter was designed to address this, but it can only filter using text-visual predictions derived from existing grounding — which was itself established from Stage 1 data that may not cover the full visual vocabulary.
@@ -1317,6 +1323,7 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 ### Phase 1: Evaluation Framework ✅ COMPLETE
 
 - 50-triple grounding probe (25 concrete + 25 abstract) implemented in `grounding_probe.py`
+- Extended 60-triple probe with 10 held-out concrete triples (words NOT in training vocabulary) for closed-world validation
 - `CONCRETE_AUDIO_INDICES` for audio-text/visual-text split metrics
 - Eight evaluation levels defined (§8.1–§8.9)
 - Stage-0 gates validated: silhouette=0.675, DBI=0.304, temporal_coherence=0.9916, semantic_triple_accuracy=0.714
@@ -1404,7 +1411,7 @@ The following components are implemented and validated on the current tree (76 P
 - `interaction/responder.py` — strict-evidence response mode with grounding abstention
 
 **Evaluation:**
-- `evaluation/grounding_probe.py` — 50-triple probe (25 concrete + 25 abstract) with `CONCRETE_AUDIO_INDICES`, visual-text/audio-text split accuracy
+- `evaluation/grounding_probe.py` — 50-triple probe (25 concrete + 25 abstract) with `CONCRETE_AUDIO_INDICES`, visual-text/audio-text split accuracy, plus 10 held-out concrete triples for closed-world validation
 - Silhouette, DBI, temporal coherence, compositionality, novelty rate, drift rate metrics
 
 **Service layer (Terminus):**
@@ -1645,7 +1652,7 @@ The following table separates **implemented standalone components** from **end-t
 
 *PyTorch 2.1+ · pip install -e . · FastAPI/Uvicorn · React/Vite*
 
-*Falsifiable central claim: multimodal temporal co-occurrence STDP produces a concreteness gap in the grounding probe (concrete triples score > 0.10 higher than abstract triples) not achievable by text-only systems — **VALIDATED**: concreteness gap +0.16 to +0.40 across seeds, vs fastText 0.00 and SOM +0.08. Achieved without semantic labels at any stage, using structurally curated perceptual grounding data during the developmental critical period.*
+*Falsifiable central claim: multimodal temporal co-occurrence STDP produces enriched representations for words encountered in multimodal context, measurable as a concreteness gap on in-vocabulary triples (concrete 0.72–0.88 vs abstract 0.44–0.56, gap +0.16 to +0.40) not achievable by text-only systems (fastText 0.00, SOM +0.08). **Closed-world limitation acknowledged**: held-out concrete words (not in training vocabulary) score 0.30, showing no transfer beyond trained words. Per-word EMA grounding is vocabulary-specific by design. Achieved without semantic labels at any stage, using structurally curated perceptual grounding data during the developmental critical period.*
 
 *Full 5-stage developmental protocol validated with multimodal training throughout all stages (not just stages 1–2). Null-control validation: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Trained results: probe 0.64–0.68 across seeds. Audio self-criticism wired alongside visual. 512 tests pass across 50 test files.*
 
@@ -1662,6 +1669,8 @@ The following table separates **implemented standalone components** from **end-t
 3. **Audio self-criticism wired into trainer.** `run_self_criticism_audio()` now called alongside visual self-criticism every 5,000 tokens. Audio frames buffered separately with independent blacklist. Both modalities undergo the same confirm-or-penalize loop.
 
 4. **ProtocolState carries concept_signatures across stages.** Signatures built in Stage 1 are reused in all subsequent stages via `_resolve_signatures()`, ensuring consistent multimodal pairing throughout the developmental protocol.
+
+5. **Held-out concrete probe for closed-world validation.** 10 held-out concrete triples using words NOT in `CONCEPT_VOCABULARY` added to the evaluation suite. Extended 60-triple probe (`evaluate_grounding_probe_extended()`) reports in-vocab, held-out, and abstract accuracy separately. Results: held-out concrete 0.30 vs abstract 0.56, confirming concreteness gap is per-word enrichment, not generalized transfer. Honest disclosure added to §8.10, §10.4, and footer.
 
 3. **Lateral inhibition (centering).** Cross-modal predictions are centered (`pred = pred - pred.mean()`) before normalization, removing the common positive component that caused all W_tv predictions to have spuriously high cosine similarity. Biologically motivated as lateral inhibition in sensory cortex.
 
