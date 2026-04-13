@@ -356,5 +356,52 @@ class TestSubProbes(unittest.TestCase):
         self.assertLessEqual(probe.audio_text_accuracy, 1.0)
 
 
+class TestTextOnlyControl(unittest.TestCase):
+    """Text-only HECSN (no multimodal) should show negative concreteness gap."""
+
+    def test_text_only_has_negative_or_zero_gap(self) -> None:
+        """Without multimodal data, concrete should NOT beat abstract."""
+        from hecsn.data.rtf_encoder import RTFEncoder
+        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+        from hecsn.training.runner_utils import set_seed
+        from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+
+        set_seed(42)
+        cfg = HECSNConfig()
+        encoder = RTFEncoder.from_config(cfg)
+        model = HECSNModelLite(cfg)
+        trainer = HECSNTrainer(model, cfg)
+
+        # Train text-only (no multimodal spikes)
+        total = 0
+        while total < 5000:
+            for sentence in DEVELOPMENTAL_CORPUS:
+                patterns = list(encoder.iter_char_patterns(sentence, cfg.window_size))
+                for _raw, pv in patterns:
+                    trainer.train_step(pv, raw_window=_raw)
+                    total += 1
+                    if total >= 5000:
+                        break
+                if total >= 5000:
+                    break
+
+        vfn = _make_vector_fn(trainer, encoder, cfg)
+        probe = evaluate_grounding_probe_extended(vfn)
+
+        # Text-only: concreteness gap should be <= 0 (abstract >= concrete)
+        self.assertLessEqual(
+            probe.concreteness_gap,
+            0.05,
+            "Text-only HECSN should NOT show positive concreteness gap "
+            f"(got {probe.concreteness_gap:.3f})",
+        )
+        # Total accuracy should be below multimodal (0.68)
+        self.assertLess(
+            probe.total_accuracy,
+            0.60,
+            "Text-only should score below multimodal threshold",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

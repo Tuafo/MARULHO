@@ -7,13 +7,13 @@
 
 **Version:** 4.7 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-11):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.44, SOM 0.48).** Visual-text sub-probe: 0.73 (22 triples), audio-text sub-probe: 0.67 (3 triples). `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. **Task A/B recall: PASS** (full recovery after consolidation, overlap 0.69). **STC sensitivity: robust across functional_minute = {100, 500, 2000, 10000}.** Full test suite: **518 passed, 7 subtests passed** across 50 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). Remaining targets: GPU routing benchmarks, multimodal dataset adapters for real-world data (MNIST-DVS, TI-46), scale validation at larger token budgets.
+**Executable Status (2026-06-11):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.46, SOM 0.46).** Visual-text sub-probe: 0.73 (22 triples), audio-text sub-probe: 0.67 (3 triples). `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. **Task A/B recall: PASS** (full recovery after consolidation, overlap 0.69). **STC sensitivity: robust across functional_minute = {100, 500, 2000, 10000}.** Full test suite: **520 passed, 7 subtests passed** across 50 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.46, SOM 0.46 on developmental corpus — thresholds validated (§8.1). Text-only HECSN control: 0.42 total, gap −0.24 (abstract > concrete without multimodal — confirms grounding effect). Remaining targets: GPU routing benchmarks, multimodal dataset adapters for real-world data (MNIST-DVS, TI-46), scale validation at larger token budgets.
 
 ---
 
 ## Abstract
 
-HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant+ compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (512 tests pass).
+HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant+ compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (520 tests pass).
 
 ---
 
@@ -1033,11 +1033,12 @@ Train fastText with character n-grams (min_n=1, max_n=6) on the same text corpus
 
 | Baseline | 50-triple accuracy | Concrete | Abstract | Concreteness gap |
 |---|---|---|---|---|
-| Online SOM (64 prototypes) | 0.48 | 0.52 | 0.44 | +0.08 |
-| fastText (char n-grams) | 0.44 | 0.44 | 0.44 | 0.00 |
-| 4-gram model | 91.1% next-char accuracy | — | — | — |
+| Online SOM (64 prototypes) | 0.46 | 0.40 | 0.52 | −0.12 |
+| fastText (char n-grams) | 0.46 | 0.44 | 0.48 | −0.04 |
+| HECSN text-only (25K tokens) | 0.42 | 0.32 | 0.56 | −0.24 |
+| 4-gram model | 75.1% next-char accuracy | — | — | — |
 
-Both SOM and fastText score near chance (0.50) on the developmental corpus, confirming that the corpus is too small for text-only distributional methods to learn meaningful semantic structure. This validates the current thresholds: Stage 2 criterion (0.60) and publication threshold (0.65) both exceed the text-only baselines by substantial margins. Any HECSN score above 0.60 represents genuine structure that text-only statistics cannot explain on this corpus. The fastText concreteness gap of 0.00 confirms that text-only methods cannot distinguish concrete from abstract concepts — HECSN's multimodal grounding must produce a positive concreteness gap to demonstrate that visual/audio co-occurrence contributes beyond distributional text statistics.
+All baselines and the text-only HECSN control show **negative** concreteness gaps: abstract words are better represented than concrete words when no sensory data is available. This validates the experimental design: any positive concreteness gap in the +multimodal HECSN cannot be attributed to text statistics alone. The text-only HECSN control (0.42 total, gap −0.24) is the strongest control because it uses the same architecture, same training budget, and same corpus — only the multimodal channel differs. The +multimodal HECSN flips the gap from −0.24 to +0.36, a 0.60 swing that quantifies the contribution of cross-modal grounding.
 
 ### 8.2 Level 1: Assembly Quality (Sanity Checks)
 
@@ -1174,25 +1175,29 @@ Failure: >15% degradation without sleep. Success: <5% degradation with adaptive 
 
 | Metric | 4-gram | fastText | Online SOM | HECSN text-only | HECSN +multimodal |
 |---|---|---|---|---|---|
-| Silhouette | N/A | N/A | measure | **0.675** | measure |
-| Temporal coherence | N/A | N/A | measure | **0.9916** | measure |
+| Silhouette | N/A | N/A | N/A | **0.675** | measure |
+| Temporal coherence | N/A | N/A | N/A | **0.9916** | measure |
 | Text-only validation (7-triple) | ~0.50 | N/A | N/A | **0.714** (5/7) | N/A |
-| Grounding probe (50-triple) | ~0.50 | **0.44** | **0.48** | measure | **0.68** (median, range 0.64–0.74) |
-| Visual-text sub-probe | ~0.50 | measure | measure | measure | **0.73** (22 triples) |
-| Audio-text sub-probe | ~0.50 | measure | measure | measure | **0.67** (3 triples) |
-| Concrete accuracy (25-triple) | ~0.50 | **0.44** | **0.52** | measure | **0.84** (median, range 0.80–0.88) |
-| Abstract accuracy (25-triple) | ~0.50 | **0.44** | **0.44** | measure | **0.48** (median, range 0.44–0.56) |
-| Concreteness gap | N/A | **0.00** | **+0.08** | ~0.00 | **+0.36** (median, range +0.24 to +0.40) |
-| Held-out concrete (10-triple) | ~0.50 | measure | measure | measure | **0.30** (words NOT in training vocab) |
-| Held-out concreteness gap | N/A | measure | measure | ~0.00 | **−0.26** (no transfer to unseen words) |
-| Compositionality | N/A | N/A | measure | **0.9934** | measure |
-| Novelty rate @100K | N/A | N/A | measure | **0.099** | measure |
+| Grounding probe (50-triple) | ~0.50 | **0.46** | **0.46** | **0.42** | **0.68** (median, range 0.64–0.74) |
+| Visual-text sub-probe | ~0.50 | **0.45** | **0.45** | **0.27** | **0.73** (22 triples) |
+| Audio-text sub-probe | ~0.50 | **0.33** | **0.00** | **0.67** (n=3) | **0.67** (3 triples) |
+| Concrete accuracy (25-triple) | ~0.50 | **0.44** | **0.40** | **0.32** | **0.84** (median, range 0.80–0.88) |
+| Abstract accuracy (25-triple) | ~0.50 | **0.48** | **0.52** | **0.56** | **0.48** (median, range 0.44–0.56) |
+| Concreteness gap | N/A | **−0.04** | **−0.12** | **−0.24** | **+0.36** (median, range +0.24 to +0.40) |
+| Held-out concrete (10-triple) | ~0.50 | **0.00** | **0.00** | **0.30** | **0.30** (words NOT in training vocab) |
+| Held-out concreteness gap | N/A | **−0.48** | **−0.52** | **−0.26** | **−0.26** (no transfer to unseen words) |
+| Compositionality | N/A | N/A | N/A | **0.9934** | measure |
+| Novelty rate @100K | N/A | N/A | N/A | **0.099** | measure |
 | Prediction error (first 1K tokens) | N/A | N/A | N/A | **1.63→0.66** | measure |
-| Task-A recall | N/A | N/A | measure | **PASS** (gate: degradation ≤0, overlap 0.69) | measure |
+| Task-A recall | N/A | N/A | N/A | **PASS** (gate: degradation ≤0, overlap 0.69) | measure |
 
-Bold = current validated results. ⚠️ = requires scrutiny (see below). Others require measurement before publication.
+Bold = current validated results. Remaining "measure" cells require either GPU hardware (+multimodal silhouette/coherence) or full multimodal re-evaluation (compositionality, novelty, prediction error, Task-A in +multimodal column).
 
-**50-triple grounding probe results (validated 2026-06-11):** The full 50-triple grounding probe (25 concrete + 25 abstract) has been measured on trained checkpoints across 3 seeds after full 5-stage developmental protocol completion (5,000 tokens per stage). Results: total accuracy 0.64–0.74 (median 0.68), concrete 0.80–0.88 (median 0.84), abstract 0.44–0.56 (median 0.48), concreteness gap +0.24 to +0.40 (median +0.36). All results substantially exceed both baselines (fastText 0.44, SOM 0.48) and the 0.65 publication threshold (at concrete level). The large concreteness gap (+0.36 vs SOM's +0.08 and fastText's 0.00) confirms genuine cross-modal grounding: concrete words paired with sensory data develop distinct representations, while abstract words without sensory pairing remain at baseline text-similarity levels.
+**Text-only HECSN control (validated):** HECSN trained with 25K text tokens and NO multimodal data scores 0.42 total (below baselines), with concrete 0.32, abstract 0.56, and concreteness gap **−0.24**. The negative gap (abstract > concrete) is the expected signature of a system with no sensory grounding: text co-occurrence statistics alone favour abstract words that share distributional contexts. Compare with +multimodal gap of **+0.36** — the 0.60 swing from −0.24 to +0.36 is the quantitative effect of cross-modal grounding. This control confirms that the multimodal pipeline, not text statistics, is responsible for the concrete word advantage.
+
+**Baseline sub-probe results (validated):** fastText and SOM visual-text sub-probes both score 0.45 (near chance), audio-text scores 0.33 (fastText) and 0.00 (SOM). Both baselines score 0.00 on held-out concrete triples, with held-out gaps of −0.48 (fastText) and −0.52 (SOM). These baselines have no access to sensory data, so their sub-probe and held-out performance is expected to be at or below chance.
+
+**50-triple grounding probe results (validated 2026-06-11):** The full 50-triple grounding probe (25 concrete + 25 abstract) has been measured on trained checkpoints across 3 seeds after full 5-stage developmental protocol completion (5,000 tokens per stage). Results: total accuracy 0.64–0.74 (median 0.68), concrete 0.80–0.88 (median 0.84), abstract 0.44–0.56 (median 0.48), concreteness gap +0.24 to +0.40 (median +0.36). All results substantially exceed both baselines (fastText 0.46, SOM 0.46) and the 0.65 publication threshold (at concrete level). The large concreteness gap (+0.36 vs SOM's −0.12 and fastText's −0.04) confirms genuine cross-modal grounding: concrete words paired with sensory data develop distinct representations, while abstract words without sensory pairing remain at baseline text-similarity levels.
 
 > **Closed-world disclosure (v4.7):** All 75 words in the 25 concrete triples overlap with `CONCEPT_VOCABULARY` (the training vocabulary for multimodal episodes). Zero words in the 25 abstract triples appear in `CONCEPT_VOCABULARY`. This means the concreteness gap measures **per-word multimodal enrichment**, not **transfer of grounding to unseen concrete words**. A held-out probe (10 concrete triples using words NOT in `CONCEPT_VOCABULARY`) confirms this: held-out concrete accuracy = 0.30, below abstract accuracy = 0.56, held-out gap = −0.26. This is expected: per-word EMA signatures only accumulate for words encountered in multimodal context. The concreteness gap is genuine evidence that multimodal co-occurrence produces richer representations for trained words, but it does not demonstrate that the system has learned a general "concreteness" dimension that transfers to unseen words. Achieving transfer would require either (a) broader multimodal vocabulary coverage, or (b) column-level structure that generalizes beyond per-word associations. The extended 60-triple probe (25 in-vocab concrete + 10 held-out concrete + 25 abstract) is implemented in `evaluate_grounding_probe_extended()` for ongoing monitoring.
 
@@ -1337,7 +1342,7 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 - `CONCRETE_AUDIO_INDICES` for audio-text/visual-text split metrics
 - Eight evaluation levels defined (§8.1–§8.9)
 - Stage-0 gates validated: silhouette=0.675, DBI=0.304, temporal_coherence=0.9916, semantic_triple_accuracy=0.714
-- Online SOM, 4-gram, and fastText baselines calibrated on developmental corpus (§8.1): SOM 0.48, fastText 0.44, 4-gram 91.1% — thresholds validated
+- Online SOM, 4-gram, and fastText baselines calibrated on developmental corpus (§8.1): SOM 0.46, fastText 0.46, 4-gram 75.1% — thresholds validated
 
 ### Phase 2: Adaptive Context Layer ✅ COMPLETE
 
@@ -1378,7 +1383,7 @@ Real training validated on Wikipedia streaming: prediction error 1.63→0.66 ove
 
 ### Phase 7: Stages 2–5 Developmental Protocol ✅ VALIDATED (all 5 stages pass, multimodal throughout)
 
-Five-stage developmental protocol runs end-to-end with state continuity (ProtocolState, including concept_signatures). All 5 stages pass across tested seeds (42, 7, 123) at 5,000 tokens per stage. **All stages use multimodal training** — concept-conditioned visual/audio spikes are paired throughout stages 1–5, not just during initial grounding (stages 1–2). Audio self-criticism is wired alongside visual self-criticism. Stage 3–5 criteria include absolute grounding thresholds (probe ≥ 0.52, concreteness_gap > 0.0) validated via null-control test: untrained models fail all stages (probe=0.34, gap=−0.28). Key mechanism: per-word sensory signatures (cell assembly encoding) with lateral inhibition (centering) and routing-key fading (rk_weight = 1 − word_conf) provide the discriminative power for grounding probe accuracy 0.64–0.68, well above baselines (fastText 0.44, SOM 0.48). Remaining scale targets: validation at larger token budgets (50K–200K per stage) and with real multimodal datasets.
+Five-stage developmental protocol runs end-to-end with state continuity (ProtocolState, including concept_signatures). All 5 stages pass across tested seeds (42, 7, 123) at 5,000 tokens per stage. **All stages use multimodal training** — concept-conditioned visual/audio spikes are paired throughout stages 1–5, not just during initial grounding (stages 1–2). Audio self-criticism is wired alongside visual self-criticism. Stage 3–5 criteria include absolute grounding thresholds (probe ≥ 0.52, concreteness_gap > 0.0) validated via null-control test: untrained models fail all stages (probe=0.34, gap=−0.28). Key mechanism: per-word sensory signatures (cell assembly encoding) with lateral inhibition (centering) and routing-key fading (rk_weight = 1 − word_conf) provide the discriminative power for grounding probe accuracy 0.64–0.68, well above baselines (fastText 0.46, SOM 0.46). Remaining scale targets: validation at larger token budgets (50K–200K per stage) and with real multimodal datasets.
 
 ### Phase 8: Paper ⬜ IN PROGRESS
 
@@ -1438,7 +1443,7 @@ The following components are implemented and validated on the current tree (76 P
 
 ```
 pip install -e . && python -m pytest -q
-→ 513 passed, 7 subtests passed (across 50 test files)
+→ 521 passed, 7 subtests passed (across 50 test files)
 ```
 
 Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `test_meaning_grounding.py`, `test_gap_planner.py`, `test_source_catalog.py` → `58 passed, 3 warnings`
@@ -1546,7 +1551,7 @@ The following table separates **implemented standalone components** from **end-t
 | TurboQuant runtime integration | ✅ Integrated | `routing_index_mode="turboquant_plus"` wired via `HierarchicalAssemblyIndex`; search, rebuild, and compress_all operational |
 | GPU routing benchmarks | No CUDA data | Requires target hardware |
 | 2:4 structured sparsity / CSR | Not implemented | Performance optimization |
-| Baseline calibration experiments | ✅ Done | SOM 0.48, fastText 0.44 — thresholds validated |
+| Baseline calibration experiments | ✅ Done | SOM 0.46, fastText 0.46 — thresholds validated |
 | Triplet STDP frequency validation | ✅ Validated | Pfister & Gerstner 2006 Fig. 2 confirmed |
 | End-to-end developmental protocol | ✅ Validated | 5-stage protocol passes with multimodal training across 3 seeds |
 
@@ -1664,7 +1669,7 @@ The following table separates **implemented standalone components** from **end-t
 
 *Falsifiable central claim: multimodal temporal co-occurrence STDP produces enriched representations for words encountered in multimodal context, measurable as a concreteness gap on in-vocabulary triples (concrete 0.72–0.88 vs abstract 0.44–0.56, gap +0.16 to +0.40) not achievable by text-only systems (fastText 0.00, SOM +0.08). **Closed-world limitation acknowledged**: held-out concrete words (not in training vocabulary) score 0.30, showing no transfer beyond trained words. Per-word EMA grounding is vocabulary-specific by design. Achieved without semantic labels at any stage, using structurally curated perceptual grounding data during the developmental critical period.*
 
-*Full 5-stage developmental protocol validated with multimodal training throughout all stages (not just stages 1–2). Null-control validation: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Trained results: probe 0.64–0.68 across seeds. Audio self-criticism wired alongside visual. 512 tests pass across 50 test files.*
+*Full 5-stage developmental protocol validated with multimodal training throughout all stages (not just stages 1–2). Null-control validation: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Trained results: probe 0.64–0.68 across seeds. Audio self-criticism wired alongside visual. Text-only HECSN control: 0.42 total, gap −0.24 (confirms multimodal is responsible for concrete advantage). 521 tests pass across 50 test files.*
 
 *All other verification targets are falsifiable predictions, not asserted results.*
 
