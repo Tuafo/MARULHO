@@ -61,7 +61,7 @@ class HECSNConfig:
     bootstrap_tokens: int = 5000
     k_routing: int = 10
     index_rebuild_threshold: int = 256
-    routing_index_mode: Literal["auto", "faiss_hnsw", "torch_topk", "exact_cosine"] = "auto"
+    routing_index_mode: Literal["auto", "faiss_hnsw", "torch_topk", "exact_cosine", "turboquant_plus"] = "auto"
     routing_shards: int = 1
     shard_candidate_factor: int = 2
 
@@ -322,8 +322,8 @@ class HECSNConfig:
             raise ValueError("routing_shards must be positive")
         if self.routing_shards > self.n_columns:
             raise ValueError("routing_shards must be less than or equal to n_columns")
-        if self.routing_index_mode not in {"auto", "faiss_hnsw", "torch_topk", "exact_cosine"}:
-            raise ValueError("routing_index_mode must be one of auto, faiss_hnsw, torch_topk, exact_cosine")
+        if self.routing_index_mode not in {"auto", "faiss_hnsw", "torch_topk", "exact_cosine", "turboquant_plus"}:
+            raise ValueError("routing_index_mode must be one of auto, faiss_hnsw, torch_topk, exact_cosine, turboquant_plus")
         if self.shard_candidate_factor <= 0:
             raise ValueError("shard_candidate_factor must be positive")
 

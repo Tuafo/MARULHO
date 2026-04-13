@@ -298,5 +298,191 @@ class TestSerialization(unittest.TestCase):
         self.assertEqual(set(state.keys()), expected_keys)
 
 
+# ---------------------------------------------------------------------------
+# TurboQuant+ as HierarchicalAssemblyIndex routing backend
+# ---------------------------------------------------------------------------
+
+class TestTurboQuantRoutingBackend(unittest.TestCase):
+    """Integration tests for the turboquant_plus routing backend."""
+
+    def _make_index(self, dim: int = 64, n: int = 50) -> "tuple":
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+        vecs = F.normalize(torch.randn(n, dim), dim=1)
+        ids = np.arange(n, dtype=np.int64)
+        idx.add(vecs, ids)
+        idx.rebuild()
+        return idx, vecs, ids
+
+    def test_backend_resolves(self) -> None:
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        idx = HierarchicalAssemblyIndex(dim=32, backend="turboquant_plus")
+        self.assertEqual(idx._backend, "turboquant_plus")
+
+    def test_search_returns_correct_format(self) -> None:
+        idx, vecs, _ = self._make_index(dim=32, n=20)
+        q = F.normalize(torch.randn(1, 32), dim=1)
+        result_ids, result_dists = idx.search(q, k=5)
+        self.assertIsInstance(result_ids, list)
+        self.assertEqual(len(result_ids), 1)
+        self.assertEqual(len(result_ids[0]), 5)
+        self.assertEqual(result_dists.shape, (1, 5))
+
+    def test_batch_search(self) -> None:
+        idx, vecs, _ = self._make_index(dim=32, n=20)
+        q = F.normalize(torch.randn(3, 32), dim=1)
+        result_ids, result_dists = idx.search(q, k=5)
+        self.assertEqual(len(result_ids), 3)
+        self.assertEqual(result_dists.shape, (3, 5))
+
+    def test_top1_recall_vs_exact(self) -> None:
+        """TQ top-1 should agree with exact cosine >70% (3-bit pre-filter)."""
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        dim, n = 64, 50
+        vecs = F.normalize(torch.randn(n, dim), dim=1)
+        ids = np.arange(n, dtype=np.int64)
+
+        tq_idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+        exact_idx = HierarchicalAssemblyIndex(dim=dim, backend="exact_cosine")
+        tq_idx.add(vecs, ids)
+        exact_idx.add(vecs, ids)
+        tq_idx.rebuild()
+
+        n_queries = 100
+        matches = 0
+        for _ in range(n_queries):
+            q = F.normalize(torch.randn(1, dim), dim=1)
+            tq_ids, _ = tq_idx.search(q, k=1)
+            exact_ids, _ = exact_idx.search(q, k=1)
+            if tq_ids[0][0] == exact_ids[0][0]:
+                matches += 1
+
+        recall = matches / n_queries
+        self.assertGreaterEqual(recall, 0.70, f"Top-1 recall {recall:.2f} < 0.70")
+
+    def test_topk_recall_vs_exact(self) -> None:
+        """Top-k shortlist should contain the exact top-1 >90% of the time."""
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        dim, n = 64, 50
+        vecs = F.normalize(torch.randn(n, dim), dim=1)
+        ids = np.arange(n, dtype=np.int64)
+
+        tq_idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+        exact_idx = HierarchicalAssemblyIndex(dim=dim, backend="exact_cosine")
+        tq_idx.add(vecs, ids)
+        exact_idx.add(vecs, ids)
+        tq_idx.rebuild()
+
+        n_queries = 100
+        recalls = 0
+        for _ in range(n_queries):
+            q = F.normalize(torch.randn(1, dim), dim=1)
+            tq_ids, _ = tq_idx.search(q, k=10)
+            exact_ids, _ = exact_idx.search(q, k=1)
+            if exact_ids[0][0] in tq_ids[0]:
+                recalls += 1
+
+        recall = recalls / n_queries
+        self.assertGreaterEqual(recall, 0.90, f"Top-k recall {recall:.2f} < 0.90")
+
+    def test_add_updates_sync(self) -> None:
+        """After adding new vectors and rebuilding, search finds them."""
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        dim = 32
+        idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+
+        v1 = F.normalize(torch.randn(5, dim), dim=1)
+        idx.add(v1, np.arange(5, dtype=np.int64))
+        idx.rebuild()
+
+        # Add 5 more and rebuild
+        v2 = F.normalize(torch.randn(5, dim), dim=1)
+        idx.add(v2, np.arange(5, 10, dtype=np.int64))
+        idx.rebuild()
+
+        self.assertEqual(idx.stats()["unique_vectors"], 10)
+
+        # Search for v2[0] — should find id=5 as top-1
+        result_ids, _ = idx.search(v2[0:1], k=1)
+        self.assertEqual(result_ids[0][0], 5)
+
+    def test_prototype_update_reflected_after_rebuild(self) -> None:
+        """Updating a prototype and rebuilding makes the new vector findable."""
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        dim = 32
+        idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+
+        vecs = F.normalize(torch.randn(10, dim), dim=1)
+        idx.add(vecs, np.arange(10, dtype=np.int64))
+        idx.rebuild()
+
+        # Replace vector 0 with a very specific direction
+        new_vec = torch.zeros(1, dim)
+        new_vec[0, 0] = 1.0  # all weight on dim 0
+        idx.add(new_vec, np.array([0], dtype=np.int64))
+        idx.rebuild()
+
+        # Query along same direction
+        q = torch.zeros(1, dim)
+        q[0, 0] = 1.0
+        result_ids, _ = idx.search(q, k=1)
+        self.assertEqual(result_ids[0][0], 0)
+
+    def test_remove_excludes_from_search(self) -> None:
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        dim = 32
+        idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+        vecs = F.normalize(torch.randn(10, dim), dim=1)
+        idx.add(vecs, np.arange(10, dtype=np.int64))
+        idx.rebuild()
+
+        # Remove vector 0
+        idx.remove(0)
+        idx.rebuild()
+
+        result_ids, _ = idx.search(vecs[0:1], k=5)
+        self.assertNotIn(0, result_ids[0])
+
+    def test_stats_includes_tq_memory(self) -> None:
+        idx, _, _ = self._make_index(dim=32, n=20)
+        stats = idx.stats()
+        self.assertEqual(stats["index_type"], "turboquant_plus")
+        self.assertIn("tq_memory", stats)
+        self.assertGreater(stats["tq_memory"]["compression_ratio"], 1.0)
+
+    def test_empty_search(self) -> None:
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        idx = HierarchicalAssemblyIndex(dim=32, backend="turboquant_plus")
+        q = F.normalize(torch.randn(1, 32), dim=1)
+        result_ids, result_dists = idx.search(q, k=5)
+        self.assertEqual(result_ids, [[]])
+
+    def test_lazy_rebuild_on_search(self) -> None:
+        """Search should auto-rebuild TQ cache when dirty."""
+        import numpy as np
+        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+
+        dim = 32
+        idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
+        vecs = F.normalize(torch.randn(10, dim), dim=1)
+        idx.add(vecs, np.arange(10, dtype=np.int64))
+        # No explicit rebuild — search should lazily rebuild
+        result_ids, _ = idx.search(vecs[0:1], k=3)
+        self.assertEqual(len(result_ids[0]), 3)
+        self.assertEqual(result_ids[0][0], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from hecsn.retrieval.turboquant_store import TurboQuantPrototypeStore
+
 try:
     import faiss  # type: ignore
 except Exception:  # pragma: no cover
@@ -45,6 +47,11 @@ class HierarchicalAssemblyIndex:
         if self._use_faiss:
             self.index = self._create_faiss_index()
 
+        # TurboQuant+ state (lazy-built on first search after add)
+        self._tq_store: TurboQuantPrototypeStore | None = None
+        self._tq_id_list: List[int] = []
+        self._tq_cache_dirty = True
+
     def _resolve_backend(self, backend: str) -> str:
         requested = str(backend).strip().lower() or "auto"
         if requested == "auto":
@@ -55,7 +62,7 @@ class HierarchicalAssemblyIndex:
             if faiss is None:
                 raise ValueError("faiss_hnsw backend requested but faiss is unavailable")
             return requested
-        if requested in {"torch_topk", "exact_cosine"}:
+        if requested in {"torch_topk", "exact_cosine", "turboquant_plus"}:
             return requested
         raise ValueError(f"Unsupported routing backend: {backend!r}")
 
@@ -77,6 +84,7 @@ class HierarchicalAssemblyIndex:
         norms = torch.norm(vectors, dim=1, keepdim=True)
         normalized = (vectors / (norms + 1e-8)).detach().cpu().numpy().astype(np.float32)
         self._torch_cache_dirty = True
+        self._tq_cache_dirty = True
 
         new_positions: List[int] = []
         updated_count = 0
@@ -106,6 +114,7 @@ class HierarchicalAssemblyIndex:
         self.tombstones.add(int(vec_id))
         self._vector_store.pop(int(vec_id), None)
         self._torch_cache_dirty = True
+        self._tq_cache_dirty = True
 
     def _rebuild_torch_cache(self) -> None:
         valid_ids = [idx for idx in self._vector_store.keys() if idx not in self.tombstones]
@@ -120,9 +129,39 @@ class HierarchicalAssemblyIndex:
         self._torch_vectors = torch.from_numpy(vectors).to(self.device)
         self._torch_cache_dirty = False
 
+    def _rebuild_tq_cache(self) -> None:
+        """Rebuild TurboQuant+ compressed store from current vector_store."""
+        valid_ids = [idx for idx in self._vector_store.keys() if idx not in self.tombstones]
+        if not valid_ids:
+            self._tq_store = None
+            self._tq_id_list = []
+            self._tq_cache_dirty = False
+            return
+
+        vectors = np.stack([self._vector_store[idx] for idx in valid_ids], axis=0)
+        protos = torch.from_numpy(vectors).float().to(self.device)
+
+        n_cols = len(valid_ids)
+        n_proj = max(2 * self.dim, 64)  # more projections → lower QJL variance
+        self._tq_store = TurboQuantPrototypeStore(
+            n_cols=n_cols, dim=self.dim, bits=3,
+            n_projections=n_proj, device=self.device,
+        )
+        self._tq_store.set_all(protos)
+        self._tq_store.compress_all()
+        self._tq_id_list = valid_ids
+        self._tq_cache_dirty = False
+
     def rebuild(self) -> None:
         if self._backend == "torch_topk":
             self._rebuild_torch_cache()
+            self.insertion_count = 0
+            self.tombstones.clear()
+            self.rebuild_count += 1
+            return
+
+        if self._backend == "turboquant_plus":
+            self._rebuild_tq_cache()
             self.insertion_count = 0
             self.tombstones.clear()
             self.rebuild_count += 1
@@ -206,6 +245,23 @@ class HierarchicalAssemblyIndex:
             dists = (1.0 - values).detach().cpu().numpy().astype(np.float32)
             return [[int(candidate_id) for candidate_id in row] for row in ids], dists
 
+        if self._backend == "turboquant_plus":
+            if self._tq_cache_dirty:
+                self._rebuild_tq_cache()
+            if self._tq_store is None or not self._tq_id_list:
+                return [[] for _ in range(query_batch.shape[0])], np.empty((query_batch.shape[0], 0), dtype=np.float32)
+            out_ids: List[List[int]] = []
+            out_dists: List[List[float]] = []
+            for row_idx in range(query_batch.shape[0]):
+                q = query_batch[row_idx].to(self.device)
+                k_actual = min(k, len(self._tq_id_list))
+                tq_indices, tq_scores = self._tq_store.route(q, k=k_actual)
+                row_ids = [self._tq_id_list[int(i)] for i in tq_indices.cpu().tolist()]
+                row_dist = (1.0 - tq_scores).detach().cpu().numpy().astype(np.float32).tolist()
+                out_ids.append(row_ids)
+                out_dists.append(row_dist)
+            return out_ids, self._pad_distance_rows(out_dists, query_batch.shape[0])
+
         norms = torch.norm(query_batch, dim=1, keepdim=True)
         normalized = (query_batch / (norms + 1e-8)).detach().cpu().numpy().astype(np.float32)
 
@@ -255,7 +311,7 @@ class HierarchicalAssemblyIndex:
         return out_ids, self._pad_distance_rows(out_rows, normalized.shape[0])
 
     def stats(self) -> dict[str, Any]:
-        return {
+        info: dict[str, Any] = {
             "index_type": self._backend,
             "raw_entries": int(self.ntotal),
             "unique_vectors": int(len(self._vector_store)),
@@ -265,6 +321,9 @@ class HierarchicalAssemblyIndex:
             "rebuild_threshold": int(self.rebuild_threshold),
             "search_device": self.device.type,
         }
+        if self._backend == "turboquant_plus" and self._tq_store is not None:
+            info["tq_memory"] = self._tq_store.memory_bytes()
+        return info
 
 
 class ShardedHierarchicalAssemblyIndex:
