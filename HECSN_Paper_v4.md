@@ -7,7 +7,7 @@
 
 **Version:** 4.7 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-11):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.44, SOM 0.48).** `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **512 passed, 7 subtests passed** across 50 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). Remaining targets: GPU routing benchmarks, multimodal dataset adapters for real-world data (MNIST-DVS, TI-46), scale validation at larger token budgets.
+**Executable Status (2026-06-11):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.44, SOM 0.48).** `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. Full test suite: **518 passed, 7 subtests passed** across 50 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). Remaining targets: GPU routing benchmarks, multimodal dataset adapters for real-world data (MNIST-DVS, TI-46), scale validation at larger token budgets.
 
 ---
 
@@ -1071,19 +1071,23 @@ Thresholds: random ≈ 0.001 → bootstrap rising from 0 → mature: should exce
 
 **B3 — Context Dependence (Polysemy):** Same text surface form ("bank", "river bank" context vs "bank loan" context) routes to different winner columns under different context primes.
 
-**Current validated:** `compositional_query_accuracy = 1.0`, `routing_key_between_score = 0.9970`
+**Current validated:** `routing_key_between_score = 0.9934`, `unique_winner_count = 4`, `winner_collapse_detected = False`
 
-> ⚠️ **Scrutiny note on compositionality = 1.0:** A perfect score at this training scale warrants scepticism. The current evaluation uses 3 compositional cases with winner-column routing. At low column counts, near-degenerate routing (many chunks mapping to the same winner) can produce a perfect score by construction. The evaluation framework reports individual pair scores, winner indices, and `winner_collapse_detected` for each case. **Stage-0 individual case results** (from `_direct_compositionality_probe` output):
+> **Compositionality pair results (7-pair probe, seed=42, 5K tokens/stage):**
 >
 > | Pair | chunk_a | chunk_b | winner_a | winner_b | winner_ab | score |
 > |------|---------|---------|----------|----------|-----------|-------|
-> | 1 | "the" | "cat" | — | — | — | — |
-> | 2 | "in" | "the" | — | — | — | — |
-> | 3 | "on" | "top" | — | — | — | — |
+> | 1 | cats | mice | 6 | 6 | 6 | 0.9939 |
+> | 2 | dogs | strangers | 6 | 6 | 0 | 0.9928 |
+> | 3 | octopuses | jars | 4 | 6 | 4 | 0.9915 |
+> | 4 | rainbows | water droplets | 6 | 7 | 7 | 0.9978 |
+> | 5 | libraries | books | 6 | 6 | 4 | 0.9944 |
+> | 6 | volcanoes | lava | 6 | 6 | 6 | 0.9921 |
+> | 7 | mercury | sun | 6 | 6 | 0 | 0.9912 |
 >
-> *(Fill from next `emergence_evaluation_runner` execution. If `unique_winner_count ≤ 1`, the 1.0 score is degenerate and should not be reported as meaningful.)*
+> Mean score: 0.9934. Four unique winner columns used (0, 4, 6, 7) — column 6 dominates (appears in 12/21 winner slots), indicating partial winner concentration but not full collapse. The high scores (>0.99) reflect that at 5K tokens/stage, routing-key representations are still dominated by text-statistics similarity — individual concepts have not yet differentiated into strongly distinct column-level representations. At larger training scales, scores should decrease as representations specialize, with "real compositionality" (>0.65 on differentiated representations) becoming the meaningful threshold.
 >
-> Independent validation requires: (1) the above table with filled scores, (2) `unique_winner_count > 1`, and (3) measurement at larger scale where degeneracy is less likely.
+> These scores supersede the earlier placeholder table (v4.5). The compositionality evaluation now uses 7 semantically meaningful pairs (cats+mice, dogs+strangers, etc.) rather than the original 3 function-word pairs (the+cat, in+the, on+top).
 
 ### 8.6 Level 5: Compositionality Score
 
@@ -1181,7 +1185,7 @@ Failure: >15% degradation without sleep. Success: <5% degradation with adaptive 
 | Concreteness gap | N/A | **0.00** | **+0.08** | ~0.00 | **+0.36** (median, range +0.24 to +0.40) |
 | Held-out concrete (10-triple) | ~0.50 | measure | measure | measure | **0.30** (words NOT in training vocab) |
 | Held-out concreteness gap | N/A | measure | measure | ~0.00 | **−0.26** (no transfer to unseen words) |
-| Compositionality | N/A | N/A | measure | **1.0** ⚠️ | measure |
+| Compositionality | N/A | N/A | measure | **0.9934** | measure |
 | Novelty rate @100K | N/A | N/A | measure | **0.099** | measure |
 | Prediction error (first 1K tokens) | N/A | N/A | N/A | **1.63→0.66** | measure |
 | Task-A recall | N/A | N/A | measure | measure | measure |
@@ -1533,12 +1537,12 @@ The following table separates **implemented standalone components** from **end-t
 |---|---|---|
 | Multimodal dataset adapters | Not implemented | MNIST-DVS, TI-46, HTM-AA download + format adapters needed |
 | End-to-end multimodal training | Not validated | Encoders + loader exist; full developmental protocol not yet run with real multimodal data |
-| TurboQuant runtime integration | Not integrated | Standalone store works; not yet wired as primary routing backend |
+| TurboQuant runtime integration | ✅ Integrated | `routing_index_mode="turboquant_plus"` wired via `HierarchicalAssemblyIndex`; search, rebuild, and compress_all operational |
 | GPU routing benchmarks | No CUDA data | Requires target hardware |
 | 2:4 structured sparsity / CSR | Not implemented | Performance optimization |
 | Baseline calibration experiments | ✅ Done | SOM 0.48, fastText 0.44 — thresholds validated |
 | Triplet STDP frequency validation | ✅ Validated | Pfister & Gerstner 2006 Fig. 2 confirmed |
-| End-to-end developmental protocol | Runner exists, not validated | Needs multimodal dataset adapters |
+| End-to-end developmental protocol | ✅ Validated | 5-stage protocol passes with multimodal training across 3 seeds |
 
 ---
 
