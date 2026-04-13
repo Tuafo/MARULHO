@@ -7,13 +7,13 @@
 
 **Version:** 4.5 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **505 passed, 7 subtests passed** across 50 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. Developmental protocol: 5-stage runner with state continuity (ProtocolState carries trainer/encoder between stages), stage-aware alignment gating, concept-conditioned synthetic multimodal data, real pass/fail criteria. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, end-to-end multimodal developmental protocol validation at scale (Stage 2+ requires larger corpus or real multimodal data).
+**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **513 passed, 7 subtests passed** across 50 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. Developmental protocol: 5-stage runner with state continuity (ProtocolState carries trainer/encoder between stages), stage-aware alignment gating, concept-conditioned synthetic multimodal data, real pass/fail criteria. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, end-to-end multimodal developmental protocol validation at scale (Stage 2+ requires larger corpus or real multimodal data).
 
 ---
 
 ## Abstract
 
-HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant+ compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (505 tests pass).
+HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant+ compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (513 tests pass).
 
 ---
 
@@ -609,17 +609,18 @@ visual_trace[j] += visual_spikes[j]           # at visual spike event
 visual_trace[j] *= exp(-dt / tau_trace)       # continuous decay
 ```
 
-**Grounding confidence** (slow EMA tracking prediction quality):
+**Grounding confidence** (true EMA tracking prediction quality per text dimension):
 ```
-prediction_error = 1 - cosine_similarity(W_tv[i], actual_visual)
-grounding_confidence[i] = max(0, 1 - prediction_error)   # = max(0, cos_sim)
+mask = (text_trace > 0.01)                    # only active dimensions update
+quality = max(0, cosine_similarity(W_tv[i], actual_visual))
+visual_confidence = (1 - alpha * mask) * visual_confidence + alpha * mask * quality
 ```
 
-> **Implementation note:** Code uses `F.cosine_similarity` (bounded [−1, 1]) rather than L2 norm. This avoids the issue where L2 prediction error can exceed 1.0 and produce negative confidence values.
+> **Implementation note:** Confidence is updated via true exponential moving average (EMA), not accumulative decay+add. Only dimensions with active text traces update — inactive dimensions retain their value. This keeps confidence bounded [0, 1] by construction (EMA of values in [0, 1]). Code uses `F.cosine_similarity` (bounded [−1, 1]) clamped to [0, 1] for quality.
 
 **A+ and A− asymmetry:** A- set 20% larger than A+ (0.012 vs 0.010) to prevent runaway potentiation. This creates a small anti-Hebbian drift that stabilizes associations over time.
 
-**Naming convention:** In code, `visual_confidence` and `audio_confidence` are per-modality sub-components (internal attributes) tracking prediction quality for each association channel independently. The combined method `grounding_confidence()` is the canonical public API, returning `visual_confidence + audio_confidence` as a single signal used by the curiosity planner and developmental stage gates. All public-facing code and metrics use `grounding_confidence` consistently; per-modality attributes are accessed only when modality-specific logging is needed (e.g., `cross_modal_visual_confidence` in training metrics).
+**Naming convention:** In code, `visual_confidence` and `audio_confidence` are per-modality sub-components (internal attributes) tracking prediction quality for each association channel independently. The combined method `grounding_confidence()` is the canonical public API, returning `(visual_confidence + audio_confidence) * 0.5` — a per-dimension average bounded [0, 1]. This signal is used by the curiosity planner and developmental stage gates. All public-facing code and metrics use `grounding_confidence` consistently; per-modality attributes are accessed only when modality-specific logging is needed (e.g., `cross_modal_visual_confidence` in training metrics).
 
 ### 5.2 Audio-Text vs. Visual-Text Grounding Are Not the Same Problem
 
@@ -1119,6 +1120,16 @@ Target: > 0.10. This is the key evidence for perceptual grounding — text-only 
 
 **Current partial validation:** `semantic_triple_accuracy = 0.714286` on 7-triple text-only suite. Must be extended to 50-triple visual-validated suite.
 
+**Probe vector methodology (v4.6):** The grounding probe's `vector_fn` constructs a *grounded representation* by:
+1. Encoding text → routing_key via RTFEncoder (input_dim)
+2. Projecting to assembly space (n_columns) via competitive layer
+3. Predicting visual/audio signatures from assembly via cross-modal weights W_tv, W_ta
+4. Confidence-weighting predictions using *assembly-weighted* per-column confidence (not global mean)
+5. Block-normalizing each component independently
+6. Concatenating: `[assembly(n_columns), visual_pred(dim_visual) × v_conf, audio_pred(dim_audio) × a_conf]`
+
+This ensures the probe measures cross-modal grounding quality, not text-routing quality. A system with zero cross-modal learning produces zero-weighted visual/audio blocks, reducing to text-only assembly similarity. As grounding improves, visual/audio predictions become more discriminative and the probe score rises — but only if the cross-modal associations capture genuine semantic structure.
+
 ### 8.8 Level 7: Novelty Coverage
 
 Track fraction of tokens causing prototype movement > `prototype_shift_threshold`.
@@ -1311,14 +1322,14 @@ Three-phase sleep cycle (micro/regular/deep) implemented in `sleep_consolidation
 - ✅ `CochleagramEncoder` — mel-filterbank, log-compression, adaptive baseline (168 lines, 13 tests)
 - ✅ `MultimodalStreamLoader` — synchronized text+visual+audio triple yielding with synthetic mode (10 tests)
 - ✅ Concept-conditioned synthetic multimodal pipeline: 15 concepts × fixed visual/audio signatures, stage-aware gating
-- ✅ Grounding confidence with exponential decay + clamp to [0,1], separate visual/audio paths
+- ✅ Grounding confidence via true EMA per text dimension, bounded [0,1]; `grounding_confidence()` returns `(visual + audio) * 0.5`
 - ✅ Separate visual/audio bootstrap counters persisted in checkpoints
 - ⬜ Multimodal dataset adapters (MNIST-DVS, TI-46, HTM-AA download/format) — not implemented
 - ⬜ End-to-end multimodal training — not validated with real multimodal data
 
 ### Phase 6: Stage 1 Training ✅ VALIDATED (text-only + synthetic multimodal)
 
-Real training validated on Wikipedia streaming: prediction error 1.63→0.66 over 1,152 tokens, neuromodulators responsive (DA oscillating, micro-sleep triggered at 256 tokens, sleep consolidation active). Checkpoint save/load works across sessions. Synthetic multimodal Stage 1 training validated: grounding confidence reaches 1.0+ at 2000 tokens, 1496 visual+audio concept-conditioned pairs processed, Stage 1 criterion (confidence > 0.40) passes. Full multimodal training with real data requires external dataset adapters (MNIST-DVS, TI-46).
+Real training validated on Wikipedia streaming: prediction error 1.63→0.66 over 1,152 tokens, neuromodulators responsive (DA oscillating, micro-sleep triggered at 256 tokens, sleep consolidation active). Checkpoint save/load works across sessions. Synthetic multimodal Stage 1 training validated: grounding confidence reaches ~0.50 (bounded EMA average of visual+audio) at 2000 tokens, concept-conditioned pairs processed with window-local alignment, Stage 1 criterion (confidence > 0.40) passes. Full multimodal training with real data requires external dataset adapters (MNIST-DVS, TI-46).
 
 ### Phase 7: Stages 2–5 Developmental Protocol ⬜ PIPELINE VALIDATED, SCALE PENDING
 
@@ -1382,7 +1393,7 @@ The following components are implemented and validated on the current tree (76 P
 
 ```
 pip install -e . && python -m pytest -q
-→ 505 passed, 7 subtests passed (across 50 test files)
+→ 513 passed, 7 subtests passed (across 50 test files)
 ```
 
 Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `test_meaning_grounding.py`, `test_gap_planner.py`, `test_source_catalog.py` → `58 passed, 3 warnings`
@@ -1438,6 +1449,15 @@ Focused regression surface: `test_service_api.py`, `test_grounding_text.py`, `te
 - TurboQuantPrototypeStore confirmed as fully implemented standalone component (was incorrectly listed as "prototype only" in v4.3 §12.4)
 - §12.4 rewritten: separates "implemented standalone components" from "end-to-end integration status" to avoid conflating component existence with system-level capability
 - Stale counts corrected: 76 Python source files (was 65), test count updated to current green surface
+
+**v4.6 additions:**
+- Cross-modal confidence rewritten to **true EMA** (was accumulative decay+add, range [0,2]); now per-dimension EMA bounded [0,1] by construction. `grounding_confidence()` returns `(visual + audio) * 0.5`.
+- Grounding probe vector methodology rewritten (§8.7): constructs grounded representation via `[assembly, visual_pred × v_conf, audio_pred × a_conf]` concatenation with assembly-weighted confidence. Previous version always fell back to text-only routing keys due to dimension mismatch (128 vs 10).
+- Stage-transition config sync: all 5 stage runners now set both `trainer.config` and `trainer.model.config` (was missing `model.config`).
+- Concept vocabulary expanded from 15 independent concepts to **45 concepts in 9 semantic families** with shared perceptual attributes (fire/flame/heat/burn share visual base pattern).
+- Window-local multimodal alignment: visual/audio spikes attached per char-window (only when concept word present), not per-sentence. Function-word windows no longer receive spurious grounding.
+- 8 regression tests added: confidence bounds, probe sensitivity to cross-modal weights, probe dimensionality, config sync after stage transitions, checkpoint roundtrip, window-local alignment.
+- Test suite: 513 passed, 7 subtests passed.
 
 **v4.5 additions:**
 - TurboQuant upgraded to **TurboQuant+** (QJL residual correction, arXiv:2504.19874 §6.2): two-stage compress (PolarQuant + QJL sign/norm storage), unbiased inner-product estimator, `inner_product_bias()` verification method, bit-packed code storage (3-bit codes: 8 values per 3 bytes → ~9.8× Stage 1 compression), 28 tests (was 14)
@@ -1599,6 +1619,6 @@ The following table separates **implemented standalone components** from **end-t
 
 *Falsifiable central claim: multimodal temporal co-occurrence STDP produces a concreteness gap in the grounding probe (concrete triples score > 0.10 higher than abstract triples) not achievable by text-only systems — validated without semantic labels at any stage, though with structurally curated perceptual grounding data during the developmental critical period.*
 
-*Stage-0 validated: silhouette 0.675, DBI 0.304, temporal_coherence 0.9916, semantic_triple_accuracy 0.7143 (7-triple text-only, separate from 50-triple probe), routing_key_between_score 0.9970, terminal_novelty_rate 0.0994. Real training validated: pred_error 1.63→0.66 nats over 1,152 Wikipedia tokens, DA 0.006→0.431, micro-sleep at 256 tokens. Self-criticism loop (visual + audio), alignment filter, dead column census, and exploration noise boost implemented and tested. 505 tests pass across 50 test files.*
+*Stage-0 validated: silhouette 0.675, DBI 0.304, temporal_coherence 0.9916, semantic_triple_accuracy 0.7143 (7-triple text-only, separate from 50-triple probe), routing_key_between_score 0.9970, terminal_novelty_rate 0.0994. Real training validated: pred_error 1.63→0.66 nats over 1,152 Wikipedia tokens, DA 0.006→0.431, micro-sleep at 256 tokens. Self-criticism loop (visual + audio), alignment filter, dead column census, and exploration noise boost implemented and tested. 513 tests pass across 50 test files.*
 
 *All other verification targets are falsifiable predictions, not asserted results.*
