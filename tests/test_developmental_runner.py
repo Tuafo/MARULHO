@@ -251,25 +251,29 @@ class TestConfidenceBounded(unittest.TestCase):
 class TestProbeUsesGroundedVectors(unittest.TestCase):
     """Regression: probe vectors must reflect cross-modal state."""
 
-    def test_probe_vector_changes_with_cross_modal_weights(self) -> None:
-        """Changing W_tv must change the probe vector output."""
+    def test_probe_vector_changes_with_per_word_signatures(self) -> None:
+        """Perturbing per-word visual signature must change the probe vector."""
         import torch
 
         _result, state = run_stage_1(n_tokens=200, seed=42)
         cfg = state.config
-        vfn1 = _make_vector_fn(state.trainer, state.text_encoder, cfg)
+        trainer = state.trainer
+
+        # Inject a synthetic visual signature so the word is "grounded"
+        trainer.word_visual_signature["fire"] = torch.randn(cfg.cross_modal_dim_visual)
+        trainer.word_grounding_confidence["fire"] = 0.5
+
+        vfn1 = _make_vector_fn(trainer, state.text_encoder, cfg)
         vec_before = vfn1("fire")
 
-        # Perturb cross-modal weights
-        cm = state.trainer.model.cross_modal
-        cm.W_tv.data += torch.randn_like(cm.W_tv) * 0.5
+        # Perturb the per-word visual signature
+        trainer.word_visual_signature["fire"] = torch.randn(cfg.cross_modal_dim_visual)
 
-        vfn2 = _make_vector_fn(state.trainer, state.text_encoder, cfg)
+        vfn2 = _make_vector_fn(trainer, state.text_encoder, cfg)
         vec_after = vfn2("fire")
 
-        # Vectors must differ — probe is sensitive to cross-modal state
         diff = (vec_before - vec_after).norm().item()
-        self.assertGreater(diff, 1e-6, "Probe must be sensitive to cross-modal weights")
+        self.assertGreater(diff, 1e-6, "Probe must be sensitive to per-word signatures")
 
     def test_probe_vector_includes_visual_and_audio(self) -> None:
         """Probe output dimension must be routing_key + visual + audio (grounded)."""

@@ -129,24 +129,38 @@ def _make_vector_fn(
         if cross_modal is None:
             return routing_key
 
-        # Use L2-normalized raw pattern for cross-modal predictions
-        # (matches the text_spike used during training)
-        text_spike = F.normalize(raw_pattern.unsqueeze(0), dim=1).squeeze(0)
-        pred_visual = cross_modal.predict_visual(text_spike)
-        pred_audio = cross_modal.predict_audio(text_spike)
-
-        # Per-word grounding confidence: look up learned confidence for
-        # this word.  Words trained with consistent cross-modal pairs have
-        # high confidence; unseen or abstract words default to 0.
+        # Per-word grounding confidence
         word = text.lower().strip()
         word_conf = trainer.word_grounding_confidence.get(word, 0.0)
 
-        # Normalize each component to unit norm before concatenation
-        rk_norm = F.normalize(routing_key.unsqueeze(0), dim=1).squeeze(0)
-        vis_n = pred_visual.norm()
-        aud_n = pred_audio.norm()
-        vis_part = (pred_visual / vis_n) * word_conf if vis_n > 1e-8 else pred_visual
-        aud_part = (pred_audio / aud_n) * word_conf if aud_n > 1e-8 else pred_audio
+        # Use per-word accumulated sensory signatures (cell assembly
+        # encoding) instead of W_tv predictions.  Each grounded word's
+        # signature reflects the actual visual/audio patterns it was
+        # paired with during training — a direct, discriminative
+        # representation that doesn't suffer from text-pattern overlap.
+        vis_sig = trainer.word_visual_signature.get(word)
+        aud_sig = trainer.word_audio_signature.get(word)
+
+        if vis_sig is not None:
+            vis_centered = vis_sig - vis_sig.mean()
+            vis_n = vis_centered.norm()
+            vis_part = (vis_centered / vis_n) * word_conf if vis_n > 1e-8 else vis_centered
+        else:
+            vis_part = torch.zeros(cfg.cross_modal_dim_visual)
+
+        if aud_sig is not None:
+            aud_centered = aud_sig - aud_sig.mean()
+            aud_n = aud_centered.norm()
+            aud_part = (aud_centered / aud_n) * word_conf if aud_n > 1e-8 else aud_centered
+        else:
+            aud_part = torch.zeros(cfg.cross_modal_dim_audio)
+
+        # Grounding replaces text encoding: as cross-modal confidence
+        # grows, the routing_key fades and sensory signatures dominate.
+        rk_weight = 1.0 - word_conf
+        rk_norm = (
+            F.normalize(routing_key.unsqueeze(0), dim=1).squeeze(0) * rk_weight
+        )
 
         grounded = torch.cat([rk_norm, vis_part, aud_part])
         return grounded
@@ -182,38 +196,54 @@ def _train_on_corpus(
 
 CONCEPT_VOCABULARY = [
     # Fire family — share hot/orange/crackling attributes
-    "fire", "flame", "heat", "burn",
+    "fire", "flame", "heat", "burn", "lava", "ash",
     # Water family — share blue/flowing/rushing attributes
-    "water", "ocean", "wave", "flow", "rain", "wet",
+    "water", "ocean", "wave", "flow", "rain", "wet", "swim", "crash",
     # Cold family — share white/still/crisp attributes
-    "ice", "snow", "cold", "frost", "freeze",
+    "ice", "snow", "cold", "frost", "freeze", "white", "crystal",
     # Earth family — share brown/rough/heavy attributes
     "rock", "stone", "mountain", "earth", "sand", "hard",
+    "earthquake", "shake", "desert", "dry", "stable",
     # Air family — share light/moving/whooshing attributes
-    "wind", "breeze", "cloud", "sky",
+    "wind", "breeze", "cloud", "sky", "flight", "fly",
     # Plant family — share green/organic/rustling attributes
-    "tree", "leaf", "flower", "rose", "petal",
+    "tree", "leaf", "flower", "rose", "petal", "thorn",
     # Animal family — distinct but all animate/moving
-    "dog", "bird", "fish",
+    "dog", "bird", "fish", "feather",
     # Light family — share bright/yellow/flash attributes
     "sun", "light", "lightning", "flash",
+    # Dark family — absence of light
+    "darkness", "shadow", "black",
     # Sound family — share intense/vibrating audio
     "thunder", "loud", "bark",
+    # Quiet family — absence of sound
+    "silence", "quiet", "calm", "still", "stillness",
+    # Tool family — hard/sharp/metallic attributes
+    "hammer", "knife", "metal", "sharp",
+    # Texture family — soft/yielding attributes
+    "soft", "cotton",
     # Misc concrete — individual signatures
-    "star", "moon", "river", "smoke", "volcano",
+    "star", "moon", "river", "smoke", "volcano", "scale",
 ]
 
 # Concept families: members share visual/audio base patterns
 _CONCEPT_FAMILIES: dict[str, list[str]] = {
-    "fire": ["fire", "flame", "heat", "burn"],
-    "water": ["water", "ocean", "wave", "flow", "rain", "wet"],
-    "cold": ["ice", "snow", "cold", "frost", "freeze"],
-    "earth": ["rock", "stone", "mountain", "earth", "sand", "hard"],
-    "air": ["wind", "breeze", "cloud", "sky"],
-    "plant": ["tree", "leaf", "flower", "rose", "petal"],
-    "animal": ["dog", "bird", "fish"],
+    "fire": ["fire", "flame", "heat", "burn", "lava", "ash"],
+    "water": ["water", "ocean", "wave", "flow", "rain", "wet", "swim", "crash"],
+    "cold": ["ice", "snow", "cold", "frost", "freeze", "white", "crystal"],
+    "earth": [
+        "rock", "stone", "mountain", "earth", "sand", "hard",
+        "earthquake", "shake", "desert", "dry", "stable",
+    ],
+    "air": ["wind", "breeze", "cloud", "sky", "flight", "fly"],
+    "plant": ["tree", "leaf", "flower", "rose", "petal", "thorn"],
+    "animal": ["dog", "bird", "fish", "feather"],
     "light": ["sun", "light", "lightning", "flash"],
+    "dark": ["darkness", "shadow", "black"],
     "sound": ["thunder", "loud", "bark"],
+    "quiet": ["silence", "quiet", "calm", "still", "stillness"],
+    "tool": ["hammer", "knife", "metal", "sharp"],
+    "texture": ["soft", "cotton"],
 }
 
 
@@ -396,6 +426,8 @@ def _build_concept_corpus() -> list[str]:
         "a flame dances in the night",
         "heat rises from the ground",
         "burn the old dry wood",
+        "hot lava flows down the slope",
+        "ash falls like grey snow",
         # Water family
         "water is cold and clear",
         "the deep ocean stretches far",
@@ -403,12 +435,16 @@ def _build_concept_corpus() -> list[str]:
         "flow of the river is strong",
         "rain falls from dark clouds",
         "the ground is wet after the storm",
+        "fish swim in the clear stream",
+        "the wave hit with a crash",
         # Cold family
         "ice covers the still pond",
         "snow blankets the quiet land",
         "cold wind cuts through the air",
         "frost forms on the glass",
         "freeze the water into solid ice",
+        "snow is white and bright",
+        "the crystal is clear like ice",
         # Earth family
         "the rock is heavy and rough",
         "a stone sits by the path",
@@ -416,35 +452,60 @@ def _build_concept_corpus() -> list[str]:
         "earth and soil are rich",
         "sand shifts under the hot sun",
         "the wall is hard and thick",
+        "the earthquake shook the ground",
+        "shake the dust from your coat",
+        "the dry desert stretches for miles",
+        "the old stone bridge is stable and strong",
         # Air family
         "wind blows through the trees",
         "a gentle breeze cools the skin",
         "cloud drifts across the blue sky",
+        "the bird took flight over the lake",
+        "birds fly high in the wind",
         # Plant family
         "the tall tree grows strong",
         "a green leaf falls to the ground",
         "flower blooms in the spring",
         "the red rose smells sweet",
         "a soft petal floats down",
+        "the thorn is sharp on the stem",
         # Animal family
         "the dog runs across the field",
         "a bird sits on the branch",
-        "fish swim in the clear stream",
+        "the feather is light and soft",
         # Light family
         "the sun is bright and warm",
         "light fills the open room",
         "lightning strikes the tall tree",
         "a flash of light cuts the dark",
+        # Dark family
+        "darkness covers the night sky",
+        "a shadow moves across the wall",
+        "the black cat sits in the dark",
         # Sound family
         "thunder rolls across the sky",
         "that sound is very loud",
         "the dog began to bark",
+        # Quiet family
+        "silence fills the empty room",
+        "the night is quiet and still",
+        "a calm sea reflects the moon",
+        "stillness hangs in the cold air",
+        # Tool family
+        "the hammer strikes the nail",
+        "a knife cuts through the rope",
+        "the metal is cold and hard",
+        "the blade is sharp and clean",
+        # Texture family
+        "the pillow is soft and warm",
+        "cotton grows in the hot field",
         # Misc concrete
         "a star shines in the night sky",
         "the moon is full and bright",
         "the river flows to the sea",
         "smoke rises from the fire",
         "the volcano erupts with force",
+        "the fish has a shiny scale",
     ]
 
 

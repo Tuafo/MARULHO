@@ -310,6 +310,14 @@ class HECSNTrainer:
         self.word_grounding_confidence: dict[str, float] = {}
         self._word_grounding_alpha: float = 0.05  # EMA rate
 
+        # Per-word accumulated visual/audio signatures (cell assembly
+        # encoding).  Each grounded word develops its own sensory prototype
+        # via EMA of observed visual/audio patterns during training.  Used
+        # by the grounding probe to construct word representations.
+        self.word_visual_signature: dict[str, torch.Tensor] = {}
+        self.word_audio_signature: dict[str, torch.Tensor] = {}
+        self._word_sig_alpha: float = 0.1  # EMA rate for signatures
+
         # Developmental stage (§7): controls cross-modal gating behaviour.
         # Stage 1: accept all visual/audio (no filter)
         # Stage 2+: apply alignment_gate() before cross-modal updates
@@ -330,11 +338,13 @@ class HECSNTrainer:
         actual_visual: torch.Tensor | None = None,
         actual_audio: torch.Tensor | None = None,
     ) -> float:
-        """Update per-word grounding confidence from cross-modal prediction quality.
+        """Update per-word grounding confidence and sensory signatures.
 
         Computes cosine similarity between the predicted and actual sensory
-        patterns, then updates the word's EMA confidence.  Returns the
-        current confidence for this word.
+        patterns, then updates the word's EMA confidence.  Also accumulates
+        per-word visual/audio signature prototypes via EMA.
+
+        Returns the current confidence for this word.
         """
         if self.model.cross_modal is None:
             return 0.0
@@ -348,6 +358,16 @@ class HECSNTrainer:
                     pred.unsqueeze(0), actual_visual.unsqueeze(0),
                 ).item()
                 qualities.append(max(0.0, cos))
+            # Accumulate per-word visual signature (EMA)
+            v = actual_visual.detach()
+            if word in self.word_visual_signature:
+                a = self._word_sig_alpha
+                self.word_visual_signature[word] = (
+                    (1 - a) * self.word_visual_signature[word] + a * v
+                )
+            else:
+                self.word_visual_signature[word] = v.clone()
+
         if actual_audio is not None and actual_audio.norm() > 1e-6:
             pred = cm.predict_audio(text_spike)
             if pred.norm() > 1e-6:
@@ -355,6 +375,15 @@ class HECSNTrainer:
                     pred.unsqueeze(0), actual_audio.unsqueeze(0),
                 ).item()
                 qualities.append(max(0.0, cos))
+            # Accumulate per-word audio signature (EMA)
+            a_sig = actual_audio.detach()
+            if word in self.word_audio_signature:
+                a = self._word_sig_alpha
+                self.word_audio_signature[word] = (
+                    (1 - a) * self.word_audio_signature[word] + a * a_sig
+                )
+            else:
+                self.word_audio_signature[word] = a_sig.clone()
 
         if not qualities:
             return self.word_grounding_confidence.get(word, 0.0)

@@ -54,11 +54,12 @@ class CrossModalGroundingLayer:
         self.device = device or torch.device("cpu")
         self.max_weight_norm = 1.0  # Synaptic scaling bound (Turrigiano 2008)
 
-        # Four cross-modal weight matrices
-        self.W_tv = torch.randn(dim_text, dim_visual, device=self.device) * 0.01
-        self.W_vt = torch.randn(dim_visual, dim_text, device=self.device) * 0.01
-        self.W_ta = torch.randn(dim_text, dim_audio, device=self.device) * 0.01
-        self.W_at = torch.randn(dim_audio, dim_text, device=self.device) * 0.01
+        # Four cross-modal weight matrices — zero-initialized so predictions
+        # reflect only learned associations (tabula rasa, biologically correct)
+        self.W_tv = torch.zeros(dim_text, dim_visual, device=self.device)
+        self.W_vt = torch.zeros(dim_visual, dim_text, device=self.device)
+        self.W_ta = torch.zeros(dim_text, dim_audio, device=self.device)
+        self.W_at = torch.zeros(dim_audio, dim_text, device=self.device)
 
         # Exponential traces
         self.text_trace = torch.zeros(dim_text, device=self.device)
