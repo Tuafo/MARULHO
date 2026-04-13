@@ -215,3 +215,78 @@ class TestGroundingProbeResult:
             abstract_mean_margin=0.14,
         )
         assert r.concreteness_gap_pass is False
+
+
+class TestHeldOutProbe:
+    """Test the held-out concrete probe for transfer evaluation."""
+
+    def test_held_out_triple_count(self) -> None:
+        from hecsn.evaluation.grounding_probe import HELD_OUT_CONCRETE_TRIPLES
+        assert len(HELD_OUT_CONCRETE_TRIPLES) == 10
+
+    def test_held_out_no_overlap_with_concept_vocabulary(self) -> None:
+        from hecsn.evaluation.grounding_probe import HELD_OUT_CONCRETE_TRIPLES
+        from hecsn.training.developmental_runner import CONCEPT_VOCABULARY
+        vocab = set(CONCEPT_VOCABULARY)
+        for anchor, pos, neg in HELD_OUT_CONCRETE_TRIPLES:
+            for word in (anchor, pos, neg):
+                assert word not in vocab, f"'{word}' overlaps with CONCEPT_VOCABULARY"
+
+    def test_extended_probe_60_triples(self) -> None:
+        from hecsn.evaluation.grounding_probe import (
+            GROUNDING_PROBE_TRIPLES_60,
+            evaluate_grounding_probe_extended,
+        )
+        assert len(GROUNDING_PROBE_TRIPLES_60) == 60
+
+        def random_fn(text: str, _c: dict = {}) -> torch.Tensor:
+            if text not in _c:
+                _c[text] = torch.randn(64)
+            return _c[text]
+
+        result = evaluate_grounding_probe_extended(random_fn)
+        assert result.total_count == 60
+        assert result.concrete_count == 25
+        assert result.held_out_concrete_count == 10
+        assert result.abstract_count == 25
+
+    def test_held_out_per_triple_category(self) -> None:
+        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+
+        def random_fn(text: str, _c: dict = {}) -> torch.Tensor:
+            if text not in _c:
+                _c[text] = torch.randn(64)
+            return _c[text]
+
+        result = evaluate_grounding_probe_extended(random_fn)
+        categories = [t["category"] for t in result.per_triple]
+        assert categories[:25] == ["concrete"] * 25
+        assert categories[25:35] == ["held_out_concrete"] * 10
+        assert categories[35:60] == ["abstract"] * 25
+
+    def test_held_out_in_to_dict(self) -> None:
+        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+
+        def random_fn(text: str, _c: dict = {}) -> torch.Tensor:
+            if text not in _c:
+                _c[text] = torch.randn(64)
+            return _c[text]
+
+        d = evaluate_grounding_probe_extended(random_fn).to_dict()
+        assert "held_out_concrete_accuracy" in d
+        assert "held_out_concrete_count" in d
+        assert "held_out_concreteness_gap" in d
+        assert d["held_out_concrete_count"] == 10
+
+    def test_backward_compatible_50_probe(self) -> None:
+        """Original 50-triple probe should still work with held_out_count=0."""
+
+        def random_fn(text: str, _c: dict = {}) -> torch.Tensor:
+            if text not in _c:
+                _c[text] = torch.randn(64)
+            return _c[text]
+
+        result = evaluate_grounding_probe(random_fn)
+        assert result.total_count == 50
+        assert result.held_out_concrete_count == 0
+        assert result.held_out_concrete_accuracy == 0.0

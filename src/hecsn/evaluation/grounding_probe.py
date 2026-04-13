@@ -61,6 +61,26 @@ CONCRETE_TRIPLES: tuple[tuple[str, str, str], ...] = (
 CONCRETE_AUDIO_INDICES: frozenset[int] = frozenset({2, 8, 16})
 
 # ---------------------------------------------------------------------------
+# 10 held-out concrete triples — physical objects NOT in CONCEPT_VOCABULARY.
+# These test TRANSFER: can grounding learned on training concepts generalize
+# to unseen concrete words?  If held-out concrete accuracy > abstract accuracy,
+# that is evidence of genuine grounding structure, not lexical memorization.
+# IMPORTANT: No word in these triples may appear in CONCEPT_VOCABULARY.
+# ---------------------------------------------------------------------------
+HELD_OUT_CONCRETE_TRIPLES: tuple[tuple[str, str, str], ...] = (
+    ("tiger", "stripe", "plain"),
+    ("drum", "beat", "melody"),
+    ("glass", "transparent", "opaque"),
+    ("bell", "ring", "mute"),
+    ("honey", "sweet", "bitter"),
+    ("rope", "knot", "straight"),
+    ("brick", "heavy", "hollow"),
+    ("candle", "wax", "wire"),
+    ("wheel", "spin", "lock"),
+    ("apple", "fruit", "root"),
+)
+
+# ---------------------------------------------------------------------------
 # 25 abstract triples — social/relational concepts (harder — perceptual
 # grounding is indirect)
 # ---------------------------------------------------------------------------
@@ -98,6 +118,13 @@ GROUNDING_PROBE_TRIPLES_50: tuple[tuple[str, str, str], ...] = (
     *ABSTRACT_TRIPLES,
 )
 
+# Extended 60-triple probe including held-out concrete concepts
+GROUNDING_PROBE_TRIPLES_60: tuple[tuple[str, str, str], ...] = (
+    *CONCRETE_TRIPLES,
+    *HELD_OUT_CONCRETE_TRIPLES,
+    *ABSTRACT_TRIPLES,
+)
+
 
 @dataclass
 class GroundingProbeResult:
@@ -118,6 +145,11 @@ class GroundingProbeResult:
     audio_text_accuracy: float = 0.0
     visual_text_count: int = 0
     audio_text_count: int = 0
+    # Held-out concrete metrics (words NOT in training vocabulary)
+    held_out_concrete_accuracy: float = 0.0
+    held_out_concrete_count: int = 0
+    held_out_concrete_mean_margin: float = 0.0
+    held_out_concreteness_gap: float = 0.0  # held_out_concrete - abstract
     per_triple: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -147,6 +179,10 @@ class GroundingProbeResult:
             "audio_text_accuracy": self.audio_text_accuracy,
             "visual_text_count": self.visual_text_count,
             "audio_text_count": self.audio_text_count,
+            "held_out_concrete_accuracy": self.held_out_concrete_accuracy,
+            "held_out_concrete_count": self.held_out_concrete_count,
+            "held_out_concrete_mean_margin": self.held_out_concrete_mean_margin,
+            "held_out_concreteness_gap": self.held_out_concreteness_gap,
             "per_triple": self.per_triple,
         }
 
@@ -165,15 +201,18 @@ def evaluate_grounding_probe(
     *,
     triples: Sequence[tuple[str, str, str]] | None = None,
     concrete_count: int = 25,
+    held_out_count: int = 0,
 ) -> GroundingProbeResult:
-    """Evaluate the 50-triple grounding probe.
+    """Evaluate the grounding probe.
 
     Args:
         vector_fn: Callable(str) -> torch.Tensor that returns the
             routing-key representation for a given text token/phrase.
         triples: If None, uses the default 50 triples
             (first ``concrete_count`` are concrete, rest abstract).
-        concrete_count: How many of the first triples are concrete.
+        concrete_count: How many of the first triples are concrete (in-vocab).
+        held_out_count: How many triples immediately after concrete_count are
+            held-out concrete (not in training vocabulary).
 
     Returns:
         GroundingProbeResult with per-triple details and the concreteness gap.
@@ -181,6 +220,7 @@ def evaluate_grounding_probe(
     if triples is None:
         triples = GROUNDING_PROBE_TRIPLES_50
         concrete_count = len(CONCRETE_TRIPLES)
+        held_out_count = 0
 
     concrete_correct = 0
     abstract_correct = 0
@@ -188,14 +228,18 @@ def evaluate_grounding_probe(
     audio_correct = 0
     visual_total = 0
     audio_total = 0
+    held_out_correct = 0
     concrete_margins: list[float] = []
     abstract_margins: list[float] = []
+    held_out_margins: list[float] = []
     all_margins: list[float] = []
     per_triple: list[dict[str, Any]] = []
     total_correct = 0
 
     for i, (anchor_text, pos_text, neg_text) in enumerate(triples):
         is_concrete = i < concrete_count
+        is_held_out = concrete_count <= i < concrete_count + held_out_count
+        is_abstract = i >= concrete_count + held_out_count
         is_audio = is_concrete and i in CONCRETE_AUDIO_INDICES
         anchor_vec = vector_fn(anchor_text)
         pos_vec = vector_fn(pos_text)
@@ -206,13 +250,19 @@ def evaluate_grounding_probe(
         margin = pos_sim - neg_sim
         correct = margin > 0.0
 
-        modality = "abstract"
-        if is_concrete:
+        if is_held_out:
+            category = "held_out_concrete"
+            modality = "visual"
+        elif is_concrete:
+            category = "concrete"
             modality = "audio" if is_audio else "visual"
+        else:
+            category = "abstract"
+            modality = "abstract"
 
         entry = {
             "index": i,
-            "category": "concrete" if is_concrete else "abstract",
+            "category": category,
             "modality": modality,
             "anchor": anchor_text,
             "positive": pos_text,
@@ -239,6 +289,10 @@ def evaluate_grounding_probe(
                 visual_total += 1
                 if correct:
                     visual_correct += 1
+        elif is_held_out:
+            held_out_margins.append(margin)
+            if correct:
+                held_out_correct += 1
         else:
             abstract_margins.append(margin)
             if correct:
@@ -246,10 +300,12 @@ def evaluate_grounding_probe(
 
     n_concrete = len(concrete_margins)
     n_abstract = len(abstract_margins)
-    n_total = n_concrete + n_abstract
+    n_held_out = len(held_out_margins)
+    n_total = n_concrete + n_abstract + n_held_out
 
     concrete_acc = concrete_correct / max(n_concrete, 1)
     abstract_acc = abstract_correct / max(n_abstract, 1)
+    held_out_acc = held_out_correct / max(n_held_out, 1)
     total_acc = total_correct / max(n_total, 1)
 
     return GroundingProbeResult(
@@ -267,5 +323,28 @@ def evaluate_grounding_probe(
         audio_text_accuracy=audio_correct / max(audio_total, 1),
         visual_text_count=visual_total,
         audio_text_count=audio_total,
+        held_out_concrete_accuracy=held_out_acc,
+        held_out_concrete_count=n_held_out,
+        held_out_concrete_mean_margin=(
+            sum(held_out_margins) / max(len(held_out_margins), 1)
+        ),
+        held_out_concreteness_gap=held_out_acc - abstract_acc,
         per_triple=per_triple,
+    )
+
+
+def evaluate_grounding_probe_extended(
+    vector_fn: Any,
+) -> GroundingProbeResult:
+    """Evaluate the extended 60-triple probe with held-out concrete words.
+
+    Uses 25 in-vocab concrete + 10 held-out concrete + 25 abstract triples.
+    The held-out concrete words are NOT in CONCEPT_VOCABULARY, so their
+    accuracy tests whether grounding transfers beyond trained words.
+    """
+    return evaluate_grounding_probe(
+        vector_fn,
+        triples=GROUNDING_PROBE_TRIPLES_60,
+        concrete_count=len(CONCRETE_TRIPLES),
+        held_out_count=len(HELD_OUT_CONCRETE_TRIPLES),
     )
