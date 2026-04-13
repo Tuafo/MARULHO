@@ -301,7 +301,7 @@ class HECSNTrainer:
         self._recent_audio_frames: list[torch.Tensor] = []
         self._visual_frame_limit = 100
         self._audio_frame_limit = 100
-        self._self_criticism_interval = 5000
+        self._self_criticism_interval = 1000
         self._last_self_criticism_token = 0
         self._self_criticism_blacklist: dict[int, int] = {}
         self._self_criticism_audio_blacklist: dict[int, int] = {}
