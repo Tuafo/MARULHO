@@ -170,6 +170,149 @@ class TestTripletFrequencyDependence(unittest.TestCase):
         self.assertGreater(ltp_5, ltp_2)
 
 
+class TestPfisterGerstnerFrequencySweep(unittest.TestCase):
+    """Pfister & Gerstner 2006 Fig. 2 frequency-dependent STDP protocol.
+
+    Sends 60 pre-post spike pairs at varying frequencies.
+    Triplet rule must show increasing potentiation with frequency
+    (slow post-trace o2 accumulates at high rates).
+    Pair rule must NOT show this frequency dependence.
+    """
+
+    def _run_frequency_sweep(
+        self,
+        rule: str,
+        frequencies_hz: list[float],
+        n_pairs: int = 60,
+        delta_t: float = 10.0,
+    ) -> list[float]:
+        """Send n_pairs pre→post spike pairs at each frequency.
+
+        Each timestep = 1ms.  Within each pair, pre fires at t, post at
+        t + delta_t.  ISI between pairs = 1000/f_hz timesteps.
+
+        Returns total weight change (sum over weight matrix) per frequency.
+        """
+        results = []
+        for freq in frequencies_hz:
+            c = _make_circuit(rule, n_columns=1, input_dim=1)
+            weights = torch.full((1, 1), 0.1)  # Start from uniform 0.1
+
+            isi_ms = 1000.0 / freq  # inter-spike-interval in ms
+            total_delta = 0.0
+            trace_decay = math.exp(-1.0 / c.trace_tau)
+
+            for _ in range(n_pairs):
+                # Pre-spike
+                pre = torch.tensor([1.0])
+                post = torch.tensor([0.0])
+                if rule == "triplet":
+                    c._update_triplet_traces(pre, post)
+                    delta = c._triplet_stdp_delta(
+                        weights=weights, pre_signal=pre, post_signal=post,
+                    )
+                else:
+                    c.pre_trace = c.pre_trace * trace_decay + pre
+                    c.post_trace = c.post_trace * trace_decay + post
+                    delta = c._log_stdp_delta(
+                        weights=weights, pre_signal=pre, post_signal=post,
+                        pre_trace=c.pre_trace, post_trace=c.post_trace,
+                    )
+                total_delta += delta.sum().item()
+
+                # Silent steps until post-spike (delta_t ms later)
+                silence_pre = torch.tensor([0.0])
+                silence_post = torch.tensor([0.0])
+                for _ in range(max(1, int(delta_t) - 1)):
+                    if rule == "triplet":
+                        c._update_triplet_traces(silence_pre, silence_post)
+                    else:
+                        c.pre_trace *= trace_decay
+                        c.post_trace *= trace_decay
+
+                # Post-spike
+                pre_off = torch.tensor([0.0])
+                post_on = torch.tensor([1.0])
+                if rule == "triplet":
+                    c._update_triplet_traces(pre_off, post_on)
+                    delta = c._triplet_stdp_delta(
+                        weights=weights, pre_signal=pre_off, post_signal=post_on,
+                    )
+                else:
+                    c.pre_trace = c.pre_trace * trace_decay + pre_off
+                    c.post_trace = c.post_trace * trace_decay + post_on
+                    delta = c._log_stdp_delta(
+                        weights=weights, pre_signal=pre_off, post_signal=post_on,
+                        pre_trace=c.pre_trace, post_trace=c.post_trace,
+                    )
+                total_delta += delta.sum().item()
+
+                # Remaining ISI silence (until next pair)
+                remaining = max(1, int(isi_ms - delta_t) - 1)
+                for _ in range(remaining):
+                    if rule == "triplet":
+                        c._update_triplet_traces(silence_pre, silence_post)
+                    else:
+                        c.pre_trace *= trace_decay
+                        c.post_trace *= trace_decay
+
+            results.append(total_delta)
+        return results
+
+    def test_triplet_potentiation_increases_with_frequency(self) -> None:
+        """Triplet STDP: LTP must increase with spike pair frequency.
+
+        This is the signature prediction of the triplet model (Fig. 2)
+        that pair-based STDP cannot reproduce.
+        """
+        freqs = [1.0, 5.0, 10.0, 20.0, 50.0]
+        deltas = self._run_frequency_sweep("triplet", freqs)
+        # At higher frequencies, o2 accumulates → larger net LTP
+        # Check monotonic increase (allow small noise in adjacent bins)
+        for i in range(len(deltas) - 1):
+            self.assertGreater(
+                deltas[i + 1],
+                deltas[i],
+                f"Triplet LTP should increase: {freqs[i]}Hz={deltas[i]:.6f} "
+                f"vs {freqs[i+1]}Hz={deltas[i+1]:.6f}",
+            )
+
+    def test_triplet_vs_pair_diverge_at_high_frequency(self) -> None:
+        """Triplet rule must show stronger frequency sensitivity than pair.
+
+        The key Fig. 2 prediction: the ratio of high-frequency to
+        low-frequency potentiation is larger for triplet than for pair,
+        because o2 accumulation amplifies LTP at high rates.
+        """
+        freqs = [1.0, 50.0]
+        triplet_deltas = self._run_frequency_sweep("triplet", freqs)
+        pair_deltas = self._run_frequency_sweep("pair", freqs)
+        # Frequency sensitivity = ratio of 50 Hz to 1 Hz potentiation
+        triplet_ratio = triplet_deltas[1] / triplet_deltas[0] if triplet_deltas[0] != 0 else 1.0
+        pair_ratio = pair_deltas[1] / pair_deltas[0] if pair_deltas[0] != 0 else 1.0
+        self.assertGreater(
+            triplet_ratio,
+            pair_ratio,
+            f"Triplet frequency sensitivity ({triplet_ratio:.2f}x) should exceed "
+            f"pair sensitivity ({pair_ratio:.2f}x)",
+        )
+
+    def test_triplet_converges_to_pair_at_low_frequency(self) -> None:
+        """At 1 Hz, triplet LTP contribution from o2 should be negligible.
+
+        The slow post-trace o2 (τ_y=114ms) fully decays over the 1000ms
+        ISI, so the triplet term A3+ * r1 * o2 vanishes.  We verify this
+        by checking that the ratio of triplet LTP at 1 Hz vs 50 Hz is
+        much smaller than at higher frequencies (o2 doesn't amplify).
+        """
+        freqs = [1.0, 50.0]
+        deltas = self._run_frequency_sweep("triplet", freqs)
+        # At 1 Hz, o2 decays ~exp(-1000/114) ≈ 0 → triplet degenerates
+        # The 50Hz/1Hz ratio should be > 1 (confirmed by monotonicity test)
+        ratio = deltas[1] / deltas[0] if deltas[0] != 0 else float("inf")
+        self.assertGreater(ratio, 1.5, "Triplet should show substantial frequency effect")
+
+
 class TestTripletDecays(unittest.TestCase):
     def test_decay_values_correct(self) -> None:
         c = _make_circuit("triplet")

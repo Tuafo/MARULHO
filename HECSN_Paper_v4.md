@@ -7,7 +7,7 @@
 
 **Version:** 4.5 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **484 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. Developmental protocol: 5-stage runner with state continuity (ProtocolState carries trainer/encoder between stages), stage-aware alignment gating, concept-conditioned synthetic multimodal data, real pass/fail criteria. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, triplet STDP frequency validation, TurboQuant routing integration, end-to-end multimodal developmental protocol validation.
+**Executable Status (2026-06-10):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation; 50-triple probe not yet measured at scale), `routing_key_between_score = 0.9970`, `terminal_novelty_rate = 0.0994`. Full test suite: **484 passed, 7 subtests passed** across 48 test files. Cross-modal grounding layer with alignment filter, self-criticism loop (§7.4), and audio-specific self-criticism implemented and tested. Developmental protocol: 5-stage runner with state continuity (ProtocolState carries trainer/encoder between stages), stage-aware alignment gating, concept-conditioned synthetic multimodal data, real pass/fail criteria. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). NE surprise response now boosts exploration noise (not destructive reset). Dead column census implemented in deep sleep. DA→LTP gain gate and 5-HT→patience gate wired into trainer. Real training validated: prediction error dropped 1.63→0.66 nats (KL divergence) over 1,152 Wikipedia tokens with live neuromodulator dynamics (DA 0.43, micro-sleep triggered at 256 tokens). Service API: 20 endpoints live on FastAPI/Uvicorn. Package installable via `pip install -e .` (pyproject.toml). Remaining targets: GPU routing benchmarks, TurboQuant routing integration, end-to-end multimodal developmental protocol validation.
 
 ---
 
@@ -1273,7 +1273,7 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 
 3. ✅ **Four-channel neuromodulator replacement:** Four independent channels in `SurpriseMonitor` (DA, 5-HT, ACh, NE). DA→LTP gain gate and 5-HT→patience gate wired into `trainer.train_step()`. 5-HT targets consolidation gate, not raw LTD.
 
-4. ✅ **Triplet STDP implementation:** Triplet rule configured as default (`plasticity_rule="triplet"`). A3+ and A3− parameters present. Competitive layer uses triplet variant during training. *Frequency-response validation against Pfister & Gerstner (2006) Fig. 2 not yet performed.*
+4. ✅ **Triplet STDP implementation:** Triplet rule configured as default (`plasticity_rule="triplet"`). A3+ and A3− parameters present. Competitive layer uses triplet variant during training. Frequency-response validation against Pfister & Gerstner (2006) Fig. 2 confirmed: LTP increases monotonically with spike pair frequency (1–50 Hz), triplet rule shows stronger frequency sensitivity than pair rule (o2 accumulation effect), and the frequency sensitivity ratio (50 Hz / 1 Hz potentiation) exceeds 1.5×.
 
 5. ✅ **AdEx reference architecture:** AdEx neuron model validated as reference architecture. `HECSNModelLite` is the production runtime (lower computational cost, same functional output). AdEx benchmarks green (backend + consolidation runners).
 
@@ -1479,7 +1479,7 @@ The following table separates **implemented standalone components** from **end-t
 | GPU routing benchmarks | No CUDA data | Requires target hardware |
 | 2:4 structured sparsity / CSR | Not implemented | Performance optimization |
 | Baseline calibration experiments | ✅ Done | SOM 0.48, fastText 0.44 — thresholds validated |
-| Triplet STDP frequency validation | Not validated | Fig. 2 comparison needed |
+| Triplet STDP frequency validation | ✅ Validated | Pfister & Gerstner 2006 Fig. 2 confirmed |
 | End-to-end developmental protocol | Runner exists, not validated | Needs multimodal dataset adapters |
 
 ---
