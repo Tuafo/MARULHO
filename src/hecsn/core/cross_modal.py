@@ -145,17 +145,13 @@ class CrossModalGroundingLayer:
     # -- grounding confidence -----------------------------------------------
 
     def _update_visual_confidence(self, text_assembly: torch.Tensor) -> None:
-        """Update visual grounding confidence via prediction error.
+        """Update visual grounding confidence via true EMA.
 
-        Applies exponential decay before the update so that confidence
-        reflects recent prediction quality, not total accumulated exposure.
-        Clamped to [0, 1].
+        For each active text dimension, confidence moves toward the current
+        prediction quality.  Inactive dimensions are unchanged (no decay
+        when not observed).  Bounded [0, 1] by construction.
         """
-        # Exponential decay: confidence slowly forgets without reinforcement
-        self.visual_confidence = self.visual_confidence * (1.0 - self.confidence_alpha * 0.1)
-
         predicted_visual = torch.mv(self.W_tv.T, text_assembly) if text_assembly.sum() > 0.01 else torch.zeros(self.dim_visual, device=self.device)
-        # Prediction error is norm of predicted vs actual trace
         if self.visual_trace.sum() > 0.01 and predicted_visual.norm() > 1e-6:
             pn = F.normalize(predicted_visual, dim=0)
             vn = F.normalize(self.visual_trace, dim=0)
@@ -164,16 +160,17 @@ class CrossModalGroundingLayer:
             error = 1.0
 
         quality = max(0.0, 1.0 - error)
-        update = self.confidence_alpha * text_assembly * quality
-        self.visual_confidence = (self.visual_confidence + update).clamp(0.0, 1.0)
+        # True EMA: only update dimensions where text is active
+        mask = (text_assembly > 0.01).float()
+        alpha_mask = self.confidence_alpha * mask
+        self.visual_confidence = ((1.0 - alpha_mask) * self.visual_confidence
+                                  + alpha_mask * quality).clamp(0.0, 1.0)
 
     def _update_audio_confidence(self, text_assembly: torch.Tensor) -> None:
-        """Update audio grounding confidence via prediction error.
+        """Update audio grounding confidence via true EMA.
 
-        Same decay + clamp as visual confidence.
+        Same EMA semantics as visual confidence.
         """
-        self.audio_confidence = self.audio_confidence * (1.0 - self.confidence_alpha * 0.1)
-
         predicted_audio = torch.mv(self.W_ta.T, text_assembly) if text_assembly.sum() > 0.01 else torch.zeros(self.dim_audio, device=self.device)
         if self.audio_trace.sum() > 0.01 and predicted_audio.norm() > 1e-6:
             pn = F.normalize(predicted_audio, dim=0)
@@ -183,14 +180,16 @@ class CrossModalGroundingLayer:
             error = 1.0
 
         quality = max(0.0, 1.0 - error)
-        update = self.confidence_alpha * text_assembly * quality
-        self.audio_confidence = (self.audio_confidence + update).clamp(0.0, 1.0)
+        mask = (text_assembly > 0.01).float()
+        alpha_mask = self.confidence_alpha * mask
+        self.audio_confidence = ((1.0 - alpha_mask) * self.audio_confidence
+                                 + alpha_mask * quality).clamp(0.0, 1.0)
 
     # -- query API ----------------------------------------------------------
 
     def grounding_confidence(self) -> torch.Tensor:
-        """Combined grounding confidence (visual + audio)."""
-        return self.visual_confidence + self.audio_confidence
+        """Combined grounding confidence — mean of visual and audio, bounded [0, 1]."""
+        return (self.visual_confidence + self.audio_confidence) * 0.5
 
     def predict_visual(self, text_assembly: torch.Tensor) -> torch.Tensor:
         """Predict visual pattern from text assembly."""

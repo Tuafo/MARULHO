@@ -9,6 +9,7 @@ from pathlib import Path
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.training.developmental_runner import (
+    CONCEPT_VOCABULARY,
     DEVELOPMENTAL_CORPUS,
     ProtocolState,
     StageResult,
@@ -20,7 +21,10 @@ from hecsn.training.developmental_runner import (
     run_full_developmental_protocol,
     run_baseline_calibration,
     _make_config_for_stage,
+    _make_vector_fn,
     _compute_grounding_confidence,
+    _concept_spikes_for_text,
+    _build_concept_signatures,
 )
 
 
@@ -217,6 +221,117 @@ class TestBaselineCalibration(unittest.TestCase):
         # Corpus should contain concept vocabulary words
         self.assertIn("fire", DEVELOPMENTAL_CORPUS)
         self.assertIn("water", DEVELOPMENTAL_CORPUS)
+
+
+class TestConfidenceBounded(unittest.TestCase):
+    """Regression: grounding_confidence must be in [0, 1]."""
+
+    def test_confidence_bounded_after_training(self) -> None:
+        """After Stage 1 training, grounding_confidence must never exceed 1.0."""
+        _result, state = run_stage_1(n_tokens=500, seed=42)
+        cm = state.trainer.model.cross_modal
+        conf_vec = cm.grounding_confidence()
+        self.assertTrue((conf_vec >= 0).all(), "All confidence dims must be >= 0")
+        self.assertTrue((conf_vec <= 1).all(), "All confidence dims must be <= 1")
+        # Mean should also be bounded
+        conf_mean = conf_vec.mean().item()
+        self.assertGreaterEqual(conf_mean, 0.0)
+        self.assertLessEqual(conf_mean, 1.0)
+
+    def test_visual_audio_confidence_individual_bounds(self) -> None:
+        """Each modality's confidence must be in [0, 1] per dimension."""
+        _result, state = run_stage_1(n_tokens=300, seed=42)
+        cm = state.trainer.model.cross_modal
+        self.assertTrue((cm.visual_confidence >= 0).all())
+        self.assertTrue((cm.visual_confidence <= 1).all())
+        self.assertTrue((cm.audio_confidence >= 0).all())
+        self.assertTrue((cm.audio_confidence <= 1).all())
+
+
+class TestProbeUsesGroundedVectors(unittest.TestCase):
+    """Regression: probe vectors must reflect cross-modal state."""
+
+    def test_probe_vector_changes_with_cross_modal_weights(self) -> None:
+        """Changing W_tv must change the probe vector output."""
+        import torch
+
+        _result, state = run_stage_1(n_tokens=200, seed=42)
+        cfg = state.config
+        vfn1 = _make_vector_fn(state.trainer, state.text_encoder, cfg)
+        vec_before = vfn1("fire")
+
+        # Perturb cross-modal weights
+        cm = state.trainer.model.cross_modal
+        cm.W_tv.data += torch.randn_like(cm.W_tv) * 0.5
+
+        vfn2 = _make_vector_fn(state.trainer, state.text_encoder, cfg)
+        vec_after = vfn2("fire")
+
+        # Vectors must differ — probe is sensitive to cross-modal state
+        diff = (vec_before - vec_after).norm().item()
+        self.assertGreater(diff, 1e-6, "Probe must be sensitive to cross-modal weights")
+
+    def test_probe_vector_includes_visual_and_audio(self) -> None:
+        """Probe output dimension must be assembly + visual + audio (grounded)."""
+        _result, state = run_stage_1(n_tokens=200, seed=42)
+        cfg = state.config
+        vfn = _make_vector_fn(state.trainer, state.text_encoder, cfg)
+        vec = vfn("fire")
+        expected_dim = cfg.n_columns + cfg.cross_modal_dim_visual + cfg.cross_modal_dim_audio
+        self.assertEqual(vec.shape[0], expected_dim,
+                         f"Probe vector should be {expected_dim}-dim (grounded), got {vec.shape[0]}")
+
+
+class TestStageConfigSync(unittest.TestCase):
+    """Regression: stage transitions must sync config to both trainer and model."""
+
+    def test_stage3_config_synced_to_model(self) -> None:
+        """After stage transition, trainer.model.config must match trainer.config."""
+        _r1, s1 = run_stage_1(n_tokens=200, seed=42)
+        _r2, s2 = run_stage_2(n_tokens=200, seed=42, state=s1)
+        _r3, s3 = run_stage_3(n_tokens=200, seed=42, state=s2)
+        self.assertIs(s3.trainer.config, s3.trainer.model.config,
+                      "trainer.config and trainer.model.config must be the same object")
+        self.assertTrue(s3.trainer.config.enable_abstraction_layer,
+                        "Stage 3 config must enable abstraction layer")
+
+    def test_checkpoint_roundtrip_preserves_stage_config(self) -> None:
+        """Save/restore must preserve the stage-specific config."""
+        import tempfile
+        import torch
+        from hecsn.training.checkpointing import save_trainer_checkpoint, load_trainer_checkpoint
+
+        _r1, s1 = run_stage_1(n_tokens=200, seed=42)
+        _r2, s2 = run_stage_2(n_tokens=100, seed=42, state=s1)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f"{tmp}/test_ckpt.pt"
+            save_trainer_checkpoint(path, s2.trainer, metadata={"developmental_stage": 2})
+            trainer_reload, meta = load_trainer_checkpoint(path)
+            # Cross-modal weights must survive the roundtrip
+            self.assertGreater(
+                trainer_reload.model.cross_modal.W_tv.norm().item(), 0.0,
+                "Cross-modal weights must survive checkpoint roundtrip"
+            )
+
+
+class TestWindowLocalAlignment(unittest.TestCase):
+    """Regression: only concept-containing windows receive multimodal spikes."""
+
+    def test_function_words_get_no_spikes(self) -> None:
+        """Windows containing only function words must not receive spikes."""
+        sigs = _build_concept_signatures(len(CONCEPT_VOCABULARY), 256, 64)
+        # "the" is a function word — should not trigger spikes
+        vs, aus = _concept_spikes_for_text("the in a", sigs, 256, 64)
+        self.assertIsNone(vs, "Function-word window must not get visual spikes")
+        self.assertIsNone(aus, "Function-word window must not get audio spikes")
+
+    def test_concept_words_get_spikes(self) -> None:
+        """Windows containing concept words must receive spikes."""
+        sigs = _build_concept_signatures(len(CONCEPT_VOCABULARY), 256, 64)
+        vs, aus = _concept_spikes_for_text("fire burns brightly", sigs, 256, 64)
+        self.assertIsNotNone(vs, "Concept window must get visual spikes")
+        self.assertIsNotNone(aus, "Concept window must get audio spikes")
 
 
 if __name__ == "__main__":

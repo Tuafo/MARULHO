@@ -101,8 +101,14 @@ def _make_vector_fn(
 ):
     """Build vector_fn callable for grounding probe from trainer + encoder.
 
-    When cross-modal grounding is enabled, blends the routing key with
-    visual feedback so that the probe measures cross-modal state (§8.7).
+    Produces a grounded representation by:
+    1. Encoding text → routing_key (input_dim)
+    2. Projecting to assembly space (n_columns) via competitive layer
+    3. Predicting visual/audio from assembly via cross-modal weights
+    4. Concatenating [assembly, visual_pred * v_conf, audio_pred * a_conf]
+
+    This ensures the probe measures cross-modal grounding (§8.7), not
+    just text routing.
     """
 
     def vector_fn(text: str) -> torch.Tensor:
@@ -115,15 +121,36 @@ def _make_vector_fn(
         routing_key = torch.stack(vecs).mean(dim=0)
 
         cross_modal = trainer.model.cross_modal
-        if cross_modal is not None and routing_key.shape[0] == cross_modal.W_tv.shape[0]:
-            pred_visual = torch.mv(cross_modal.W_tv.T, routing_key)
-            visual_conf = float(cross_modal.visual_confidence.mean().item())
-            if pred_visual.norm() > 1e-6 and visual_conf > 0.01:
-                visual_feedback = torch.mv(cross_modal.W_vt.T, pred_visual)
-                if visual_feedback.shape == routing_key.shape:
-                    blend = min(0.3, visual_conf)
-                    routing_key = (1.0 - blend) * routing_key + blend * visual_feedback
-        return routing_key
+        if cross_modal is None:
+            return routing_key
+
+        # Get assembly representation (n_columns dim)
+        assembly = trainer.contextual_assembly_for_pattern(routing_key)
+
+        # Predict visual/audio from assembly via cross-modal weights
+        pred_visual = torch.mv(cross_modal.W_tv.T, assembly)
+        pred_audio = torch.mv(cross_modal.W_ta.T, assembly)
+
+        # Assembly-weighted confidence (per-column, weighted by assembly activation)
+        a_abs = assembly.abs()
+        a_sum = a_abs.sum()
+        if a_sum > 1e-8:
+            v_conf = float((a_abs * cross_modal.visual_confidence).sum() / a_sum)
+            a_conf = float((a_abs * cross_modal.audio_confidence).sum() / a_sum)
+        else:
+            v_conf = 0.0
+            a_conf = 0.0
+        pred_visual = pred_visual * min(1.0, v_conf)
+        pred_audio = pred_audio * min(1.0, a_conf)
+
+        # Normalize each part to prevent dimensionality imbalance
+        def _norm(t: torch.Tensor) -> torch.Tensor:
+            n = t.norm()
+            return t / n if n > 1e-8 else t
+
+        # Concatenate: [assembly, visual_pred, audio_pred]
+        grounded = torch.cat([_norm(assembly), _norm(pred_visual), _norm(pred_audio)])
+        return grounded
 
     return vector_fn
 
@@ -155,10 +182,40 @@ def _train_on_corpus(
 # This replaces the prior torch.randn() random noise approach.
 
 CONCEPT_VOCABULARY = [
-    "fire", "water", "tree", "bird", "sun",
-    "rock", "wind", "rain", "snow", "flower",
-    "mountain", "river", "cloud", "star", "moon",
+    # Fire family — share hot/orange/crackling attributes
+    "fire", "flame", "heat", "burn",
+    # Water family — share blue/flowing/rushing attributes
+    "water", "ocean", "wave", "flow", "rain", "wet",
+    # Cold family — share white/still/crisp attributes
+    "ice", "snow", "cold", "frost", "freeze",
+    # Earth family — share brown/rough/heavy attributes
+    "rock", "stone", "mountain", "earth", "sand", "hard",
+    # Air family — share light/moving/whooshing attributes
+    "wind", "breeze", "cloud", "sky",
+    # Plant family — share green/organic/rustling attributes
+    "tree", "leaf", "flower", "rose", "petal",
+    # Animal family — distinct but all animate/moving
+    "dog", "bird", "fish",
+    # Light family — share bright/yellow/flash attributes
+    "sun", "light", "lightning", "flash",
+    # Sound family — share intense/vibrating audio
+    "thunder", "loud", "bark",
+    # Misc concrete — individual signatures
+    "star", "moon", "river", "smoke", "volcano",
 ]
+
+# Concept families: members share visual/audio base patterns
+_CONCEPT_FAMILIES: dict[str, list[str]] = {
+    "fire": ["fire", "flame", "heat", "burn"],
+    "water": ["water", "ocean", "wave", "flow", "rain", "wet"],
+    "cold": ["ice", "snow", "cold", "frost", "freeze"],
+    "earth": ["rock", "stone", "mountain", "earth", "sand", "hard"],
+    "air": ["wind", "breeze", "cloud", "sky"],
+    "plant": ["tree", "leaf", "flower", "rose", "petal"],
+    "animal": ["dog", "bird", "fish"],
+    "light": ["sun", "light", "lightning", "flash"],
+    "sound": ["thunder", "loud", "bark"],
+}
 
 
 def _build_concept_signatures(
@@ -169,33 +226,59 @@ def _build_concept_signatures(
 ) -> dict[str, dict[str, torch.Tensor]]:
     """Build fixed visual/audio spike signatures for each concept.
 
-    Each concept gets a sparse, distinct pattern.  Signatures are
-    deterministic for the same seed so that repeated exposures to the
-    same concept produce the same cross-modal pairing.
+    Concepts within the same family share a base pattern (with small
+    per-member variation), so semantically related words produce
+    correlated multimodal representations — just as in biological
+    grounding.  Signatures are deterministic for the same seed.
     """
     gen = torch.Generator()
     gen.manual_seed(seed)
     concepts = CONCEPT_VOCABULARY[:n_concepts]
     signatures: dict[str, dict[str, torch.Tensor]] = {}
 
-    for i, concept in enumerate(concepts):
-        # Visual: sparse activation pattern (10-20% active)
-        visual_base = torch.zeros(dim_visual)
-        n_active_v = max(2, dim_visual // 8)
-        # Use a concept-specific offset to ensure distinct patterns
+    # Build one base pattern per family
+    concept_to_family: dict[str, str] = {}
+    for fam_name, members in _CONCEPT_FAMILIES.items():
+        for m in members:
+            concept_to_family[m] = fam_name
+
+    family_bases: dict[str, dict[str, torch.Tensor]] = {}
+    for fam_name in _CONCEPT_FAMILIES:
+        n_active_v = max(4, dim_visual // 6)
         indices_v = torch.randperm(dim_visual, generator=gen)[:n_active_v]
-        visual_base[indices_v] = torch.rand(n_active_v, generator=gen) * 0.3 + 0.1
+        vbase = torch.zeros(dim_visual)
+        vbase[indices_v] = torch.rand(n_active_v, generator=gen) * 0.3 + 0.1
 
-        # Audio: sparse activation pattern (10-20% active)
-        audio_base = torch.zeros(dim_audio)
-        n_active_a = max(2, dim_audio // 8)
+        n_active_a = max(3, dim_audio // 6)
         indices_a = torch.randperm(dim_audio, generator=gen)[:n_active_a]
-        audio_base[indices_a] = torch.rand(n_active_a, generator=gen) * 0.3 + 0.1
+        abase = torch.zeros(dim_audio)
+        abase[indices_a] = torch.rand(n_active_a, generator=gen) * 0.3 + 0.1
 
-        signatures[concept] = {
-            "visual": visual_base,
-            "audio": audio_base,
-        }
+        family_bases[fam_name] = {"visual": vbase, "audio": abase}
+
+    for concept in concepts:
+        fam = concept_to_family.get(concept)
+        if fam and fam in family_bases:
+            # Family member: shared base + small per-member variation
+            visual = family_bases[fam]["visual"].clone()
+            audio = family_bases[fam]["audio"].clone()
+            visual += torch.randn(dim_visual, generator=gen) * 0.03
+            audio += torch.randn(dim_audio, generator=gen) * 0.03
+            visual = visual.clamp(min=0)
+            audio = audio.clamp(min=0)
+        else:
+            # Standalone concept: independent random pattern
+            visual = torch.zeros(dim_visual)
+            n_active_v = max(2, dim_visual // 8)
+            indices_v = torch.randperm(dim_visual, generator=gen)[:n_active_v]
+            visual[indices_v] = torch.rand(n_active_v, generator=gen) * 0.3 + 0.1
+
+            audio = torch.zeros(dim_audio)
+            n_active_a = max(2, dim_audio // 8)
+            indices_a = torch.randperm(dim_audio, generator=gen)[:n_active_a]
+            audio[indices_a] = torch.rand(n_active_a, generator=gen) * 0.3 + 0.1
+
+        signatures[concept] = {"visual": visual, "audio": audio}
 
     return signatures
 
@@ -245,7 +328,10 @@ def _train_multimodal_on_corpus(
     dim_visual: int,
     dim_audio: int,
 ) -> tuple[int, int, int]:
-    """Train on corpus with concept-conditioned multimodal spikes.
+    """Train on corpus with window-local concept-conditioned multimodal spikes.
+
+    Only char windows containing a concept word receive the paired
+    visual/audio spikes — function-word windows get ``None``.
 
     Returns (tokens_processed, visual_pairs_sent, audio_pairs_sent).
     """
@@ -256,16 +342,15 @@ def _train_multimodal_on_corpus(
     iterations = max(1, n_tokens // max(1, len(full_text)))
 
     for _ in range(iterations):
-        # For each sentence, generate concept spikes
         for sentence in corpus:
-            vs, aus = _concept_spikes_for_text(
-                sentence, signatures, dim_visual, dim_audio,
-            )
-            # Feed sentence with multimodal context
             patterns = list(
                 encoder.iter_char_patterns(sentence, trainer.config.window_size)
             )
             for raw_window, pattern_vec in patterns:
+                # Window-local: only ground windows that contain a concept
+                vs, aus = _concept_spikes_for_text(
+                    raw_window, signatures, dim_visual, dim_audio,
+                )
                 metrics = trainer.train_step(
                     pattern_vec,
                     raw_window=raw_window,
@@ -309,6 +394,8 @@ def run_stage_1(
         trainer = state.trainer
         encoder = state.text_encoder
         cfg = _make_config_for_stage(1, state.config)
+        trainer.config = cfg
+        trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(1, config)
         model = HECSNModelLite(cfg)
@@ -380,6 +467,8 @@ def run_stage_2(
         trainer = state.trainer
         encoder = state.text_encoder
         cfg = _make_config_for_stage(2, state.config)
+        trainer.config = cfg
+        trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(2, config)
         model = HECSNModelLite(cfg)
@@ -472,6 +561,8 @@ def run_stage_3(
         trainer = state.trainer
         encoder = state.text_encoder
         cfg = _make_config_for_stage(3, state.config)
+        trainer.config = cfg
+        trainer.model.config = cfg
         # Stage 3 needs abstraction layer — ensure it exists
         if trainer.model.abstraction_layer is None and cfg.enable_abstraction_layer:
             from hecsn.core.abstraction import AbstractionLayer
@@ -606,6 +697,8 @@ def run_stage_4(
         trainer = state.trainer
         encoder = state.text_encoder
         cfg = _make_config_for_stage(4, state.config)
+        trainer.config = cfg
+        trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(4, config)
         model = HECSNModelLite(cfg)
@@ -703,6 +796,8 @@ def run_stage_5(
         trainer = state.trainer
         encoder = state.text_encoder
         cfg = _make_config_for_stage(5, state.config)
+        trainer.config = cfg
+        trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(5, config)
         model = HECSNModelLite(cfg)
