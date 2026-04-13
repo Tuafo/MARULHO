@@ -309,7 +309,11 @@ class HECSNTrainer:
         self.developmental_stage: int = 1
         # Bootstrap budget for Stage 2: accept first N multimodal pairs
         # without gating so confidence can bootstrap from zero.
+        # Tracked separately for visual and audio modalities.
         self._stage2_bootstrap_budget: int = 50
+        self._stage2_bootstrap_used_visual: int = 0
+        self._stage2_bootstrap_used_audio: int = 0
+        # Legacy alias kept for checkpoint backward compat
         self._stage2_bootstrap_used: int = 0
 
     def _update_stream_text(self, raw_window: Optional[str]) -> Optional[str]:
@@ -1127,8 +1131,8 @@ class HECSNTrainer:
                 vs = visual_spikes.to(self.model.device)
                 accept_visual = True
                 if self.developmental_stage >= 2:
-                    if self._stage2_bootstrap_used < self._stage2_bootstrap_budget:
-                        self._stage2_bootstrap_used += 1
+                    if self._stage2_bootstrap_used_visual < self._stage2_bootstrap_budget:
+                        self._stage2_bootstrap_used_visual += 1
                     else:
                         accept_visual, _vscore = self.model.cross_modal.alignment_gate(
                             text_spike, vs,
@@ -1142,8 +1146,8 @@ class HECSNTrainer:
                 aus = audio_spikes.to(self.model.device)
                 accept_audio = True
                 if self.developmental_stage >= 2:
-                    if self._stage2_bootstrap_used < self._stage2_bootstrap_budget:
-                        pass  # already counted in visual branch
+                    if self._stage2_bootstrap_used_audio < self._stage2_bootstrap_budget:
+                        self._stage2_bootstrap_used_audio += 1
                     else:
                         accept_audio, _ascore = self.model.cross_modal.alignment_gate_audio(
                             text_spike, aus,

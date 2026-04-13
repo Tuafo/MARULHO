@@ -73,8 +73,11 @@ def _make_config_for_stage(
     Activates the mechanisms each stage depends on:
       All stages: cross-modal, adaptive context, triplet STDP
       Stage 3+: abstraction layer (needed for curiosity controller)
+
+    Never mutates the caller's config — always returns a fresh copy.
     """
-    cfg = base_config if base_config is not None else HECSNConfig()
+    import copy
+    cfg = copy.deepcopy(base_config) if base_config is not None else HECSNConfig()
     cfg.context_mode = "adaptive"
     cfg.plasticity_rule = "triplet"
     cfg.enable_cross_modal = True
@@ -301,12 +304,13 @@ def run_stage_1(
     to Stage 2.
     """
     set_seed(seed)
-    cfg = _make_config_for_stage(1, config)
 
     if state is not None:
         trainer = state.trainer
         encoder = state.text_encoder
+        cfg = _make_config_for_stage(1, state.config)
     else:
+        cfg = _make_config_for_stage(1, config)
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
@@ -371,18 +375,24 @@ def run_stage_2(
     budget of ungated pairs.
     """
     set_seed(seed)
-    cfg = _make_config_for_stage(2, config)
 
     if state is not None:
         trainer = state.trainer
         encoder = state.text_encoder
+        cfg = _make_config_for_stage(2, state.config)
     else:
+        cfg = _make_config_for_stage(2, config)
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
 
     trainer.developmental_stage = 2
-    trainer._stage2_bootstrap_used = 0
+    # Preserve bootstrap counter if continuing from prior state;
+    # reset only when cold-starting Stage 2.
+    if state is None:
+        trainer._stage2_bootstrap_used_visual = 0
+        trainer._stage2_bootstrap_used_audio = 0
+        trainer._stage2_bootstrap_used = 0
 
     corpus = [
         "fire burns bright",
@@ -457,11 +467,11 @@ def run_stage_3(
     Tracks grounding confidence delta rather than random alignment.
     """
     set_seed(seed)
-    cfg = _make_config_for_stage(3, config)
 
     if state is not None:
         trainer = state.trainer
         encoder = state.text_encoder
+        cfg = _make_config_for_stage(3, state.config)
         # Stage 3 needs abstraction layer — ensure it exists
         if trainer.model.abstraction_layer is None and cfg.enable_abstraction_layer:
             from hecsn.core.abstraction import AbstractionLayer
@@ -476,6 +486,7 @@ def run_stage_3(
                 feedback_strength=cfg.abstraction_feedback_strength,
             )
     else:
+        cfg = _make_config_for_stage(3, config)
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
@@ -590,12 +601,13 @@ def run_stage_4(
     doesn't regress.
     """
     set_seed(seed)
-    cfg = _make_config_for_stage(4, config)
 
     if state is not None:
         trainer = state.trainer
         encoder = state.text_encoder
+        cfg = _make_config_for_stage(4, state.config)
     else:
+        cfg = _make_config_for_stage(4, config)
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
@@ -686,12 +698,13 @@ def run_stage_5(
     that the system can sustain learning without external guidance.
     """
     set_seed(seed)
-    cfg = _make_config_for_stage(5, config)
 
     if state is not None:
         trainer = state.trainer
         encoder = state.text_encoder
+        cfg = _make_config_for_stage(5, state.config)
     else:
+        cfg = _make_config_for_stage(5, config)
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
