@@ -60,6 +60,7 @@ def _model_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
         "context_layer": None if trainer.model.context_layer is None else trainer.model.context_layer.state_dict(),
         "abstraction_layer": None if trainer.model.abstraction_layer is None else trainer.model.abstraction_layer.state_dict(),
         "binding_layer": None if trainer.model.binding_layer is None else trainer.model.binding_layer.state_dict(),
+        "cross_modal": None if trainer.model.cross_modal is None else trainer.model.cross_modal.state_dict(),
         "memory_store": trainer.model.memory_store.snapshot(),
         "bootstrap": {
             "W": trainer.bootstrap.W.detach().clone().cpu(),
@@ -84,6 +85,9 @@ def _restore_model(trainer: HECSNTrainer, snapshot: dict[str, Any]) -> None:
 
     if trainer.model.binding_layer is not None and snapshot.get("binding_layer") is not None:
         trainer.model.binding_layer.load_state_dict(snapshot["binding_layer"])
+
+    if trainer.model.cross_modal is not None and snapshot.get("cross_modal") is not None:
+        trainer.model.cross_modal.load_state_dict(snapshot["cross_modal"])
 
     trainer.model.memory_store.restore(snapshot["memory_store"])
 
@@ -124,6 +128,7 @@ def save_trainer_checkpoint(path: str | Path, trainer: HECSNTrainer, metadata: d
             "last_winner": None if trainer.last_winner is None else int(trainer.last_winner),
             "pending_emergency_deep_sleep": bool(trainer.pending_emergency_deep_sleep),
             "last_network_reset_token": int(trainer.last_network_reset_token),
+            "developmental_stage": int(trainer.developmental_stage),
             "column_anchors": {
                 int(key): {
                     "prototype": value["prototype"].detach().clone().cpu(),
@@ -176,6 +181,7 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[HECSNTrainer, dict[str, A
     trainer.last_winner = None if last_winner is None else int(last_winner)
     trainer.pending_emergency_deep_sleep = bool(trainer_snapshot.get("pending_emergency_deep_sleep", False))
     trainer.last_network_reset_token = int(trainer_snapshot.get("last_network_reset_token", -10**9))
+    trainer.developmental_stage = int(trainer_snapshot.get("developmental_stage", 1))
     trainer.column_anchors = {
         int(key): {
             "prototype": value["prototype"].detach().clone().to(trainer.model.device),

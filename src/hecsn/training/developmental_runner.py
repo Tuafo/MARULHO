@@ -1,14 +1,15 @@
 """Developmental protocol runners.
 
-Implements the five-stage developmental protocol:
+Implements the five-stage developmental protocol (§7):
   Stage 1: Critical period -- curated multimodal, no alignment filter
   Stage 2: Self-filtering -- alignment filter active
   Stage 3: Confirmation-seeking -- curiosity-driven gap filling
   Stage 4: Semi-autonomous -- any multimodal, no curation
   Stage 5: Fully autonomous -- self-directed curriculum
 
-Each stage has entry/exit criteria verified by the grounding probe
-and internal diagnostics.
+State continuity: a ProtocolState object carries trainer, encoder,
+and visual/audio encoders across all stages so that each stage
+inherits the previous stage's learned weights and confidence.
 """
 
 from __future__ import annotations
@@ -30,6 +31,18 @@ from hecsn.semantics.geometric_curiosity import GeometricCuriosityController
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.query_runner import feed_text
 from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+
+
+@dataclass
+class ProtocolState:
+    """Carries trainer + encoders across developmental stages.
+
+    Separate from StageResult (metrics-only, JSON-serializable).
+    """
+
+    trainer: HECSNTrainer
+    text_encoder: RTFEncoder
+    config: HECSNConfig
 
 
 @dataclass
@@ -55,11 +68,18 @@ class StageResult:
 def _make_config_for_stage(
     stage: int, base_config: HECSNConfig | None = None
 ) -> HECSNConfig:
-    """Create a model config appropriate for the given developmental stage."""
+    """Create a model config appropriate for the given developmental stage.
+
+    Activates the mechanisms each stage depends on:
+      All stages: cross-modal, adaptive context, triplet STDP
+      Stage 3+: abstraction layer (needed for curiosity controller)
+    """
     cfg = base_config if base_config is not None else HECSNConfig()
     cfg.context_mode = "adaptive"
     cfg.plasticity_rule = "triplet"
     cfg.enable_cross_modal = True
+    if stage >= 3:
+        cfg.enable_abstraction_layer = True
     return cfg
 
 
@@ -124,6 +144,143 @@ def _train_on_corpus(
 
 
 # ------------------------------------------------------------------
+# Concept-conditioned synthetic multimodal data (§7.1)
+# ------------------------------------------------------------------
+
+# Each concept maps to a fixed visual/audio spike signature.
+# Different concepts get distinguishable patterns (seeded).
+# This replaces the prior torch.randn() random noise approach.
+
+CONCEPT_VOCABULARY = [
+    "fire", "water", "tree", "bird", "sun",
+    "rock", "wind", "rain", "snow", "flower",
+    "mountain", "river", "cloud", "star", "moon",
+]
+
+
+def _build_concept_signatures(
+    n_concepts: int,
+    dim_visual: int,
+    dim_audio: int,
+    seed: int = 42,
+) -> dict[str, dict[str, torch.Tensor]]:
+    """Build fixed visual/audio spike signatures for each concept.
+
+    Each concept gets a sparse, distinct pattern.  Signatures are
+    deterministic for the same seed so that repeated exposures to the
+    same concept produce the same cross-modal pairing.
+    """
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    concepts = CONCEPT_VOCABULARY[:n_concepts]
+    signatures: dict[str, dict[str, torch.Tensor]] = {}
+
+    for i, concept in enumerate(concepts):
+        # Visual: sparse activation pattern (10-20% active)
+        visual_base = torch.zeros(dim_visual)
+        n_active_v = max(2, dim_visual // 8)
+        # Use a concept-specific offset to ensure distinct patterns
+        indices_v = torch.randperm(dim_visual, generator=gen)[:n_active_v]
+        visual_base[indices_v] = torch.rand(n_active_v, generator=gen) * 0.3 + 0.1
+
+        # Audio: sparse activation pattern (10-20% active)
+        audio_base = torch.zeros(dim_audio)
+        n_active_a = max(2, dim_audio // 8)
+        indices_a = torch.randperm(dim_audio, generator=gen)[:n_active_a]
+        audio_base[indices_a] = torch.rand(n_active_a, generator=gen) * 0.3 + 0.1
+
+        signatures[concept] = {
+            "visual": visual_base,
+            "audio": audio_base,
+        }
+
+    return signatures
+
+
+def _concept_spikes_for_text(
+    text: str,
+    signatures: dict[str, dict[str, torch.Tensor]],
+    dim_visual: int,
+    dim_audio: int,
+    noise_scale: float = 0.02,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    """Generate concept-conditioned visual/audio spikes for a text chunk.
+
+    If the text contains known concept words, returns the corresponding
+    visual/audio signatures (blended if multiple concepts present, with
+    small noise for biological realism). Returns None if no concept found.
+    """
+    words = set(text.lower().split())
+    matched = [c for c in signatures if c in words]
+    if not matched:
+        return None, None
+
+    visual = torch.zeros(dim_visual)
+    audio = torch.zeros(dim_audio)
+    for concept in matched:
+        visual = visual + signatures[concept]["visual"]
+        audio = audio + signatures[concept]["audio"]
+    visual = visual / len(matched)
+    audio = audio / len(matched)
+
+    # Add small noise for biological realism
+    if noise_scale > 0:
+        visual = visual + torch.randn_like(visual) * noise_scale
+        audio = audio + torch.randn_like(audio) * noise_scale
+        visual = visual.clamp(min=0)
+        audio = audio.clamp(min=0)
+
+    return visual, audio
+
+
+def _train_multimodal_on_corpus(
+    trainer: HECSNTrainer,
+    encoder: RTFEncoder,
+    corpus: list[str],
+    n_tokens: int,
+    signatures: dict[str, dict[str, torch.Tensor]],
+    dim_visual: int,
+    dim_audio: int,
+) -> tuple[int, int, int]:
+    """Train on corpus with concept-conditioned multimodal spikes.
+
+    Returns (tokens_processed, visual_pairs_sent, audio_pairs_sent).
+    """
+    total = 0
+    visual_count = 0
+    audio_count = 0
+    full_text = " ".join(corpus)
+    iterations = max(1, n_tokens // max(1, len(full_text)))
+
+    for _ in range(iterations):
+        # For each sentence, generate concept spikes
+        for sentence in corpus:
+            vs, aus = _concept_spikes_for_text(
+                sentence, signatures, dim_visual, dim_audio,
+            )
+            # Feed sentence with multimodal context
+            patterns = list(
+                encoder.iter_char_patterns(sentence, trainer.config.window_size)
+            )
+            for raw_window, pattern_vec in patterns:
+                metrics = trainer.train_step(
+                    pattern_vec,
+                    raw_window=raw_window,
+                    visual_spikes=vs,
+                    audio_spikes=aus,
+                )
+                total += 1
+                if vs is not None:
+                    visual_count += 1
+                if aus is not None:
+                    audio_count += 1
+                if total >= n_tokens:
+                    return total, visual_count, audio_count
+
+    return total, visual_count, audio_count
+
+
+# ------------------------------------------------------------------
 # Stage runners
 # ------------------------------------------------------------------
 
@@ -132,16 +289,29 @@ def run_stage_1(
     config: HECSNConfig | None = None,
     n_tokens: int = 5000,
     seed: int = 7,
-) -> StageResult:
-    """Stage 1: Critical period -- curated multimodal grounding."""
+    state: ProtocolState | None = None,
+) -> tuple[StageResult, ProtocolState]:
+    """Stage 1: Critical period -- curated multimodal, no alignment filter.
+
+    Establishes initial cross-modal associations by presenting concept-
+    conditioned visual/audio spikes alongside text.  No alignment filter
+    is active (developmental_stage=1), so all multimodal pairs are accepted.
+
+    Returns (StageResult, ProtocolState) — the state carries learned weights
+    to Stage 2.
+    """
     set_seed(seed)
     cfg = _make_config_for_stage(1, config)
-    model = HECSNModelLite(cfg)
-    trainer = HECSNTrainer(model, cfg)
-    encoder = RTFEncoder.from_config(cfg)
 
-    visual_encoder = EventCameraEncoder(height=32, width=32)
-    audio_encoder = CochleagramEncoder(n_bands=64)
+    if state is not None:
+        trainer = state.trainer
+        encoder = state.text_encoder
+    else:
+        model = HECSNModelLite(cfg)
+        trainer = HECSNTrainer(model, cfg)
+        encoder = RTFEncoder.from_config(cfg)
+
+    trainer.developmental_stage = 1
 
     corpus = [
         "the fire burns bright in the dark",
@@ -151,61 +321,68 @@ def run_stage_1(
         "warm sunlight covers the sandy beach",
     ]
 
-    tokens_processed = _train_on_corpus(trainer, encoder, corpus, n_tokens)
+    dim_visual = cfg.cross_modal_dim_visual
+    dim_audio = cfg.cross_modal_dim_audio
+    signatures = _build_concept_signatures(
+        n_concepts=len(CONCEPT_VOCABULARY),
+        dim_visual=dim_visual,
+        dim_audio=dim_audio,
+        seed=seed,
+    )
 
-    # Simulate cross-modal updates (no alignment filter in stage 1)
-    if model.cross_modal is not None:
-        dim_text = model.cross_modal.dim_text
-        for _ in range(min(50, n_tokens // 10)):
-            text_spike = torch.randn(dim_text).abs() * 0.1
-            visual_spike = torch.randn(cfg.cross_modal_dim_visual).abs() * 0.1
-            audio_spike = torch.randn(cfg.cross_modal_dim_audio).abs() * 0.1
-            model.cross_modal.on_text_spike(text_spike)
-            model.cross_modal.on_visual_spike(visual_spike)
-            model.cross_modal.on_audio_spike(audio_spike)
+    tokens_processed, visual_pairs, audio_pairs = _train_multimodal_on_corpus(
+        trainer, encoder, corpus, n_tokens, signatures, dim_visual, dim_audio,
+    )
 
     grounding_confidence = 0.0
-    if model.cross_modal is not None:
-        grounding_confidence = _compute_grounding_confidence(model.cross_modal)
+    if trainer.model.cross_modal is not None:
+        grounding_confidence = _compute_grounding_confidence(trainer.model.cross_modal)
 
-    # Visual/audio encoder sparsity checks
-    frame_a = torch.rand(32, 32) * 255
-    frame_b = torch.rand(32, 32) * 255
-    visual_encoder.encode(frame_a)  # prime previous frame
-    v_spikes = visual_encoder.encode(frame_b)
-    visual_sparsity = float((v_spikes > 0).float().mean().item())
+    # Criterion: grounding_confidence > 0.40 (paper §7.3)
+    passed = grounding_confidence > 0.40
 
-    a_spikes = audio_encoder.encode(torch.randn(16000))
-    audio_sparsity = float((a_spikes > 0).float().mean().item())
-
-    passed = grounding_confidence > 0.20
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
 
     return StageResult(
         stage=1,
         passed=passed,
         metrics={
             "grounding_confidence": grounding_confidence,
-            "visual_sparsity": visual_sparsity,
-            "audio_sparsity": audio_sparsity,
+            "visual_pairs_sent": visual_pairs,
+            "audio_pairs_sent": audio_pairs,
         },
         diagnostics={
-            "completion_criterion": "grounding_confidence > 0.40 (relaxed to 0.20 for synthetic)",
+            "completion_criterion": "grounding_confidence > 0.40",
         },
         tokens_processed=tokens_processed,
-    )
+    ), out_state
 
 
 def run_stage_2(
     config: HECSNConfig | None = None,
     n_tokens: int = 5000,
     seed: int = 7,
-) -> StageResult:
-    """Stage 2: Self-filtering -- alignment filter active."""
+    state: ProtocolState | None = None,
+) -> tuple[StageResult, ProtocolState]:
+    """Stage 2: Self-filtering -- alignment filter active.
+
+    Receives Stage 1's trained state.  Trainer.developmental_stage=2
+    activates alignment_gate() in train_step() after a bootstrap
+    budget of ungated pairs.
+    """
     set_seed(seed)
     cfg = _make_config_for_stage(2, config)
-    model = HECSNModelLite(cfg)
-    trainer = HECSNTrainer(model, cfg)
-    encoder = RTFEncoder.from_config(cfg)
+
+    if state is not None:
+        trainer = state.trainer
+        encoder = state.text_encoder
+    else:
+        model = HECSNModelLite(cfg)
+        trainer = HECSNTrainer(model, cfg)
+        encoder = RTFEncoder.from_config(cfg)
+
+    trainer.developmental_stage = 2
+    trainer._stage2_bootstrap_used = 0
 
     corpus = [
         "fire burns bright",
@@ -216,58 +393,63 @@ def run_stage_2(
         "sun shines warm",
     ]
 
-    tokens_processed = _train_on_corpus(trainer, encoder, corpus, n_tokens)
+    dim_visual = cfg.cross_modal_dim_visual
+    dim_audio = cfg.cross_modal_dim_audio
+    signatures = _build_concept_signatures(
+        n_concepts=len(CONCEPT_VOCABULARY),
+        dim_visual=dim_visual,
+        dim_audio=dim_audio,
+        seed=seed,
+    )
 
-    # Cross-modal updates with alignment filter
-    accepted = 0
-    total_pairs = 0
-    if model.cross_modal is not None:
-        dim_text = model.cross_modal.dim_text
-        for _ in range(min(50, n_tokens // 10)):
-            ts = torch.randn(dim_text).abs() * 0.1
-            visual_spike = torch.randn(cfg.cross_modal_dim_visual).abs() * 0.1
-            accepted_flag, _score = model.cross_modal.alignment_gate(ts, visual_spike)
-            total_pairs += 1
-            if accepted_flag:
-                accepted += 1
-                model.cross_modal.on_text_spike(ts)
-                model.cross_modal.on_visual_spike(visual_spike)
+    tokens_processed, visual_pairs, audio_pairs = _train_multimodal_on_corpus(
+        trainer, encoder, corpus, n_tokens, signatures, dim_visual, dim_audio,
+    )
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     probe_result = evaluate_grounding_probe(vector_fn)
-    filter_precision = accepted / max(1, total_pairs)
 
-    passed = True  # Relaxed for synthetic data
+    # Compute filter statistics from trainer's gating metrics
+    grounding_confidence = 0.0
+    if trainer.model.cross_modal is not None:
+        grounding_confidence = _compute_grounding_confidence(trainer.model.cross_modal)
+
+    # Criteria (§7.3): probe > 0.60 AND grounding growth
+    passed = (
+        probe_result.total_accuracy > 0.60
+        and grounding_confidence > 0.30
+    )
+
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
 
     return StageResult(
         stage=2,
         passed=passed,
         metrics={
-            "filter_precision": filter_precision,
             "probe_accuracy": probe_result.total_accuracy,
             "concrete_accuracy": probe_result.concrete_accuracy,
             "abstract_accuracy": probe_result.abstract_accuracy,
             "concreteness_gap": probe_result.concreteness_gap,
-            "accepted_pairs": float(accepted),
-            "total_pairs": float(total_pairs),
+            "grounding_confidence": grounding_confidence,
+            "visual_pairs_sent": visual_pairs,
+            "audio_pairs_sent": audio_pairs,
         },
         diagnostics={
             "completion_criteria": {
-                "filter_precision_target": "> 0.65 (relaxed for synthetic)",
-                "probe_accuracy_target": "> 0.60 (relaxed for synthetic)",
+                "probe_accuracy_target": "> 0.60",
+                "grounding_confidence_target": "> 0.30",
             },
         },
         tokens_processed=tokens_processed,
-    )
+    ), out_state
 
 
 def run_stage_3(
     config: HECSNConfig | None = None,
     n_tokens: int = 5000,
     seed: int = 7,
-    trainer: HECSNTrainer | None = None,
-    encoder: RTFEncoder | None = None,
-) -> StageResult:
+    state: ProtocolState | None = None,
+) -> tuple[StageResult, ProtocolState]:
     """Stage 3: Confirmation-seeking -- curiosity-driven gap filling.
 
     Uses the GeometricCuriosityController to identify abstraction-layer gaps,
@@ -276,11 +458,29 @@ def run_stage_3(
     """
     set_seed(seed)
     cfg = _make_config_for_stage(3, config)
-    if trainer is None:
+
+    if state is not None:
+        trainer = state.trainer
+        encoder = state.text_encoder
+        # Stage 3 needs abstraction layer — ensure it exists
+        if trainer.model.abstraction_layer is None and cfg.enable_abstraction_layer:
+            from hecsn.core.abstraction import AbstractionLayer
+            trainer.model.abstraction_layer = AbstractionLayer(
+                n_columns=cfg.n_columns,
+                n_concepts=cfg.abstraction_n_concepts,
+                device=trainer.model.device,
+                slow_rate=cfg.abstraction_slow_rate,
+                fast_rate=cfg.abstraction_fast_rate,
+                learning_rate=cfg.abstraction_learning_rate,
+                feedback_lr=cfg.abstraction_feedback_lr,
+                feedback_strength=cfg.abstraction_feedback_strength,
+            )
+    else:
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
-    if encoder is None:
         encoder = RTFEncoder.from_config(cfg)
+
+    trainer.developmental_stage = 3
 
     corpus = [
         "the fire burns in the dark night",
@@ -334,22 +534,22 @@ def run_stage_3(
 
     # Run self-criticism if cross-modal is enabled (§7.4)
     if trainer.model.cross_modal is not None:
-        # Collect recent visual frames (synthetic in dev mode)
-        recent_frames: list[torch.Tensor] = []
-        dim_visual = trainer.model.cross_modal.W_tv.shape[1]
-        rng = torch.Generator(device=trainer.model.device)
-        rng.manual_seed(seed + 99)
-        for _ in range(100):
-            recent_frames.append(torch.rand(dim_visual, device=trainer.model.device, generator=rng))
-        self_criticism_stats = trainer.model.cross_modal.run_self_criticism(
-            recent_visual_frames=recent_frames,
-            blacklist=blacklist,
-        )
+        recent_frames = trainer._recent_visual_frames
+        if len(recent_frames) >= 3:
+            self_criticism_stats = trainer.model.cross_modal.run_self_criticism(
+                recent_visual_frames=recent_frames,
+                blacklist=blacklist,
+            )
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     post_probe = evaluate_grounding_probe(vector_fn)
 
-    passed = True  # Relaxed for synthetic — real criterion is no regression
+    # Criteria: no probe regression AND curiosity system active
+    no_regression = post_probe.total_accuracy >= pre_probe.total_accuracy - 0.05
+    curiosity_active = gap_queries_produced > 0
+    passed = no_regression and curiosity_active
+
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
 
     return StageResult(
         stage=3,
@@ -374,16 +574,15 @@ def run_stage_3(
             },
         },
         tokens_processed=tokens_processed,
-    )
+    ), out_state
 
 
 def run_stage_4(
     config: HECSNConfig | None = None,
     n_tokens: int = 5000,
     seed: int = 7,
-    trainer: HECSNTrainer | None = None,
-    encoder: RTFEncoder | None = None,
-) -> StageResult:
+    state: ProtocolState | None = None,
+) -> tuple[StageResult, ProtocolState]:
     """Stage 4: Semi-autonomous -- gap-directed acquisition.
 
     Identifies gaps via the abstraction layer, selects corpus segments
@@ -392,11 +591,16 @@ def run_stage_4(
     """
     set_seed(seed)
     cfg = _make_config_for_stage(4, config)
-    if trainer is None:
+
+    if state is not None:
+        trainer = state.trainer
+        encoder = state.text_encoder
+    else:
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
-    if encoder is None:
         encoder = RTFEncoder.from_config(cfg)
+
+    trainer.developmental_stage = 4
 
     # Diverse corpus for gap-directed selection (disjoint from probe vocabulary)
     acquisition_corpus = [
@@ -450,6 +654,8 @@ def run_stage_4(
 
     no_regression = final_probe.total_accuracy >= initial_probe.total_accuracy - 0.10
 
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+
     return StageResult(
         stage=4,
         passed=no_regression,
@@ -464,16 +670,15 @@ def run_stage_4(
             "completion_criterion": "no regression (final >= initial - 0.10)",
         },
         tokens_processed=tokens_processed,
-    )
+    ), out_state
 
 
 def run_stage_5(
     config: HECSNConfig | None = None,
     n_tokens: int = 5000,
     seed: int = 7,
-    trainer: HECSNTrainer | None = None,
-    encoder: RTFEncoder | None = None,
-) -> StageResult:
+    state: ProtocolState | None = None,
+) -> tuple[StageResult, ProtocolState]:
     """Stage 5: Fully autonomous -- continuous self-directed curriculum.
 
     Runs multiple back-to-back acquisition cycles autonomously.
@@ -482,11 +687,16 @@ def run_stage_5(
     """
     set_seed(seed)
     cfg = _make_config_for_stage(5, config)
-    if trainer is None:
+
+    if state is not None:
+        trainer = state.trainer
+        encoder = state.text_encoder
+    else:
         model = HECSNModelLite(cfg)
         trainer = HECSNTrainer(model, cfg)
-    if encoder is None:
         encoder = RTFEncoder.from_config(cfg)
+
+    trainer.developmental_stage = 5
 
     # Autonomous exploration corpus
     autonomous_corpus = [
@@ -546,6 +756,8 @@ def run_stage_5(
     no_catastrophic_forgetting = final_probe.total_accuracy >= initial_probe.total_accuracy - 0.15
     sustained_learning = len(cycle_accuracies) == 0 or min(cycle_accuracies) >= initial_probe.total_accuracy - 0.20
 
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+
     return StageResult(
         stage=5,
         passed=no_catastrophic_forgetting and sustained_learning,
@@ -566,7 +778,7 @@ def run_stage_5(
             },
         },
         tokens_processed=tokens_processed,
-    )
+    ), out_state
 
 
 # ------------------------------------------------------------------
@@ -580,8 +792,14 @@ def run_full_developmental_protocol(
     seed: int = 7,
     output_dir: Path | None = None,
 ) -> list[StageResult]:
-    """Run the complete 5-stage developmental protocol."""
+    """Run the complete 5-stage developmental protocol with state continuity.
+
+    Each stage's trained weights, confidence, and encoder state are passed
+    to the next stage via ProtocolState.  If a stage fails, the protocol
+    stops (the paper defines each stage as prerequisite for the next).
+    """
     results: list[StageResult] = []
+    state: ProtocolState | None = None
 
     runners = [
         (1, run_stage_1),
@@ -592,7 +810,12 @@ def run_full_developmental_protocol(
     ]
 
     for stage_num, runner_fn in runners:
-        result = runner_fn(config=config, n_tokens=n_tokens_per_stage, seed=seed)
+        result, state = runner_fn(
+            config=config,
+            n_tokens=n_tokens_per_stage,
+            seed=seed,
+            state=state,
+        )
         results.append(result)
 
         if output_dir is not None:

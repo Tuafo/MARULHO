@@ -303,6 +303,15 @@ class HECSNTrainer:
         self._last_self_criticism_token = 0
         self._self_criticism_blacklist: dict[int, int] = {}
 
+        # Developmental stage (§7): controls cross-modal gating behaviour.
+        # Stage 1: accept all visual/audio (no filter)
+        # Stage 2+: apply alignment_gate() before cross-modal updates
+        self.developmental_stage: int = 1
+        # Bootstrap budget for Stage 2: accept first N multimodal pairs
+        # without gating so confidence can bootstrap from zero.
+        self._stage2_bootstrap_budget: int = 50
+        self._stage2_bootstrap_used: int = 0
+
     def _update_stream_text(self, raw_window: Optional[str]) -> Optional[str]:
         if raw_window is None:
             self._last_raw_window_text = None
@@ -1100,36 +1109,59 @@ class HECSNTrainer:
 
         # Cross-modal grounding updates (§5): wire assembly as text spike,
         # feed visual/audio spikes when multimodal data is available.
+        # Stage-aware gating (§7): Stage 1 accepts all pairs; Stage 2+
+        # applies alignment_gate() to filter unreliable associations,
+        # with a bootstrap budget so confidence can build from zero.
         cross_modal_visual_conf = 0.0
         cross_modal_audio_conf = 0.0
+        cross_modal_visual_accepted = None
+        cross_modal_audio_accepted = None
         if self.model.cross_modal is not None:
-            # Text assembly drives cross-modal text trace & weight updates
             text_spike = assembly.detach()
             if text_spike.dim() > 1:
                 text_spike = text_spike.mean(dim=0)
             self.model.cross_modal.on_text_spike(text_spike)
 
-            # Visual/audio spikes from multimodal encoders (when available)
+            # Visual path with stage-aware gating
             if visual_spikes is not None:
                 vs = visual_spikes.to(self.model.device)
-                self.model.cross_modal.on_visual_spike(vs)
+                accept_visual = True
+                if self.developmental_stage >= 2:
+                    if self._stage2_bootstrap_used < self._stage2_bootstrap_budget:
+                        self._stage2_bootstrap_used += 1
+                    else:
+                        accept_visual, _vscore = self.model.cross_modal.alignment_gate(
+                            text_spike, vs,
+                        )
+                cross_modal_visual_accepted = accept_visual
+                if accept_visual:
+                    self.model.cross_modal.on_visual_spike(vs)
+
+            # Audio path with stage-aware gating
             if audio_spikes is not None:
                 aus = audio_spikes.to(self.model.device)
-                self.model.cross_modal.on_audio_spike(aus)
+                accept_audio = True
+                if self.developmental_stage >= 2:
+                    if self._stage2_bootstrap_used < self._stage2_bootstrap_budget:
+                        pass  # already counted in visual branch
+                    else:
+                        accept_audio, _ascore = self.model.cross_modal.alignment_gate_audio(
+                            text_spike, aus,
+                        )
+                cross_modal_audio_accepted = accept_audio
+                if accept_audio:
+                    self.model.cross_modal.on_audio_spike(aus)
 
             cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
             cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())
 
             # Buffer visual frames for self-criticism (§7.4)
-            if visual_spikes is not None:
+            if visual_spikes is not None and cross_modal_visual_accepted:
                 self._recent_visual_frames.append(vs.detach().clone())
                 if len(self._recent_visual_frames) > self._visual_frame_limit:
                     self._recent_visual_frames = self._recent_visual_frames[-self._visual_frame_limit:]
 
             # Periodic self-criticism loop (§7.4)
-            # Runs with ≥3 frames (softer early penalty) or ≥10 frames (full penalty).
-            # During text-only phases this loop is inactive since no visual frames
-            # are buffered — this is a documented design choice, not a bug.
             n_frames = len(self._recent_visual_frames)
             if (self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
                     and n_frames >= 3):
@@ -1254,6 +1286,9 @@ class HECSNTrainer:
         metrics["binding_strength"] = float(binding_strength)
         metrics["cross_modal_visual_confidence"] = cross_modal_visual_conf
         metrics["cross_modal_audio_confidence"] = cross_modal_audio_conf
+        metrics["cross_modal_visual_accepted"] = cross_modal_visual_accepted
+        metrics["cross_modal_audio_accepted"] = cross_modal_audio_accepted
+        metrics["developmental_stage"] = self.developmental_stage
         metrics["winner"] = int(winners[0].item())
         metrics["active_columns"] = int((assembly > 0).sum().item())
         metrics["sparsity"] = float((assembly > 0).float().mean().item())
