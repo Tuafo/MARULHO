@@ -148,6 +148,46 @@ class TestStateContinuity(unittest.TestCase):
         # Weights should have continued evolving (not re-initialized)
         self.assertGreater(cm_norm, 0.0, "Stage 1 should have trained W_tv")
 
+    def test_cross_modal_confidence_grows_in_stage1(self) -> None:
+        """Stage 1 multimodal training must produce non-zero confidence."""
+        _result, state = run_stage_1(n_tokens=500, seed=42)
+        cm = state.trainer.model.cross_modal
+        self.assertIsNotNone(cm)
+        total_conf = (cm.visual_confidence.sum() + cm.audio_confidence.sum()).item()
+        self.assertGreater(total_conf, 0.0, "Confidence must grow during Stage 1")
+
+    def test_stage2_inherits_confidence(self) -> None:
+        """Stage 2 must start with Stage 1's non-zero confidence."""
+        _r1, state1 = run_stage_1(n_tokens=500, seed=42)
+        cm1 = state1.trainer.model.cross_modal
+        conf_before = (cm1.visual_confidence.sum() + cm1.audio_confidence.sum()).item()
+
+        _r2, state2 = run_stage_2(n_tokens=100, seed=42, state=state1)
+        cm2 = state2.trainer.model.cross_modal
+        conf_after = (cm2.visual_confidence.sum() + cm2.audio_confidence.sum()).item()
+        # Confidence should not be zero after inheriting Stage 1
+        self.assertGreater(conf_after, 0.0)
+        # Same object identity — state was passed, not re-created
+        self.assertIs(cm1, cm2)
+
+    def test_bootstrap_counters_separate_modalities(self) -> None:
+        """Visual and audio bootstrap counters must track independently."""
+        _r1, state1 = run_stage_1(n_tokens=200, seed=42)
+        _r2, state2 = run_stage_2(n_tokens=200, seed=42, state=state1)
+        trainer = state2.trainer
+        # Both modalities should have used some bootstrap budget
+        self.assertGreater(trainer._stage2_bootstrap_used_visual, 0)
+        self.assertGreater(trainer._stage2_bootstrap_used_audio, 0)
+
+    def test_config_deepcopy_isolation(self) -> None:
+        """Config changes in one stage must not mutate the base config."""
+        base = HECSNConfig()
+        original_abstraction = base.enable_abstraction_layer
+        cfg3 = _make_config_for_stage(3, base)
+        # Stage 3 enables abstraction, but base should be unchanged
+        self.assertTrue(cfg3.enable_abstraction_layer)
+        self.assertEqual(base.enable_abstraction_layer, original_abstraction)
+
 
 class TestBaselineCalibration(unittest.TestCase):
     def test_runs_and_returns_calibrated_thresholds(self) -> None:
