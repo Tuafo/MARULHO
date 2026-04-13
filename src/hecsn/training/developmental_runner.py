@@ -782,6 +782,104 @@ def run_stage_5(
 
 
 # ------------------------------------------------------------------
+# Shared developmental corpus (used for both training and calibration)
+# ------------------------------------------------------------------
+
+DEVELOPMENTAL_CORPUS = (
+    # Stage 1/2 concept-conditioned sentences (concrete, sensory)
+    "the fire burns bright in the dark. "
+    "water flows down the rocky stream. "
+    "the tall tree grows in the forest. "
+    "a small bird flies above the mountain. "
+    "warm sunlight covers the sandy beach. "
+    "fire burns bright. water flows down. tree grows tall. "
+    "rock is heavy. bird flies high. sun shines warm. "
+    # Stage 3 elaborated concrete
+    "the fire burns in the dark night. "
+    "water flows through the rocky river. "
+    "a tall tree stands in the green forest. "
+    "the bird flies above the mountain top. "
+    "warm sunlight covers the sandy beach. "
+    # Stage 4 acquisition domain (scientific)
+    "quantum mechanics describes particle behavior at small scales. "
+    "photosynthesis converts sunlight into chemical energy in plants. "
+    "plate tectonics explains how continents drift over geological time. "
+    "evolution shapes organisms through natural selection pressure. "
+    "gravity pulls objects toward each other with measurable force. "
+    "neural networks process information through connected layers. "
+    "climate systems regulate temperature across the entire planet. "
+    "cellular division creates new organisms from existing cells. "
+    # Stage 5 autonomous domain
+    "algorithms optimize computational efficiency in modern systems. "
+    "biodiversity preserves ecosystem stability through redundancy. "
+    "electromagnetic waves carry energy across vast distances. "
+    "metabolism converts nutrients into cellular energy continuously. "
+    "ocean currents distribute heat around the global climate system. "
+    "symbiotic relationships benefit multiple organisms simultaneously. "
+    "thermodynamics governs energy transfer in physical processes. "
+    "volcanic eruptions reshape landscapes through geological forces. "
+)
+
+
+def run_baseline_calibration(
+    corpus: str | None = None,
+    input_dim: int = 128,
+    n_prototypes: int = 64,
+    seed: int = 42,
+    output_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Run baseline calibration (§8.1) on the developmental corpus.
+
+    Trains SOM, 4-gram, and fastText baselines on the same text corpus
+    used by the developmental protocol, evaluates them on the 50-triple
+    grounding probe, and returns calibrated thresholds.
+    """
+    from hecsn.evaluation.baselines import run_all_baselines
+
+    if corpus is None:
+        corpus = DEVELOPMENTAL_CORPUS
+
+    results = run_all_baselines(
+        corpus=corpus,
+        input_dim=input_dim,
+        n_prototypes=n_prototypes,
+        seed=seed,
+    )
+
+    summary = results.summary()
+
+    # Compute calibrated thresholds per §4.10 / §10.4
+    ft_score = summary["fasttext"]["grounding_probe_accuracy"]
+    som_score = summary["online_som"]["grounding_probe_accuracy"]
+
+    calibrated = {
+        "baselines": summary,
+        "calibrated_thresholds": {
+            "stage2_criterion": max(0.60, ft_score + 0.03),
+            "publication_threshold": max(0.65, ft_score + 0.05),
+            "fasttext_score": ft_score,
+            "som_score": som_score,
+        },
+        "notes": (
+            f"fastText scored {ft_score:.3f} on 50-triple probe. "
+            f"Online SOM scored {som_score:.3f}. "
+            f"Stage 2 criterion set to max(0.60, fastText + 0.03) = "
+            f"{max(0.60, ft_score + 0.03):.3f}. "
+            f"Publication threshold set to max(0.65, fastText + 0.05) = "
+            f"{max(0.65, ft_score + 0.05):.3f}."
+        ),
+    }
+
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "baseline_calibration.json").write_text(
+            json.dumps(calibrated, indent=2)
+        )
+
+    return calibrated
+
+
+# ------------------------------------------------------------------
 # Full protocol
 # ------------------------------------------------------------------
 

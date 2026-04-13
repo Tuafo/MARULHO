@@ -9,6 +9,7 @@ from pathlib import Path
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.training.developmental_runner import (
+    DEVELOPMENTAL_CORPUS,
     ProtocolState,
     StageResult,
     run_stage_1,
@@ -17,6 +18,7 @@ from hecsn.training.developmental_runner import (
     run_stage_4,
     run_stage_5,
     run_full_developmental_protocol,
+    run_baseline_calibration,
     _make_config_for_stage,
     _compute_grounding_confidence,
 )
@@ -145,6 +147,36 @@ class TestStateContinuity(unittest.TestCase):
         self.assertIsInstance(state2, ProtocolState)
         # Weights should have continued evolving (not re-initialized)
         self.assertGreater(cm_norm, 0.0, "Stage 1 should have trained W_tv")
+
+
+class TestBaselineCalibration(unittest.TestCase):
+    def test_runs_and_returns_calibrated_thresholds(self) -> None:
+        result = run_baseline_calibration()
+        self.assertIn("baselines", result)
+        self.assertIn("calibrated_thresholds", result)
+        thresholds = result["calibrated_thresholds"]
+        self.assertIn("stage2_criterion", thresholds)
+        self.assertIn("publication_threshold", thresholds)
+        self.assertIn("fasttext_score", thresholds)
+        self.assertIn("som_score", thresholds)
+        # Thresholds must be at least the paper minimums
+        self.assertGreaterEqual(thresholds["stage2_criterion"], 0.60)
+        self.assertGreaterEqual(thresholds["publication_threshold"], 0.65)
+
+    def test_writes_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "cal_test"
+            result = run_baseline_calibration(output_dir=out)
+            cal_file = out / "baseline_calibration.json"
+            self.assertTrue(cal_file.exists())
+            data = json.loads(cal_file.read_text())
+            self.assertIn("calibrated_thresholds", data)
+
+    def test_developmental_corpus_is_nonempty(self) -> None:
+        self.assertGreater(len(DEVELOPMENTAL_CORPUS), 100)
+        # Corpus should contain concept vocabulary words
+        self.assertIn("fire", DEVELOPMENTAL_CORPUS)
+        self.assertIn("water", DEVELOPMENTAL_CORPUS)
 
 
 if __name__ == "__main__":
