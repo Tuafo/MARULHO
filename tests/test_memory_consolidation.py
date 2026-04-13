@@ -372,5 +372,71 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertAlmostEqual(restored.global_prp_pool, store.global_prp_pool, places=6)
         self.assertAlmostEqual(restored.summary_stats()["mean_capture_strength"], store.summary_stats()["mean_capture_strength"], places=6)
 
+    def test_stc_sensitivity_task_a_recall_robust_across_functional_minute(self) -> None:
+        """§4.9 STC sensitivity: Task-A recall must be robust across 100x range of functional_minute."""
+        from hecsn.training.memory_consolidation_runner import (
+            build_memory_consolidation_gate,
+            collect_assemblies,
+            mean_assembly_overlap,
+            mean_reconstruction_error,
+        )
+        from hecsn.training.runner_utils import set_seed
+
+        task_a_windows = ("alpha memory signal", "alpha plastic trace", "alpha stable concept")
+        task_b_windows = ("beta routing context", "beta semantic drift", "beta retrieval anchor")
+
+        results: list[dict] = []
+        for fm in (100, 500, 2000, 10000):
+            set_seed(42)
+            cfg = HECSNConfig(
+                n_columns=12,
+                column_latent_dim=24,
+                bootstrap_tokens=0,
+                memory_capacity=96,
+                eta_competitive=0.05,
+                eta_decay=0.0,
+                input_weight_blend=0.0,
+                plasticity_mode="local_stdp",
+                micro_sleep_interval_tokens=10**9,
+                deep_sleep_interval_tokens=10**9,
+                deep_sleep_replay_steps=24,
+                deep_sleep_candidate_pool=24,
+                enable_learned_chunking=False,
+                functional_minute=fm,
+            )
+            trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+            task_a = [trainer.encoder.feature_vector([ord(c) for c in w]).float() for w in task_a_windows]
+            task_b = [trainer.encoder.feature_vector([ord(c) for c in w]).float() for w in task_b_windows]
+
+            for _ in range(18):
+                for i, w in enumerate(task_a_windows):
+                    trainer.train_step(task_a[i], raw_window=w)
+            a_after_a = mean_reconstruction_error(trainer, task_a)
+            ref_asm = collect_assemblies(trainer, task_a)
+
+            trainer.tag_recent_memories(window_tokens=trainer.token_count, strength=3.0)
+            trainer.run_sleep_maintenance(mode="deep", cycles=2)
+
+            for _ in range(18):
+                for i, w in enumerate(task_b_windows):
+                    trainer.train_step(task_b[i], raw_window=w)
+            a_after_b = mean_reconstruction_error(trainer, task_a)
+
+            trainer.run_sleep_maintenance(mode="deep", cycles=4)
+            a_after_consol = mean_reconstruction_error(trainer, task_a)
+            overlap = mean_assembly_overlap(ref_asm, collect_assemblies(trainer, task_a))
+
+            gate = build_memory_consolidation_gate(
+                task_a_after_a=a_after_a,
+                task_a_after_b=a_after_b,
+                task_a_after_consolidation=a_after_consol,
+                task_a_overlap_after_consolidation=overlap,
+            )
+            results.append({"fm": fm, "gate_pass": gate["pass"], "overlap": overlap})
+
+        for r in results:
+            self.assertTrue(r["gate_pass"], f"Gate failed at functional_minute={r['fm']}")
+            self.assertGreaterEqual(r["overlap"], 0.50, f"Overlap too low at fm={r['fm']}")
+
 if __name__ == "__main__":
     unittest.main()

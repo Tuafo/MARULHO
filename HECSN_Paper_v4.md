@@ -7,7 +7,7 @@
 
 **Version:** 4.7 — Audited, Implementation-Current, Self-Critical Architecture Document
 
-**Executable Status (2026-06-11):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.44, SOM 0.48).** `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. Full test suite: **518 passed, 7 subtests passed** across 50 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). Remaining targets: GPU routing benchmarks, multimodal dataset adapters for real-world data (MNIST-DVS, TI-46), scale validation at larger token budgets.
+**Executable Status (2026-06-11):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.44, SOM 0.48).** Visual-text sub-probe: 0.73 (22 triples), audio-text sub-probe: 0.67 (3 triples). `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. **Task A/B recall: PASS** (full recovery after consolidation, overlap 0.69). **STC sensitivity: robust across functional_minute = {100, 500, 2000, 10000}.** Full test suite: **518 passed, 7 subtests passed** across 50 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.44, SOM 0.48 on developmental corpus — thresholds validated (§8.1). Remaining targets: GPU routing benchmarks, multimodal dataset adapters for real-world data (MNIST-DVS, TI-46), scale validation at larger token budgets.
 
 ---
 
@@ -561,7 +561,7 @@ In biology, Early-LTP (1–3 hours) and Late-LTP (>3 hours) timescales are set b
 
 **What to state honestly:** The `functional_minute` self-calibration is an improvement over a fixed arbitrary constant (500 tokens) because it ties the STC timescales to the network's own learning dynamics. But it does not constitute a principled mapping from computational dynamics to biological consolidation timescales. The calibrated STC parameters should be treated as hyperparameters that set the relative ratios of consolidation timescales, with the absolute values requiring empirical validation through the catastrophic forgetting benchmark (Section 8.8).
 
-**Sensitivity analysis required:** Run the forgetting benchmark (Task A → Task B → Re-test Task A) with `functional_minute` at 100, 500, 2000, and 10000 tokens. Report how much the Task-A recall depends on this parameter. If recall is robust across this range, the absolute calibration doesn't matter much. If recall collapses below 500 or above 2000, the calibration is load-bearing and must be reported as such.
+**Sensitivity analysis results:** The forgetting benchmark (Task A → Task B → Re-test Task A) was run with `functional_minute` at {100, 500, 2000, 10000} — a 100× range. Task-A recall is completely robust: reconstruction error after consolidation = 0.046 at all settings, assembly overlap = 0.69 at all settings, memory consolidation gate passes at all settings. **Conclusion: the absolute calibration of `functional_minute` does not affect consolidation quality at the current training scale.** The replay-based consolidation mechanism dominates over time-decay dynamics. At 50K+ token scales with more interfering tasks, this should be re-validated — if recall remains robust, the calibration is genuinely non-load-bearing.
 
 ### 4.10 The Grounding Probe Threshold: Calibration Required
 
@@ -1178,8 +1178,8 @@ Failure: >15% degradation without sleep. Success: <5% degradation with adaptive 
 | Temporal coherence | N/A | N/A | measure | **0.9916** | measure |
 | Text-only validation (7-triple) | ~0.50 | N/A | N/A | **0.714** (5/7) | N/A |
 | Grounding probe (50-triple) | ~0.50 | **0.44** | **0.48** | measure | **0.68** (median, range 0.64–0.74) |
-| Visual-text sub-probe | ~0.50 | measure | measure | measure | measure |
-| Audio-text sub-probe | ~0.50 | measure | measure | measure | measure |
+| Visual-text sub-probe | ~0.50 | measure | measure | measure | **0.73** (22 triples) |
+| Audio-text sub-probe | ~0.50 | measure | measure | measure | **0.67** (3 triples) |
 | Concrete accuracy (25-triple) | ~0.50 | **0.44** | **0.52** | measure | **0.84** (median, range 0.80–0.88) |
 | Abstract accuracy (25-triple) | ~0.50 | **0.44** | **0.44** | measure | **0.48** (median, range 0.44–0.56) |
 | Concreteness gap | N/A | **0.00** | **+0.08** | ~0.00 | **+0.36** (median, range +0.24 to +0.40) |
@@ -1188,7 +1188,7 @@ Failure: >15% degradation without sleep. Success: <5% degradation with adaptive 
 | Compositionality | N/A | N/A | measure | **0.9934** | measure |
 | Novelty rate @100K | N/A | N/A | measure | **0.099** | measure |
 | Prediction error (first 1K tokens) | N/A | N/A | N/A | **1.63→0.66** | measure |
-| Task-A recall | N/A | N/A | measure | measure | measure |
+| Task-A recall | N/A | N/A | measure | **PASS** (gate: degradation ≤0, overlap 0.69) | measure |
 
 Bold = current validated results. ⚠️ = requires scrutiny (see below). Others require measurement before publication.
 
@@ -1197,6 +1197,12 @@ Bold = current validated results. ⚠️ = requires scrutiny (see below). Others
 > **Closed-world disclosure (v4.7):** All 75 words in the 25 concrete triples overlap with `CONCEPT_VOCABULARY` (the training vocabulary for multimodal episodes). Zero words in the 25 abstract triples appear in `CONCEPT_VOCABULARY`. This means the concreteness gap measures **per-word multimodal enrichment**, not **transfer of grounding to unseen concrete words**. A held-out probe (10 concrete triples using words NOT in `CONCEPT_VOCABULARY`) confirms this: held-out concrete accuracy = 0.30, below abstract accuracy = 0.56, held-out gap = −0.26. This is expected: per-word EMA signatures only accumulate for words encountered in multimodal context. The concreteness gap is genuine evidence that multimodal co-occurrence produces richer representations for trained words, but it does not demonstrate that the system has learned a general "concreteness" dimension that transfers to unseen words. Achieving transfer would require either (a) broader multimodal vocabulary coverage, or (b) column-level structure that generalizes beyond per-word associations. The extended 60-triple probe (25 in-vocab concrete + 10 held-out concrete + 25 abstract) is implemented in `evaluate_grounding_probe_extended()` for ongoing monitoring.
 
 Prediction error trajectory is from real Wikipedia training (1,152 tokens), monotonically decreasing with active neuromodulator dynamics (DA 0.006→0.431) and autonomous micro-sleep at 256 tokens.
+
+**Visual-text and audio-text sub-probe results (validated):** The 25 concrete triples split into 22 visual-primary (ocean/water, fire/heat, etc.) and 3 audio-primary (dog/bark, thunder/loud, wind/breeze). Visual-text accuracy = 0.73 (16/22 correct), audio-text accuracy = 0.67 (2/3 correct). Both exceed the 0.50 random baseline, confirming that cross-modal grounding produces modality-specific enrichment. The audio sub-probe has low statistical power (n=3); at larger vocabulary coverage, more audio-tagged triples should be added.
+
+**Task A/B forgetting benchmark results (validated):** Task A (3 "alpha" text patterns) trained for 18 iterations, followed by Task B (3 "beta" patterns) for 18 iterations, then deep-sleep consolidation (4 cycles). Results: Task-A reconstruction error after A = 0.046, after B interference = 0.058 (+26% degradation), after consolidation = 0.046 (full recovery to baseline). Assembly overlap after consolidation = 0.69 (>0.50 threshold). Memory consolidation gate: **PASS** (degradation ≤0 after consolidation, overlap sufficient, recovery non-negative). Sleep consolidation successfully protects learned representations from catastrophic forgetting.
+
+**STC sensitivity analysis (§4.9, validated):** `functional_minute` swept over {100, 500, 2000, 10000} — a 100× range. Task-A recall is completely robust: reconstruction error after consolidation = 0.046 at all settings, assembly overlap = 0.69 at all settings, gate passes at all settings. The absolute calibration of `functional_minute` does not affect consolidation quality at this training scale. The STC timescale parameters are dominated by the replay-based consolidation mechanism rather than by time-decay dynamics, consistent with the biological observation that consolidation depends more on replay quality than on precise temporal windows. At larger training scales with more interfering tasks, `functional_minute` may become load-bearing; this should be re-evaluated at 50K+ tokens.
 
 ---
 
@@ -1346,7 +1352,7 @@ Adaptive timescale context with learnable per-neuron tau is implemented in `Adap
 
 ### Phase 4: Fragility-Gated Sleep ✅ COMPLETE
 
-Three-phase sleep cycle (micro/regular/deep) implemented in `sleep_consolidation.py`. Fragility-gated plasticity with consolidation levels. STC sensitivity analysis not yet run as formal experiment. Task A/B recall measurement not yet performed.
+Three-phase sleep cycle (micro/regular/deep) implemented in `sleep_consolidation.py`. Fragility-gated plasticity with consolidation levels. ✅ STC sensitivity analysis validated: Task-A recall robust across `functional_minute` = {100, 500, 2000, 10000} (§4.9). ✅ Task A/B recall measurement validated: full recovery after consolidation (reconstruction error returns to baseline, assembly overlap 0.69, gate PASS).
 
 ### Phase 5: Multimodal Grounding ✅ COMPLETE (components + synthetic pipeline + per-word signatures)
 

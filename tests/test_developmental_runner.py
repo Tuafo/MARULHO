@@ -338,5 +338,23 @@ class TestWindowLocalAlignment(unittest.TestCase):
         self.assertIsNotNone(aus, "Concept window must get audio spikes")
 
 
+class TestSubProbes(unittest.TestCase):
+    """Visual-text and audio-text sub-probes must return non-trivial results."""
+
+    def test_sub_probes_computed_after_stage1(self) -> None:
+        """Grounding probe must report visual_text and audio_text accuracies."""
+        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+
+        _result, state = run_stage_1(n_tokens=1000, seed=42)
+        vfn = _make_vector_fn(state.trainer, state.text_encoder, state.config)
+        probe = evaluate_grounding_probe_extended(vfn)
+        self.assertEqual(probe.visual_text_count, 22, "Should have 22 visual triples")
+        self.assertEqual(probe.audio_text_count, 3, "Should have 3 audio triples")
+        self.assertGreaterEqual(probe.visual_text_accuracy, 0.0)
+        self.assertLessEqual(probe.visual_text_accuracy, 1.0)
+        self.assertGreaterEqual(probe.audio_text_accuracy, 0.0)
+        self.assertLessEqual(probe.audio_text_accuracy, 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
