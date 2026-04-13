@@ -298,10 +298,13 @@ class HECSNTrainer:
         self._last_episode_refresh_length = 0
         # §7.4 self-criticism state
         self._recent_visual_frames: list[torch.Tensor] = []
+        self._recent_audio_frames: list[torch.Tensor] = []
         self._visual_frame_limit = 100
+        self._audio_frame_limit = 100
         self._self_criticism_interval = 5000
         self._last_self_criticism_token = 0
         self._self_criticism_blacklist: dict[int, int] = {}
+        self._self_criticism_audio_blacklist: dict[int, int] = {}
 
         # Per-word grounding confidence (§5.3): tracks cross-modal prediction
         # quality per concept word.  Updated by the developmental runner when
@@ -1248,17 +1251,32 @@ class HECSNTrainer:
                 if len(self._recent_visual_frames) > self._visual_frame_limit:
                     self._recent_visual_frames = self._recent_visual_frames[-self._visual_frame_limit:]
 
-            # Periodic self-criticism loop (§7.4)
-            n_frames = len(self._recent_visual_frames)
+            # Buffer audio frames for audio self-criticism (§7.4)
+            if audio_spikes is not None and cross_modal_audio_accepted:
+                self._recent_audio_frames.append(aus.detach().clone())
+                if len(self._recent_audio_frames) > self._audio_frame_limit:
+                    self._recent_audio_frames = self._recent_audio_frames[-self._audio_frame_limit:]
+
+            # Periodic self-criticism loop (§7.4) — visual AND audio
+            n_visual = len(self._recent_visual_frames)
+            n_audio = len(self._recent_audio_frames)
             if (self.token_count - self._last_self_criticism_token >= self._self_criticism_interval
-                    and n_frames >= 3):
-                early_stage = n_frames < 10
-                self.model.cross_modal.run_self_criticism(
-                    recent_visual_frames=self._recent_visual_frames,
-                    blacklist=self._self_criticism_blacklist,
-                    penalty=0.05 if early_stage else 0.10,
-                    blacklist_strikes=3 if early_stage else 2,
-                )
+                    and (n_visual >= 3 or n_audio >= 3)):
+                early_stage = n_visual < 10
+                if n_visual >= 3:
+                    self.model.cross_modal.run_self_criticism(
+                        recent_visual_frames=self._recent_visual_frames,
+                        blacklist=self._self_criticism_blacklist,
+                        penalty=0.05 if early_stage else 0.10,
+                        blacklist_strikes=3 if early_stage else 2,
+                    )
+                if n_audio >= 3:
+                    self.model.cross_modal.run_self_criticism_audio(
+                        recent_audio_frames=self._recent_audio_frames,
+                        blacklist=self._self_criticism_audio_blacklist,
+                        penalty=0.05 if early_stage else 0.10,
+                        blacklist_strikes=3 if early_stage else 2,
+                    )
                 self._last_self_criticism_token = self.token_count
 
         updated_indices = winners

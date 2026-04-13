@@ -44,6 +44,7 @@ class ProtocolState:
     trainer: HECSNTrainer
     text_encoder: RTFEncoder
     config: HECSNConfig
+    concept_signatures: dict[str, dict[str, torch.Tensor]] | None = None
 
 
 @dataclass
@@ -348,6 +349,22 @@ def _concept_spikes_for_text(
     return visual, audio
 
 
+def _resolve_signatures(
+    state: ProtocolState | None,
+    cfg: HECSNConfig,
+    seed: int,
+) -> dict[str, dict[str, torch.Tensor]]:
+    """Return concept signatures from state if available, else build fresh."""
+    if state is not None and state.concept_signatures is not None:
+        return state.concept_signatures
+    return _build_concept_signatures(
+        n_concepts=len(CONCEPT_VOCABULARY),
+        dim_visual=cfg.cross_modal_dim_visual,
+        dim_audio=cfg.cross_modal_dim_audio,
+        seed=seed,
+    )
+
+
 def _train_multimodal_on_corpus(
     trainer: HECSNTrainer,
     encoder: RTFEncoder,
@@ -569,7 +586,8 @@ def run_stage_1(
     # Criterion: grounding_confidence > 0.40 (paper §7.3)
     passed = grounding_confidence > 0.40
 
-    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg,
+                              concept_signatures=signatures)
 
     return StageResult(
         stage=1,
@@ -649,7 +667,8 @@ def run_stage_2(
         and grounding_confidence > 0.30
     )
 
-    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg,
+                              concept_signatures=signatures)
 
     return StageResult(
         stage=2,
@@ -714,16 +733,17 @@ def run_stage_3(
 
     trainer.developmental_stage = 3
 
-    corpus = [
-        "the fire burns in the dark night",
-        "water flows through the rocky river",
-        "a tall tree stands in the green forest",
-        "the bird flies above the mountain top",
-        "warm sunlight covers the sandy beach",
-    ]
+    corpus = _build_concept_corpus()
+    signatures = _resolve_signatures(state, cfg, seed)
+    dim_visual = cfg.cross_modal_dim_visual
+    dim_audio = cfg.cross_modal_dim_audio
 
-    # Initial training to build representations
-    tokens_processed = _train_on_corpus(trainer, encoder, corpus, n_tokens // 2)
+    # Initial multimodal training to build representations
+    initial_tokens, _, _ = _train_multimodal_on_corpus(
+        trainer, encoder, corpus, n_tokens // 2,
+        signatures, dim_visual, dim_audio,
+    )
+    tokens_processed = initial_tokens
 
     # Curiosity-driven confirmation phase
     curiosity = GeometricCuriosityController(trainer.model.abstraction_layer)
@@ -746,10 +766,13 @@ def run_stage_3(
         if plan is not None:
             gap_queries_produced += len(plan.get("retrieval_queries", []))
 
-        # Train on gap-relevant sentences
-        gap_corpus = corpus[cycle % len(corpus)]
-        result = feed_text(trainer, encoder, gap_corpus)
-        tokens_processed += result["tokens_processed"]
+        # Train on gap-relevant sentences with multimodal spikes
+        gap_sentence = corpus[cycle % len(corpus)]
+        gap_tokens, _, _ = _train_multimodal_on_corpus(
+            trainer, encoder, [gap_sentence], 50,
+            signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += gap_tokens
         confirmation_cycles += 1
 
         # Track grounding confidence delta
@@ -757,31 +780,46 @@ def run_stage_3(
             conf = _compute_grounding_confidence(trainer.model.cross_modal)
             grounding_deltas.append(conf)
 
-    # Remaining tokens with self-criticism loop every 5000 tokens
+    # Remaining tokens with multimodal training
     remaining = max(0, n_tokens - tokens_processed)
     self_criticism_stats: dict[str, Any] = {}
-    blacklist: dict[int, int] = {}
     if remaining > 0:
-        tokens_processed += _train_on_corpus(trainer, encoder, corpus, remaining)
+        rem_tokens, _, _ = _train_multimodal_on_corpus(
+            trainer, encoder, corpus, remaining,
+            signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += rem_tokens
 
-    # Run self-criticism if cross-modal is enabled (§7.4)
+    # Self-criticism runs automatically via trainer; also do explicit pass
     if trainer.model.cross_modal is not None:
-        recent_frames = trainer._recent_visual_frames
-        if len(recent_frames) >= 3:
+        if len(trainer._recent_visual_frames) >= 3:
             self_criticism_stats = trainer.model.cross_modal.run_self_criticism(
-                recent_visual_frames=recent_frames,
-                blacklist=blacklist,
+                recent_visual_frames=trainer._recent_visual_frames,
+                blacklist=trainer._self_criticism_blacklist,
             )
+        if len(trainer._recent_audio_frames) >= 3:
+            audio_stats = trainer.model.cross_modal.run_self_criticism_audio(
+                recent_audio_frames=trainer._recent_audio_frames,
+                blacklist=trainer._self_criticism_audio_blacklist,
+            )
+            self_criticism_stats["audio_checked"] = audio_stats.get("checked", 0)
+            self_criticism_stats["audio_penalised"] = audio_stats.get("penalised", 0)
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     post_probe = evaluate_grounding_probe(vector_fn)
 
-    # Criteria: no probe regression AND curiosity system active
+    # Criteria: no probe regression AND curiosity system active AND genuine grounding
     no_regression = post_probe.total_accuracy >= pre_probe.total_accuracy - 0.05
     curiosity_active = gap_queries_produced > 0
-    passed = no_regression and curiosity_active
+    # Absolute thresholds: untrained models score ~0.44 with negative gap
+    genuine_grounding = (
+        post_probe.total_accuracy >= 0.52
+        and post_probe.concreteness_gap > 0.0
+    )
+    passed = no_regression and curiosity_active and genuine_grounding
 
-    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg,
+                              concept_signatures=signatures)
 
     return StageResult(
         stage=3,
@@ -803,6 +841,7 @@ def run_stage_3(
             "completion_criteria": {
                 "probe_no_regression": "post >= pre - 0.05",
                 "gap_queries": "> 0 (curiosity system active)",
+                "genuine_grounding": "probe >= 0.52 AND concreteness_gap > 0.0",
             },
         },
         tokens_processed=tokens_processed,
@@ -837,8 +876,14 @@ def run_stage_4(
 
     trainer.developmental_stage = 4
 
-    # Diverse corpus for gap-directed selection (disjoint from probe vocabulary)
-    acquisition_corpus = [
+    # Use same concept corpus + new acquisition sentences for diversity
+    concept_corpus = _build_concept_corpus()
+    signatures = _resolve_signatures(state, cfg, seed)
+    dim_visual = cfg.cross_modal_dim_visual
+    dim_audio = cfg.cross_modal_dim_audio
+
+    # Acquisition corpus extends beyond core concepts
+    acquisition_corpus = concept_corpus + [
         "quantum mechanics describes particle behavior at small scales",
         "photosynthesis converts sunlight into chemical energy in plants",
         "plate tectonics explains how continents drift over geological time",
@@ -866,7 +911,6 @@ def run_stage_4(
         # Select acquisition target based on gap score
         plan = curiosity.focus_plan(top_n=2)
         if plan is not None and plan.get("retrieval_queries"):
-            # Pick the corpus sentence closest to the gap query
             query = plan["retrieval_queries"][0]
             best_sentence = max(
                 acquisition_corpus,
@@ -875,25 +919,39 @@ def run_stage_4(
         else:
             best_sentence = acquisition_corpus[cycle % len(acquisition_corpus)]
 
-        result = feed_text(trainer, encoder, best_sentence)
-        tokens_processed += result["tokens_processed"]
+        # Multimodal training on selected sentence
+        acq_tokens, _, _ = _train_multimodal_on_corpus(
+            trainer, encoder, [best_sentence], 50,
+            signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += acq_tokens
         acquisitions_made += 1
 
-    # Fill remaining tokens
+    # Fill remaining tokens with multimodal training
     remaining = max(0, n_tokens - tokens_processed)
     if remaining > 0:
-        tokens_processed += _train_on_corpus(trainer, encoder, acquisition_corpus, remaining)
+        rem_tokens, _, _ = _train_multimodal_on_corpus(
+            trainer, encoder, acquisition_corpus, remaining,
+            signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += rem_tokens
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     final_probe = evaluate_grounding_probe(vector_fn)
 
     no_regression = final_probe.total_accuracy >= initial_probe.total_accuracy - 0.10
+    # Absolute thresholds: untrained models score ~0.44 with negative gap
+    genuine_grounding = (
+        final_probe.total_accuracy >= 0.52
+        and final_probe.concreteness_gap > 0.0
+    )
 
-    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg,
+                              concept_signatures=signatures)
 
     return StageResult(
         stage=4,
-        passed=no_regression,
+        passed=no_regression and genuine_grounding,
         metrics={
             "initial_probe_accuracy": initial_probe.total_accuracy,
             "final_probe_accuracy": final_probe.total_accuracy,
@@ -902,7 +960,7 @@ def run_stage_4(
             "acquisitions_made": acquisitions_made,
         },
         diagnostics={
-            "completion_criterion": "no regression (final >= initial - 0.10)",
+            "completion_criterion": "no regression (final >= initial - 0.10) AND probe >= 0.52 AND gap > 0.0",
         },
         tokens_processed=tokens_processed,
     ), out_state
@@ -936,8 +994,13 @@ def run_stage_5(
 
     trainer.developmental_stage = 5
 
-    # Autonomous exploration corpus
-    autonomous_corpus = [
+    # Concept corpus for multimodal grounding + new autonomous sentences
+    concept_corpus = _build_concept_corpus()
+    signatures = _resolve_signatures(state, cfg, seed)
+    dim_visual = cfg.cross_modal_dim_visual
+    dim_audio = cfg.cross_modal_dim_audio
+
+    autonomous_corpus = concept_corpus + [
         "algorithms optimize computational efficiency in modern systems",
         "biodiversity preserves ecosystem stability through redundancy",
         "electromagnetic waves carry energy across vast distances",
@@ -973,8 +1036,12 @@ def run_stage_5(
         else:
             target = autonomous_corpus[cycle % len(autonomous_corpus)]
 
-        result = feed_text(trainer, encoder, target)
-        tokens_processed += result["tokens_processed"]
+        # Multimodal training on selected sentence
+        cyc_tokens, _, _ = _train_multimodal_on_corpus(
+            trainer, encoder, [target], 50,
+            signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += cyc_tokens
         autonomous_cycles += 1
 
         # Periodic probe to check for catastrophic forgetting
@@ -983,22 +1050,32 @@ def run_stage_5(
             mid_probe = evaluate_grounding_probe(vfn)
             cycle_accuracies.append(mid_probe.total_accuracy)
 
-    # Fill remaining
+    # Fill remaining with multimodal training
     remaining = max(0, n_tokens - tokens_processed)
     if remaining > 0:
-        tokens_processed += _train_on_corpus(trainer, encoder, autonomous_corpus, remaining)
+        rem_tokens, _, _ = _train_multimodal_on_corpus(
+            trainer, encoder, autonomous_corpus, remaining,
+            signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += rem_tokens
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     final_probe = evaluate_grounding_probe(vector_fn)
 
     no_catastrophic_forgetting = final_probe.total_accuracy >= initial_probe.total_accuracy - 0.15
     sustained_learning = len(cycle_accuracies) == 0 or min(cycle_accuracies) >= initial_probe.total_accuracy - 0.20
+    # Absolute thresholds: untrained models score ~0.44 with negative gap
+    genuine_grounding = (
+        final_probe.total_accuracy >= 0.52
+        and final_probe.concreteness_gap > 0.0
+    )
 
-    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg)
+    out_state = ProtocolState(trainer=trainer, text_encoder=encoder, config=cfg,
+                              concept_signatures=signatures)
 
     return StageResult(
         stage=5,
-        passed=no_catastrophic_forgetting and sustained_learning,
+        passed=no_catastrophic_forgetting and sustained_learning and genuine_grounding,
         metrics={
             "initial_probe_accuracy": initial_probe.total_accuracy,
             "final_probe_accuracy": final_probe.total_accuracy,
@@ -1013,6 +1090,7 @@ def run_stage_5(
             "completion_criteria": {
                 "no_catastrophic_forgetting": "final >= initial - 0.15",
                 "sustained_learning": "mid probes >= initial - 0.20",
+                "genuine_grounding": "probe >= 0.52 AND concreteness_gap > 0.0",
             },
         },
         tokens_processed=tokens_processed,
