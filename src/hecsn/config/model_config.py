@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import Literal
 import torch
@@ -329,5 +330,8 @@ class HECSNConfig:
 
     def resolve_device(self) -> torch.device:
         if self.device == "auto":
+            env = os.environ.get("HECSN_DEVICE")
+            if env:
+                return torch.device(env)
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return torch.device(self.device)

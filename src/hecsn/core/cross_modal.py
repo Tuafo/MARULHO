@@ -70,14 +70,20 @@ class CrossModalGroundingLayer:
         self.visual_confidence = torch.zeros(dim_text, device=self.device)
         self.audio_confidence = torch.zeros(dim_text, device=self.device)
 
+        # Amortize synaptic scaling — every N spike events instead of every one
+        self._scaling_interval = 10
+        self._scaling_counter = 0
+
+        # Precompute trace decay factor
+        self._decay_factor = float(torch.exp(torch.tensor(-1.0 / max(self.tau_trace, 0.01))).item())
+
     # -- trace decay --------------------------------------------------------
 
     def _decay_traces(self) -> None:
         """Apply exponential decay to all traces."""
-        factor = torch.exp(torch.tensor(-1.0 / max(self.tau_trace, 0.01), device=self.device))
-        self.text_trace *= factor
-        self.visual_trace *= factor
-        self.audio_trace *= factor
+        self.text_trace *= self._decay_factor
+        self.visual_trace *= self._decay_factor
+        self.audio_trace *= self._decay_factor
 
     def _synaptic_scaling(self) -> None:
         """Row-wise max-norm clipping (Turrigiano 2008 synaptic scaling).
@@ -90,6 +96,13 @@ class CrossModalGroundingLayer:
             norms = W.norm(dim=1, keepdim=True).clamp(min=1e-8)
             scale = torch.clamp(self.max_weight_norm / norms, max=1.0)
             W.data.mul_(scale)
+
+    def _maybe_synaptic_scaling(self) -> None:
+        """Amortized synaptic scaling — run every _scaling_interval events."""
+        self._scaling_counter += 1
+        if self._scaling_counter >= self._scaling_interval:
+            self._scaling_counter = 0
+            self._synaptic_scaling()
 
     # -- spike events -------------------------------------------------------
 
@@ -120,7 +133,7 @@ class CrossModalGroundingLayer:
         self._update_visual_confidence(t)
         self._update_audio_confidence(t)
 
-        self._synaptic_scaling()
+        self._maybe_synaptic_scaling()
         self._decay_traces()
 
     def on_visual_spike(self, visual_spikes: torch.Tensor) -> None:
@@ -138,7 +151,7 @@ class CrossModalGroundingLayer:
         text_inactive = 1.0 - torch.clamp(self.text_trace, 0, 1)
         self.W_vt -= self.A_minus * torch.outer(v, text_inactive) * self.W_vt.abs()
 
-        self._synaptic_scaling()
+        self._maybe_synaptic_scaling()
         self._decay_traces()
 
     def on_audio_spike(self, audio_spikes: torch.Tensor) -> None:
@@ -156,7 +169,7 @@ class CrossModalGroundingLayer:
         text_inactive = 1.0 - torch.clamp(self.text_trace, 0, 1)
         self.W_at -= self.A_minus * torch.outer(a, text_inactive) * self.W_at.abs()
 
-        self._synaptic_scaling()
+        self._maybe_synaptic_scaling()
         self._decay_traces()
 
     # -- grounding confidence -----------------------------------------------
