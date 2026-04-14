@@ -88,8 +88,8 @@ def events_to_frames(
     if not events:
         return [torch.zeros(height, width) for _ in range(n_frames)]
 
-    t_min = events[0].t
-    t_max = events[-1].t
+    t_min = min(ev.t for ev in events)
+    t_max = max(ev.t for ev in events)
     t_range = max(t_max - t_min, 1)
 
     frames = [torch.zeros(height, width) for _ in range(n_frames)]
