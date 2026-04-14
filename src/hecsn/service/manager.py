@@ -262,6 +262,12 @@ class HECSNServiceManager:
                 "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
                 "drift": float(drift_value),
                 "drift_floor": float(self._trainer.current_rolling_drift_floor if self._trainer.current_rolling_drift_floor is not None else drift_value),
+                "grounding_confidence": {
+                    w: round(c, 4)
+                    for w, c in self._trainer.word_grounding_confidence.items()
+                },
+                "n_visual_signatures": len(self._trainer.word_visual_signature),
+                "n_audio_signatures": len(self._trainer.word_audio_signature),
                 "animation": self._animation_snapshot_locked(),
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
             }
