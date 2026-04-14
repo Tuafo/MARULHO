@@ -10,9 +10,15 @@ from hecsn.core.plasticity import LocalPlasticityCircuit
 
 
 def _normalize_positive_vector(values: torch.Tensor, dim: int) -> torch.Tensor:
-    values = torch.clamp(values, min=1e-6)
-    norms = torch.clamp(torch.norm(values, dim=dim, keepdim=True), min=1e-8)
+    values = values.clamp(min=1e-6)
+    norms = values.norm(dim=dim, keepdim=True).clamp(min=1e-8)
     return values / norms
+
+
+def _normalize_routing_key(key: torch.Tensor, device: torch.device) -> torch.Tensor:
+    """Normalize a 1-D routing key (clamp-positive then L2-normalize)."""
+    x = key.to(device).clamp(min=1e-6)
+    return x / x.norm().clamp(min=1e-8)
 
 
 class CompetitiveColumnLayer:
@@ -232,8 +238,8 @@ class CompetitiveColumnLayer:
     def project_input(self, input_vec: torch.Tensor) -> torch.Tensor:
         if input_vec.dim() != 1:
             raise ValueError("input_vec must be 1D")
-        latent = torch.mv(self.W_project.t(), torch.clamp(input_vec.to(self.device), min=0.0))
-        latent = _normalize_positive_vector(latent.unsqueeze(0), dim=1).squeeze(0)
+        latent = torch.mv(self.W_project.t(), input_vec.to(self.device).clamp(min=0.0))
+        latent = _normalize_routing_key(latent, self.device)
         self.last_projected_input = latent
         return latent
 
@@ -273,8 +279,14 @@ class CompetitiveColumnLayer:
             return assembly
         return assembly / (assembly.sum() + 1e-8)
 
-    def winner_assembly(self, routing_key: torch.Tensor, winner_indices: torch.Tensor) -> torch.Tensor:
-        x = _normalize_positive_vector(routing_key.to(self.device).unsqueeze(0), dim=1).squeeze(0)
+    def winner_assembly(
+        self,
+        routing_key: torch.Tensor,
+        winner_indices: torch.Tensor,
+        *,
+        _pre_normalized: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        x = _pre_normalized if _pre_normalized is not None else _normalize_routing_key(routing_key, self.device)
         winners = winner_indices.long()
 
         assembly = torch.zeros(self.n_columns, device=self.device)
@@ -289,7 +301,7 @@ class CompetitiveColumnLayer:
         fallback_allowed: bool = False,
         context_gain: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        x = _normalize_positive_vector(routing_key.to(self.device).unsqueeze(0), dim=1).squeeze(0)
+        x = _normalize_routing_key(routing_key, self.device)
 
         if candidate_indices is not None and len(candidate_indices) > 0:
             candidates = candidate_indices.to(self.device).long()
@@ -338,10 +350,10 @@ class CompetitiveColumnLayer:
         input_lr_scale: float = 1.0,
         update_global_state: bool = True,
     ) -> torch.Tensor:
-        x = _normalize_positive_vector(routing_key.to(self.device).unsqueeze(0), dim=1).squeeze(0)
+        x = _normalize_routing_key(routing_key, self.device)
         winners = winner_indices.long()
 
-        assembly = self.winner_assembly(routing_key, winners)
+        assembly = self.winner_assembly(routing_key, winners, _pre_normalized=x)
         winner_proto = self.prototypes[winners]
         delta = x.unsqueeze(0) - winner_proto
         velocity = self.prototype_velocity[winners]

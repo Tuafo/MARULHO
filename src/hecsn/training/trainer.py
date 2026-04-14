@@ -426,10 +426,17 @@ class HECSNTrainer:
 
         best_overlap = 0
         max_overlap = min(len(previous), len(current))
-        for overlap in range(max_overlap, 0, -1):
-            if previous[-overlap:] == current[:overlap]:
+        # Fast path: try the most common overlap (len-1, len-2) first
+        for overlap in (max_overlap, max_overlap - 1, max_overlap - 2):
+            if overlap > 0 and previous[-overlap:] == current[:overlap]:
                 best_overlap = overlap
                 break
+        else:
+            # Fall back to scanning from max_overlap downward
+            for overlap in range(max_overlap - 3, 0, -1):
+                if previous[-overlap:] == current[:overlap]:
+                    best_overlap = overlap
+                    break
 
         required_overlap = max(1, min(len(previous), len(current)) - 2)
         if best_overlap >= required_overlap:

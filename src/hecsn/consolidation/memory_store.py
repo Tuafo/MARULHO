@@ -286,21 +286,33 @@ class DualMemoryStore:
         )
 
     def bucket_consolidation_level(self, bucket_id: Optional[int]) -> float:
-        if bucket_id is None:
+        if bucket_id is None or not self.slow_buffer:
             return 0.0
 
         bucket = int(bucket_id)
+        bucket_ids = self.slow_bucket_ids
+        importance = self.slow_importance
+        consolidation = self.slow_consolidation_level
+
         weighted_sum = 0.0
         total_weight = 0.0
-        for idx, stored_bucket in enumerate(self.slow_bucket_ids):
-            if stored_bucket is None or int(stored_bucket) != bucket:
+        for idx in range(len(bucket_ids)):
+            bid = bucket_ids[idx]
+            if bid is None or int(bid) != bucket:
                 continue
-            importance = float(max(1e-6, self.slow_importance[idx]))
-            weighted_sum += importance * float(max(0.0, min(1.0, self.slow_consolidation_level[idx])))
-            total_weight += importance
+            imp = importance[idx]
+            if imp < 1e-6:
+                imp = 1e-6
+            cl = consolidation[idx]
+            if cl < 0.0:
+                cl = 0.0
+            elif cl > 1.0:
+                cl = 1.0
+            weighted_sum += imp * cl
+            total_weight += imp
         if total_weight <= 0.0:
             return 0.0
-        return float(weighted_sum / total_weight)
+        return weighted_sum / total_weight
 
     def maintenance_scores(self, current_token: int) -> torch.Tensor:
         if not self.slow_buffer:
