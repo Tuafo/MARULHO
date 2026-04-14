@@ -50,6 +50,7 @@ class LearnedChunkingLayer:
         self.confidence = torch.zeros(self.n_detectors, dtype=torch.float32)
         self.usage = torch.zeros(self.n_detectors, dtype=torch.float32)
         self.associations = torch.zeros(self.n_detectors, self.n_detectors, dtype=torch.float32)
+        self._bit_shifts = torch.arange(8, dtype=torch.int64)
 
     @staticmethod
     def is_separator(code: int) -> bool:
@@ -107,17 +108,21 @@ class LearnedChunkingLayer:
         if not window:
             return vector
 
-        for pos, code in enumerate(window):
+        n = len(window)
+        codes_t = torch.tensor(window, dtype=torch.int64)
+        bit_masks = ((codes_t.unsqueeze(1) >> self._bit_shifts) & 1).float()  # (n, 8)
+        for pos in range(n):
+            w = self._byte_weight(window[pos]) * max(0.35, 1.0 - 0.04 * pos)
             base = pos * 8
-            weight = self._byte_weight(code) * max(0.35, 1.0 - (0.04 * pos))
-            for bit in range(8):
-                if (int(code) >> bit) & 1:
-                    vector[base + bit] += float(weight)
+            vector[base : base + 8] = bit_masks[pos] * w
 
         offset = self.max_chunk_len * 8
-        for left, right in zip(window, window[1:]):
-            bucket = ((int(left) + 17) * 131 + (int(right) + 1) * 31) % 32
-            vector[offset + bucket] += 1.0
+        if n >= 2:
+            left = codes_t[:-1]
+            right = codes_t[1:]
+            buckets = (((left + 17) * 131 + (right + 1) * 31) % 32).tolist()
+            for b in buckets:
+                vector[offset + b] += 1.0
 
         return _normalize(vector)
 

@@ -50,6 +50,9 @@ class DualMemoryStore:
         self.prp_consumption = float(prp_consumption)
         self.strong_event_threshold = float(strong_event_threshold)
 
+        self._cached_summary: Optional[dict[str, Any]] = None
+        self._cached_summary_token: int = -1
+
         self.slow_buffer: List[torch.Tensor] = []
         self.slow_input_patterns: List[Optional[torch.Tensor]] = []
         self.slow_routing_keys: List[Optional[torch.Tensor]] = []
@@ -110,6 +113,8 @@ class DualMemoryStore:
         self._slow_weight_sum = 0.0
         self._slow_mean_token = None
         self.n_seen = 0
+        self._cached_summary = None
+        self._cached_summary_token = -1
 
     def _tag_tau_tokens(self, strong: bool) -> float:
         duration = self.tag_duration_strong if strong else self.tag_duration_weak
@@ -126,22 +131,39 @@ class DualMemoryStore:
             self._state_token = target
             return
 
-        for idx in range(len(self.slow_buffer)):
-            strong = bool(self.slow_tag_is_strong[idx]) if idx < len(self.slow_tag_is_strong) else False
-            tag_tau = self._tag_tau_tokens(strong)
-            prp_tau = self._prp_tau_tokens(strong)
+        size = len(self.slow_buffer)
+        if size > 0:
             minute_delta = float(delta) / max(1.0, float(self.functional_minute))
-            tag_decay = math.exp(-float(delta) / tag_tau)
+            tag_tau_weak = self._tag_tau_tokens(False)
+            tag_tau_strong = self._tag_tau_tokens(True)
+            prp_tau_weak = self._prp_tau_tokens(False)
+            prp_tau_strong = self._prp_tau_tokens(True)
+
+            tag_decay_weak = math.exp(-float(delta) / tag_tau_weak)
+            tag_decay_strong = math.exp(-float(delta) / tag_tau_strong)
+            prp_decay_weak = math.exp(-float(delta) / prp_tau_weak)
+            prp_decay_strong = math.exp(-float(delta) / prp_tau_strong)
+
             if self.capture_tag_decay < 1.0:
-                tag_decay *= self.capture_tag_decay ** minute_delta
-            prp_decay = math.exp(-float(delta) / prp_tau)
-            self.slow_capture_tag[idx] = float(max(0.0, self.slow_capture_tag[idx] * tag_decay))
-            self.slow_local_prp[idx] = float(max(0.0, self.slow_local_prp[idx] * prp_decay))
+                extra = self.capture_tag_decay ** minute_delta
+                tag_decay_weak *= extra
+                tag_decay_strong *= extra
+
+            # Vectorized decay application
+            strong_flags = self.slow_tag_is_strong[:size]
+            for idx in range(size):
+                s = strong_flags[idx]
+                self.slow_capture_tag[idx] *= tag_decay_strong if s else tag_decay_weak
+                self.slow_local_prp[idx] *= prp_decay_strong if s else prp_decay_weak
+                if self.slow_capture_tag[idx] < 0.0:
+                    self.slow_capture_tag[idx] = 0.0
+                if self.slow_local_prp[idx] < 0.0:
+                    self.slow_local_prp[idx] = 0.0
 
         global_decay = math.exp(-float(delta) / self._prp_tau_tokens(True))
         self.global_prp_pool = float(max(0.0, self.global_prp_pool * global_decay))
         for bucket in list(self.bucket_prp_pool.keys()):
-            decayed = float(max(0.0, self.bucket_prp_pool[bucket] * global_decay))
+            decayed = self.bucket_prp_pool[bucket] * global_decay
             if decayed <= 1e-8:
                 del self.bucket_prp_pool[bucket]
             else:
@@ -795,37 +817,93 @@ class DualMemoryStore:
             return 0.0
         return float(torch.norm(self.fast_ema - self._slow_mean).item() / denom)
 
-    def summary_stats(self, current_token: Optional[int] = None) -> dict[str, Any]:
+    def summary_stats(
+        self,
+        current_token: Optional[int] = None,
+        *,
+        force: bool = False,
+        cache_interval: int = 50,
+    ) -> dict[str, Any]:
         token_marker = self._state_token if current_token is None else int(current_token)
+        if (
+            not force
+            and self._cached_summary is not None
+            and abs(token_marker - self._cached_summary_token) < cache_interval
+        ):
+            return self._cached_summary
+
         self._advance_state(token_marker)
-        prp_levels = [float(self._available_prp(idx)) for idx in range(len(self.slow_buffer))]
-        fragility_levels = [float(self.fragility_score(idx, token_marker)) for idx in range(len(self.slow_buffer))]
-        capture_levels = [
-            float(max(0.0, self.slow_capture_tag[idx]) * max(0.0, prp_levels[idx]))
-            for idx in range(len(self.slow_buffer))
-        ]
         size = len(self.slow_buffer)
-        return {
+        if size == 0:
+            result = {
+                "capacity": int(self.capacity), "size": 0,
+                "fill_fraction": 0.0, "n_seen": int(self.n_seen),
+                "mean_importance": 0.0, "mean_capture_tag": 0.0,
+                "mean_prp_level": 0.0, "mean_capture_strength": 0.0,
+                "max_capture_strength": 0.0, "mean_consolidation_level": 0.0,
+                "mean_fragility": 0.0, "max_fragility": 0.0,
+                "mean_replay_count": 0.0, "strong_tag_fraction": 0.0,
+                "global_prp_pool": float(self.global_prp_pool),
+                "active_prp_buckets": int(len(self.bucket_prp_pool)),
+                "fast_ema_norm": 0.0, "slow_mean_norm": 0.0,
+                "drift": float(self.compute_drift()),
+            }
+            self._cached_summary = result
+            self._cached_summary_token = token_marker
+            return result
+
+        # Vectorized batch computation
+        local_prp_t = torch.tensor(self.slow_local_prp[:size], dtype=torch.float32)
+        bucket_shares = torch.zeros(size, dtype=torch.float32)
+        for idx in range(size):
+            bs, _ = self._pool_share(idx)
+            bucket_shares[idx] = bs
+        global_share = 0.15 * float(self.global_prp_pool)
+        prp_levels = (local_prp_t + bucket_shares + global_share).clamp(min=0.0)
+
+        consol_t = torch.tensor(self.slow_consolidation_level[:size], dtype=torch.float32).clamp(0.0, 1.0)
+        importance_t = torch.tensor(self.slow_importance[:size], dtype=torch.float32).clamp(min=1e-6)
+        replay_age_t = torch.tensor(
+            [max(0, token_marker - self.slow_last_replay_token[i]) for i in range(size)],
+            dtype=torch.float32,
+        )
+        replay_count_t = torch.tensor(self.slow_replay_count[:size], dtype=torch.float32).clamp(min=0)
+        tag_t = torch.tensor(self.slow_capture_tag[:size], dtype=torch.float32).clamp(min=0.0)
+        capture_levels = tag_t * prp_levels
+
+        fm = max(1.0, float(self.functional_minute))
+        age_pressure = 1.0 + torch.log1p(replay_age_t / fm)
+        access_penalty = 1.0 / (1.0 + 0.5 * replay_count_t)
+        stability_gap = (1.0 - consol_t).clamp(min=0.0)
+        capture_gap = (1.0 - capture_levels).clamp(min=0.0)
+        importance_scale = 0.5 + importance_t.clamp(max=1.0)
+        fragility_levels = stability_gap * age_pressure * access_penalty * importance_scale * (0.5 + capture_gap)
+
+        n_strong = sum(1 for v in self.slow_tag_is_strong[:size] if v)
+        result = {
             "capacity": int(self.capacity),
             "size": int(size),
             "fill_fraction": float(size / max(1, self.capacity)),
             "n_seen": int(self.n_seen),
-            "mean_importance": float(sum(self.slow_importance) / max(1, len(self.slow_importance))),
-            "mean_capture_tag": float(sum(self.slow_capture_tag) / max(1, len(self.slow_capture_tag))),
-            "mean_prp_level": float(sum(prp_levels) / max(1, len(prp_levels))),
-            "mean_capture_strength": float(sum(capture_levels) / max(1, len(capture_levels))),
-            "max_capture_strength": float(max(capture_levels, default=0.0)),
-            "mean_consolidation_level": float(sum(self.slow_consolidation_level) / max(1, len(self.slow_consolidation_level))),
-            "mean_fragility": float(sum(fragility_levels) / max(1, len(fragility_levels))),
-            "max_fragility": float(max(fragility_levels, default=0.0)),
-            "mean_replay_count": float(sum(self.slow_replay_count) / max(1, len(self.slow_replay_count))),
-            "strong_tag_fraction": float(sum(1 for value in self.slow_tag_is_strong if value) / max(1, len(self.slow_tag_is_strong))),
+            "mean_importance": float(importance_t.mean().item()),
+            "mean_capture_tag": float(tag_t.mean().item()),
+            "mean_prp_level": float(prp_levels.mean().item()),
+            "mean_capture_strength": float(capture_levels.mean().item()),
+            "max_capture_strength": float(capture_levels.max().item()),
+            "mean_consolidation_level": float(consol_t.mean().item()),
+            "mean_fragility": float(fragility_levels.mean().item()),
+            "max_fragility": float(fragility_levels.max().item()),
+            "mean_replay_count": float(replay_count_t.mean().item()),
+            "strong_tag_fraction": float(n_strong / max(1, size)),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
             "fast_ema_norm": float(torch.norm(self.fast_ema).item()) if isinstance(self.fast_ema, torch.Tensor) else 0.0,
             "slow_mean_norm": float(torch.norm(self._slow_mean).item()) if isinstance(self._slow_mean, torch.Tensor) else 0.0,
             "drift": float(self.compute_drift()),
         }
+        self._cached_summary = result
+        self._cached_summary_token = token_marker
+        return result
 
     def snapshot(self) -> dict[str, Any]:
         return {

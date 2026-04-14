@@ -296,6 +296,8 @@ class HECSNTrainer:
         self._last_raw_window_text: str | None = None
         self._cached_episode_text: str | None = None
         self._last_episode_refresh_length = 0
+        self._segment_cache_key: str | None = None
+        self._segment_cache_result: list[str] | None = None
         # §7.4 self-criticism state
         self._recent_visual_frames: list[torch.Tensor] = []
         self._recent_audio_frames: list[torch.Tensor] = []
@@ -481,7 +483,19 @@ class HECSNTrainer:
         if getattr(self.encoder, "uses_learned_chunking", False) and len(sentence_like_segments) <= 1:
             window_terms = {token.lower() for token in re.findall(r"[A-Za-z0-9']+", raw_window)}
             tail_chars = max(96, min(192, len(raw_window) * 8))
-            learned_segments = self.encoder.segment_text(text[-tail_chars:])
+            seg_key = text[-tail_chars:]
+            # Re-segment only every ~8 new characters — boundaries are stable
+            cache_valid = (
+                self._segment_cache_result is not None
+                and self._segment_cache_key is not None
+                and abs(len(seg_key) - len(self._segment_cache_key)) < 8
+            )
+            if cache_valid:
+                learned_segments = self._segment_cache_result
+            else:
+                learned_segments = self.encoder.segment_text(seg_key)
+                self._segment_cache_key = seg_key
+                self._segment_cache_result = learned_segments
             if learned_segments:
                 best_candidate: str | None = None
                 best_score: tuple[int, int, int] | None = None

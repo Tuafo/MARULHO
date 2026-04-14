@@ -172,12 +172,13 @@ class TurboQuantPrototypeStore:
         # Full-precision store (updated on learning events)
         self._fp32 = torch.zeros(n_cols, dim, device=self.device)
 
-        # Stage 1: bit-packed codes (uint8) + per-prototype scale/offset
+        # Stage 1: bit-packed codes (uint8) + per-prototype scale/offset/norm
         pd = _packed_dim(dim, self.bits)
         self._codes = torch.zeros(n_cols, pd, dtype=torch.uint8,
                                   device=self.device)
         self._scales = torch.ones(n_cols, device=self.device)
         self._offsets = torch.zeros(n_cols, device=self.device)
+        self._norms = torch.zeros(n_cols, device=self.device)
 
         # Stage 2: QJL residual — sign bits (±1 stored as int8) and norms
         self._residual_signs = torch.zeros(
@@ -215,7 +216,17 @@ class TurboQuantPrototypeStore:
 
         for idx in dirty_mask:
             i = int(idx.item())
-            rotated = torch.mv(self.rotation, self._fp32[i])
+            proto = self._fp32[i]
+
+            # Extract norm, normalize to unit vector before rotation
+            norm = proto.norm()
+            self._norms[i] = norm
+            if norm > 1e-8:
+                unit = proto / norm
+            else:
+                unit = proto
+
+            rotated = torch.mv(self.rotation, unit)
 
             # Stage 1: PolarQuant — uniform scalar quantisation + bit-pack
             vmin, vmax = rotated.min().item(), rotated.max().item()
@@ -229,7 +240,7 @@ class TurboQuantPrototypeStore:
             self._scales[i] = scale
             self._offsets[i] = vmin
 
-            # Stage 2: QJL residual correction
+            # Stage 2: QJL residual correction (on the unit-norm rotated vector)
             dequantised = codes * scale + vmin
             residual = rotated - dequantised
             self._residual_norms[i] = residual.norm()
@@ -253,7 +264,7 @@ class TurboQuantPrototypeStore:
         q = F.normalize(query.to(self.device).float(), dim=0)
         q_rot = torch.mv(self.rotation, q)  # (dim,)
 
-        # Stage 1: unpack bit-packed codes and decompress
+        # Stage 1: unpack bit-packed codes and decompress (unit-norm space)
         unpacked = unpack_codes(self._codes, self.bits, self.dim)  # (n_cols, dim)
         decompressed = (
             unpacked.float() * self._scales.unsqueeze(1)
@@ -267,7 +278,9 @@ class TurboQuantPrototypeStore:
         correction = correction * (
             self._residual_norms * math.sqrt(math.pi / 2) / self.n_proj
         )
-        scores = base_scores + correction
+
+        # Rescale by stored prototype norms (compress_all normalizes to unit)
+        scores = (base_scores + correction) * self._norms
 
         k_actual = min(k, self.n_cols)
         top_scores, top_indices = torch.topk(scores, k_actual)
@@ -325,7 +338,7 @@ class TurboQuantPrototypeStore:
         """Report memory usage with bit-packed codes and QJL overhead."""
         fp32_bytes = self._fp32.nelement() * 4
         code_bytes = self._codes.nelement() * 1  # uint8 bit-packed
-        meta_bytes = self._scales.nelement() * 4 + self._offsets.nelement() * 4
+        meta_bytes = (self._scales.nelement() + self._offsets.nelement() + self._norms.nelement()) * 4
         rotation_bytes = self.rotation.nelement() * 4
         projection_bytes = self._projection.nelement() * 4
         qjl_sign_bytes = self._residual_signs.nelement() * 1  # int8
@@ -350,6 +363,7 @@ class TurboQuantPrototypeStore:
             "codes": self._codes.cpu(),
             "scales": self._scales.cpu(),
             "offsets": self._offsets.cpu(),
+            "norms": self._norms.cpu(),
             "rotation": self.rotation.cpu(),
             "projection": self._projection.cpu(),
             "residual_signs": self._residual_signs.cpu(),
@@ -363,6 +377,7 @@ class TurboQuantPrototypeStore:
             "codes": "_codes",
             "scales": "_scales",
             "offsets": "_offsets",
+            "norms": "_norms",
             "rotation": "rotation",
             "projection": "_projection",
             "residual_signs": "_residual_signs",

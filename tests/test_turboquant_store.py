@@ -273,6 +273,58 @@ class TestMemory(unittest.TestCase):
         self.assertGreater(mem["stage2_qjl"], 0)
 
 
+class TestNormExtraction(unittest.TestCase):
+    """Verify that compress_all extracts norms before rotation (PolarQuant)."""
+
+    def test_non_unit_norm_routing_accuracy(self) -> None:
+        """Vectors with varying norms should route correctly after compression."""
+        store = TurboQuantPrototypeStore(n_cols=20, dim=64, bits=3)
+        # Create prototypes with varying norms (0.1 to 10.0)
+        protos = torch.randn(20, 64)
+        norms = torch.linspace(0.1, 10.0, 20).unsqueeze(1)
+        protos = protos * norms
+        store.set_all(protos)
+        store.compress_all()
+
+        # Verify norms are stored
+        for i in range(20):
+            expected_norm = protos[i].norm().item()
+            stored_norm = store._norms[i].item()
+            self.assertAlmostEqual(stored_norm, expected_norm, places=4)
+
+    def test_non_unit_norm_ranking_preserved(self) -> None:
+        """Top-k ranking should be similar for unit and non-unit norm protos."""
+        dim = 64
+        store = TurboQuantPrototypeStore(n_cols=50, dim=dim, bits=3)
+        protos = torch.randn(50, dim)
+        norms = torch.linspace(0.5, 5.0, 50).unsqueeze(1)
+        protos = protos * norms
+        store.set_all(protos)
+        store.compress_all()
+
+        # Top-1 of approximate should match top-1 of exact reasonably often
+        matches = 0
+        n_queries = 50
+        for _ in range(n_queries):
+            q = F.normalize(torch.randn(dim), dim=0)
+            approx_idx, _ = store.route(q, k=1)
+            exact_idx, _ = store.route_exact(q, k=1)
+            if approx_idx[0].item() == exact_idx[0].item():
+                matches += 1
+        recall = matches / n_queries
+        self.assertGreater(recall, 0.5, f"Top-1 recall {recall:.2f} too low")
+
+    def test_cosine_accuracy_with_varying_norms(self) -> None:
+        """Cosine accuracy should remain high even with varying norms."""
+        store = TurboQuantPrototypeStore(n_cols=30, dim=64, bits=3)
+        protos = torch.randn(30, 64)
+        norms = torch.linspace(0.1, 10.0, 30).unsqueeze(1)
+        protos = protos * norms
+        store.set_all(protos)
+        cos_acc = store.cosine_accuracy(n_queries=50)
+        self.assertGreater(cos_acc, 0.85)
+
+
 class TestSerialization(unittest.TestCase):
     def test_state_dict_roundtrip(self) -> None:
         store = TurboQuantPrototypeStore(n_cols=20, dim=64)
@@ -293,7 +345,7 @@ class TestSerialization(unittest.TestCase):
     def test_state_dict_keys(self) -> None:
         store = TurboQuantPrototypeStore(n_cols=10, dim=32)
         state = store.state_dict()
-        expected_keys = {"fp32", "codes", "scales", "offsets", "rotation",
+        expected_keys = {"fp32", "codes", "scales", "offsets", "norms", "rotation",
                          "projection", "residual_signs", "residual_norms", "dirty"}
         self.assertEqual(set(state.keys()), expected_keys)
 
