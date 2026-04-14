@@ -430,6 +430,139 @@ def _train_multimodal_on_corpus(
     return total, visual_count, audio_count
 
 
+def _train_on_real_digits(
+    trainer: HECSNTrainer,
+    encoder: RTFEncoder,
+    episodes: list,
+    visual_encoder: EventCameraEncoder | None,
+    audio_encoder: CochleagramEncoder | None,
+    n_episodes: int,
+) -> tuple[int, int, int]:
+    """Train on real multimodal digit episodes (§5.4).
+
+    Unlike ``_train_multimodal_on_corpus`` which uses synthetic concept
+    signatures on text-window streams, this function trains from actual
+    visual events and spoken audio paired by digit class via
+    ``PairedDigitDataset``.
+
+    Design decisions (informed by §5.4 + review):
+    - **Full-word encoding:** the digit name (e.g. "seven") is encoded via
+      ``iter_char_patterns`` and the *last* yielded window is used as the
+      word-level RTF representation (contains all characters).
+    - **Per-step training:** each episode time step calls ``train_step()``
+      with the encoded visual frame + audio chunk.
+    - **Per-episode grounding:** ``update_word_grounding()`` is called once
+      per episode using the *mean* of accepted sensory evidence, not once
+      per step.  This prevents over-weighting long episodes.
+    - **Accepted-only grounding:** only modalities that ``train_step()``
+      reports as accepted contribute to the grounding update.
+
+    Args:
+        trainer: HECSN trainer instance.
+        encoder: RTF text encoder.
+        episodes: List of DigitEpisode objects.
+        visual_encoder: EventCameraEncoder (or None).
+        audio_encoder: CochleagramEncoder (or None).
+        n_episodes: Maximum number of episodes to process.
+
+    Returns:
+        (steps_processed, visual_steps, audio_steps).
+    """
+    from hecsn.data.dataset_adapters import iter_episode_steps, MultimodalStep
+
+    total_steps = 0
+    visual_count = 0
+    audio_count = 0
+    episodes_done = 0
+
+    for episode in episodes:
+        if episodes_done >= n_episodes:
+            break
+
+        # Reset stateful encoders at episode boundary
+        if visual_encoder is not None:
+            visual_encoder.reset()
+        if audio_encoder is not None:
+            audio_encoder.reset()
+
+        # Pre-compute full-word RTF pattern (use last window = full word)
+        word = episode.text
+        patterns = list(
+            encoder.iter_char_patterns(word, trainer.config.window_size)
+        )
+        if not patterns:
+            episodes_done += 1
+            continue
+        raw_window, pattern_vec = patterns[-1]  # last window has full word
+
+        # Accumulators for per-episode grounding update
+        accepted_visual_sum = None
+        accepted_audio_sum = None
+        n_visual_accepted = 0
+        n_audio_accepted = 0
+
+        n_steps = len(episode.visual_frames)
+        for step_i in range(n_steps):
+            # Encode this step's modalities
+            vs = None
+            aus = None
+            if visual_encoder is not None and step_i < len(episode.visual_frames):
+                vs = visual_encoder.encode(episode.visual_frames[step_i])
+            if audio_encoder is not None and step_i < len(episode.audio_chunks):
+                aus = audio_encoder.encode(episode.audio_chunks[step_i])
+
+            metrics = trainer.train_step(
+                pattern_vec,
+                raw_window=raw_window,
+                visual_spikes=vs,
+                audio_spikes=aus,
+            )
+
+            total_steps += 1
+            if vs is not None:
+                visual_count += 1
+            if aus is not None:
+                audio_count += 1
+
+            # Accumulate accepted sensory evidence for episode-level grounding
+            if metrics.get("cross_modal_visual_accepted") and vs is not None:
+                if accepted_visual_sum is None:
+                    accepted_visual_sum = vs.detach().clone()
+                else:
+                    accepted_visual_sum = accepted_visual_sum + vs.detach()
+                n_visual_accepted += 1
+
+            if metrics.get("cross_modal_audio_accepted") and aus is not None:
+                if accepted_audio_sum is None:
+                    accepted_audio_sum = aus.detach().clone()
+                else:
+                    accepted_audio_sum = accepted_audio_sum + aus.detach()
+                n_audio_accepted += 1
+
+        # Per-episode grounding update (aggregated, not per-step)
+        has_visual = accepted_visual_sum is not None and n_visual_accepted > 0
+        has_audio = accepted_audio_sum is not None and n_audio_accepted > 0
+        if has_visual or has_audio:
+            text_spike = F.normalize(
+                pattern_vec.detach().unsqueeze(0), dim=1,
+            ).squeeze(0)
+            avg_visual = (
+                accepted_visual_sum / n_visual_accepted if has_visual else None
+            )
+            avg_audio = (
+                accepted_audio_sum / n_audio_accepted if has_audio else None
+            )
+            trainer.update_word_grounding(
+                word, text_spike,
+                actual_visual=avg_visual,
+                actual_audio=avg_audio,
+            )
+
+        episodes_done += 1
+
+    return total_steps, visual_count, audio_count
+
+
 def _build_concept_corpus() -> list[str]:
     """Build corpus containing every CONCEPT_VOCABULARY word at least once.
 

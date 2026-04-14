@@ -1,4 +1,11 @@
 from .corpus_loader import StreamingCorpusLoader
+from .dataset_adapters import (
+    FSDDAdapter,
+    NMNISTAdapter,
+    PairedDigitDataset,
+    iter_episode_steps,
+    validate_encoder_dims,
+)
 from .pattern_loader import load_probe_train_examples, load_train_eval_examples
 from .source_catalog import (
     discover_remote_search_source_specs,
@@ -8,11 +15,16 @@ from .source_catalog import (
 from .rtf_encoder import RTFEncoder
 
 __all__ = [
+    "FSDDAdapter",
+    "NMNISTAdapter",
+    "PairedDigitDataset",
     "RTFEncoder",
     "StreamingCorpusLoader",
     "discover_remote_search_source_specs",
     "expand_source_bank_specs",
+    "iter_episode_steps",
     "load_probe_train_examples",
     "load_train_eval_examples",
     "select_catalog_source_specs",
+    "validate_encoder_dims",
 ]
