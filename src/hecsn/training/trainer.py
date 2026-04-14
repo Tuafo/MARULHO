@@ -338,6 +338,35 @@ class HECSNTrainer:
         # Legacy alias kept for checkpoint backward compat
         self._stage2_bootstrap_used: int = 0
 
+        # HNSW update buffer — flush every N steps to amortize add() overhead
+        self._hnsw_buffer_ids: list[int] = []
+        self._hnsw_buffer_vecs: list[torch.Tensor] = []
+        self._hnsw_flush_interval = 16
+
+    def _buffer_hnsw_update(self, indices: torch.Tensor, vectors: torch.Tensor) -> None:
+        """Buffer HNSW updates; flush when buffer reaches interval size."""
+        ids = indices.detach().cpu().tolist()
+        vecs = vectors.detach()
+        for i, vid in enumerate(ids):
+            self._hnsw_buffer_ids.append(int(vid))
+            self._hnsw_buffer_vecs.append(vecs[i])
+        if len(self._hnsw_buffer_ids) >= self._hnsw_flush_interval:
+            self._flush_hnsw_buffer()
+
+    def _flush_hnsw_buffer(self) -> None:
+        """Flush buffered HNSW updates in a single batch."""
+        if not self._hnsw_buffer_ids:
+            return
+        # Deduplicate: keep latest vector per id
+        seen: dict[int, torch.Tensor] = {}
+        for vid, vec in zip(self._hnsw_buffer_ids, self._hnsw_buffer_vecs):
+            seen[vid] = vec
+        ids_arr = np.array(list(seen.keys()), dtype=np.int64)
+        vecs_batch = torch.stack(list(seen.values()))
+        self.model.hnsw_index.add(vecs_batch, ids_arr)
+        self._hnsw_buffer_ids.clear()
+        self._hnsw_buffer_vecs.clear()
+
     def update_word_grounding(
         self,
         word: str,
@@ -1073,6 +1102,7 @@ class HECSNTrainer:
             and (self.token_count - self.last_deep_sleep_token) >= self.config.emergency_deep_sleep_cooldown_tokens
         )
         if deep_due_interval or deep_due_emergency:
+            self._flush_hnsw_buffer()
             replay_updates = self._sleep_replay("repair" if deep_due_emergency else "deep")
             if replay_updates > 0:
                 sleep_type = "deep"
@@ -1083,9 +1113,12 @@ class HECSNTrainer:
             self.token_count >= self.config.micro_sleep_interval_tokens
             and (self.token_count - self.last_micro_sleep_token) >= self.config.micro_sleep_interval_tokens
         ):
+            self._flush_hnsw_buffer()
             replay_updates = self._sleep_replay("micro")
             if replay_updates > 0:
                 sleep_type = "micro"
+        elif self.token_count % self._hnsw_flush_interval == 0:
+            self._flush_hnsw_buffer()
 
         sleep_triggered = sleep_type != "none"
         if sleep_triggered:
@@ -1322,7 +1355,7 @@ class HECSNTrainer:
             )
         winner_ids = updated_indices.detach().cpu().numpy().astype(np.int64)
         winner_vectors = self.model.competitive.prototypes[updated_indices].detach()
-        self.model.hnsw_index.add(winner_vectors, winner_ids)
+        self._buffer_hnsw_update(updated_indices, winner_vectors)
 
         next_token = self.token_count + 1
         warm_started = self._maybe_warm_start_memory(next_token)
