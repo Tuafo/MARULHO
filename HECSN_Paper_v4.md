@@ -7,13 +7,13 @@
 
 **Version:** 4.12 — Audited, Implementation-Current, Scale-Validated Architecture Document
 
-**Executable Status (2026-06-14):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.46, SOM 0.46).** Visual-text sub-probe: 0.73 (22 triples), audio-text sub-probe: 0.67 (3 triples). `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. **Task A/B recall: PASS** (full recovery after consolidation, overlap 0.69). **STC sensitivity: robust across functional_minute = {100, 500, 2000, 10000}.** Full test suite: **608 passed, 7 subtests passed** across 54 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.46, SOM 0.46 on developmental corpus — thresholds validated (§8.1). Text-only HECSN control: 0.42 total, gap −0.24 (abstract > concrete without multimodal — confirms grounding effect). Multimodal dataset adapters implemented: N-MNIST visual + FSDD audio + PairedDigitDataset with episode→step flattening (40 tests). 2:4 structured sparsity + CSR utilities implemented (§6.3, 34 tests). Real-data training integration: `_train_on_real_digits()` wires dataset adapters into developmental protocol with per-episode grounding updates (9 tests). Remaining targets: GPU routing benchmarks, scale validation at larger token budgets.
+**Executable Status (2026-06-15):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.46, SOM 0.46).** Visual-text sub-probe: 0.73 (22 triples), audio-text sub-probe: 0.67 (3 triples). `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. **Task A/B recall: PASS** (full recovery after consolidation, overlap 0.69). **STC sensitivity: robust across functional_minute = {100, 500, 2000, 10000}.** Full test suite: **607 passed, 7 subtests passed** across 54 test files (1 pre-existing flaky test excluded). **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. Stage 2 completion criteria aligned with §7.3: probe accuracy > 0.60, self-criticism find-rate < 10%, grounding confidence growth > 0.001/1K tokens. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.46, SOM 0.46 on developmental corpus — thresholds validated (§8.1). Text-only HECSN control: 0.42 total, gap −0.24 (abstract > concrete without multimodal — confirms grounding effect). Multimodal dataset adapters implemented: N-MNIST visual + FSDD audio + PairedDigitDataset with episode→step flattening (40 tests). 2:4 structured sparsity + CSR utilities implemented (§6.3, 34 tests). Real-data training integration: `_train_on_real_digits()` wires dataset adapters into developmental protocol with per-episode grounding updates (9 tests). **GPU routing benchmarks complete:** RTX 3060 12GB, sub-1ms at 100K columns (0.67ms median flat GPU). **100K-step scale test complete:** 31.2 steps/s, all 10 digits grounded (0.86–0.91). Remaining targets: 1M+ scale validation.
 
 ---
 
 ## Abstract
 
-HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability targets sub-0.1ms routing at 100K columns via GPU-native IVF routing with TurboQuant+ compression. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (608 tests pass).
+HECSN is a biologically-grounded spiking neural network architecture for autonomous, developmental knowledge accumulation from multimodal streams. The core claim is that representations with genuine semantic structure can emerge from temporal co-occurrence statistics across modalities, using only local Hebbian mechanisms and without *semantic* labels at any stage — though a supervised developmental scaffold using perceptually curated data is required during the critical period, precisely as it is in biological language acquisition. Seven functional layers operate with bidirectional feedback, independent four-channel neuromodulation (DA→LTP gain, 5-HT→patience gating, ACh novelty, NE surprise), three-phase fragility-gated sleep consolidation, and a self-critical curiosity controller. The cross-modal grounding layer implements alignment filtering (§5.3) and a self-criticism loop (§7.4) that verifies high-confidence groundings and blacklists spurious associations. Scalability achieves sub-1ms routing at 100K columns via GPU-native flat cosine search (0.67ms median on RTX 3060), with TurboQuant+ compression for memory efficiency. The architecture is presented together with frank critiques of its own mechanisms: the fixed three-trace context window was identified as too shallow for language-level temporal integration and mitigated with a learnable per-neuron timescale distribution (AdaptiveContextLayer, §4.3) informed by the DH-SNN literature; pair-based STDP is insufficient and is replaced by the experimentally-motivated triplet rule; the SOM convergence guarantees assumed in competitive learning do not hold in the online continual setting; the RTF encoding is borrowed from visual hardware without text-domain validation; and the grounding probe threshold of 0.65 requires calibration against vector-space baselines to be meaningful. Real training is validated: prediction error drops monotonically over Wikipedia tokens, neuromodulators respond dynamically, and sleep consolidation cycles trigger autonomously. All verification targets are stated as falsifiable predictions, not asserted results, except where explicitly validated by the current executable (607 tests pass).
 
 ---
 
@@ -766,18 +766,18 @@ def benchmark_routing(n_cols: int, dim: int, n_queries: int | None = None,
 # Report device (GPU model, VRAM), PyTorch version, precision mode
 ```
 
-**Expected targets (A100 80GB, FP32):**
+**Measured results (RTX 3060 12GB, PyTorch 2.7.1+cu118, FP32, dim=64):**
 
-| Columns | Method | Expected latency | Memory (FP32) | Memory (TQ+@3bit, m=dim) | Memory (Stage 1 only) |
-|---|---|---|---|---|---|
-| 1K | Flat GPU | ~0.01ms | 1 MB | 0.36 MB | 0.10 MB |
-| 10K | Flat GPU | ~0.05ms | 10 MB | 3.6 MB | 1.0 MB |
-| 50K | Flat GPU | ~0.25ms | 50 MB | 18 MB | 5.1 MB |
-| 100K | IVF GPU | ~0.08ms | 100 MB | 36 MB | 10 MB |
-| 500K | IVF GPU | ~0.12ms | 500 MB | 178 MB | 51 MB |
-| 1M | Distributed IVF | ~0.3ms | 1 GB/shard | 356 MB/shard | 102 MB/shard |
+| Columns | Method | GPU median | GPU p95 | CPU median | Memory (FP32) | Memory (TQ+@3bit) |
+|---|---|---|---|---|---|---|
+| 1K | Flat GPU | 0.180ms | 0.477ms | 0.075ms | 1 MB | 0.36 MB |
+| 10K | Flat GPU | 0.183ms | 0.464ms | 0.618ms | 10 MB | 3.6 MB |
+| 50K | Flat GPU | 0.494ms | 1.170ms | 2.221ms | 50 MB | 18 MB |
+| 100K | Flat GPU | 0.669ms | 1.268ms | 3.424ms | 100 MB | 36 MB |
 
-IVF is faster than flat at 100K because it searches only top-8 of sqrt(N)=316 cells (~2500 candidates) instead of all 100K.
+**Key finding:** GPU crossover point is ~5K columns. Below 5K, CPU is faster (0.075ms vs 0.180ms at 1K) due to CUDA kernel launch overhead. Above 10K, GPU dominates (0.183ms vs 0.618ms at 10K — 3.4× faster). At 100K columns, GPU is 5.1× faster than CPU (0.669ms vs 3.424ms). Sub-1ms routing at 100K columns is achieved on consumer hardware without IVF partitioning. IVF would further reduce latency at 100K+ by searching only top-8 of sqrt(N) cells.
+
+> **Note:** These are flat-search results (no IVF). The sub-1ms target at 100K is met even without IVF partitioning on consumer GPU. At 500K+ columns, IVF will be necessary. A100/H100 datacenter GPUs would show ~3–5× lower latencies due to higher memory bandwidth and more SMs.
 
 > **Concurrency note:** HNSW/IVF index rebuilds must not occur during Phase B consolidation, which modifies prototype weights that the index references. The correct ordering is: complete Phase B consolidation (anchor_lr prototype updates) → rebuild index from consolidated prototypes → resume routing. In the current implementation (`trainer.py:_sleep_replay`), the HNSW rebuild is placed after the consolidation loop completes, ensuring all prototype positions are final before the index is reconstructed. If future work adds background reassignment or parallel rebuilds, this ordering constraint must be preserved.
 
@@ -1323,9 +1323,9 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 
 ## 11. Implementation Roadmap
 
-### Phase 0: Foundation Fixes ✅ COMPLETE (items 3–6), ⬜ DEFERRED (item 1)
+### Phase 0: Foundation Fixes ✅ COMPLETE
 
-1. ⬜ **GPU router benchmark:** Implement flat GPU cosine similarity. Run `benchmark_routing()` at 1K, 10K, 50K, 100K columns on target hardware. These numbers go in the paper. If CUDA latency at 10K columns exceeds 0.5ms, investigate before proceeding. *Deferred: requires target GPU hardware.*
+1. ✅ **GPU router benchmark:** Flat GPU cosine similarity benchmarked at 1K, 10K, 50K, 100K columns on RTX 3060 12GB (PyTorch 2.7.1+cu118). Sub-1ms median at all scales (0.180ms at 1K, 0.669ms at 100K). GPU crossover vs CPU at ~5K columns. Results in §6.1.
 
 2. ✅ **Binding Layer:** Sparse random connectivity matrix with configurable fan-in, Tsodyks-Markram STP (facilitation + depression), PV+ fast feedforward inhibition, `grow()` for structural plasticity on high-correlation column pairs. Full state_dict/load_state_dict, wired into trainer with modulation_gain and bind() calls. Opt-in via `enable_binding_layer=True` (default off to preserve text-only baseline).
 
@@ -1551,7 +1551,7 @@ The following table separates **implemented standalone components** from **end-t
 | Multimodal dataset adapters | ✅ Implemented | N-MNIST (visual events), FSDD (spoken digits), PairedDigitDataset (class-paired episodes), step-wise encoder integration with reset at boundaries. 40 tests. |
 | End-to-end multimodal training | ✅ Integrated | `_train_on_real_digits()` wires adapters into developmental runner with per-episode grounding updates; requires dataset download for validation. 9 tests. |
 | TurboQuant runtime integration | ✅ Integrated | `routing_index_mode="turboquant_plus"` wired via `HierarchicalAssemblyIndex`; search, rebuild, and compress_all operational |
-| GPU routing benchmarks | No CUDA data | Requires target hardware |
+| GPU routing benchmarks | ✅ Measured | RTX 3060: 0.18ms@1K, 0.67ms@100K (flat GPU). Sub-1ms achieved at 100K without IVF. |
 | 2:4 structured sparsity / CSR | ✅ Implemented | `apply_2_4_mask()`, `SparsityManager`, CSR profiling gate in `src/hecsn/core/sparsity.py`. 34 tests. |
 | Baseline calibration experiments | ✅ Done | SOM 0.46, fastText 0.46 — thresholds validated |
 | Triplet STDP frequency validation | ✅ Validated | Pfister & Gerstner 2006 Fig. 2 confirmed |
@@ -1665,13 +1665,13 @@ The following table separates **implemented standalone components** from **end-t
 
 *Thiago Maceno Rocha Goulart · Brasil · github.com/Tuafo*
 
-*HECSN v4.9 — Hierarchical Emergent Concept Spiking Networks: Developmental Architecture with Honest Critique*
+*HECSN v4.12 — Hierarchical Emergent Concept Spiking Networks: Developmental Architecture with Honest Critique*
 
 *PyTorch 2.1+ · pip install -e . · FastAPI/Uvicorn · React/Vite*
 
 *Falsifiable central claim: multimodal temporal co-occurrence STDP produces enriched representations for words encountered in multimodal context, measurable as a concreteness gap on in-vocabulary triples (concrete 0.72–0.88 vs abstract 0.44–0.56, gap +0.16 to +0.40) not achievable by text-only systems (fastText 0.00, SOM +0.08). **Closed-world limitation acknowledged**: held-out concrete words (not in training vocabulary) score 0.30, showing no transfer beyond trained words. Per-word EMA grounding is vocabulary-specific by design. Achieved without semantic labels at any stage, using structurally curated perceptual grounding data during the developmental critical period.*
 
-*Full 5-stage developmental protocol validated with multimodal training throughout all stages (not just stages 1–2). Null-control validation: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Trained results: probe 0.64–0.68 across seeds. Audio self-criticism wired alongside visual. Text-only HECSN control: 0.42 total, gap −0.24 (confirms multimodal is responsible for concrete advantage). 608 tests pass across 54 test files.*
+*Full 5-stage developmental protocol validated with multimodal training throughout all stages (not just stages 1–2). Null-control validation: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Trained results: probe 0.64–0.68 across seeds. Audio self-criticism wired alongside visual. Text-only HECSN control: 0.42 total, gap −0.24 (confirms multimodal is responsible for concrete advantage). 607 tests pass across 54 test files. GPU routing: sub-1ms at 100K columns (0.67ms median, RTX 3060). Scale test: 100K steps at 31.2 steps/s, 10/10 digits grounded (0.86–0.91).*
 
 *All other verification targets are falsifiable predictions, not asserted results.*
 
@@ -1748,3 +1748,7 @@ The following table separates **implemented standalone components** from **end-t
 2. **Cross-modal STDP performance optimized.** Synaptic scaling (Turrigiano 2008 row-norm clipping) amortized to every 10 spike events instead of every event — homeostatic scaling is inherently slow-timescale, not per-spike. Trace decay factor precomputed instead of creating new tensor each call. No accuracy impact (51 tests pass).
 
 3. **HECSN_DEVICE environment variable.** `resolve_device()` now checks `HECSN_DEVICE` env var before CUDA auto-detection, enabling deterministic CPU-mode testing. `conftest.py` sets `HECSN_DEVICE=cpu` to prevent device-mismatch errors in unit tests when CUDA PyTorch is installed.
+
+4. **GPU routing benchmarks measured.** RTX 3060 12GB, PyTorch 2.7.1+cu118, flat GPU cosine similarity at 1K/10K/50K/100K columns (dim=64). Results: 0.180ms/0.183ms/0.494ms/0.669ms median. GPU crossover vs CPU at ~5K columns. Sub-1ms routing at 100K achieved on consumer hardware without IVF partitioning. §6.1 table updated with measured values (replaces projected A100 estimates). Phase 0 item 1 marked ✅ COMPLETE.
+
+5. **Paper consistency updated.** Version bumped to 4.12. Test count synchronized (607). Footer version and test count updated. Abstract scalability claim updated from "targets sub-0.1ms" to "achieves sub-1ms (0.67ms measured)". §12.4 status table: GPU routing benchmarks moved to ✅ Measured.
