@@ -648,12 +648,11 @@ class RTFEncoder:
 
         spike_times = torch.full((128, self.n_bursts_max), -1.0, dtype=torch.float32)
         n_spikes = max(1, int(self.n_bursts_max * max(0.0, min(1.0, context_confidence))))
+        burst_offsets = torch.arange(n_spikes, dtype=torch.float32) * 3.0
 
         for pos, c in enumerate(window):
             if 0 <= c < 128:
-                first = pos * self.t_spacing
-                for i in range(n_spikes):
-                    spike_times[c, i] = first + i * 3.0
+                spike_times[c, :n_spikes] = pos * self.t_spacing + burst_offsets
 
         return spike_times
 
@@ -673,10 +672,14 @@ class RTFEncoder:
             raise ValueError("burst_decay must be in (0, 1]")
 
         valid = spike_times >= 0.0
-        latency_weights = torch.exp(-torch.clamp(spike_times, min=0.0) / trace_tau)
-        burst_indices = torch.arange(self.n_bursts_max, dtype=torch.float32).unsqueeze(0)
-        burst_weights = torch.pow(torch.full_like(burst_indices, float(burst_decay)), burst_indices)
-        weighted = torch.where(valid, latency_weights * burst_weights, torch.zeros_like(spike_times))
+        latency_weights = torch.exp(-spike_times.clamp(min=0.0) / trace_tau)
+        # Cache burst_weights — constant for fixed n_bursts_max and decay
+        cache_key = (self.n_bursts_max, burst_decay)
+        if not hasattr(self, '_burst_weights_cache') or getattr(self, '_burst_cache_key', None) != cache_key:
+            burst_indices = torch.arange(self.n_bursts_max, dtype=torch.float32).unsqueeze(0)
+            self._burst_weights_cache = burst_decay ** burst_indices
+            self._burst_cache_key = cache_key
+        weighted = torch.where(valid, latency_weights * self._burst_weights_cache, torch.zeros_like(spike_times))
         collapsed = weighted.sum(dim=1)
         total = float(collapsed.sum().item())
         if total <= 0.0:

@@ -111,6 +111,8 @@ class CompetitiveColumnLayer:
         self.prototype_velocity = torch.zeros(self.n_columns, self.column_dim, device=self.device)
         self.last_input_pattern: Optional[torch.Tensor] = None
         self.last_projected_input: Optional[torch.Tensor] = None
+        self._last_norm_key_id: int = -1
+        self._last_norm_key_val: Optional[torch.Tensor] = None
 
         self.thresholds = torch.full((self.n_columns,), 0.5, device=self.device)
         self.target_firing_rate = 1.0 / max(1, self.n_columns)
@@ -217,6 +219,16 @@ class CompetitiveColumnLayer:
             payload["uses_adex_post_spikes"] = bool(self.local_plasticity.spike_backend == "adex")
         return payload
 
+    def _cached_normalize_key(self, routing_key: torch.Tensor) -> torch.Tensor:
+        """Normalize routing key with single-entry cache (same key reused within a step)."""
+        key_id = id(routing_key)
+        if key_id == self._last_norm_key_id and self._last_norm_key_val is not None:
+            return self._last_norm_key_val
+        x = _normalize_routing_key(routing_key, self.device)
+        self._last_norm_key_id = key_id
+        self._last_norm_key_val = x
+        return x
+
     def _normalized_input_pattern(self, input_vec: torch.Tensor) -> torch.Tensor:
         pattern = input_vec.to(self.device).float().clamp(min=0.0)
         total = torch.clamp(pattern.sum(), min=1e-8)
@@ -286,7 +298,7 @@ class CompetitiveColumnLayer:
         *,
         _pre_normalized: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        x = _pre_normalized if _pre_normalized is not None else _normalize_routing_key(routing_key, self.device)
+        x = _pre_normalized if _pre_normalized is not None else self._cached_normalize_key(routing_key)
         winners = winner_indices.long()
 
         assembly = torch.zeros(self.n_columns, device=self.device)
@@ -301,7 +313,7 @@ class CompetitiveColumnLayer:
         fallback_allowed: bool = False,
         context_gain: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        x = _normalize_routing_key(routing_key, self.device)
+        x = self._cached_normalize_key(routing_key)
 
         if candidate_indices is not None and len(candidate_indices) > 0:
             candidates = candidate_indices.to(self.device).long()
@@ -350,7 +362,7 @@ class CompetitiveColumnLayer:
         input_lr_scale: float = 1.0,
         update_global_state: bool = True,
     ) -> torch.Tensor:
-        x = _normalize_routing_key(routing_key, self.device)
+        x = self._cached_normalize_key(routing_key)
         winners = winner_indices.long()
 
         assembly = self.winner_assembly(routing_key, winners, _pre_normalized=x)
