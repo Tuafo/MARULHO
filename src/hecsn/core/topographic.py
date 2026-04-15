@@ -258,12 +258,12 @@ class SpatialBindingLayer:
         self.n_bindings = n_columns
         self.fan_in = k_neighbors
 
-    def _sparse_drive(self, signal: torch.Tensor) -> torch.Tensor:
+    def _sparse_drive(self, signal: torch.Tensor, *, already_normalized: bool = False) -> torch.Tensor:
         """Compute local drive for each column from its neighbors.
 
         Instead of dense matvec (160×128), uses sparse gather from K neighbors.
         """
-        normed = _normalize(signal.to(self.device))
+        normed = signal if already_normalized else _normalize(signal.to(self.device))
         # Gather neighbor activations: [n_columns, k_neighbors]
         neighbor_acts = normed[self.neighbor_ids]
         # Weight by learned spatial weights
@@ -296,17 +296,15 @@ class SpatialBindingLayer:
         """
         context = _normalize(context_prediction.to(self.device))
         current = _normalize(assembly.to(self.device))
-        ctx_sum = context.sum()
-        cur_sum = current.sum()
 
-        if ctx_sum <= 0.0 or cur_sum <= 0.0:
+        if context.sum() <= 0.0 or current.sum() <= 0.0:
             self.coincidence_trace *= max(0.0, 1.0 - 1.0 / self.tau_binding)
             self.binding_state.zero_()
             return self.binding_state, 0.0
 
-        # Local drive from neighbors
-        ctx_drive = self._sparse_drive(context)
-        cur_drive = self._sparse_drive(current)
+        # Local drive from neighbors (skip re-normalize — already done)
+        ctx_drive = self._sparse_drive(context, already_normalized=True)
+        cur_drive = self._sparse_drive(current, already_normalized=True)
 
         # Coincidence: both context and current must be active in neighborhood
         joint_drive = torch.min(ctx_drive, cur_drive)
@@ -336,18 +334,24 @@ class SpatialBindingLayer:
 
         strength = float(output.sum().item())
 
-        # Update learned weights via Hebbian rule
+        # Update learned weights via vectorized Hebbian rule
         if update_weights and strength > 0.0:
-            target = _normalize(current)
-            for i in range(self.n_columns):
-                if output[i] > 0.0:
-                    nids = self.neighbor_ids[i]
-                    neighbor_activity = target[nids]
-                    self.learned_weights[i] = torch.clamp(
-                        self.learned_weights[i] * self.association_decay
-                        + self.association_lr * output[i] * neighbor_activity,
+            active_mask = output > 0.0  # [n_columns]
+            if active_mask.any():
+                # Gather neighbor activations for target (already normalized)
+                target_neighbors = current[self.neighbor_ids]  # [n_columns, k]
+                # Hebbian update: decay + lr * output * neighbor_activity
+                update = (self.association_lr
+                          * output.unsqueeze(1)
+                          * target_neighbors)
+                self.learned_weights = torch.where(
+                    active_mask.unsqueeze(1),
+                    torch.clamp(
+                        self.learned_weights * self.association_decay + update,
                         min=1e-6, max=1.0,
-                    )
+                    ),
+                    self.learned_weights,
+                )
             # Renormalize
             weight_sums = self.learned_weights.sum(dim=1, keepdim=True).clamp(min=1e-8)
             self.learned_weights = self.learned_weights / weight_sums
@@ -361,7 +365,7 @@ class SpatialBindingLayer:
             return torch.zeros(self.n_columns, device=self.device)
         if self.binding_usage.max() <= 1e-6:
             return torch.zeros(self.n_columns, device=self.device)
-        predicted = self._sparse_drive(context) * self.binding_usage
+        predicted = self._sparse_drive(context, already_normalized=True) * self.binding_usage
         return _normalize(predicted)
 
     def modulation_gain(self, context_prediction: torch.Tensor) -> torch.Tensor:

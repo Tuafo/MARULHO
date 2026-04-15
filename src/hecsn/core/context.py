@@ -299,7 +299,7 @@ class AdaptiveContextLayer:
     def _decay_factors(self, dt: float = 1.0) -> torch.Tensor:
         """Per-neuron exponential decay factors."""
         tau = self._tau()
-        return torch.exp(torch.tensor(-dt, device=self.device) / tau)
+        return torch.exp(-dt / tau)
 
     def context_prediction(self) -> torch.Tensor:
         if self.neuron_state.sum() <= 0.0:
@@ -406,17 +406,15 @@ class AdaptiveContextLayer:
         k_actual = min(k, assembly.numel())
         vals, idxs = torch.topk(assembly.abs(), k_actual)
         # Quantize values into 3 bins for noise tolerance
-        if vals.max() > 0:
-            normalised = vals / vals.max()
+        vmax = vals[0]
+        if vmax > 0:
+            bins = (vals * (2.99 / vmax)).long().clamp(0, 2)
         else:
-            normalised = vals
-        bins = (normalised * 2.99).long().clamp(0, 2)  # 0, 1, 2
-        # Interleave: (idx0, bin0, idx1, bin1, ...)
-        parts: list[int] = []
-        for i in range(k_actual):
-            parts.append(int(idxs[i].item()))
-            parts.append(int(bins[i].item()))
-        return tuple(parts)
+            bins = torch.zeros_like(vals, dtype=torch.long)
+        # Batch convert to Python lists (single device→host sync)
+        idx_list = idxs.tolist()
+        bin_list = bins.tolist()
+        return tuple(v for pair in zip(idx_list, bin_list) for v in pair)
 
     def compute_routing_differentiation(self) -> torch.Tensor:
         """Per-neuron context-specificity over recent observations (§4.3).

@@ -119,19 +119,31 @@ class CrossModalGroundingLayer:
         # Update text trace
         self.text_trace += t
 
-        # LTP: text × visual_trace
-        self.W_tv += self.A_plus * torch.outer(t, self.visual_trace)
-        self.W_ta += self.A_plus * torch.outer(t, self.audio_trace)
+        # Sparse outer products: only update rows where text is active
+        active = t > 0.01
+        if active.any():
+            t_active = t[active]  # [k]
 
-        # LTD: anti-Hebbian decay where sensory trace is low
-        visual_inactive = 1.0 - torch.clamp(self.visual_trace, 0, 1)
-        audio_inactive = 1.0 - torch.clamp(self.audio_trace, 0, 1)
-        self.W_tv -= self.A_minus * torch.outer(t, visual_inactive) * self.W_tv.abs()
-        self.W_ta -= self.A_minus * torch.outer(t, audio_inactive) * self.W_ta.abs()
+            # LTP: text × visual_trace (sparse rows)
+            self.W_tv[active] += self.A_plus * torch.outer(t_active, self.visual_trace)
+            self.W_ta[active] += self.A_plus * torch.outer(t_active, self.audio_trace)
 
-        # Update grounding confidence
-        self._update_visual_confidence(t)
-        self._update_audio_confidence(t)
+            # LTD: anti-Hebbian decay where sensory trace is low
+            visual_inactive = 1.0 - torch.clamp(self.visual_trace, 0, 1)
+            audio_inactive = 1.0 - torch.clamp(self.audio_trace, 0, 1)
+            self.W_tv[active] -= (self.A_minus
+                                  * torch.outer(t_active, visual_inactive)
+                                  * self.W_tv[active].abs())
+            self.W_ta[active] -= (self.A_minus
+                                  * torch.outer(t_active, audio_inactive)
+                                  * self.W_ta[active].abs())
+
+            # Update grounding confidence (sum already known > 0)
+            self._update_visual_confidence(t, active)
+            self._update_audio_confidence(t, active)
+        else:
+            # All-zero assembly — skip STDP and confidence
+            pass
 
         self._maybe_synaptic_scaling()
         self._decay_traces()
@@ -174,15 +186,22 @@ class CrossModalGroundingLayer:
 
     # -- grounding confidence -----------------------------------------------
 
-    def _update_visual_confidence(self, text_assembly: torch.Tensor) -> None:
+    def _update_visual_confidence(
+        self, text_assembly: torch.Tensor,
+        active_mask: torch.Tensor | None = None,
+    ) -> None:
         """Update visual grounding confidence via true EMA.
 
         For each active text dimension, confidence moves toward the current
         prediction quality.  Inactive dimensions are unchanged (no decay
         when not observed).  Bounded [0, 1] by construction.
         """
-        if text_assembly.sum() <= 0.01:
-            return
+        if active_mask is None:
+            if text_assembly.sum() <= 0.01:
+                return
+            mask = (text_assembly > 0.01).float()
+        else:
+            mask = active_mask.float()
         predicted_visual = torch.mv(self.W_tv.T, text_assembly)
         vt_norm = self.visual_trace.norm()
         pv_norm = predicted_visual.norm()
@@ -191,18 +210,24 @@ class CrossModalGroundingLayer:
             quality = cos.clamp(0.0, 1.0)
         else:
             quality = 0.0
-        mask = (text_assembly > 0.01).float()
         alpha_mask = self.confidence_alpha * mask
         self.visual_confidence = ((1.0 - alpha_mask) * self.visual_confidence
                                   + alpha_mask * quality).clamp(0.0, 1.0)
 
-    def _update_audio_confidence(self, text_assembly: torch.Tensor) -> None:
+    def _update_audio_confidence(
+        self, text_assembly: torch.Tensor,
+        active_mask: torch.Tensor | None = None,
+    ) -> None:
         """Update audio grounding confidence via true EMA.
 
         Same EMA semantics as visual confidence.
         """
-        if text_assembly.sum() <= 0.01:
-            return
+        if active_mask is None:
+            if text_assembly.sum() <= 0.01:
+                return
+            mask = (text_assembly > 0.01).float()
+        else:
+            mask = active_mask.float()
         predicted_audio = torch.mv(self.W_ta.T, text_assembly)
         at_norm = self.audio_trace.norm()
         pa_norm = predicted_audio.norm()
@@ -211,7 +236,6 @@ class CrossModalGroundingLayer:
             quality = cos.clamp(0.0, 1.0)
         else:
             quality = 0.0
-        mask = (text_assembly > 0.01).float()
         alpha_mask = self.confidence_alpha * mask
         self.audio_confidence = ((1.0 - alpha_mask) * self.audio_confidence
                                  + alpha_mask * quality).clamp(0.0, 1.0)
