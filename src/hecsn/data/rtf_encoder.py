@@ -680,24 +680,58 @@ class RTFEncoder:
         tau: float | None = None,
         burst_decay: float = 0.85,
     ) -> torch.Tensor:
-        spike_times = self.encode(chars, context_confidence=context_confidence)
         trace_tau = float(self.t_spacing if tau is None else tau)
         if trace_tau <= 0.0:
             raise ValueError("tau must be positive")
         if not 0.0 < float(burst_decay) <= 1.0:
             raise ValueError("burst_decay must be in (0, 1]")
 
-        valid = spike_times >= 0.0
-        latency_weights = torch.exp(-spike_times.clamp(min=0.0) / trace_tau)
-        # Cache burst_weights — constant for fixed n_bursts_max and decay
-        cache_key = (self.n_bursts_max, burst_decay)
-        if not hasattr(self, '_burst_weights_cache') or getattr(self, '_burst_cache_key', None) != cache_key:
-            burst_indices = torch.arange(self.n_bursts_max, dtype=torch.float32).unsqueeze(0)
-            self._burst_weights_cache = burst_decay ** burst_indices
-            self._burst_cache_key = cache_key
-        weighted = torch.where(valid, latency_weights * self._burst_weights_cache, torch.zeros_like(spike_times))
-        collapsed = weighted.sum(dim=1)
-        total = float(collapsed.sum().item())
+        return self._spike_trace_fused(chars, context_confidence, trace_tau, burst_decay)
+
+    def _spike_trace_fused(
+        self,
+        chars: Iterable[int],
+        context_confidence: float,
+        tau: float,
+        burst_decay: float,
+    ) -> torch.Tensor:
+        """Fused spike trace: skips the [128, n_bursts] intermediate tensor.
+
+        Computes collapsed trace directly. Only the last occurrence of each
+        character in the window is used (matching encode() overwrite semantics).
+        """
+        window: List[int] = list(chars)[-self.window_size :]
+        while len(window) < self.window_size:
+            window.insert(0, 0)
+
+        n_spikes = max(1, int(self.n_bursts_max * max(0.0, min(1.0, context_confidence))))
+
+        # Precompute burst kernel K (cached)
+        cache_key = (n_spikes, tau, burst_decay)
+        if getattr(self, '_fused_cache_key', None) != cache_key:
+            j = torch.arange(n_spikes, dtype=torch.float32)
+            self._fused_K = float(torch.sum(torch.exp(-j * 3.0 / tau) * (burst_decay ** j)).item())
+            self._fused_cache_key = cache_key
+
+        K = self._fused_K
+
+        # Keep only the LAST position of each char (matching encode() overwrite)
+        last_pos: dict[int, int] = {}
+        for pos, c in enumerate(window):
+            if 0 <= c < 128:
+                last_pos[c] = pos
+
+        if not last_pos:
+            return torch.zeros(128, dtype=torch.float32)
+
+        codes = torch.tensor(list(last_pos.keys()), dtype=torch.long)
+        positions = torch.tensor(list(last_pos.values()), dtype=torch.float32)
+        pos_weights = torch.exp(-positions * self.t_spacing / tau) * K
+
+        collapsed = torch.zeros(128, dtype=torch.float32)
+        collapsed[codes] = pos_weights
+
+        total = collapsed.sum()
         if total <= 0.0:
             return collapsed
-        return collapsed / (collapsed.sum() + 1e-8)
+        return collapsed / (total + 1e-8)

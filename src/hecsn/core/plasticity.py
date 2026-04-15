@@ -235,14 +235,19 @@ class LocalPlasticityCircuit:
                 * pre_trace.unsqueeze(0)
             )
             delta[win_idx] = ltp_win
-        # LTD uses post_trace (dense) — compute full
-        ltd = (
-            self.input_stdp_ltd
-            * torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_minus)
-            * post_trace.unsqueeze(1)
-            * pre_signal.unsqueeze(0)
-        )
-        delta -= ltd
+        # LTD: uses post_trace (dense) — sparse active-row optimization
+        # Only compute for columns where post_trace has decayed above threshold
+        active = post_trace > 1e-5
+        if active.any():
+            active_idx = active.nonzero(as_tuple=True)[0]
+            w_active = weights[active_idx]
+            ltd = (
+                self.input_stdp_ltd
+                * torch.pow(torch.clamp(w_active, min=1e-6), self.stdp_mu_minus)
+                * post_trace[active_idx].unsqueeze(1)
+                * pre_signal.unsqueeze(0)
+            )
+            delta[active_idx] -= ltd
         return delta
 
     def _triplet_stdp_delta(
@@ -272,15 +277,18 @@ class LocalPlasticityCircuit:
             combined = (self.triplet_A2_plus + self.triplet_A3_plus * o2_win.unsqueeze(1)) * r1.unsqueeze(0)
             delta[win_idx] = w_pow * post_signal[win_idx].unsqueeze(1) * combined
 
-        # LTD: uses o1_trace (denser from trace accumulation) — full computation
-        f_sub = 1.0 / (1.0 + torch.clamp(weights, min=1e-6))
-        ltd_coeff = self.triplet_A2_minus + self.triplet_A3_minus * self.r2_trace.unsqueeze(0)
-        delta -= (
-            f_sub
-            * self.o1_trace.unsqueeze(1)
-            * pre_signal.unsqueeze(0)
-            * ltd_coeff
-        )
+        # LTD: uses o1_trace — sparse active-row optimization
+        active = self.o1_trace > 1e-5
+        if active.any():
+            active_idx = active.nonzero(as_tuple=True)[0]
+            f_sub = 1.0 / (1.0 + torch.clamp(weights[active_idx], min=1e-6))
+            ltd_coeff = self.triplet_A2_minus + self.triplet_A3_minus * self.r2_trace.unsqueeze(0)
+            delta[active_idx] -= (
+                f_sub
+                * self.o1_trace[active_idx].unsqueeze(1)
+                * pre_signal.unsqueeze(0)
+                * ltd_coeff
+            )
 
         return delta
 

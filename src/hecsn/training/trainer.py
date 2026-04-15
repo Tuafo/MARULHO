@@ -706,7 +706,8 @@ class HECSNTrainer:
             routing_gain = None
         else:
             context_prediction = self.model.context_layer.context_prediction()
-            routing_gain = self.model.context_layer.modulation_gain(
+            routing_gain = self.model.context_layer.modulation_gain_for_signal(
+                context_prediction,
                 norepinephrine=self.model.surprise.norepinephrine,
                 acetylcholine=self.model.surprise.acetylcholine,
             )
