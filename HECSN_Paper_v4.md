@@ -184,9 +184,9 @@ INPUT: Raw multimodal streams (bytes, video frames, audio samples)
          │  Tsodyks-Markram STP (facilitation + depression)      │
          │  PV+ fast feedforward inhibition (global)             │
          │  Structural growth on high spike correlation           │
-         │  Critique: Random connectivity is unguided. Topographic│
-         │  binding (nearby concepts share more binding neurons)  │
-         │  would be more principled but requires spatial layout  │
+         │  Note: Topographic binding investigated (§4.9). Dense  │
+         │  ops optimal at ≤256 cols; sparse locality gains 1K+. │
+         │  grow_binding() correlation-based wiring sufficient.  │
          └──────────────┬────────────────────────────────────────┘
                         │ Composite assemblies
          ┌──────────────▼────────────────────────────────────────┐
@@ -580,6 +580,26 @@ If word2vec trained on the same text corpus scores 0.78 on the 50 triples, then 
 The `meaningful_margin` should be at least 0.05 — a difference that would not arise by chance across different random initializations. If the 50-triple suite has high variance (consistent grounding is hard), the margin may need to be larger.
 
 **The concreteness gap test measures per-word multimodal enrichment.** If HECSN shows concrete concepts scoring 0.10+ higher than abstract concepts on in-vocabulary triples — a pattern that text-only systems do not produce — that is evidence of effective multimodal grounding for trained words. However, this gap does not transfer to unseen concrete words (held-out gap = −0.26, §10.4). The claim is: multimodal co-occurrence enriches representations of words that receive multimodal training, not that the system learns a general "concreteness" dimension.
+
+### 4.11 Topographic Column Organization: Investigated and Deferred
+
+**The question:** Real cortical columns are spatially organized — semantically related concepts (e.g., "rocket", "thrust", "fuel") occupy neighboring columns and share inhibitory interneurons [1]. HECSN's columns are indices in an array with no spatial address. Would adding topographic organization — a 2D grid layout where proximity encodes semantic similarity — improve learning quality, binding efficiency, or scalability?
+
+**Literature review:** Five recent papers address topographic SNNs directly. TDSNNs [Zhou 2026, AAAI] show no accuracy loss with topographic constraints, plus potential speedup from local computation. SG-SNN [Gao 2025] achieves state-of-the-art neuromorphic accuracy with self-organizing spatial structure. Credit-based SOMs [Dehghani 2025, ICLR] demonstrate deep topographic networks without performance degradation. Local lateral connectivity [Qian 2024] shows cortex-like topography emerges from local connections alone. Lu et al. [2025, Nature Human Behaviour] demonstrate end-to-end topographic learning via spatial loss.
+
+**Analysis at current scale (128–256 columns):**
+
+1. **No speed gain.** Dense matvec (16.6µs at 160×128) outperforms indexed gather (84µs) and sparse CSR (2890µs). Sparse connectivity only becomes faster at approximately 1024+ columns, where the connectivity matrix becomes large enough that skipping zeros saves more than the indexing overhead costs.
+
+2. **No self-organization mechanism.** HECSN's STDP moves prototypes in latent space but has no spatial state, no swap rule, and no migration mechanism. Adding a grid without a principled remapping algorithm would produce arbitrary spatial assignments that have no semantic meaning.
+
+3. **Existing mechanisms are stronger.** `grow_binding()` already creates new binding neurons for highly correlated column pairs (correlation > 0.7). This is a correlation-based adaptive wiring mechanism — a stronger signal than any geometric prior would provide at this scale. HNSW routing already provides "local" candidate selection in semantic space.
+
+4. **Static topology goes stale.** Columns drift as prototypes update and dead columns are revived during deep sleep. A fixed spatial assignment would diverge from the actual semantic relationships within hundreds of training steps.
+
+**Decision:** Topographic organization is deferred. At 128–256 columns, the engineering complexity (grid layout, migration rules, spatial self-organization) is not justified by measurable speed or quality gains. The existing `grow_binding()` mechanism provides the benefits that topographic binding would — adaptive connectivity for semantically related columns — without requiring spatial layout infrastructure.
+
+**Future work:** When scaling to 1024+ columns, revisit topographic organization. At that scale: (a) sparse connectivity operators become faster than dense, (b) spatial locality reduces inter-column communication, and (c) the number of possible column pairs (>500K) makes correlation-only growth computationally expensive. A soft topographic prior — biasing `grow_binding()` to prefer spatially proximate candidates before computing correlation — would be the natural starting point.
 
 ---
 

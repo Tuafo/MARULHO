@@ -610,6 +610,10 @@ class BindingLayer:
     def _context_drive(self, signal: torch.Tensor) -> torch.Tensor:
         return torch.mv(self.connectivity, _normalize(signal.to(self.device))) / float(max(1, self.fan_in))
 
+    def _context_drive_fast(self, normed: torch.Tensor) -> torch.Tensor:
+        """Like _context_drive but caller guarantees input is already normalized."""
+        return torch.mv(self.connectivity, normed) / float(max(1, self.fan_in))
+
     def _column_prediction_from_outputs(self, outputs: torch.Tensor) -> torch.Tensor:
         if outputs.numel() == 0 or outputs.sum() <= 0.0:
             return torch.zeros(self.n_columns, device=self.device)
@@ -686,6 +690,7 @@ class BindingLayer:
         assembly: torch.Tensor,
         update_weights: bool = True,
     ) -> tuple[torch.Tensor, float]:
+        # Normalize inputs once at entry — all sub-calls use pre-normalized
         context = _normalize(context_prediction.to(self.device))
         current = _normalize(assembly.to(self.device))
         ctx_sum = context.sum()
@@ -696,17 +701,52 @@ class BindingLayer:
             self.binding_outputs.zero_()
             return torch.zeros_like(current), 0.0
 
-        context_drive = self._context_drive(context)
-        current_drive = self._context_drive(current)
+        # Compute context drive once — reused in _binding_prediction below
+        context_drive = self._context_drive_fast(context)
+        current_drive = self._context_drive_fast(current)
         joint_drive = torch.minimum(context_drive, current_drive)
         context_gate = 0.5 + 0.5 * context.max()
-        release = self._update_stp(joint_drive) * context_gate
+
+        # STP update with pre-normalized joint_drive
+        jd_total = joint_drive.sum()
+        if jd_total > 1e-8:
+            jd_norm = joint_drive / jd_total
+        else:
+            jd_norm = joint_drive
+        self.facilitation = torch.clamp(
+            self.facilitation * (1.0 - 1.0 / self.stp_tau_f)
+            + self.stp_u_inc * jd_norm * (1.0 - self.facilitation),
+            min=0.0,
+            max=1.0,
+        )
+        release_raw = torch.clamp(self.facilitation * self.resources * jd_norm, min=0.0)
+        self.resources = torch.clamp(
+            self.resources + (1.0 - self.resources) / self.stp_tau_d - release_raw,
+            min=0.0,
+            max=1.0,
+        )
+        release = release_raw * context_gate
+
         self.coincidence_trace = torch.clamp(
             self.coincidence_trace * max(0.0, 1.0 - 1.0 / self.tau_binding) + release,
             min=0.0,
         )
 
-        learned_prediction = self._binding_prediction(context)
+        # Binding prediction reuses cached context_drive
+        if self.binding_usage.max() > 1e-6:
+            predicted_outputs = context_drive * self.binding_usage
+            po_sum = predicted_outputs.sum()
+            if po_sum > 0.0:
+                predicted = torch.mv(self.output_weights.t(), predicted_outputs)
+                source_support = torch.mv(self.connectivity.t(), predicted_outputs) / float(max(1, self.fan_in))
+                combined = torch.relu(0.70 * predicted + 0.30 * source_support)
+                c_total = combined.sum()
+                learned_prediction = combined / torch.clamp(c_total, min=1e-8) if c_total > 1e-8 else combined
+            else:
+                learned_prediction = torch.zeros(self.n_columns, device=self.device)
+        else:
+            learned_prediction = torch.zeros(self.n_columns, device=self.device)
+
         activity_sum = release.sum()
         pv_excess = torch.clamp(activity_sum - self.pv_threshold, min=0.0)
         self.pv_inhibition = 0.85 * self.pv_inhibition + self.pv_gain * pv_excess
@@ -714,7 +754,18 @@ class BindingLayer:
         self.binding_outputs = torch.relu(
             self.coincidence_trace + 0.50 * joint_drive - self.threshold - self.pv_inhibition
         )
-        column_support = self._column_prediction_from_outputs(self.binding_outputs)
+
+        # Column prediction from binding outputs
+        bo_sum = self.binding_outputs.sum()
+        if self.binding_outputs.numel() > 0 and bo_sum > 0.0:
+            pred_bo = torch.mv(self.output_weights.t(), self.binding_outputs)
+            ss_bo = torch.mv(self.connectivity.t(), self.binding_outputs) / float(max(1, self.fan_in))
+            cs_raw = torch.relu(0.70 * pred_bo + 0.30 * ss_bo)
+            cs_total = cs_raw.sum()
+            column_support = cs_raw / torch.clamp(cs_total, min=1e-8) if cs_total > 1e-8 else cs_raw
+        else:
+            column_support = torch.zeros(self.n_columns, device=self.device)
+
         bound = torch.relu(
             current
             + self.gain_strength * column_support
@@ -726,7 +777,9 @@ class BindingLayer:
 
         if update_weights:
             learning_drive = torch.clamp(self.binding_outputs + joint_drive, min=0.0, max=1.0)
-            target = _normalize(0.35 * context + 0.65 * current)
+            target_raw = 0.35 * context + 0.65 * current
+            t_total = torch.clamp(target_raw.sum(), min=1e-8)
+            target = target_raw / t_total
             updated = (
                 self.association_decay * self.output_weights
                 + self.association_lr * torch.outer(learning_drive, target)
