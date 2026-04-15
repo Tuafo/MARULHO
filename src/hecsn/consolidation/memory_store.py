@@ -4,6 +4,7 @@ import math
 from collections import defaultdict
 from typing import Any, List, Optional, Sequence
 
+import numpy as np
 import torch
 
 
@@ -149,16 +150,16 @@ class DualMemoryStore:
                 tag_decay_weak *= extra
                 tag_decay_strong *= extra
 
-            # Vectorized decay application
-            strong_flags = self.slow_tag_is_strong[:size]
-            for idx in range(size):
-                s = strong_flags[idx]
-                self.slow_capture_tag[idx] *= tag_decay_strong if s else tag_decay_weak
-                self.slow_local_prp[idx] *= prp_decay_strong if s else prp_decay_weak
-                if self.slow_capture_tag[idx] < 0.0:
-                    self.slow_capture_tag[idx] = 0.0
-                if self.slow_local_prp[idx] < 0.0:
-                    self.slow_local_prp[idx] = 0.0
+            # Vectorized decay via numpy (avoids O(N) Python loop)
+            tags = np.array(self.slow_capture_tag[:size], dtype=np.float64)
+            prps = np.array(self.slow_local_prp[:size], dtype=np.float64)
+            strong = np.array(self.slow_tag_is_strong[:size], dtype=bool)
+            tags *= np.where(strong, tag_decay_strong, tag_decay_weak)
+            prps *= np.where(strong, prp_decay_strong, prp_decay_weak)
+            np.maximum(tags, 0.0, out=tags)
+            np.maximum(prps, 0.0, out=prps)
+            self.slow_capture_tag[:size] = tags.tolist()
+            self.slow_local_prp[:size] = prps.tolist()
 
         global_decay = math.exp(-float(delta) / self._prp_tau_tokens(True))
         self.global_prp_pool = float(max(0.0, self.global_prp_pool * global_decay))
@@ -460,9 +461,10 @@ class DualMemoryStore:
         tag_strength: float = 0.0,
         capture_tag: float | None = None,
     ) -> int | None:
-        x = assembly.detach().clone().cpu()
-        stored_input = input_pattern.detach().clone().cpu() if input_pattern is not None else None
-        stored_routing = routing_key.detach().clone().cpu() if routing_key is not None else None
+        _on_cpu = not assembly.is_cuda
+        x = assembly.detach().clone() if _on_cpu else assembly.detach().clone().cpu()
+        stored_input = (input_pattern.detach().clone() if _on_cpu else input_pattern.detach().clone().cpu()) if input_pattern is not None else None
+        stored_routing = (routing_key.detach().clone() if _on_cpu else routing_key.detach().clone().cpu()) if routing_key is not None else None
         stored_window = None if raw_window is None else str(raw_window)
         stored_text = None if text is None else str(text)
         token_marker = int(self.n_seen if token_count is None else token_count)

@@ -1095,6 +1095,7 @@ class HECSNTrainer:
         context_gain = None
         context_prediction = None
         binding_strength = 0.0
+        _telemetry_tick = (self.token_count % 10 == 0)
 
         # Drift computation is expensive; only recompute every N steps
         if self.token_count % 50 == 0 or self._cached_drift is None:
@@ -1224,11 +1225,15 @@ class HECSNTrainer:
             context_gain=context_gain,
         )
 
+        # Extract winner IDs once — avoid repeated .item() sync
+        winner_id_list = winners.tolist()
+        winner_id = int(winner_id_list[0])
+
         winner_consolidation = 0.0
         if self.memory_warm_started:
             winner_levels = [
-                self.model.memory_store.bucket_consolidation_level(int(winner.item()))
-                for winner in winners
+                self.model.memory_store.bucket_consolidation_level(wid)
+                for wid in winner_id_list
             ]
             if winner_levels:
                 winner_consolidation = float(sum(winner_levels) / len(winner_levels))
@@ -1274,7 +1279,7 @@ class HECSNTrainer:
             context_prediction,
             update_weights=True,
         )
-        self._apply_column_anchors(int(winner.item()) for winner in winners)
+        self._apply_column_anchors(wid for wid in winner_id_list)
         if self.model.context_layer is not None:
             self.model.context_layer.observe(
                 assembly,
@@ -1331,8 +1336,13 @@ class HECSNTrainer:
             # Text spike LAST — now visual/audio traces contain current data
             self.model.cross_modal.on_text_spike(text_spike)
 
-            cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
-            cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())
+            # Cross-modal confidence — periodic (every 10 steps) for metrics only
+            if _telemetry_tick:
+                cross_modal_visual_conf = float(self.model.cross_modal.visual_confidence.mean().item())
+                cross_modal_audio_conf = float(self.model.cross_modal.audio_confidence.mean().item())
+                self._cached_cross_modal_conf = (cross_modal_visual_conf, cross_modal_audio_conf)
+            elif hasattr(self, "_cached_cross_modal_conf"):
+                cross_modal_visual_conf, cross_modal_audio_conf = self._cached_cross_modal_conf
 
             # Buffer visual frames for self-criticism (§7.4)
             if visual_spikes is not None and cross_modal_visual_accepted:
@@ -1386,13 +1396,11 @@ class HECSNTrainer:
                 torch.cat([winners, self.model.competitive.last_revived_indices.to(self.model.device)]),
                 sorted=True,
             )
-        winner_ids = updated_indices.detach().cpu().numpy().astype(np.int64)
         winner_vectors = self.model.competitive.prototypes[updated_indices].detach()
         self._buffer_hnsw_update(updated_indices, winner_vectors)
 
         next_token = self.token_count + 1
         warm_started = self._maybe_warm_start_memory(next_token)
-        winner_id = int(winners[0].item())
         capture_tag = max(0.0, float(recon_error))
         text_context = self._update_stream_text(raw_window)
         memory_index = None
@@ -1424,8 +1432,6 @@ class HECSNTrainer:
         if self.token_count % self.config.drift_floor_window_tokens == 0:
             self._close_drift_floor_window()
 
-        # Only compute expensive telemetry every 10 steps
-        _telemetry_tick = (self.token_count % 10 == 0)
         memory_stats = (
             self.model.memory_store.summary_stats()
             if self.memory_warm_started and _telemetry_tick
@@ -1449,7 +1455,10 @@ class HECSNTrainer:
             else "proxy"
         )
         metrics["local_trace_available"] = int(local_trace is not None)
-        metrics["local_trace_active_inputs"] = int((local_trace > 0).sum().item()) if local_trace is not None else 0
+        if _telemetry_tick:
+            _lt_active = int((local_trace > 0).sum().item()) if local_trace is not None else 0
+            self._cached_lt_active = _lt_active
+        metrics["local_trace_active_inputs"] = getattr(self, "_cached_lt_active", 0)
         metrics["local_post_spike_fraction"] = (
             float(self.model.competitive.local_plasticity.last_post_spike_fraction)
             if self.model.competitive.local_plasticity is not None
@@ -1470,8 +1479,13 @@ class HECSNTrainer:
         metrics["effective_modulator"] = float(effective_modulator)
         metrics["da_ltp_gain"] = float(da_ltp_gain)
         metrics["ht_patience_gate"] = float(ht_patience)
-        metrics["context_strength"] = float(context_prediction.sum().item()) if isinstance(context_prediction, torch.Tensor) else 0.0
-        metrics["context_gain_mean"] = float(context_gain.mean().item()) if isinstance(context_gain, torch.Tensor) else 1.0
+        if _telemetry_tick:
+            _ctx_str = float(context_prediction.sum().item()) if isinstance(context_prediction, torch.Tensor) else 0.0
+            _ctx_gain = float(context_gain.mean().item()) if isinstance(context_gain, torch.Tensor) else 1.0
+            self._cached_ctx_metrics = (_ctx_str, _ctx_gain)
+        elif not hasattr(self, "_cached_ctx_metrics"):
+            self._cached_ctx_metrics = (0.0, 1.0)
+        metrics["context_strength"], metrics["context_gain_mean"] = self._cached_ctx_metrics
         metrics["context_precision_weight"] = (
             float(self.model.context_layer.last_precision_weight)
             if self.model.context_layer is not None
@@ -1496,7 +1510,7 @@ class HECSNTrainer:
         metrics["cross_modal_visual_accepted"] = cross_modal_visual_accepted
         metrics["cross_modal_audio_accepted"] = cross_modal_audio_accepted
         metrics["developmental_stage"] = self.developmental_stage
-        metrics["winner"] = int(winners[0].item())
+        metrics["winner"] = winner_id
         if _telemetry_tick:
             _active = int((assembly > 0).sum().item())
             _sparsity = float((assembly > 0).float().mean().item())
