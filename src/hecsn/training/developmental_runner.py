@@ -103,6 +103,94 @@ def _compute_grounding_confidence(cross_modal: CrossModalGroundingLayer) -> floa
     return float(top_conf.mean().item())
 
 
+def _compute_active_dim_growth(
+    confidence_history: list[torch.Tensor],
+    tokens_per_sample: int,
+) -> tuple[float, int, int]:
+    """Compute growth rate restricted to actively-grounding dimensions (§7.3).
+
+    Returns (slope_per_1k, newly_grounded_count, active_dim_count) where:
+    - slope_per_1k: linear regression slope of active-dimension mean confidence
+      per 1K tokens (active = 0.05 < conf < 0.70)
+    - newly_grounded_count: dimensions that crossed 0.30 from below during training
+    - active_dim_count: number of dimensions in active range at final sample
+    """
+    if len(confidence_history) < 2:
+        return 0.0, 0, 0
+
+    final_conf = confidence_history[-1]
+    initial_conf = confidence_history[0]
+
+    # Count newly-grounded: crossed 0.30 threshold from below
+    newly_grounded = int(((initial_conf < 0.30) & (final_conf >= 0.30)).sum().item())
+
+    # Active dimensions at final sample: 0.05 < conf < 0.70
+    active_mask = (final_conf > 0.05) & (final_conf < 0.70)
+    active_dim_count = int(active_mask.sum().item())
+
+    if active_dim_count == 0:
+        return 0.0, newly_grounded, 0
+
+    # Linear regression on mean of active dimensions over time
+    n = len(confidence_history)
+    x = torch.arange(n, dtype=torch.float32) * (tokens_per_sample / 1000.0)
+    y = torch.stack([h[active_mask].mean() for h in confidence_history])
+
+    x_mean = x.mean()
+    y_mean = y.mean()
+    slope = float(((x - x_mean) * (y - y_mean)).sum() / ((x - x_mean) ** 2).sum().clamp(min=1e-12))
+
+    return slope, newly_grounded, active_dim_count
+
+
+def _compute_column_correlations(
+    winner_history: list[int],
+    n_columns: int,
+    window: int = 5,
+    min_corr: float = 0.7,
+) -> list[tuple[int, int, float]]:
+    """Compute column co-activation correlations from winner history.
+
+    Tracks which columns fire within a sliding window and returns pairs
+    with correlation above min_corr, for use with grow_binding().
+    """
+    if len(winner_history) < window * 2:
+        return []
+
+    # Build co-occurrence matrix
+    co_occur = torch.zeros(n_columns, n_columns)
+    counts = torch.zeros(n_columns)
+
+    for i in range(len(winner_history)):
+        w = winner_history[i]
+        if 0 <= w < n_columns:
+            counts[w] += 1
+            # Count co-occurrences within window
+            for j in range(max(0, i - window), min(len(winner_history), i + window + 1)):
+                if i != j:
+                    other = winner_history[j]
+                    if 0 <= other < n_columns and other != w:
+                        co_occur[w, other] += 1
+
+    # Compute correlation from co-occurrence
+    pairs = []
+    for a in range(n_columns):
+        if counts[a] < 3:
+            continue
+        for b in range(a + 1, n_columns):
+            if counts[b] < 3:
+                continue
+            # Jaccard-like correlation
+            joint = co_occur[a, b].item()
+            expected = counts[a].item() * counts[b].item() / max(len(winner_history), 1)
+            if expected > 0:
+                corr = joint / (expected + joint) if joint > 0 else 0.0
+                if corr >= min_corr:
+                    pairs.append((a, b, corr))
+
+    return pairs
+
+
 def _make_vector_fn(
     trainer: HECSNTrainer, encoder: RTFEncoder, cfg: HECSNConfig
 ):
@@ -319,6 +407,40 @@ def _build_concept_signatures(
         signatures[concept] = {"visual": visual, "audio": audio}
 
     return signatures
+
+
+def _select_gap_sentence(
+    plan: dict | None,
+    corpus: list[str],
+    fallback_idx: int,
+) -> str:
+    """Select a corpus sentence matching curiosity plan queries.
+
+    If the plan contains retrieval_queries, scan corpus for the sentence
+    most relevant to any query keyword. Falls back to cycling.
+    """
+    if plan is not None:
+        queries = plan.get("retrieval_queries", [])
+        keywords = []
+        for q in queries:
+            if isinstance(q, str):
+                keywords.extend(q.lower().split())
+            elif isinstance(q, dict):
+                keywords.extend(str(q.get("query", "")).lower().split())
+
+        if keywords:
+            best_score = -1
+            best_sentence = corpus[fallback_idx % len(corpus)]
+            for sentence in corpus:
+                lower = sentence.lower()
+                score = sum(1 for kw in keywords if kw in lower)
+                if score > best_score:
+                    best_score = score
+                    best_sentence = sentence
+            if best_score > 0:
+                return best_sentence
+
+    return corpus[fallback_idx % len(corpus)]
 
 
 def _concept_spikes_for_text(
@@ -814,14 +936,47 @@ def run_stage_2(
         seed=seed,
     )
 
-    # Snapshot confidence before training for growth rate computation
-    initial_confidence = 0.0
-    if trainer.model.cross_modal is not None:
-        initial_confidence = _compute_grounding_confidence(trainer.model.cross_modal)
+    # Train in chunks for per-dimension confidence tracking (§7.3 criterion 3)
+    chunk_size = max(500, n_tokens // 10)  # ~10 samples for regression
+    tokens_processed = 0
+    visual_pairs = 0
+    audio_pairs = 0
+    confidence_history: list[torch.Tensor] = []
+    winner_history: list[int] = []
 
-    tokens_processed, visual_pairs, audio_pairs = _train_multimodal_on_corpus(
-        trainer, encoder, corpus, n_tokens, signatures, dim_visual, dim_audio,
-    )
+    # Record initial per-dimension confidence
+    if trainer.model.cross_modal is not None:
+        confidence_history.append(
+            trainer.model.cross_modal.grounding_confidence().detach().clone().cpu()
+        )
+
+    while tokens_processed < n_tokens:
+        remaining = n_tokens - tokens_processed
+        this_chunk = min(chunk_size, remaining)
+        tok, vis, aud = _train_multimodal_on_corpus(
+            trainer, encoder, corpus, this_chunk, signatures, dim_visual, dim_audio,
+        )
+        tokens_processed += tok
+        visual_pairs += vis
+        audio_pairs += aud
+
+        # Track winner for column correlation (grow_binding)
+        if trainer.last_winner is not None:
+            winner_history.append(trainer.last_winner)
+
+        # Sample per-dimension confidence
+        if trainer.model.cross_modal is not None:
+            confidence_history.append(
+                trainer.model.cross_modal.grounding_confidence().detach().clone().cpu()
+            )
+
+    # grow_binding(): wire column co-activation into binding growth
+    if trainer.model.binding_layer is not None and len(winner_history) > 20:
+        high_corr_pairs = _compute_column_correlations(
+            winner_history, cfg.n_columns, window=5, min_corr=0.7,
+        )
+        if high_corr_pairs:
+            new_bindings = trainer.model.binding_layer.grow_binding(high_corr_pairs)
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     probe_result = evaluate_grounding_probe(vector_fn)
@@ -832,18 +987,27 @@ def run_stage_2(
         grounding_confidence = _compute_grounding_confidence(trainer.model.cross_modal)
 
     # Criterion 2: self-criticism find-rate < 10% over last 5 cycles
+    # Paper requires minimum 50 evaluated pairs
     find_rate = trainer.self_criticism_find_rate(last_n=5)
-    # If no cycles ran yet, treat as passing (system hasn't had
-    # enough data to self-criticize, which is fine early on)
     sc_history_len = len(trainer._self_criticism_history)
-    find_rate_ok = (sc_history_len == 0) or (find_rate < 0.10)
+    sc_pairs_total = sum(
+        e.get("checked", 0) for e in trainer._self_criticism_history
+    ) if sc_history_len > 0 else 0
+    # Require at least 50 evaluated pairs; if insufficient data, criterion
+    # is indeterminate — pass only if find_rate is zero (no known bad groundings)
+    find_rate_ok = (
+        (sc_pairs_total >= 50 and find_rate < 0.10)
+        or (sc_pairs_total < 50 and find_rate == 0.0)
+    )
 
-    # Criterion 3: grounding confidence grew during Stage 2
-    confidence_growth = grounding_confidence - initial_confidence
-    # At 5K tokens the growth rate per 1K is confidence_growth / (n_tokens / 1000)
-    tokens_k = max(1.0, tokens_processed / 1000.0)
-    growth_rate_per_k = confidence_growth / tokens_k
-    growth_ok = growth_rate_per_k > 0.001
+    # Criterion 3: active-dimension growth rate (§7.3)
+    slope_per_k, newly_grounded, active_dims = _compute_active_dim_growth(
+        confidence_history, tokens_per_sample=chunk_size,
+    )
+    # Slope > 0.001/1K AND newly-grounded > 1 per 5K tokens
+    tokens_5k = max(1.0, tokens_processed / 5000.0)
+    new_per_5k = newly_grounded / tokens_5k
+    growth_ok = slope_per_k > 0.001 and new_per_5k > 1.0
 
     # Full criteria (§7.3): all three must pass
     passed = (
@@ -864,18 +1028,21 @@ def run_stage_2(
             "abstract_accuracy": probe_result.abstract_accuracy,
             "concreteness_gap": probe_result.concreteness_gap,
             "grounding_confidence": grounding_confidence,
-            "grounding_confidence_initial": initial_confidence,
-            "confidence_growth_rate_per_k": growth_rate_per_k,
+            "active_dim_slope_per_k": slope_per_k,
+            "newly_grounded_dims": newly_grounded,
+            "active_dim_count": active_dims,
+            "new_dims_per_5k": new_per_5k,
             "self_criticism_find_rate": find_rate,
             "self_criticism_cycles": sc_history_len,
+            "self_criticism_pairs_total": sc_pairs_total,
             "visual_pairs_sent": visual_pairs,
             "audio_pairs_sent": audio_pairs,
         },
         diagnostics={
             "completion_criteria": {
                 "criterion_1_probe": f"accuracy={probe_result.total_accuracy:.2f} > 0.60: {'PASS' if probe_result.total_accuracy > 0.60 else 'FAIL'}",
-                "criterion_2_find_rate": f"find_rate={find_rate:.3f} < 0.10: {'PASS' if find_rate_ok else 'FAIL'} ({sc_history_len} cycles)",
-                "criterion_3_growth": f"growth_rate={growth_rate_per_k:.4f}/1K > 0.001: {'PASS' if growth_ok else 'FAIL'}",
+                "criterion_2_find_rate": f"find_rate={find_rate:.3f} < 0.10 (pairs={sc_pairs_total}): {'PASS' if find_rate_ok else 'FAIL'} ({sc_history_len} cycles)",
+                "criterion_3_growth": f"slope={slope_per_k:.4f}/1K > 0.001, new_per_5K={new_per_5k:.1f} > 1.0: {'PASS' if growth_ok else 'FAIL'} (active_dims={active_dims})",
             },
         },
         tokens_processed=tokens_processed,
@@ -944,7 +1111,9 @@ def run_stage_3(
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     pre_probe = evaluate_grounding_probe(vector_fn)
 
-    for cycle in range(min(10, n_tokens // 500)):
+    # Scale cycles with token budget (not capped at 10)
+    max_cycles = max(10, n_tokens // 500)
+    for cycle in range(max_cycles):
         # Update lexicon with current concept activations
         if trainer.model.abstraction_layer is not None:
             activations = trainer.model.abstraction_layer.last_activations
@@ -956,8 +1125,8 @@ def run_stage_3(
         if plan is not None:
             gap_queries_produced += len(plan.get("retrieval_queries", []))
 
-        # Train on gap-relevant sentences with multimodal spikes
-        gap_sentence = corpus[cycle % len(corpus)]
+        # Use curiosity plan to select relevant sentences instead of cycling
+        gap_sentence = _select_gap_sentence(plan, corpus, cycle)
         gap_tokens, _, _ = _train_multimodal_on_corpus(
             trainer, encoder, [gap_sentence], 50,
             signatures, dim_visual, dim_audio,
