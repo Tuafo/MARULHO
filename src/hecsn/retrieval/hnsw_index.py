@@ -82,7 +82,11 @@ class HierarchicalAssemblyIndex:
 
     def add(self, vectors: torch.Tensor, ids: np.ndarray) -> None:
         norms = torch.norm(vectors, dim=1, keepdim=True)
-        normalized = (vectors / (norms + 1e-8)).detach().cpu().numpy().astype(np.float32)
+        norm_t = vectors / (norms + 1e-8)
+        if norm_t.device.type == "cpu":
+            normalized = norm_t.numpy().astype(np.float32)
+        else:
+            normalized = norm_t.detach().cpu().numpy().astype(np.float32)
         self._torch_cache_dirty = True
         self._tq_cache_dirty = True
 
@@ -241,8 +245,10 @@ class HierarchicalAssemblyIndex:
             sims = normalized_query @ self._torch_vectors.T
             topk = min(max(1, int(k)), int(self._torch_vectors.shape[0]))
             values, indices = torch.topk(sims, k=topk, dim=1)
-            ids = self._torch_ids[indices].detach().cpu().tolist()
-            dists = (1.0 - values).detach().cpu().numpy().astype(np.float32)
+            _on_cpu = (self.device == torch.device("cpu"))
+            ids = self._torch_ids[indices].tolist() if _on_cpu else self._torch_ids[indices].cpu().tolist()
+            dists_t = 1.0 - values
+            dists = dists_t.numpy().astype(np.float32) if _on_cpu else dists_t.detach().cpu().numpy().astype(np.float32)
             return [[int(candidate_id) for candidate_id in row] for row in ids], dists
 
         if self._backend == "turboquant_plus":

@@ -1424,7 +1424,15 @@ class HECSNTrainer:
         if self.token_count % self.config.drift_floor_window_tokens == 0:
             self._close_drift_floor_window()
 
-        memory_stats = self.model.memory_store.summary_stats() if self.memory_warm_started else {}
+        # Only compute expensive telemetry every 10 steps
+        _telemetry_tick = (self.token_count % 10 == 0)
+        memory_stats = (
+            self.model.memory_store.summary_stats()
+            if self.memory_warm_started and _telemetry_tick
+            else self._cached_memory_stats if hasattr(self, "_cached_memory_stats") else {}
+        )
+        if _telemetry_tick:
+            self._cached_memory_stats = memory_stats
 
         metrics["token"] = self.token_count
         metrics["surprise"] = float(modulator)
@@ -1469,26 +1477,19 @@ class HECSNTrainer:
             if self.model.context_layer is not None
             else 1.0
         )
-        metrics["abstraction_stability_mean"] = (
-            float(self.model.abstraction_layer.concept_stability.mean().item())
-            if self.model.abstraction_layer is not None
-            else 0.0
-        )
-        metrics["abstraction_certainty_mean"] = (
-            float(self.model.abstraction_layer.concept_certainty.mean().item())
-            if self.model.abstraction_layer is not None
-            else 0.0
-        )
-        metrics["abstraction_gain_mean"] = (
-            float(self.model.abstraction_layer.routing_gain().mean().item())
-            if self.model.abstraction_layer is not None
-            else 1.0
-        )
-        metrics["abstraction_gap_score_max"] = (
-            max((float(item["gap_score"]) for item in self.model.abstraction_layer.curiosity_gaps(top_n=4)), default=0.0)
-            if self.model.abstraction_layer is not None
-            else 0.0
-        )
+        if self.model.abstraction_layer is not None and _telemetry_tick:
+            _abs_stab = float(self.model.abstraction_layer.concept_stability.mean().item())
+            _abs_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())
+            _abs_gain = float(self.model.abstraction_layer.routing_gain().mean().item())
+            _abs_gap = max((float(item["gap_score"]) for item in self.model.abstraction_layer.curiosity_gaps(top_n=4)), default=0.0)
+            self._cached_abs_metrics = (_abs_stab, _abs_cert, _abs_gain, _abs_gap)
+        elif not hasattr(self, "_cached_abs_metrics"):
+            self._cached_abs_metrics = (0.0, 0.0, 1.0, 0.0)
+        _abs_stab, _abs_cert, _abs_gain, _abs_gap = self._cached_abs_metrics
+        metrics["abstraction_stability_mean"] = _abs_stab
+        metrics["abstraction_certainty_mean"] = _abs_cert
+        metrics["abstraction_gain_mean"] = _abs_gain
+        metrics["abstraction_gap_score_max"] = _abs_gap
         metrics["binding_strength"] = float(binding_strength)
         metrics["cross_modal_visual_confidence"] = cross_modal_visual_conf
         metrics["cross_modal_audio_confidence"] = cross_modal_audio_conf
@@ -1496,8 +1497,13 @@ class HECSNTrainer:
         metrics["cross_modal_audio_accepted"] = cross_modal_audio_accepted
         metrics["developmental_stage"] = self.developmental_stage
         metrics["winner"] = int(winners[0].item())
-        metrics["active_columns"] = int((assembly > 0).sum().item())
-        metrics["sparsity"] = float((assembly > 0).float().mean().item())
+        if _telemetry_tick:
+            _active = int((assembly > 0).sum().item())
+            _sparsity = float((assembly > 0).float().mean().item())
+            self._cached_active_sparsity = (_active, _sparsity)
+        elif not hasattr(self, "_cached_active_sparsity"):
+            self._cached_active_sparsity = (0, 0.0)
+        metrics["active_columns"], metrics["sparsity"] = self._cached_active_sparsity
         metrics["memory_index"] = None if memory_index is None else int(memory_index)
         return metrics
 
