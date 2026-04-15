@@ -139,6 +139,12 @@ class LocalPlasticityCircuit:
         # Pre-compute constant decay factors (they never change)
         self._trace_decay_val = math.exp(-1.0 / max(self.trace_tau, 1e-6))
         self._eligibility_decay_val = math.exp(-1.0 / max(self.eligibility_tau, 1e-6))
+        self._triplet_decays_val = (
+            math.exp(-1.0 / max(self.triplet_tau_plus, 1e-6)),
+            math.exp(-1.0 / max(self.triplet_tau_minus, 1e-6)),
+            math.exp(-1.0 / max(self.triplet_tau_y, 1e-6)),
+            math.exp(-1.0 / max(self.triplet_tau_x, 1e-6)),
+        )
 
     def _trace_decay(self) -> float:
         return self._trace_decay_val
@@ -152,12 +158,7 @@ class LocalPlasticityCircuit:
         Per Pfister & Gerstner 2006 all-to-all model: r2 uses its own time
         constant τx (slow pre-synaptic trace), distinct from r1's τ+.
         """
-        return (
-            math.exp(-1.0 / max(self.triplet_tau_plus, 1e-6)),
-            math.exp(-1.0 / max(self.triplet_tau_minus, 1e-6)),
-            math.exp(-1.0 / max(self.triplet_tau_y, 1e-6)),
-            math.exp(-1.0 / max(self.triplet_tau_x, 1e-6)),
-        )
+        return self._triplet_decays_val
 
     def inhibition(self, candidates: torch.Tensor | None = None) -> torch.Tensor:
         if candidates is None:
@@ -190,23 +191,26 @@ class LocalPlasticityCircuit:
         winner_indices: torch.Tensor,
         winner_strengths: torch.Tensor | None,
         assembly_signal: torch.Tensor,
+        compute_metrics: bool = True,
     ) -> torch.Tensor:
         proxy_post = self._proxy_winner_activity(winner_indices, winner_strengths)
         if self.spike_backend != "adex" or self.adex_neurons is None:
-            self.last_post_spike_fraction = float((proxy_post > 0).float().mean().item())
-            self.last_mean_membrane_voltage = 0.0
+            if compute_metrics:
+                self.last_post_spike_fraction = float((proxy_post > 0).float().mean().item())
+                self.last_mean_membrane_voltage = 0.0
             return proxy_post
 
         current = 8.0 * torch.clamp(assembly_signal.to(self.device), min=0.0)
-        if float(proxy_post.sum().item()) > 0.0:
+        if proxy_post.any():
             current = current + 24.0 * proxy_post
         spikes = self.adex_neurons.step(current, t=float(self.adex_step) * float(self.adex_neurons.dt))
         self.adex_step += 1
 
         adex_post = spikes.to(torch.float32)
-        self.last_post_spike_fraction = float(adex_post.mean().item())
-        self.last_mean_membrane_voltage = float(self.adex_neurons.V.mean().item())
-        if float(adex_post.sum().item()) <= 0.0:
+        if compute_metrics:
+            self.last_post_spike_fraction = float(adex_post.mean().item())
+            self.last_mean_membrane_voltage = float(self.adex_neurons.V.mean().item())
+        if not adex_post.any():
             return proxy_post
         return _normalize_nonnegative(adex_post + 0.25 * proxy_post)
 
@@ -219,19 +223,27 @@ class LocalPlasticityCircuit:
         pre_trace: torch.Tensor,
         post_trace: torch.Tensor,
     ) -> torch.Tensor:
-        ltp = (
-            self.input_stdp_ltp
-            * torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_plus)
-            * post_signal.unsqueeze(1)
-            * pre_trace.unsqueeze(0)
-        )
+        # Sparse LTP: post_signal is only non-zero at winner columns
+        win_idx = post_signal.nonzero(as_tuple=True)[0]
+        delta = torch.zeros_like(weights)
+        if win_idx.numel() > 0:
+            w_win = weights[win_idx]
+            ltp_win = (
+                self.input_stdp_ltp
+                * torch.pow(torch.clamp(w_win, min=1e-6), self.stdp_mu_plus)
+                * post_signal[win_idx].unsqueeze(1)
+                * pre_trace.unsqueeze(0)
+            )
+            delta[win_idx] = ltp_win
+        # LTD uses post_trace (dense) — compute full
         ltd = (
             self.input_stdp_ltd
             * torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_minus)
             * post_trace.unsqueeze(1)
             * pre_signal.unsqueeze(0)
         )
-        return ltp - ltd
+        delta -= ltd
+        return delta
 
     def _triplet_stdp_delta(
         self,
@@ -244,27 +256,33 @@ class LocalPlasticityCircuit:
 
         LTP at post-spike: A2+ * r1 + A3+ * r1 * o2(t-ε)
         LTD at pre-spike:  -(A2- + A3- * r2(t-ε)) * o1 * f_sublinear(w)
-        """
-        # LTP: pair term + triplet term (modulated by o2 slow post trace)
-        pair_ltp = self.triplet_A2_plus * self.r1_trace.unsqueeze(0)  # [n_col, input_dim]
-        triplet_ltp = self.triplet_A3_plus * self.r1_trace.unsqueeze(0) * self.o2_trace.unsqueeze(1)
-        ltp = (
-            torch.pow(torch.clamp(weights, min=1e-6), self.stdp_mu_plus)
-            * post_signal.unsqueeze(1)
-            * (pair_ltp + triplet_ltp)
-        )
 
-        # LTD: sublinear depression with triplet modulation
+        Sparse optimization: LTP only computed for winner columns (post_signal
+        is non-zero only at winners), reducing [n_col × input_dim] to [k × input_dim].
+        """
+        delta = torch.zeros_like(weights)
+
+        # Sparse LTP: only winner columns have non-zero post_signal
+        win_idx = post_signal.nonzero(as_tuple=True)[0]
+        if win_idx.numel() > 0:
+            r1 = self.r1_trace  # [input_dim]
+            o2_win = self.o2_trace[win_idx]  # [k]
+            w_win = weights[win_idx]  # [k, input_dim]
+            w_pow = torch.pow(torch.clamp(w_win, min=1e-6), self.stdp_mu_plus)
+            combined = (self.triplet_A2_plus + self.triplet_A3_plus * o2_win.unsqueeze(1)) * r1.unsqueeze(0)
+            delta[win_idx] = w_pow * post_signal[win_idx].unsqueeze(1) * combined
+
+        # LTD: uses o1_trace (denser from trace accumulation) — full computation
         f_sub = 1.0 / (1.0 + torch.clamp(weights, min=1e-6))
         ltd_coeff = self.triplet_A2_minus + self.triplet_A3_minus * self.r2_trace.unsqueeze(0)
-        ltd = (
+        delta -= (
             f_sub
             * self.o1_trace.unsqueeze(1)
             * pre_signal.unsqueeze(0)
             * ltd_coeff
         )
 
-        return ltp - ltd
+        return delta
 
     def _update_triplet_traces(
         self,
@@ -323,7 +341,7 @@ class LocalPlasticityCircuit:
         routing_signal = torch.clamp(routing_key.to(self.device).float(), min=0.0)
         routing_signal = routing_signal / torch.clamp(routing_signal.sum(), min=1e-8)
 
-        post_signal = self._winner_activity(winner_indices, winner_strengths, assembly_signal)
+        post_signal = self._winner_activity(winner_indices, winner_strengths, assembly_signal, compute_metrics=compute_metrics)
 
         trace_decay = self._trace_decay()
         eligibility_decay = self._eligibility_decay()
