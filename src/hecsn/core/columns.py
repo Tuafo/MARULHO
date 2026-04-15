@@ -114,6 +114,10 @@ class CompetitiveColumnLayer:
         self._last_norm_key_id: int = -1
         self._last_norm_key_val: Optional[torch.Tensor] = None
 
+        # Step-level caches: populated by assembly_from_input, consumed by compete/process
+        self._cached_proto_sim: Optional[torch.Tensor] = None
+        self._cached_raw_drive: Optional[torch.Tensor] = None
+
         self.thresholds = torch.full((self.n_columns,), 0.5, device=self.device)
         self.target_firing_rate = 1.0 / max(1, self.n_columns)
         self.win_rate_ema = torch.full(
@@ -264,10 +268,20 @@ class CompetitiveColumnLayer:
             n = self.n_columns if candidates is None else int(candidates.numel())
             return torch.zeros(n, device=self.device)
 
-        weight_view = self.input_weights if candidates is None else self.input_weights[candidates]
-        drive = torch.mv(weight_view, input_pattern)
-        scale = torch.clamp(drive.max(), min=1e-8)
-        return drive / scale
+        if candidates is None:
+            # Full computation — cache raw values for reuse by compete()
+            drive = torch.mv(self.input_weights, input_pattern)
+            self._cached_raw_drive = drive
+            scale = torch.clamp(drive.max(), min=1e-8)
+            return drive / scale
+
+        # Candidate subset — reuse cached raw values if available
+        if self._cached_raw_drive is not None:
+            raw = self._cached_raw_drive[candidates]
+        else:
+            raw = torch.mv(self.input_weights[candidates], input_pattern)
+        scale = torch.clamp(raw.max(), min=1e-8)
+        return raw / scale
 
     def _inhibition(self, candidates: Optional[torch.Tensor] = None) -> torch.Tensor:
         thresholds = self.thresholds if candidates is None else self.thresholds[candidates]
@@ -280,6 +294,7 @@ class CompetitiveColumnLayer:
         self.last_input_pattern = self._normalized_input_pattern(input_vec)
         x = self.project_input(input_vec)
         sim = torch.mv(self.prototypes, x)
+        self._cached_proto_sim = sim  # reused by compete() and winner_assembly()
         drive = self._input_drive(self.last_input_pattern)
         combined = (1.0 - self.input_weight_blend) * sim + self.input_weight_blend * drive
         assembly = torch.relu(combined - self._inhibition())
@@ -298,12 +313,16 @@ class CompetitiveColumnLayer:
         *,
         _pre_normalized: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        x = _pre_normalized if _pre_normalized is not None else self._cached_normalize_key(routing_key)
         winners = winner_indices.long()
-
         assembly = torch.zeros(self.n_columns, device=self.device)
-        winner_proto = self.prototypes[winners]
-        assembly[winners] = torch.cosine_similarity(x.unsqueeze(0), winner_proto, dim=1)
+
+        # Reuse cached prototype similarities when available
+        if self._cached_proto_sim is not None:
+            assembly[winners] = self._cached_proto_sim[winners]
+        else:
+            x = _pre_normalized if _pre_normalized is not None else self._cached_normalize_key(routing_key)
+            winner_proto = self.prototypes[winners]
+            assembly[winners] = torch.cosine_similarity(x.unsqueeze(0), winner_proto, dim=1)
         return assembly
 
     def compete(
@@ -324,8 +343,12 @@ class CompetitiveColumnLayer:
                 "No candidates available and fallback disabled; initialize routing index first."
             )
 
-        proto = self.prototypes[candidates]
-        sim = torch.mv(proto, x)
+        # Reuse cached prototype similarities when available
+        if self._cached_proto_sim is not None:
+            sim = self._cached_proto_sim[candidates]
+        else:
+            proto = self.prototypes[candidates]
+            sim = torch.mv(proto, x)
         drive = self._input_drive(self.last_input_pattern, candidates)
         combined = (1.0 - self.input_weight_blend) * sim + self.input_weight_blend * drive
         if context_gain is not None:
@@ -361,6 +384,7 @@ class CompetitiveColumnLayer:
         prototype_lr_scale: float = 1.0,
         input_lr_scale: float = 1.0,
         update_global_state: bool = True,
+        compute_metrics: bool = True,
     ) -> torch.Tensor:
         x = self._cached_normalize_key(routing_key)
         winners = winner_indices.long()
@@ -406,6 +430,7 @@ class CompetitiveColumnLayer:
                     winner_strengths=winner_strengths,
                     modulator=modulator,
                     lr=lr * max(0.0, float(input_lr_scale)),
+                    compute_metrics=compute_metrics,
                 )
             else:
                 winner_weights = self.input_weights[winners]
@@ -461,6 +486,9 @@ class CompetitiveColumnLayer:
                     self.local_plasticity.revive_columns(revived_indices)
 
             self.update_count += int(winners.numel())
+        # Invalidate step-level caches (prototypes/weights were updated)
+        self._cached_proto_sim = None
+        self._cached_raw_drive = None
         return assembly
 
     def force_revive_dead_columns(self, routing_key: Optional[torch.Tensor] = None) -> int:

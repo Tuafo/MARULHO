@@ -134,12 +134,17 @@ class LocalPlasticityCircuit:
         self.adex_step = 0
         self.last_post_spike_fraction = 0.0
         self.last_mean_membrane_voltage = 0.0
+        self._renorm_counter = 0
+
+        # Pre-compute constant decay factors (they never change)
+        self._trace_decay_val = math.exp(-1.0 / max(self.trace_tau, 1e-6))
+        self._eligibility_decay_val = math.exp(-1.0 / max(self.eligibility_tau, 1e-6))
 
     def _trace_decay(self) -> float:
-        return math.exp(-1.0 / max(self.trace_tau, 1e-6))
+        return self._trace_decay_val
 
     def _eligibility_decay(self) -> float:
-        return math.exp(-1.0 / max(self.eligibility_tau, 1e-6))
+        return self._eligibility_decay_val
 
     def _triplet_decays(self) -> tuple[float, float, float, float]:
         """Decay constants for the four triplet traces: r1 (τ+), o1 (τ-), o2 (τy), r2 (τx).
@@ -294,6 +299,7 @@ class LocalPlasticityCircuit:
         winner_strengths: torch.Tensor | None,
         modulator: float,
         lr: float,
+        compute_metrics: bool = True,
     ) -> dict[str, float]:
         if input_pattern is None:
             return {
@@ -302,14 +308,21 @@ class LocalPlasticityCircuit:
                 "mean_synaptic_scale": float(self.synaptic_scale.mean().item()),
             }
 
-        pre_signal = _normalize_nonnegative(
-            pre_synaptic_trace.to(self.device) if pre_synaptic_trace is not None else input_pattern.to(self.device)
-        )
-        projected_signal = _normalize_nonnegative(
-            projected_input.to(self.device) if projected_input is not None else routing_key.to(self.device)
-        )
-        assembly_signal = _normalize_nonnegative(assembly.to(self.device))
-        routing_signal = _normalize_nonnegative(routing_key.to(self.device))
+        # Inline normalize_nonnegative for performance (avoids 4 function calls + .to() overhead)
+        _raw_pre = pre_synaptic_trace if pre_synaptic_trace is not None else input_pattern
+        pre_signal = torch.clamp(_raw_pre.to(self.device).float(), min=0.0)
+        pre_signal = pre_signal / torch.clamp(pre_signal.sum(), min=1e-8)
+
+        _raw_proj = projected_input if projected_input is not None else routing_key
+        projected_signal = torch.clamp(_raw_proj.to(self.device).float(), min=0.0)
+        projected_signal = projected_signal / torch.clamp(projected_signal.sum(), min=1e-8)
+
+        assembly_signal = torch.clamp(assembly.to(self.device).float(), min=0.0)
+        assembly_signal = assembly_signal / torch.clamp(assembly_signal.sum(), min=1e-8)
+
+        routing_signal = torch.clamp(routing_key.to(self.device).float(), min=0.0)
+        routing_signal = routing_signal / torch.clamp(routing_signal.sum(), min=1e-8)
+
         post_signal = self._winner_activity(winner_indices, winner_strengths, assembly_signal)
 
         trace_decay = self._trace_decay()
@@ -390,13 +403,15 @@ class LocalPlasticityCircuit:
         projection_weights.copy_(_normalize_columns(projection_weights, self.projection_norm_target))
         assembly_projection_weights.copy_(_normalize_columns(assembly_projection_weights, self.projection_norm_target))
 
-        return {
-            "modulated_update_norm": float((lr * learning_signal * self.input_eligibility).norm().item()),
-            "mean_inhibitory_tone": float(self.inhibitory_tone.mean().item()),
-            "mean_synaptic_scale": float(self.synaptic_scale.mean().item()),
-            "post_spike_fraction": float(self.last_post_spike_fraction),
-            "mean_membrane_voltage": float(self.last_mean_membrane_voltage),
-        }
+        if compute_metrics:
+            return {
+                "modulated_update_norm": float((lr * learning_signal * self.input_eligibility).norm().item()),
+                "mean_inhibitory_tone": float(self.inhibitory_tone.mean().item()),
+                "mean_synaptic_scale": float(self.synaptic_scale.mean().item()),
+                "post_spike_fraction": float(self.last_post_spike_fraction),
+                "mean_membrane_voltage": float(self.last_mean_membrane_voltage),
+            }
+        return {}
 
     def revive_columns(self, column_indices: torch.Tensor) -> None:
         if int(column_indices.numel()) == 0:

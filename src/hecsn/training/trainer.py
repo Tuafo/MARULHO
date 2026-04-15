@@ -1258,6 +1258,7 @@ class HECSNTrainer:
             winner_strengths=strengths,
             eligibility_trace=local_trace,
             assembly_projection=self.model.W_assembly_project,
+            compute_metrics=_telemetry_tick,
         )
         # Refresh transpose cache since process() modifies W_assembly_project in-place
         self.model._invalidate_projection_cache()
