@@ -181,16 +181,16 @@ class CrossModalGroundingLayer:
         prediction quality.  Inactive dimensions are unchanged (no decay
         when not observed).  Bounded [0, 1] by construction.
         """
-        predicted_visual = torch.mv(self.W_tv.T, text_assembly) if text_assembly.sum() > 0.01 else torch.zeros(self.dim_visual, device=self.device)
-        if self.visual_trace.sum() > 0.01 and predicted_visual.norm() > 1e-6:
-            pn = F.normalize(predicted_visual, dim=0)
-            vn = F.normalize(self.visual_trace, dim=0)
-            error = 1.0 - F.cosine_similarity(pn.unsqueeze(0), vn.unsqueeze(0)).item()
+        if text_assembly.sum() <= 0.01:
+            return
+        predicted_visual = torch.mv(self.W_tv.T, text_assembly)
+        vt_norm = self.visual_trace.norm()
+        pv_norm = predicted_visual.norm()
+        if vt_norm > 1e-6 and pv_norm > 1e-6:
+            cos = torch.dot(predicted_visual, self.visual_trace) / (pv_norm * vt_norm)
+            quality = cos.clamp(0.0, 1.0)
         else:
-            error = 1.0
-
-        quality = max(0.0, 1.0 - error)
-        # True EMA: only update dimensions where text is active
+            quality = 0.0
         mask = (text_assembly > 0.01).float()
         alpha_mask = self.confidence_alpha * mask
         self.visual_confidence = ((1.0 - alpha_mask) * self.visual_confidence
@@ -201,15 +201,16 @@ class CrossModalGroundingLayer:
 
         Same EMA semantics as visual confidence.
         """
-        predicted_audio = torch.mv(self.W_ta.T, text_assembly) if text_assembly.sum() > 0.01 else torch.zeros(self.dim_audio, device=self.device)
-        if self.audio_trace.sum() > 0.01 and predicted_audio.norm() > 1e-6:
-            pn = F.normalize(predicted_audio, dim=0)
-            an = F.normalize(self.audio_trace, dim=0)
-            error = 1.0 - F.cosine_similarity(pn.unsqueeze(0), an.unsqueeze(0)).item()
+        if text_assembly.sum() <= 0.01:
+            return
+        predicted_audio = torch.mv(self.W_ta.T, text_assembly)
+        at_norm = self.audio_trace.norm()
+        pa_norm = predicted_audio.norm()
+        if at_norm > 1e-6 and pa_norm > 1e-6:
+            cos = torch.dot(predicted_audio, self.audio_trace) / (pa_norm * at_norm)
+            quality = cos.clamp(0.0, 1.0)
         else:
-            error = 1.0
-
-        quality = max(0.0, 1.0 - error)
+            quality = 0.0
         mask = (text_assembly > 0.01).float()
         alpha_mask = self.confidence_alpha * mask
         self.audio_confidence = ((1.0 - alpha_mask) * self.audio_confidence

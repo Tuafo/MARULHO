@@ -77,6 +77,9 @@ class LocalPlasticityCircuit:
         self.eligibility_tau = float(eligibility_tau)
         self.stdp_mu_plus = float(stdp_mu_plus)
         self.stdp_mu_minus = float(stdp_mu_minus)
+        # Fast-path flags: skip torch.pow when mu is 0.0 (→1) or 1.0 (→w)
+        self._mu_plus_is_zero = abs(self.stdp_mu_plus) < 1e-12
+        self._mu_minus_is_one = abs(self.stdp_mu_minus - 1.0) < 1e-12
         self.synaptic_scaling_alpha = float(synaptic_scaling_alpha)
         self.inhibitory_plasticity_lr = float(inhibitory_plasticity_lr)
         self.inhibitory_decay = float(inhibitory_decay)
@@ -214,6 +217,18 @@ class LocalPlasticityCircuit:
             return proxy_post
         return _normalize_nonnegative(adex_post + 0.25 * proxy_post)
 
+    def _weight_pow_plus(self, w: torch.Tensor) -> torch.Tensor:
+        """Fast w^mu_plus: skip pow when mu_plus==0 (result is 1)."""
+        if self._mu_plus_is_zero:
+            return torch.ones_like(w)
+        return torch.pow(torch.clamp(w, min=1e-6), self.stdp_mu_plus)
+
+    def _weight_pow_minus(self, w: torch.Tensor) -> torch.Tensor:
+        """Fast w^mu_minus: skip pow when mu_minus==1 (result is w)."""
+        if self._mu_minus_is_one:
+            return torch.clamp(w, min=1e-6)
+        return torch.pow(torch.clamp(w, min=1e-6), self.stdp_mu_minus)
+
     def _log_stdp_delta(
         self,
         *,
@@ -230,7 +245,7 @@ class LocalPlasticityCircuit:
             w_win = weights[win_idx]
             ltp_win = (
                 self.input_stdp_ltp
-                * torch.pow(torch.clamp(w_win, min=1e-6), self.stdp_mu_plus)
+                * self._weight_pow_plus(w_win)
                 * post_signal[win_idx].unsqueeze(1)
                 * pre_trace.unsqueeze(0)
             )
@@ -243,7 +258,7 @@ class LocalPlasticityCircuit:
             w_active = weights[active_idx]
             ltd = (
                 self.input_stdp_ltd
-                * torch.pow(torch.clamp(w_active, min=1e-6), self.stdp_mu_minus)
+                * self._weight_pow_minus(w_active)
                 * post_trace[active_idx].unsqueeze(1)
                 * pre_signal.unsqueeze(0)
             )
@@ -273,7 +288,7 @@ class LocalPlasticityCircuit:
             r1 = self.r1_trace  # [input_dim]
             o2_win = self.o2_trace[win_idx]  # [k]
             w_win = weights[win_idx]  # [k, input_dim]
-            w_pow = torch.pow(torch.clamp(w_win, min=1e-6), self.stdp_mu_plus)
+            w_pow = self._weight_pow_plus(w_win)
             combined = (self.triplet_A2_plus + self.triplet_A3_plus * o2_win.unsqueeze(1)) * r1.unsqueeze(0)
             delta[win_idx] = w_pow * post_signal[win_idx].unsqueeze(1) * combined
 
@@ -379,11 +394,11 @@ class LocalPlasticityCircuit:
 
         projection_delta = (
             self.input_stdp_ltp
-            * torch.pow(torch.clamp(projection_weights, min=1e-6), self.stdp_mu_plus)
+            * self._weight_pow_plus(projection_weights)
             * self.pre_trace.unsqueeze(1)
             * self.projected_trace.unsqueeze(0)
             - self.input_stdp_ltd
-            * torch.pow(torch.clamp(projection_weights, min=1e-6), self.stdp_mu_minus)
+            * self._weight_pow_minus(projection_weights)
             * pre_signal.unsqueeze(1)
             * projected_signal.unsqueeze(0)
         )
@@ -391,11 +406,11 @@ class LocalPlasticityCircuit:
 
         assembly_projection_delta = (
             self.input_stdp_ltp
-            * torch.pow(torch.clamp(assembly_projection_weights, min=1e-6), self.stdp_mu_plus)
+            * self._weight_pow_plus(assembly_projection_weights)
             * self.assembly_trace.unsqueeze(1)
             * self.projected_trace.unsqueeze(0)
             - self.input_stdp_ltd
-            * torch.pow(torch.clamp(assembly_projection_weights, min=1e-6), self.stdp_mu_minus)
+            * self._weight_pow_minus(assembly_projection_weights)
             * assembly_signal.unsqueeze(1)
             * routing_signal.unsqueeze(0)
         )
