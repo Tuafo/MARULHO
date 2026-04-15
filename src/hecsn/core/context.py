@@ -117,12 +117,12 @@ class ContextLayer:
         acetylcholine: float = 0.5,
     ) -> torch.Tensor:
         prediction = _normalize(signal.to(self.device))
-        if float(prediction.sum().item()) <= 0.0:
+        if prediction.sum() <= 0.0:
             return torch.ones(self.n_columns, device=self.device)
 
         centered = prediction - prediction.mean()
         scale = torch.clamp(centered.abs().max(), min=1e-8)
-        effective_strength = self.modulation_strength * (0.5 + 0.5 * float(norepinephrine))
+        effective_strength = self.modulation_strength * (0.5 + 0.5 * norepinephrine)
         effective_strength *= 0.5 + 0.5 * float(acetylcholine)
         gain = 1.0 + effective_strength * (centered / scale)
         return torch.clamp(gain, min=0.65, max=1.35)
@@ -144,7 +144,7 @@ class ContextLayer:
     ) -> torch.Tensor:
         current = _normalize(assembly.to(self.device))
         previous_state = self.state.clone()
-        if float(current.sum().item()) <= 0.0:
+        if current.sum() <= 0.0:
             self.fast_state.mul_(1.0 - self.fast_rate)
             self.medium_state.mul_(self.decay)
             self.slow_state.mul_(self.decay)
@@ -187,7 +187,7 @@ class ContextLayer:
 
         if not update_weights:
             return self.state
-        if float(previous_state.sum().item()) <= 0.0:
+        if previous_state.sum() <= 0.0:
             return self.state
 
         hebbian_update = torch.outer(previous_state, self.state) * self.recurrent_mask
@@ -302,7 +302,7 @@ class AdaptiveContextLayer:
         return torch.exp(torch.tensor(-dt, device=self.device) / tau)
 
     def context_prediction(self) -> torch.Tensor:
-        if float(self.neuron_state.sum().item()) <= 0.0:
+        if self.neuron_state.sum() <= 0.0:
             return torch.zeros(self.n_columns, device=self.device)
 
         # SST+ inhibition
@@ -332,12 +332,12 @@ class AdaptiveContextLayer:
         acetylcholine: float = 0.5,
     ) -> torch.Tensor:
         prediction = _normalize(signal.to(self.device))
-        if float(prediction.sum().item()) <= 0.0:
+        if prediction.sum() <= 0.0:
             return torch.ones(self.n_columns, device=self.device)
 
         centered = prediction - prediction.mean()
         scale = torch.clamp(centered.abs().max(), min=1e-8)
-        effective_strength = self.modulation_strength * (0.5 + 0.5 * float(norepinephrine))
+        effective_strength = self.modulation_strength * (0.5 + 0.5 * norepinephrine)
         effective_strength *= 0.5 + 0.5 * float(acetylcholine)
         gain = 1.0 + effective_strength * (centered / scale)
         return torch.clamp(gain, min=0.65, max=1.35)
@@ -359,7 +359,7 @@ class AdaptiveContextLayer:
         else:
             self.last_precision_weight = 1.0
 
-        if float(current.sum().item()) <= 0.0:
+        if current.sum() <= 0.0:
             alpha = self._decay_factors()
             self.neuron_state = alpha * self.neuron_state
             self.state = _normalize(torch.mv(self.w_out, torch.relu(self.neuron_state)))
@@ -611,7 +611,7 @@ class BindingLayer:
         return torch.mv(self.connectivity, _normalize(signal.to(self.device))) / float(max(1, self.fan_in))
 
     def _column_prediction_from_outputs(self, outputs: torch.Tensor) -> torch.Tensor:
-        if int(outputs.numel()) == 0 or float(outputs.sum().item()) <= 0.0:
+        if outputs.numel() == 0 or outputs.sum() <= 0.0:
             return torch.zeros(self.n_columns, device=self.device)
         predicted = torch.mv(self.output_weights.t(), outputs)
         source_support = torch.mv(self.connectivity.t(), outputs) / float(max(1, self.fan_in))
@@ -641,9 +641,9 @@ class BindingLayer:
 
     def _binding_prediction(self, context_prediction: torch.Tensor) -> torch.Tensor:
         context = _normalize(context_prediction.to(self.device))
-        if float(context.sum().item()) <= 0.0:
+        if context.sum() <= 0.0:
             return torch.zeros(self.n_columns, device=self.device)
-        if float(self.binding_usage.max().item()) <= 1e-6:
+        if self.binding_usage.max() <= 1e-6:
             return torch.zeros(self.n_columns, device=self.device)
         predicted_outputs = self._context_drive(context) * self.binding_usage
         return self._column_prediction_from_outputs(predicted_outputs)
@@ -656,7 +656,7 @@ class BindingLayer:
 
     def modulation_gain_for_context(self, context_prediction: torch.Tensor) -> torch.Tensor:
         prediction = self._binding_prediction(context_prediction)
-        if float(prediction.sum().item()) <= 0.0:
+        if prediction.sum() <= 0.0:
             return torch.ones(self.n_columns, device=self.device)
 
         centered = prediction - prediction.mean()
@@ -688,7 +688,9 @@ class BindingLayer:
     ) -> tuple[torch.Tensor, float]:
         context = _normalize(context_prediction.to(self.device))
         current = _normalize(assembly.to(self.device))
-        if float(context.sum().item()) <= 0.0 or float(current.sum().item()) <= 0.0:
+        ctx_sum = context.sum()
+        cur_sum = current.sum()
+        if ctx_sum <= 0.0 or cur_sum <= 0.0:
             self.coincidence_trace *= max(0.0, 1.0 - 1.0 / self.tau_binding)
             self.binding_state.zero_()
             self.binding_outputs.zero_()
@@ -697,7 +699,7 @@ class BindingLayer:
         context_drive = self._context_drive(context)
         current_drive = self._context_drive(current)
         joint_drive = torch.minimum(context_drive, current_drive)
-        context_gate = 0.5 + 0.5 * float(context.max().item())
+        context_gate = 0.5 + 0.5 * context.max()
         release = self._update_stp(joint_drive) * context_gate
         self.coincidence_trace = torch.clamp(
             self.coincidence_trace * max(0.0, 1.0 - 1.0 / self.tau_binding) + release,
@@ -705,22 +707,19 @@ class BindingLayer:
         )
 
         learned_prediction = self._binding_prediction(context)
-        activity_sum = float(release.sum().item())
-        pv_excess = max(0.0, activity_sum - self.pv_threshold)
-        self.pv_inhibition = torch.tensor(
-            0.85 * float(self.pv_inhibition.item()) + self.pv_gain * pv_excess,
-            device=self.device,
-        )
+        activity_sum = release.sum()
+        pv_excess = torch.clamp(activity_sum - self.pv_threshold, min=0.0)
+        self.pv_inhibition = 0.85 * self.pv_inhibition + self.pv_gain * pv_excess
 
         self.binding_outputs = torch.relu(
-            self.coincidence_trace + 0.50 * joint_drive - self.threshold - float(self.pv_inhibition.item())
+            self.coincidence_trace + 0.50 * joint_drive - self.threshold - self.pv_inhibition
         )
         column_support = self._column_prediction_from_outputs(self.binding_outputs)
         bound = torch.relu(
             current
             + self.gain_strength * column_support
             + 0.50 * self.gain_strength * learned_prediction
-            - float(self.pv_inhibition.item()) * current.mean()
+            - self.pv_inhibition * current.mean()
         )
         strength_signal = column_support + 0.50 * learned_prediction
         strength = float(torch.minimum(current, strength_signal).sum().item())
@@ -740,7 +739,7 @@ class BindingLayer:
                 max=1.0,
             )
 
-        if float(bound.sum().item()) <= 0.0:
+        if bound.sum() <= 0.0:
             self.binding_state.zero_()
             return torch.zeros_like(bound), strength
 
