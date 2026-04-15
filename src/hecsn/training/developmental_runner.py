@@ -133,7 +133,10 @@ def _make_vector_fn(
 
         cross_modal = trainer.model.cross_modal
         if cross_modal is None:
-            return routing_key
+            return routing_key.cpu()
+
+        # Probe runs on CPU regardless of model device
+        routing_key = routing_key.cpu()
 
         # Per-word grounding confidence
         word = text.lower().strip()
@@ -148,14 +151,14 @@ def _make_vector_fn(
         aud_sig = trainer.word_audio_signature.get(word)
 
         if vis_sig is not None:
-            vis_centered = vis_sig - vis_sig.mean()
+            vis_centered = vis_sig.cpu() - vis_sig.cpu().mean()
             vis_n = vis_centered.norm()
             vis_part = (vis_centered / vis_n) * word_conf if vis_n > 1e-8 else vis_centered
         else:
             vis_part = torch.zeros(cfg.cross_modal_dim_visual)
 
         if aud_sig is not None:
-            aud_centered = aud_sig - aud_sig.mean()
+            aud_centered = aud_sig.cpu() - aud_sig.cpu().mean()
             aud_n = aud_centered.norm()
             aud_part = (aud_centered / aud_n) * word_conf if aud_n > 1e-8 else aud_centered
         else:
