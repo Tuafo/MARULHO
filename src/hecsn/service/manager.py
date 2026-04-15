@@ -31,8 +31,8 @@ from hecsn.training.query_runner import build_query_result, feed_text
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
-DEFAULT_BRAIN_TICK_TOKENS = 128
-DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.25
+DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
 DEFAULT_AUTONOMY_REMOTE_PROVIDERS: tuple[str, ...] = ("wikipedia", "arxiv", "openalex")
@@ -236,15 +236,27 @@ class HECSNServiceManager:
 
     def telemetry_snapshot(self) -> dict[str, Any]:
         with self._lock:
+            # Cache-invalidation: only rebuild when state changes
+            current_rev = int(self._state_revision)
+            cached = getattr(self, "_cached_telemetry", None)
+            cached_rev = getattr(self, "_cached_telemetry_rev", -1)
+            if cached is not None and cached_rev == current_rev:
+                return cached
+
             memory_store = self._trainer.model.memory_store.summary_stats()
             last_trace = self._trace_history[0] if self._trace_history else None
-            drift_bucket = self._trainer.last_winner if self._trainer.config.use_winner_local_drift else None
-            drift_value = self._trainer.model.memory_store.compute_drift(drift_bucket)
-            return {
+            drift_value = (
+                self._trainer._cached_drift
+                if self._trainer._cached_drift is not None
+                else self._trainer.model.memory_store.compute_drift(
+                    self._trainer.last_winner if self._trainer.config.use_winner_local_drift else None
+                )
+            )
+            snapshot = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "checkpoint_path": str(self._checkpoint_path),
                 "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                "state_revision": current_rev,
                 "token_count": int(self._trainer.token_count),
                 "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
                 "context_state_norm": float(torch.norm(self._trainer.context_state().float()).item()),
@@ -271,6 +283,9 @@ class HECSNServiceManager:
                 "animation": self._animation_snapshot_locked(),
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
             }
+            self._cached_telemetry = snapshot
+            self._cached_telemetry_rev = current_rev
+            return snapshot
 
     def checkpoint_list(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -1494,8 +1509,17 @@ class HECSNServiceManager:
             if stop_event is None or stop_event.is_set():
                 break
             try:
+                tick_start = time.perf_counter()
                 with self._lock:
-                    self._brain_tick_locked()
+                    result = self._brain_tick_locked()
+                tick_elapsed = time.perf_counter() - tick_start
+                # Adaptive sleep: if tick did work, minimal sleep to stay responsive.
+                # If tick was idle (no sources), use configured sleep to avoid busy-wait.
+                did_work = result.get("did_work", False) if isinstance(result, dict) else False
+                if did_work:
+                    actual_sleep = max(0.001, sleep_interval * 0.1)
+                else:
+                    actual_sleep = max(0.05, sleep_interval)
             except Exception as exc:
                 with self._lock:
                     self._brain_last_error = str(exc)
@@ -1506,7 +1530,7 @@ class HECSNServiceManager:
                     })
                     self._request_brain_stop_locked(reason="error")
                 break
-            time.sleep(max(0.01, sleep_interval))
+            time.sleep(actual_sleep)
 
     def _brain_tick_locked(self) -> dict[str, Any]:
         tick_started = time.perf_counter()
@@ -1759,6 +1783,11 @@ class HECSNServiceManager:
             "last_tick_completed_at": self._brain_last_tick_completed_at,
             "last_tick_duration_ms": self._brain_last_tick_duration_ms,
             "last_tick_token_delta": int(self._brain_last_tick_token_delta),
+            "tokens_per_second": float(
+                (self._brain_last_tick_token_delta / (self._brain_last_tick_duration_ms / 1000.0))
+                if self._brain_last_tick_duration_ms and self._brain_last_tick_duration_ms > 0
+                else 0.0
+            ),
             "last_work_at": self._brain_last_work_at,
             "last_error": self._brain_last_error,
             "last_event": deepcopy(self._brain_last_event),

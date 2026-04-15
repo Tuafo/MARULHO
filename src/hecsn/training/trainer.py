@@ -179,9 +179,14 @@ class HECSNModelLite:
         )
         self.W_assembly_project.log_normal_(mean=-2.3, std=0.5)
         self.W_assembly_project = F.normalize(self.W_assembly_project, dim=0) * self.config.projection_norm_target
+        self._W_assembly_project_t = self.W_assembly_project.t().contiguous()
 
         init_ids = np.arange(self.config.n_columns, dtype=np.int64)
         self.hnsw_index.add(self.competitive.prototypes.detach(), init_ids)
+
+    def _invalidate_projection_cache(self) -> None:
+        """Call after modifying W_assembly_project to refresh the transpose cache."""
+        self._W_assembly_project_t = self.W_assembly_project.t().contiguous()
 
     def routing_key_from_pattern(self, pattern_vec: torch.Tensor) -> torch.Tensor:
         """Route using spike-proxy assembly activations projected to latent space."""
@@ -192,7 +197,7 @@ class HECSNModelLite:
             if projected is None:
                 projected = self.competitive.project_input(x)
             return F.normalize(projected, dim=0)
-        routing_key = torch.mv(self.W_assembly_project.t(), assembly)
+        routing_key = torch.mv(self._W_assembly_project_t, assembly)
         return F.normalize(routing_key, dim=0)
 
     def runtime_scope_report(self) -> dict[str, Any]:
@@ -288,6 +293,7 @@ class HECSNTrainer:
         self.pending_emergency_deep_sleep = False
         self.last_network_reset_token: int = -10**9
         self._exploration_noise_scale: float = 1.0
+        self._cached_drift: float | None = None
         self._dead_column_census: dict[str, int | float] = {}
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
@@ -387,15 +393,17 @@ class HECSNTrainer:
 
         qualities: list[float] = []
         cm = self.model.cross_modal
+        dev = cm.device
         if actual_visual is not None and actual_visual.norm() > 1e-6:
             pred = cm.predict_visual(text_spike)
+            av = actual_visual.to(dev)
             if pred.norm() > 1e-6:
                 cos = F.cosine_similarity(
-                    pred.unsqueeze(0), actual_visual.unsqueeze(0),
+                    pred.unsqueeze(0), av.unsqueeze(0),
                 ).item()
                 qualities.append(max(0.0, cos))
             # Accumulate per-word visual signature (EMA)
-            v = actual_visual.detach()
+            v = av.detach()
             if word in self.word_visual_signature:
                 a = self._word_sig_alpha
                 self.word_visual_signature[word] = (
@@ -406,13 +414,14 @@ class HECSNTrainer:
 
         if actual_audio is not None and actual_audio.norm() > 1e-6:
             pred = cm.predict_audio(text_spike)
+            aa = actual_audio.to(dev)
             if pred.norm() > 1e-6:
                 cos = F.cosine_similarity(
-                    pred.unsqueeze(0), actual_audio.unsqueeze(0),
+                    pred.unsqueeze(0), aa.unsqueeze(0),
                 ).item()
                 qualities.append(max(0.0, cos))
             # Accumulate per-word audio signature (EMA)
-            a_sig = actual_audio.detach()
+            a_sig = aa.detach()
             if word in self.word_audio_signature:
                 a = self._word_sig_alpha
                 self.word_audio_signature[word] = (
@@ -905,7 +914,7 @@ class HECSNTrainer:
             elif replay_input is not None:
                 routing_key = self.model.routing_key_from_pattern(replay_input)
             else:
-                routing_key = torch.mv(self.model.W_assembly_project.t(), assembly)
+                routing_key = torch.mv(self.model._W_assembly_project_t, assembly)
                 routing_key = F.normalize(routing_key, dim=0)
 
             context_prediction, context_gain = self._context_prediction_and_gain()
@@ -972,6 +981,7 @@ class HECSNTrainer:
                 input_lr_scale=input_lr_scale,
                 update_global_state=False,
             )
+            self.model._invalidate_projection_cache()
             if mode == "deep":
                 self._apply_column_anchors(
                     [int(winner.item())],
@@ -1086,9 +1096,15 @@ class HECSNTrainer:
         context_prediction = None
         binding_strength = 0.0
 
-        drift_bucket = self.last_winner if self.config.use_winner_local_drift else None
-        drift = self.model.memory_store.compute_drift(drift_bucket)
-        floor_rising = self._update_rolling_drift_floor(drift)
+        # Drift computation is expensive; only recompute every N steps
+        if self.token_count % 50 == 0 or self._cached_drift is None:
+            drift_bucket = self.last_winner if self.config.use_winner_local_drift else None
+            drift = self.model.memory_store.compute_drift(drift_bucket)
+            self._cached_drift = drift
+            floor_rising = self._update_rolling_drift_floor(drift)
+        else:
+            drift = self._cached_drift
+            floor_rising = False
         sleep_type = "none"
         replay_updates = 0
         deep_sleep_emergency = False
@@ -1182,6 +1198,14 @@ class HECSNTrainer:
 
         context_prediction, context_gain = self._context_prediction_and_gain()
 
+        # Combine context gain with abstraction routing gain (curiosity-driven bias)
+        if self.model.abstraction_layer is not None and self.model.abstraction_layer.updates > 0:
+            abstraction_gain = self.model.abstraction_layer.routing_gain()
+            if context_gain is not None:
+                context_gain = context_gain * abstraction_gain
+            else:
+                context_gain = abstraction_gain
+
         candidate_ids, _ = self.model.hnsw_index.search(
             routing_key.unsqueeze(0),
             k=self.config.k_routing,
@@ -1229,6 +1253,8 @@ class HECSNTrainer:
             eligibility_trace=local_trace,
             assembly_projection=self.model.W_assembly_project,
         )
+        # Refresh transpose cache since process() modifies W_assembly_project in-place
+        self.model._invalidate_projection_cache()
         abstraction_input = assembly.clone()
         if self.model.abstraction_layer is not None:
             self.model.abstraction_layer.observe(

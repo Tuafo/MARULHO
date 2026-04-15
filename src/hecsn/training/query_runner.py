@@ -476,6 +476,39 @@ def build_context_comparison(
     }
 
 
+def _cross_modal_query_predictions(trainer: HECSNTrainer, pattern_vec: torch.Tensor) -> dict[str, Any]:
+    """Generate cross-modal predictions for a query pattern.
+
+    Uses the trained cross-modal grounding layer to predict what visual/audio
+    patterns should accompany the given text pattern, enabling inference-time
+    cross-modal reasoning. pattern_vec must be input_dim-sized (the raw
+    representation vector, not the routing key).
+    """
+    cross_modal = trainer.model.cross_modal
+    if cross_modal is None:
+        return {"available": False}
+    text_assembly = F.normalize(pattern_vec.detach().unsqueeze(0), dim=1).squeeze(0).to(trainer.model.device)
+    predicted_visual = cross_modal.predict_visual(text_assembly)
+    predicted_audio = cross_modal.predict_audio(text_assembly)
+    result: dict[str, Any] = {"available": True}
+    if predicted_visual is not None:
+        result["visual_prediction_norm"] = float(predicted_visual.norm().item())
+        result["visual_prediction_top5"] = predicted_visual.abs().topk(min(5, predicted_visual.numel())).values.tolist()
+    else:
+        result["visual_prediction_norm"] = 0.0
+    if predicted_audio is not None:
+        result["audio_prediction_norm"] = float(predicted_audio.norm().item())
+        result["audio_prediction_top5"] = predicted_audio.abs().topk(min(5, predicted_audio.numel())).values.tolist()
+    else:
+        result["audio_prediction_norm"] = 0.0
+    result["word_grounding"] = {
+        word: round(conf, 4)
+        for word, conf in trainer.word_grounding_confidence.items()
+        if conf > 0.01
+    }
+    return result
+
+
 def build_query_result(
     trainer: HECSNTrainer,
     checkpoint: Path,
@@ -563,6 +596,7 @@ def build_query_result(
                 winner_column=int(winner),
                 memory_matches=decode_matches,
             ),
+            "cross_modal_predictions": _cross_modal_query_predictions(trainer, pattern_vec),
         }
 
     if compare_context_a is not None and compare_context_b is not None and query_text_resolved is not None:

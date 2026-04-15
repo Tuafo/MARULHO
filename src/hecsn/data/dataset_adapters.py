@@ -390,6 +390,10 @@ class PairedDigitDataset:
         digit, vis_idx, aud_idx = self._pairs[idx]
         frames = self.visual.frames(vis_idx)
         chunks = self.audio.chunks(aud_idx, self.n_steps, self.audio_chunk_size)
+        # Normalize visual frames to n_steps by uniform sampling
+        if len(frames) != self.n_steps:
+            indices = torch.linspace(0, len(frames) - 1, self.n_steps).long().tolist()
+            frames = [frames[i] for i in indices]
         return DigitEpisode(
             digit=digit,
             text=DIGIT_NAMES[digit],
