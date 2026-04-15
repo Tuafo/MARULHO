@@ -1198,13 +1198,14 @@ class HECSNTrainer:
 
         context_prediction, context_gain = self._context_prediction_and_gain()
 
-        # Combine context gain with abstraction routing gain (curiosity-driven bias)
-        if self.model.abstraction_layer is not None and self.model.abstraction_layer.updates > 0:
-            abstraction_gain = self.model.abstraction_layer.routing_gain()
-            if context_gain is not None:
-                context_gain = context_gain * abstraction_gain
-            else:
-                context_gain = abstraction_gain
+        # Curiosity-driven routing bias (§3.1): boost columns for uncertain concepts
+        if self.model.abstraction_layer is not None:
+            curiosity_gain = self.model.abstraction_layer.curiosity_routing_gain()
+            if curiosity_gain is not None:
+                if context_gain is not None:
+                    context_gain = torch.clamp(context_gain * curiosity_gain, min=0.5, max=1.5)
+                else:
+                    context_gain = curiosity_gain
 
         candidate_ids, _ = self.model.hnsw_index.search(
             routing_key.unsqueeze(0),

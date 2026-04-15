@@ -349,7 +349,7 @@ def novelty_coverage_curve(
         "saturation_detected": bool(final_rate is not None and final_rate < saturation_threshold),
         "instability_detected": bool(final_rate is not None and final_rate > instability_threshold),
         "healthy_range": {"min": healthy_min, "max": healthy_max},
-        "healthy_final_range": bool(final_rate is not None and healthy_min < final_rate < healthy_max),
+        "healthy_final_range": bool(final_rate is not None and healthy_min <= final_rate <= healthy_max),
     }
 
 

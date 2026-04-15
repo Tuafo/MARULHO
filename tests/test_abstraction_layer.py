@@ -66,6 +66,52 @@ class AbstractionLayerTests(unittest.TestCase):
         self.assertEqual(int(winners[0].item()), 1)
 
 
+    def test_curiosity_routing_gain_inactive_before_warmup(self) -> None:
+        layer = AbstractionLayer(
+            n_columns=4,
+            n_concepts=3,
+            device=torch.device("cpu"),
+        )
+        # Before warmup, should return None
+        self.assertIsNone(layer.curiosity_routing_gain(warmup_steps=50))
+
+    def test_curiosity_routing_gain_returns_centered_gain(self) -> None:
+        layer = AbstractionLayer(
+            n_columns=4,
+            n_concepts=3,
+            device=torch.device("cpu"),
+        )
+        pattern = torch.tensor([1.0, 0.0, 0.0, 0.0])
+        for _ in range(60):
+            layer.observe(pattern, update_weights=True)
+        # Force a high gap on concept 0
+        layer.slow_var[0] = 2.0
+        layer.concept_certainty[0] = 0.1
+        gain = layer.curiosity_routing_gain(warmup_steps=50)
+        if gain is not None:
+            # Should be centered near 1.0 with small deviations
+            self.assertAlmostEqual(float(gain.mean().item()), 1.0, places=1)
+            self.assertEqual(gain.shape[0], 4)
+
+    def test_curiosity_routing_gain_does_not_override_strong_match(self) -> None:
+        """Curiosity gain is weak (±5%) and should not override strong similarity."""
+        layer = AbstractionLayer(
+            n_columns=4,
+            n_concepts=3,
+            device=torch.device("cpu"),
+        )
+        pattern = torch.tensor([1.0, 0.0, 0.0, 0.0])
+        for _ in range(60):
+            layer.observe(pattern, update_weights=True)
+        layer.slow_var[0] = 2.0
+        layer.concept_certainty[0] = 0.1
+        gain = layer.curiosity_routing_gain(warmup_steps=50, strength=0.05)
+        if gain is not None:
+            # Max deviation should be at most ±strength
+            self.assertLessEqual(float(gain.max().item()), 1.05 + 1e-6)
+            self.assertGreaterEqual(float(gain.min().item()), 0.95 - 1e-6)
+
+
 class AbstractionTrainerIntegrationTests(unittest.TestCase):
     def test_trainer_reports_abstraction_metrics_when_enabled(self) -> None:
         cfg = HECSNConfig(

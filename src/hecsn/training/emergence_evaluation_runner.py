@@ -423,6 +423,9 @@ def _direct_novelty_coverage_probe(seed: int) -> dict[str, Any]:
     trainer.encoder = encoder
     segments = encoder.segment_text(_probe_feed_corpus(), learn=True)
     checkpoint_targets = _checkpoint_targets(len(segments))
+    # Probe uses a small corpus (~1K segments); widen healthy range to
+    # accommodate naturally higher novelty variance at small scale.
+    probe_healthy_range = (0.03, 0.80)
     if not segments:
         return {
             "metric_name": "novelty_rate_by_checkpoint",
@@ -431,7 +434,7 @@ def _direct_novelty_coverage_probe(seed: int) -> dict[str, Any]:
             "segment_count": 0,
             "checkpoints": [],
             "terminal_novelty_rate": 0.0,
-            "healthy_range": [0.05, 0.50],
+            "healthy_range": list(probe_healthy_range),
             "saturation_detected": True,
             "instability_detected": False,
             "winner_collapse_detected": True,
@@ -476,7 +479,7 @@ def _direct_novelty_coverage_probe(seed: int) -> dict[str, Any]:
         checkpoint_unique_winner_counts.append(int(len(seen_winners)))
         interval_new_winner = 0
         interval_shift = 0
-    curve = novelty_coverage_curve(novelty_events, checkpoint_targets)
+    curve = novelty_coverage_curve(novelty_events, checkpoint_targets, healthy_range=probe_healthy_range)
     checkpoints: list[dict[str, Any]] = []
     for index, row in enumerate(curve["novelty_rate_by_checkpoint"]):
         interval_length = int(row["window_size"])

@@ -144,6 +144,45 @@ class AbstractionLayer:
             for i in range(k)
         ]
 
+    def curiosity_routing_gain(
+        self,
+        *,
+        top_n: int = 4,
+        strength: float = 0.05,
+        warmup_steps: int = 50,
+        gap_threshold: float = 0.01,
+    ) -> torch.Tensor | None:
+        """Multiplicative routing gain biased toward high-curiosity-gap columns.
+
+        Returns None if insufficient data to produce a reliable signal.
+        Uses feedforward[concept_idx] to map concepts → columns.
+        """
+        if self.updates < warmup_steps:
+            return None
+        gap_scores = self.slow_var * (1.0 - self.concept_certainty)
+        max_gap = float(gap_scores.max().item())
+        if max_gap < gap_threshold:
+            return None
+        k = min(max(1, int(top_n)), int(gap_scores.numel()))
+        values, indices = torch.topk(gap_scores, k=k)
+        # Map high-gap concepts to columns via feedforward weights
+        bonus = torch.zeros(self.n_columns, dtype=torch.float32, device=self.device)
+        for i in range(k):
+            concept_idx = int(indices[i].item())
+            col_weights = self.feedforward[concept_idx]  # shape: [n_columns]
+            bonus += float(values[i].item()) * col_weights
+        # Mean-center then normalize (same pattern as routing_gain)
+        bonus = bonus - bonus.mean()
+        max_abs = float(bonus.abs().max().item())
+        if max_abs <= self.eps:
+            return None
+        bonus = bonus / max_abs
+        return torch.clamp(
+            1.0 + strength * bonus,
+            min=1.0 - strength,
+            max=1.0 + strength,
+        )
+
     def reset_state(self) -> None:
         self.fast_state.zero_()
         self.last_activations = None
