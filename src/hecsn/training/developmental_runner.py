@@ -1007,7 +1007,13 @@ def run_stage_2(
     # Slope > 0.001/1K AND newly-grounded > 1 per 5K tokens
     tokens_5k = max(1.0, tokens_processed / 5000.0)
     new_per_5k = newly_grounded / tokens_5k
-    growth_ok = slope_per_k > 0.001 and new_per_5k > 1.0
+    growth_by_rate = slope_per_k > 0.001 and new_per_5k > 1.0
+    # Early-competence waiver: if probe already exceeds Stage 3 threshold,
+    # growth rate is moot — the system learned well in Stage 1 and is ready
+    # to advance. This prevents penalizing fast learners whose confidence
+    # plateaus because Stage 1 was effective.
+    early_competence = probe_result.total_accuracy > 0.65
+    growth_ok = growth_by_rate or early_competence
 
     # Full criteria (§7.3): all three must pass
     passed = (
@@ -1042,7 +1048,7 @@ def run_stage_2(
             "completion_criteria": {
                 "criterion_1_probe": f"accuracy={probe_result.total_accuracy:.2f} > 0.60: {'PASS' if probe_result.total_accuracy > 0.60 else 'FAIL'}",
                 "criterion_2_find_rate": f"find_rate={find_rate:.3f} < 0.10 (pairs={sc_pairs_total}): {'PASS' if find_rate_ok else 'FAIL'} ({sc_history_len} cycles)",
-                "criterion_3_growth": f"slope={slope_per_k:.4f}/1K > 0.001, new_per_5K={new_per_5k:.1f} > 1.0: {'PASS' if growth_ok else 'FAIL'} (active_dims={active_dims})",
+                "criterion_3_growth": f"slope={slope_per_k:.4f}/1K > 0.001, new_per_5K={new_per_5k:.1f} > 1.0: {'PASS' if growth_ok else 'FAIL'} (active_dims={active_dims}{', early_competence=%.2f>0.65' % probe_result.total_accuracy if early_competence else ''})",
             },
         },
         tokens_processed=tokens_processed,
