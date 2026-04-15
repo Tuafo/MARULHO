@@ -41,6 +41,8 @@ class LearnedChunkingLayer:
         self.max_chunk_len = int(max_chunk_len)
         self.similarity_floor = float(similarity_floor)
         self.boundary_threshold = float(boundary_threshold)
+        self._base_boundary_threshold = float(boundary_threshold)
+        self._abstraction_bias: float = 0.0  # top-down bias from Abstraction Layer
         self.update_lr = float(update_lr)
         self.association_blend = float(association_blend)
         self.association_lr = float(association_lr)
@@ -51,6 +53,20 @@ class LearnedChunkingLayer:
         self.usage = torch.zeros(self.n_detectors, dtype=torch.float32)
         self.associations = torch.zeros(self.n_detectors, self.n_detectors, dtype=torch.float32)
         self._bit_shifts = torch.arange(8, dtype=torch.int64)
+
+    def set_abstraction_bias(self, mean_certainty: float, max_gap_score: float) -> None:
+        """Top-down boundary bias from Abstraction Layer (§3.1).
+
+        High uncertainty (low certainty, high gap) → lower threshold → finer chunks.
+        High certainty (low gap) → higher threshold → coarser chunks.
+        Bias range: ±30% of base threshold.
+        """
+        # Certainty in [0,1]; gap_score unbounded but typically [0,2]
+        certainty = max(0.0, min(1.0, float(mean_certainty)))
+        gap = max(0.0, min(2.0, float(max_gap_score)))
+        # Positive bias → raise threshold (coarser), negative → lower (finer)
+        self._abstraction_bias = 0.3 * (certainty - 0.5 * gap)
+        self.boundary_threshold = self._base_boundary_threshold * (1.0 + self._abstraction_bias)
 
     @staticmethod
     def is_separator(code: int) -> bool:

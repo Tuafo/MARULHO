@@ -1263,6 +1263,12 @@ class HECSNTrainer:
                 update_weights=True,
                 precision_weight=self._context_precision_weight(),
             )
+            # Top-down boundary bias: Abstraction Layer → Chunking Layer (§3.1)
+            if getattr(self.encoder, "uses_learned_chunking", False):
+                gaps = self.model.abstraction_layer.curiosity_gaps(top_n=1)
+                max_gap = float(gaps[0]["gap_score"]) if gaps else 0.0
+                mean_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())
+                self.encoder.learned_chunking.set_abstraction_bias(mean_cert, max_gap)
         assembly, binding_strength = self._apply_binding(
             assembly,
             context_prediction,

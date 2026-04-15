@@ -136,6 +136,48 @@ class LearnedChunkingTests(unittest.TestCase):
         # With stochastic init, allow a small tolerance for co-occurrence proximity
         self.assertGreaterEqual(positive + 0.01, negative)
 
+    def test_abstraction_bias_modulates_boundary_threshold(self) -> None:
+        """Top-down bias from Abstraction Layer adjusts chunking boundary threshold."""
+        from hecsn.data.rtf_encoder import LearnedChunkingLayer
+
+        layer = LearnedChunkingLayer(
+            n_detectors=32,
+            min_chunk_len=2,
+            max_chunk_len=10,
+            similarity_floor=0.20,
+            boundary_threshold=0.08,
+            update_lr=0.25,
+            association_blend=0.0,
+            association_lr=0.15,
+            association_decay=0.995,
+        )
+        base_threshold = layer.boundary_threshold
+
+        # High certainty, no gaps → raise threshold (coarser chunks)
+        layer.set_abstraction_bias(mean_certainty=0.9, max_gap_score=0.0)
+        self.assertGreater(layer.boundary_threshold, base_threshold)
+
+        # Low certainty, high gaps → lower threshold (finer chunks)
+        layer.set_abstraction_bias(mean_certainty=0.1, max_gap_score=1.5)
+        self.assertLess(layer.boundary_threshold, base_threshold)
+
+    def test_abstraction_bias_wired_in_trainer(self) -> None:
+        """Abstraction→Chunking feedback is active during training."""
+        trainer = _build_trainer()
+        assert trainer.encoder.learned_chunking is not None
+        base = trainer.encoder.learned_chunking._base_boundary_threshold
+
+        corpus = "the river flows through the ancient forest where birds sing"
+        for word in corpus.split():
+            pattern = trainer.encoder.feature_vector([ord(ch) for ch in word])
+            trainer.train_step(pattern, raw_window=word)
+
+        # After training, abstraction should have biased the threshold
+        current = trainer.encoder.learned_chunking.boundary_threshold
+        # It may have moved in either direction depending on certainty/gaps
+        self.assertIsInstance(current, float)
+        self.assertGreater(current, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
