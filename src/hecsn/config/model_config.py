@@ -282,6 +282,8 @@ class HECSNConfig:
             raise ValueError("binding_pv_gain must be non-negative")
         if self.enable_binding_layer and self.n_columns < 2:
             raise ValueError("enable_binding_layer requires at least 2 columns")
+        if self.enable_binding_layer and not self.enable_context_layer:
+            raise ValueError("enable_binding_layer requires enable_context_layer=True")
         if not 0.0 < self.stc_tag_decay <= 1.0:
             raise ValueError("stc_tag_decay must be in (0, 1]")
         if not 0.0 <= self.stc_capture_release <= 1.0:

@@ -118,6 +118,11 @@ _BASE_MECHANISM_VALIDATION_PRESET = _preset(
 )
 
 _CONTEXT_BINDING_PRESET = {
+    "enable_context_layer": True,
+    "enable_binding_layer": True,
+    "context_mode": "adaptive",
+    "plasticity_mode": "local_stdp",
+    "plasticity_rule": "triplet",
     "context_decay": 0.92,
     "context_transition_lr": 0.05,
     "context_modulation_strength": 0.60,

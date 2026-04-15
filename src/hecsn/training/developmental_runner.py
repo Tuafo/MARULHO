@@ -72,8 +72,9 @@ def _make_config_for_stage(
 ) -> HECSNConfig:
     """Create a model config appropriate for the given developmental stage.
 
-    Activates the mechanisms each stage depends on:
-      All stages: cross-modal, adaptive context, triplet STDP
+    Activates layers progressively following the developmental protocol:
+      All stages: context layer (adaptive), cross-modal, full triplet STDP
+      Stage 2+: binding layer (requires grounded associations from Stage 1)
       Stage 3+: abstraction layer (needed for curiosity controller)
 
     Never mutates the caller's config — always returns a fresh copy.
@@ -81,8 +82,12 @@ def _make_config_for_stage(
     import copy
     cfg = copy.deepcopy(base_config) if base_config is not None else HECSNConfig()
     cfg.context_mode = "adaptive"
+    cfg.enable_context_layer = True
     cfg.plasticity_rule = "triplet"
+    cfg.plasticity_mode = "local_stdp"
     cfg.enable_cross_modal = True
+    if stage >= 2:
+        cfg.enable_binding_layer = True
     if stage >= 3:
         cfg.enable_abstraction_layer = True
     return cfg
@@ -762,6 +767,25 @@ def run_stage_2(
         cfg = _make_config_for_stage(2, state.config)
         trainer.config = cfg
         trainer.model.config = cfg
+        # Stage 2 needs binding layer — ensure it exists
+        if trainer.model.binding_layer is None and cfg.enable_binding_layer:
+            from hecsn.core.context import BindingLayer
+            trainer.model.binding_layer = BindingLayer(
+                n_columns=cfg.n_columns,
+                device=trainer.model.device,
+                threshold=cfg.binding_threshold,
+                association_lr=cfg.binding_association_lr,
+                association_decay=cfg.binding_association_decay,
+                gain_strength=cfg.binding_gain_strength,
+                n_bindings=cfg.binding_n_bindings,
+                fan_in=cfg.binding_fan_in,
+                tau_binding=cfg.binding_tau,
+                stp_u_inc=cfg.binding_stp_u_inc,
+                stp_tau_f=cfg.binding_stp_tau_f,
+                stp_tau_d=cfg.binding_stp_tau_d,
+                pv_threshold=cfg.binding_pv_threshold,
+                pv_gain=cfg.binding_pv_gain,
+            )
     else:
         cfg = _make_config_for_stage(2, config)
         model = HECSNModelLite(cfg)

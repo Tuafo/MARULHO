@@ -44,6 +44,22 @@ class TestConfigForStage(unittest.TestCase):
         self.assertEqual(cfg.context_mode, "adaptive")
         self.assertEqual(cfg.plasticity_rule, "triplet")
         self.assertTrue(cfg.enable_cross_modal)
+        self.assertTrue(cfg.enable_context_layer)
+        self.assertFalse(cfg.enable_binding_layer)
+        self.assertEqual(cfg.plasticity_mode, "local_stdp")
+        self.assertFalse(cfg.enable_abstraction_layer)
+
+    def test_stage2_enables_binding(self) -> None:
+        cfg = _make_config_for_stage(2)
+        self.assertTrue(cfg.enable_context_layer)
+        self.assertTrue(cfg.enable_binding_layer)
+        self.assertFalse(cfg.enable_abstraction_layer)
+
+    def test_stage3_enables_abstraction(self) -> None:
+        cfg = _make_config_for_stage(3)
+        self.assertTrue(cfg.enable_abstraction_layer)
+        self.assertTrue(cfg.enable_context_layer)
+        self.assertTrue(cfg.enable_binding_layer)
 
     def test_stage2_inherits_base(self) -> None:
         base = HECSNConfig()
@@ -51,6 +67,8 @@ class TestConfigForStage(unittest.TestCase):
         cfg = _make_config_for_stage(2, base)
         self.assertEqual(cfg.n_columns, 20)
         self.assertTrue(cfg.enable_cross_modal)
+        self.assertTrue(cfg.enable_context_layer)
+        self.assertTrue(cfg.enable_binding_layer)
 
 
 class TestStage1(unittest.TestCase):
