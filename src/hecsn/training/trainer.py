@@ -112,22 +112,41 @@ class HECSNModelLite:
             feedback_lr=self.config.abstraction_feedback_lr,
             feedback_strength=self.config.abstraction_feedback_strength,
         ) if self.config.enable_abstraction_layer else None
-        self.binding_layer = BindingLayer(
-            n_columns=self.config.n_columns,
-            device=self.device,
-            threshold=self.config.binding_threshold,
-            association_lr=self.config.binding_association_lr,
-            association_decay=self.config.binding_association_decay,
-            gain_strength=self.config.binding_gain_strength,
-            n_bindings=self.config.binding_n_bindings,
-            fan_in=self.config.binding_fan_in,
-            tau_binding=self.config.binding_tau,
-            stp_u_inc=self.config.binding_stp_u_inc,
-            stp_tau_f=self.config.binding_stp_tau_f,
-            stp_tau_d=self.config.binding_stp_tau_d,
-            pv_threshold=self.config.binding_pv_threshold,
-            pv_gain=self.config.binding_pv_gain,
-        ) if self.config.enable_binding_layer else None
+        if not self.config.enable_binding_layer:
+            self.binding_layer = None
+        elif self.config.binding_mode == "spatial":
+            from hecsn.core.topographic import SpatialBindingLayer
+            self.binding_layer = SpatialBindingLayer(
+                n_columns=self.config.n_columns,
+                device=self.device,
+                threshold=self.config.binding_threshold,
+                gain_strength=self.config.binding_gain_strength,
+                tau_binding=self.config.binding_tau,
+                stp_u_inc=self.config.binding_stp_u_inc,
+                stp_tau_f=self.config.binding_stp_tau_f,
+                stp_tau_d=self.config.binding_stp_tau_d,
+                pv_threshold=self.config.binding_pv_threshold,
+                pv_gain=self.config.binding_pv_gain,
+                association_lr=self.config.binding_association_lr,
+                association_decay=self.config.binding_association_decay,
+            )
+        else:
+            self.binding_layer = BindingLayer(
+                n_columns=self.config.n_columns,
+                device=self.device,
+                threshold=self.config.binding_threshold,
+                association_lr=self.config.binding_association_lr,
+                association_decay=self.config.binding_association_decay,
+                gain_strength=self.config.binding_gain_strength,
+                n_bindings=self.config.binding_n_bindings,
+                fan_in=self.config.binding_fan_in,
+                tau_binding=self.config.binding_tau,
+                stp_u_inc=self.config.binding_stp_u_inc,
+                stp_tau_f=self.config.binding_stp_tau_f,
+                stp_tau_d=self.config.binding_stp_tau_d,
+                pv_threshold=self.config.binding_pv_threshold,
+                pv_gain=self.config.binding_pv_gain,
+            )
         self.cross_modal = CrossModalGroundingLayer(
             dim_text=self.config.input_dim,
             dim_visual=self.config.cross_modal_dim_visual,

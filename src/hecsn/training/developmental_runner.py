@@ -503,11 +503,15 @@ def _train_multimodal_on_corpus(
     signatures: dict[str, dict[str, torch.Tensor]],
     dim_visual: int,
     dim_audio: int,
+    winner_accumulator: list[int] | None = None,
 ) -> tuple[int, int, int]:
     """Train on corpus with window-local concept-conditioned multimodal spikes.
 
     Only char windows containing a concept word receive the paired
     visual/audio spikes — function-word windows get ``None``.
+
+    If *winner_accumulator* is provided, appends per-token winner IDs
+    for downstream column correlation analysis (grow_binding).
 
     Returns (tokens_processed, visual_pairs_sent, audio_pairs_sent).
     """
@@ -533,6 +537,9 @@ def _train_multimodal_on_corpus(
                     visual_spikes=vs,
                     audio_spikes=aus,
                 )
+                # Collect per-token winner for correlation analysis
+                if winner_accumulator is not None and trainer.last_winner is not None:
+                    winner_accumulator.append(trainer.last_winner)
                 # Per-word grounding confidence update: after each multimodal
                 # pairing, measure how well the cross-modal layer predicted the
                 # actual sensory input for each concept word in this window.
@@ -894,23 +901,40 @@ def run_stage_2(
         trainer.model.config = cfg
         # Stage 2 needs binding layer — ensure it exists
         if trainer.model.binding_layer is None and cfg.enable_binding_layer:
-            from hecsn.core.context import BindingLayer
-            trainer.model.binding_layer = BindingLayer(
-                n_columns=cfg.n_columns,
-                device=trainer.model.device,
-                threshold=cfg.binding_threshold,
-                association_lr=cfg.binding_association_lr,
-                association_decay=cfg.binding_association_decay,
-                gain_strength=cfg.binding_gain_strength,
-                n_bindings=cfg.binding_n_bindings,
-                fan_in=cfg.binding_fan_in,
-                tau_binding=cfg.binding_tau,
-                stp_u_inc=cfg.binding_stp_u_inc,
-                stp_tau_f=cfg.binding_stp_tau_f,
-                stp_tau_d=cfg.binding_stp_tau_d,
-                pv_threshold=cfg.binding_pv_threshold,
-                pv_gain=cfg.binding_pv_gain,
-            )
+            if cfg.binding_mode == "spatial":
+                from hecsn.core.topographic import SpatialBindingLayer
+                trainer.model.binding_layer = SpatialBindingLayer(
+                    n_columns=cfg.n_columns,
+                    device=trainer.model.device,
+                    threshold=cfg.binding_threshold,
+                    gain_strength=cfg.binding_gain_strength,
+                    tau_binding=cfg.binding_tau,
+                    stp_u_inc=cfg.binding_stp_u_inc,
+                    stp_tau_f=cfg.binding_stp_tau_f,
+                    stp_tau_d=cfg.binding_stp_tau_d,
+                    pv_threshold=cfg.binding_pv_threshold,
+                    pv_gain=cfg.binding_pv_gain,
+                    association_lr=cfg.binding_association_lr,
+                    association_decay=cfg.binding_association_decay,
+                )
+            else:
+                from hecsn.core.context import BindingLayer
+                trainer.model.binding_layer = BindingLayer(
+                    n_columns=cfg.n_columns,
+                    device=trainer.model.device,
+                    threshold=cfg.binding_threshold,
+                    association_lr=cfg.binding_association_lr,
+                    association_decay=cfg.binding_association_decay,
+                    gain_strength=cfg.binding_gain_strength,
+                    n_bindings=cfg.binding_n_bindings,
+                    fan_in=cfg.binding_fan_in,
+                    tau_binding=cfg.binding_tau,
+                    stp_u_inc=cfg.binding_stp_u_inc,
+                    stp_tau_f=cfg.binding_stp_tau_f,
+                    stp_tau_d=cfg.binding_stp_tau_d,
+                    pv_threshold=cfg.binding_pv_threshold,
+                    pv_gain=cfg.binding_pv_gain,
+                )
     else:
         cfg = _make_config_for_stage(2, config)
         model = HECSNModelLite(cfg)
@@ -955,14 +979,11 @@ def run_stage_2(
         this_chunk = min(chunk_size, remaining)
         tok, vis, aud = _train_multimodal_on_corpus(
             trainer, encoder, corpus, this_chunk, signatures, dim_visual, dim_audio,
+            winner_accumulator=winner_history,
         )
         tokens_processed += tok
         visual_pairs += vis
         audio_pairs += aud
-
-        # Track winner for column correlation (grow_binding)
-        if trainer.last_winner is not None:
-            winner_history.append(trainer.last_winner)
 
         # Sample per-dimension confidence
         if trainer.model.cross_modal is not None:

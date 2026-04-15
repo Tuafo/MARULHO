@@ -141,6 +141,7 @@ class HECSNConfig:
     abstraction_feedback_strength: float = 0.15
 
     enable_binding_layer: bool = False
+    binding_mode: str = "dense"  # "dense" (original BindingLayer) or "spatial" (SpatialBindingLayer)
     binding_threshold: float = 0.02
     binding_association_lr: float = 0.20
     binding_association_decay: float = 0.995
@@ -284,6 +285,8 @@ class HECSNConfig:
             raise ValueError("enable_binding_layer requires at least 2 columns")
         if self.enable_binding_layer and not self.enable_context_layer:
             raise ValueError("enable_binding_layer requires enable_context_layer=True")
+        if self.binding_mode not in ("dense", "spatial"):
+            raise ValueError("binding_mode must be 'dense' or 'spatial'")
         if not 0.0 < self.stc_tag_decay <= 1.0:
             raise ValueError("stc_tag_decay must be in (0, 1]")
         if not 0.0 <= self.stc_capture_release <= 1.0:
