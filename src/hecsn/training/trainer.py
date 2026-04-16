@@ -1103,6 +1103,7 @@ class HECSNTrainer:
 
         return applied
 
+    @torch.no_grad()
     def train_step(
         self,
         pattern_vec: torch.Tensor,
