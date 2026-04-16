@@ -319,8 +319,8 @@ class HECSNServiceManager:
                 "trace_history_size": int(len(self._trace_history)),
                 "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
                 "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
-                "memory_fill_fraction": float(memory_store.get("slow_buffer_fill_fraction", 0.0)),
-                "memory_buffer_size": int(memory_store.get("slow_buffer_size", 0)),
+                "memory_fill_fraction": float(memory_store.get("fill_fraction", 0.0)),
+                "memory_buffer_size": int(memory_store.get("size", 0)),
                 "sleep_events": int(self._trainer.sleep_events),
                 "micro_sleep_events": int(self._trainer.micro_sleep_events),
                 "deep_sleep_events": int(self._trainer.deep_sleep_events),
@@ -1973,7 +1973,7 @@ class HECSNServiceManager:
             "binding": binding_state,
             "abstraction": abstraction_state,
             "stdp": stdp_state,
-            "memory_fill": float(model.memory_store.summary_stats().get("slow_buffer_fill_fraction", 0.0)),
+            "memory_fill": float(model.memory_store.summary_stats().get("fill_fraction", 0.0)),
         }
 
     def _brain_runtime_snapshot_locked(self) -> dict[str, Any]:
