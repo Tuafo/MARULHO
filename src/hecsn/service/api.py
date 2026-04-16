@@ -242,4 +242,53 @@ def create_app(
             },
         )
 
+    @app.get("/datasets")
+    async def datasets():
+        """List available multimodal datasets and their health status."""
+        cwd = Path.cwd()
+        result = []
+
+        # N-MNIST
+        nmnist_base = cwd / "N-MNIST"
+        nmnist_train = nmnist_base / "Train"
+        nmnist_files = 0
+        if nmnist_train.exists():
+            for digit_dir in nmnist_train.iterdir():
+                if digit_dir.is_dir():
+                    nmnist_files += sum(1 for _ in digit_dir.glob("*.bin"))
+        result.append({
+            "name": "N-MNIST",
+            "type": "visual",
+            "path": str(nmnist_base),
+            "exists": nmnist_train.exists(),
+            "file_count": nmnist_files,
+            "description": "Neuromorphic MNIST (34x34 DVS events)",
+        })
+
+        # FSDD
+        fsdd_base = cwd / "free-spoken-digit-dataset-master" / "recordings"
+        fsdd_files = 0
+        if fsdd_base.exists():
+            fsdd_files = sum(1 for _ in fsdd_base.glob("*.wav"))
+        result.append({
+            "name": "FSDD",
+            "type": "audio",
+            "path": str(fsdd_base),
+            "exists": fsdd_base.exists(),
+            "file_count": fsdd_files,
+            "description": "Free Spoken Digit Dataset (8kHz WAV)",
+        })
+
+        # Wikitext-103 (HuggingFace streaming)
+        result.append({
+            "name": "wikitext-103",
+            "type": "text",
+            "path": "wikitext/wikitext-103-raw-v1 (HuggingFace)",
+            "exists": True,
+            "file_count": None,
+            "description": "Wikitext-103 via HuggingFace streaming",
+        })
+
+        return {"datasets": result}
+
     return app

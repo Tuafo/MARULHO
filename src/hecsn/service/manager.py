@@ -16,6 +16,14 @@ import torch
 
 from hecsn.config.presets import get_autonomy_acquisition_preset
 from hecsn.data.corpus_loader import StreamingCorpusLoader
+from hecsn.data.dataset_adapters import (
+    NMNISTAdapter,
+    FSDDAdapter,
+    PairedDigitDataset,
+    iter_episode_steps,
+)
+from hecsn.data.event_camera_encoder import EventCameraEncoder
+from hecsn.data.cochleagram_encoder import CochleagramEncoder
 from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.gap_planner import plan_query_gaps
@@ -90,6 +98,40 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
             {"name": "news", "source": "ag_news", "source_type": "hf", "hf_config": None, "text_field": "text"},
             {"name": "reviews", "source": "imdb", "source_type": "hf", "hf_config": None, "text_field": "text"},
         ],
+        "tick_tokens": 1024,
+        "sleep_interval_seconds": 0.02,
+        "repeat_sources": True,
+    },
+    "multimodal": {
+        "label": "Multimodal (Wiki + N-MNIST + FSDD)",
+        "description": "Text from Wikipedia interleaved with N-MNIST visual and FSDD audio digit episodes. Trains all three modalities.",
+        "source_bank": [
+            {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
+        ],
+        "multimodal": {
+            "enabled": True,
+            "nmnist_dir": "N-MNIST",
+            "fsdd_dir": "free-spoken-digit-dataset-master/recordings",
+            "episode_interval_tokens": 256,
+            "n_steps": 10,
+        },
+        "tick_tokens": 512,
+        "sleep_interval_seconds": 0.05,
+        "repeat_sources": True,
+    },
+    "multimodal_fast": {
+        "label": "Multimodal — Fast",
+        "description": "Faster multimodal training with larger batches. Good for scale testing with all three modalities active.",
+        "source_bank": [
+            {"name": "wiki", "source": "wikitext", "source_type": "hf", "hf_config": "wikitext-103-raw-v1", "text_field": "text"},
+        ],
+        "multimodal": {
+            "enabled": True,
+            "nmnist_dir": "N-MNIST",
+            "fsdd_dir": "free-spoken-digit-dataset-master/recordings",
+            "episode_interval_tokens": 128,
+            "n_steps": 10,
+        },
         "tick_tokens": 1024,
         "sleep_interval_seconds": 0.02,
         "repeat_sources": True,
@@ -203,6 +245,12 @@ class HECSNServiceManager:
         self._brain_thread: Thread | None = None
         self._brain_stop_event: Event | None = None
         self._brain_running = False
+        self._multimodal_dataset: PairedDigitDataset | None = None
+        self._multimodal_step_iter: Iterator | None = None
+        self._multimodal_visual_encoder: EventCameraEncoder | None = None
+        self._multimodal_audio_encoder: CochleagramEncoder | None = None
+        self._multimodal_tokens_since_episode = 0
+        self._multimodal_episodes_completed = 0
         self._rebuild_brain_sources_locked()
         self._dirty_state = False
         self._state_revision = 0
@@ -1432,8 +1480,23 @@ class HECSNServiceManager:
             ),
             "repeat_sources": bool(config.get("repeat_sources", True)),
             "autonomy": self._normalize_autonomy_config(config.get("autonomy")),
+            "multimodal": self._normalize_multimodal_config(config.get("multimodal")),
         }
         return normalized
+
+    @staticmethod
+    def _normalize_multimodal_config(config: Any) -> dict[str, Any] | None:
+        if config is None or not isinstance(config, dict):
+            return None
+        if not config.get("enabled"):
+            return None
+        return {
+            "enabled": True,
+            "nmnist_dir": str(config.get("nmnist_dir", "N-MNIST")),
+            "fsdd_dir": str(config.get("fsdd_dir", "free-spoken-digit-dataset-master/recordings")),
+            "episode_interval_tokens": max(32, int(config.get("episode_interval_tokens", 256))),
+            "n_steps": max(1, int(config.get("n_steps", 10))),
+        }
 
     def _build_brain_source_stream_locked(self, spec: dict[str, Any]) -> Iterator[tuple[str, torch.Tensor]]:
         loader = StreamingCorpusLoader(
@@ -1459,6 +1522,115 @@ class HECSNServiceManager:
                     continue
         self._brain_source_runtimes = []
 
+    def _init_multimodal_locked(self) -> None:
+        """Initialize multimodal dataset + encoders if the config enables them."""
+        mm = self._brain_config.get("multimodal")
+        if not mm or not mm.get("enabled"):
+            self._multimodal_dataset = None
+            self._multimodal_step_iter = None
+            self._multimodal_visual_encoder = None
+            self._multimodal_audio_encoder = None
+            self._multimodal_tokens_since_episode = 0
+            self._multimodal_episodes_completed = 0
+            return
+
+        nmnist_dir = Path(mm.get("nmnist_dir", "N-MNIST"))
+        fsdd_dir = Path(mm.get("fsdd_dir", "free-spoken-digit-dataset-master/recordings"))
+        n_steps = int(mm.get("n_steps", 10))
+
+        # Resolve relative paths from CWD
+        if not nmnist_dir.is_absolute():
+            nmnist_dir = Path.cwd() / nmnist_dir
+        if not fsdd_dir.is_absolute():
+            fsdd_dir = Path.cwd() / fsdd_dir
+
+        train_dir = nmnist_dir / "Train"
+        if not train_dir.exists() or not fsdd_dir.exists():
+            self._multimodal_dataset = None
+            self._multimodal_step_iter = None
+            return
+
+        model = self._trainer.model
+        visual_dim = model.cross_modal.visual_dim if model.cross_modal is not None else 128
+        audio_dim = model.cross_modal.audio_dim if model.cross_modal is not None else 64
+
+        try:
+            nmnist = NMNISTAdapter(train_dir)
+            fsdd = FSDDAdapter(fsdd_dir)
+            dataset = PairedDigitDataset(nmnist, fsdd, n_steps=n_steps)
+            self._multimodal_dataset = dataset
+            self._multimodal_visual_encoder = EventCameraEncoder(
+                height=34, width=34, output_dim=visual_dim,
+            )
+            self._multimodal_audio_encoder = CochleagramEncoder(
+                sample_rate=8000, output_dim=audio_dim,
+            )
+            self._multimodal_step_iter = iter_episode_steps(
+                dataset.iter_episodes(),
+                visual_encoder=self._multimodal_visual_encoder,
+                audio_encoder=self._multimodal_audio_encoder,
+            )
+            self._multimodal_tokens_since_episode = 0
+            self._multimodal_episodes_completed = 0
+        except Exception:
+            self._multimodal_dataset = None
+            self._multimodal_step_iter = None
+
+    def _run_multimodal_episode_locked(self) -> dict[str, Any] | None:
+        """Run one multimodal episode if due. Returns summary or None."""
+        mm = self._brain_config.get("multimodal")
+        if not mm or not mm.get("enabled") or self._multimodal_step_iter is None:
+            return None
+
+        interval = int(mm.get("episode_interval_tokens", 256))
+        if self._multimodal_tokens_since_episode < interval:
+            return None
+
+        self._multimodal_tokens_since_episode = 0
+        steps_trained = 0
+        last_metrics = None
+
+        try:
+            n_steps = int(mm.get("n_steps", 10))
+            for _ in range(n_steps):
+                try:
+                    step = next(self._multimodal_step_iter)
+                except StopIteration:
+                    # Re-create iterator (loop over dataset)
+                    if self._multimodal_dataset is not None:
+                        self._multimodal_step_iter = iter_episode_steps(
+                            self._multimodal_dataset.iter_episodes(),
+                            visual_encoder=self._multimodal_visual_encoder,
+                            audio_encoder=self._multimodal_audio_encoder,
+                        )
+                        try:
+                            step = next(self._multimodal_step_iter)
+                        except StopIteration:
+                            break
+                    else:
+                        break
+
+                pattern = self._encoder.encode(step.text)
+                last_metrics = self._trainer.train_step(
+                    pattern,
+                    raw_window=step.text,
+                    visual_spikes=step.visual_spikes,
+                    audio_spikes=step.audio_spikes,
+                )
+                steps_trained += 1
+
+            self._multimodal_episodes_completed += 1
+            self._mark_mutated()
+
+            return {
+                "type": "multimodal_episode",
+                "steps_trained": steps_trained,
+                "episodes_completed": self._multimodal_episodes_completed,
+                "last_metrics": last_metrics,
+            }
+        except Exception:
+            return None
+
     def _rebuild_brain_sources_locked(self) -> None:
         self._close_brain_sources_locked()
         self._brain_source_runtimes = [
@@ -1472,6 +1644,7 @@ class HECSNServiceManager:
         self._brain_last_tick_duration_ms = None
         self._brain_last_tick_token_delta = 0
         self._brain_last_work_at = None
+        self._init_multimodal_locked()
 
     def _request_brain_stop(self, *, reason: str | None = None) -> Thread | None:
         with self._lock:
@@ -1549,8 +1722,9 @@ class HECSNServiceManager:
             return summary
 
         source_summary = self._consume_next_source_locked()
+        multimodal_summary = self._run_multimodal_episode_locked()
         autonomy_summary = self._run_brain_autonomy_locked()
-        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None
+        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or multimodal_summary is not None
         token_count_after = int(self._trainer.token_count)
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)
@@ -1559,6 +1733,7 @@ class HECSNServiceManager:
             "did_work": did_work,
             "timestamp": completed_at,
             "source": source_summary,
+            "multimodal": multimodal_summary,
             "autonomy": autonomy_summary,
             "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
             "token_delta": int(token_delta),
@@ -1610,6 +1785,7 @@ class HECSNServiceManager:
             self._brain_background_tokens += token_count
             self._brain_tick_count += 1
             self._brain_source_index = (idx + 1) % source_count
+            self._multimodal_tokens_since_episode += token_count
             self._mark_mutated()
             return {
                 "did_work": True,
@@ -1714,7 +1890,7 @@ class HECSNServiceManager:
         return summary
 
     def _animation_snapshot_locked(self) -> dict[str, Any]:
-        """Lightweight snapshot for UI animation: active column, spike counts, STDP state."""
+        """Lightweight snapshot for UI animation: active column, spike counts, layer state."""
         model = self._trainer.model
         competitive = model.competitive
         n_columns = int(competitive.n_columns)
@@ -1730,6 +1906,33 @@ class HECSNServiceManager:
         context_tau = None
         if model.context_layer is not None and hasattr(model.context_layer, "log_tau"):
             context_tau = torch.exp(model.context_layer.log_tau).detach().cpu().tolist()
+
+        # Binding layer summary
+        binding_state = None
+        binding = getattr(model, "binding", None)
+        if binding is not None:
+            binding_state = {
+                "n_binding_neurons": int(binding.n_binding),
+                "mean_weight": float(binding.W.detach().abs().mean().item()),
+            }
+
+        # Abstraction layer summary
+        abstraction_state = None
+        abstraction = getattr(model, "abstraction", None)
+        if abstraction is not None:
+            abstraction_state = {
+                "curiosity": float(abstraction.curiosity.item()) if hasattr(abstraction, "curiosity") else 0.0,
+                "n_abstract": int(abstraction.n_abstract) if hasattr(abstraction, "n_abstract") else 0,
+            }
+
+        # STDP layer summary
+        stdp_state = None
+        stdp = getattr(model, "stdp", None)
+        if stdp is not None:
+            stdp_state = {
+                "mean_weight": float(stdp.weights.detach().abs().mean().item()) if hasattr(stdp, "weights") else 0.0,
+            }
+
         return {
             "n_columns": n_columns,
             "winner_id": None if winner is None else int(winner),
@@ -1737,6 +1940,9 @@ class HECSNServiceManager:
             "spike_counts": spike_counts,
             "cross_modal": cross_modal_state,
             "context_tau": context_tau,
+            "binding": binding_state,
+            "abstraction": abstraction_state,
+            "stdp": stdp_state,
             "memory_fill": float(model.memory_store.summary_stats().get("slow_buffer_fill_fraction", 0.0)),
         }
 
@@ -1830,6 +2036,20 @@ class HECSNServiceManager:
                 "last_acquisition_token_count": int(self._brain_last_acquisition_token_count),
                 "last_acquisition_summary": deepcopy(self._brain_last_acquisition_summary),
                 "geometric_curiosity": deepcopy(self._geometric_curiosity.summary()),
+            },
+            "multimodal": {
+                "enabled": bool(self._multimodal_dataset is not None),
+                "episodes_completed": int(self._multimodal_episodes_completed),
+                "tokens_since_episode": int(self._multimodal_tokens_since_episode),
+                "episode_interval": int(
+                    (self._brain_config.get("multimodal") or {}).get("episode_interval_tokens", 256)
+                ),
+                "cross_modal_visual_accepted": int(
+                    getattr(self._trainer, "_cross_modal_visual_accepted", 0)
+                ),
+                "cross_modal_audio_accepted": int(
+                    getattr(self._trainer, "_cross_modal_audio_accepted", 0)
+                ),
             },
         }
 
