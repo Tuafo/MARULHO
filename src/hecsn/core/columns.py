@@ -66,6 +66,8 @@ class CompetitiveColumnLayer:
         triplet_A2_minus: float = 7e-3,
         triplet_A3_plus: float = 6.2e-3,
         triplet_A3_minus: float = 2.3e-4,
+        prototype_init_mode: str = "random",
+        bootstrap_prototypes: Optional[torch.Tensor] = None,
     ) -> None:
         self.n_columns = int(n_columns)
         self.column_dim = int(column_dim)
@@ -106,8 +108,19 @@ class CompetitiveColumnLayer:
             self.input_weight_row_target / (self.input_weights.sum(dim=1, keepdim=True) + 1e-8)
         )
 
-        self.prototypes = torch.rand(self.n_columns, self.column_dim, device=self.device)
-        self.prototypes = _normalize_positive_vector(self.prototypes, dim=1)
+        self.prototype_init_mode = str(prototype_init_mode)
+        if self.prototype_init_mode == "teacher" and bootstrap_prototypes is not None:
+            bp = bootstrap_prototypes.to(self.device).float()
+            if bp.shape != (self.n_columns, self.column_dim):
+                raise ValueError(
+                    f"bootstrap_prototypes shape {tuple(bp.shape)} != "
+                    f"({self.n_columns}, {self.column_dim})"
+                )
+            self.prototypes = bp.clamp(min=1e-6)
+            self.prototypes = _normalize_positive_vector(self.prototypes, dim=1)
+        else:
+            self.prototypes = torch.rand(self.n_columns, self.column_dim, device=self.device)
+            self.prototypes = _normalize_positive_vector(self.prototypes, dim=1)
         self.prototype_velocity = torch.zeros(self.n_columns, self.column_dim, device=self.device)
         self.last_input_pattern: Optional[torch.Tensor] = None
         self.last_projected_input: Optional[torch.Tensor] = None

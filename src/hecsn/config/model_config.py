@@ -59,6 +59,10 @@ class HECSNConfig:
     n_columns: int = 256
     column_latent_dim: int = 256
 
+    prototype_init_mode: Literal["random", "teacher"] = "random"
+    teacher_embedding_source: str = "glove-wiki-gigaword-300"
+    teacher_vocab_limit: int = 50_000
+
     bootstrap_tokens: int = 5000
     k_routing: int = 10
     index_rebuild_threshold: int = 256

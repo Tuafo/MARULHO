@@ -34,6 +34,23 @@ class HECSNModel:
     def __post_init__(self) -> None:
         self.device = self.config.resolve_device()
 
+        # Resolve bootstrap prototypes if teacher mode requested
+        bootstrap_proto = None
+        if self.config.prototype_init_mode == "teacher":
+            try:
+                from hecsn.training.warm_bootstrap import generate_bootstrap_prototypes
+                bootstrap_proto = generate_bootstrap_prototypes(
+                    n_columns=self.config.n_columns,
+                    column_dim=self.config.column_latent_dim,
+                    source=self.config.teacher_embedding_source,
+                    vocab_limit=self.config.teacher_vocab_limit,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Warm bootstrap failed (%s), falling back to random init", e
+                )
+
         self.competitive = CompetitiveColumnLayer(
             n_columns=self.config.n_columns,
             column_dim=self.config.column_latent_dim,
@@ -74,6 +91,8 @@ class HECSNModel:
             triplet_A2_minus=self.config.triplet_A2_minus,
             triplet_A3_plus=self.config.triplet_A3_plus,
             triplet_A3_minus=self.config.triplet_A3_minus,
+            prototype_init_mode=self.config.prototype_init_mode,
+            bootstrap_prototypes=bootstrap_proto,
         )
         self.surprise = SurpriseMonitor(layer_names=["competitive"])
         if not self.config.enable_context_layer:
@@ -301,6 +320,7 @@ class HECSNModel:
                 else None
             ),
             "supports_column_sharding_proxy": bool(self.config.routing_shards > 1),
+            "warm_bootstrap": self.config.prototype_init_mode == "teacher",
             "estimated_neurons": int(self.config.n_columns * self.config.neurons_per_column_assumption),
             "neurons_per_column_assumption": int(self.config.neurons_per_column_assumption),
             "routing_candidate_fraction": float(self.config.k_routing / max(1, self.config.n_columns)),

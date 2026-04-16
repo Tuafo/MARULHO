@@ -1402,6 +1402,21 @@ For concepts that are common in text but rare in the Stage 1 visual vocabulary (
 
 This is an honest limitation: HECSN can ground concrete, visually-frequent concepts. It cannot ground abstract concepts through direct visual association. This needs to be stated clearly in the paper's limitation section.
 
+### 10.6 LLM Embedding Bootstrap Does Not Transfer Semantic Knowledge (Warm Companion Result)
+
+The HECSN Warm Companion proposal (§A of companion document) suggested bootstrapping competitive prototypes from LLM word embeddings (GloVe/fastText) via PCA + k-means centroids to accelerate Stage 1 grounding. A controlled A/B/C/D evaluation disproved this hypothesis:
+
+| Condition | Description | Diversity@5K | Verdict |
+|---|---|---|---|
+| A (random) | Standard random init | 0.741 | Baseline |
+| B (teacher) | GloVe PCA+ReLU+k-means | 0.790 | +0.049 vs random |
+| C (shuffled) | Same geometry, random assignment | **0.809** | **Beats teacher** |
+| D (uniform) | All prototypes identical | 0.382 | Worst |
+
+**Root cause:** HECSN routing keys are character-based (RTF encoder uses ASCII codes in sliding windows). Words cluster by initial characters ("dog" → "door","double","death"), not by semantic similarity ("dog" → "cat","horse","wolf"). Neighborhood overlap between HECSN routing space and GloVe = 0.024 ≈ random chance (expected: 0.021). The shuffled placebo outperforming the teacher bootstrap confirms that GloVe's semantic structure provides zero benefit — only the geometric spread of nonneg-projected centroids matters, and random spread works equally well.
+
+**Implications:** (1) LLM knowledge distillation into HECSN prototypes is not viable while the RTF encoder produces character-level routing. (2) If future work adds subword/BPE routing, the alignment study should be repeated. (3) The warm bootstrap infrastructure is retained as opt-in (`prototype_init_mode="teacher"`) for reproducibility and future experiments. (4) This validates that HECSN's emergence is genuinely bottom-up — semantic structure must be learned, not injected.
+
 ---
 
 ## 11. Implementation Roadmap
@@ -1965,3 +1980,9 @@ The following table separates **implemented standalone components** from **end-t
 3. **Column sharding enabled for Terminus presets.** All 1024-column presets now use `routing_shards=4`, all 2048-column presets use `routing_shards=8`. Aligns with hierarchical-scale runner benchmarks. Config default remains 1 (opt-in for custom configs).
 
 4. **Capability flags updated.** `runtime_scope_report()` reason strings updated to reflect actually-enabled features. Removed "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit" — now accurately describes what is active. All three previously-disabled flags now report true: `uses_adex_post_spikes=True`, `supports_column_sharding_proxy=True`, `validates_full_log_stdp_weight_target=True`.
+
+### v4.22 Additions
+
+1. **Warm Companion bootstrap investigation — negative result documented (§10).** The HECSN_Warm_Companion.md proposed bootstrapping prototypes from LLM embeddings (GloVe/fastText → PCA + k-means centroids). A full research pipeline was executed: (a) alignment study comparing HECSN routing geometry vs GloVe space, (b) rubber-duck critique identifying 9 critical issues, (c) constrained bootstrap implementation (PCA + ReLU + L2-normalize → k-means centroids), (d) A/B/C/D controlled evaluation (random, teacher, shuffled placebo, uniform). **Key finding: HECSN routing keys are character-based** — words cluster by initial characters ("dog" neighbors: "door","double","death"), not semantics. Neighborhood overlap with GloVe = 0.024 ≈ random chance. **Evaluation result: shuffled placebo (C=0.809) outperforms teacher bootstrap (B=0.790)**, both slightly beat random (A=0.741). The benefit is from geometric spread of initial prototypes, not semantic content. Uniform init (D=0.382) is worst, confirming init geometry matters but semantic knowledge transfer does not help. **Verdict: warm bootstrap rejected as default; infrastructure retained as opt-in** (`prototype_init_mode="teacher"` in config). The `warm_bootstrap.py` module, alignment study script, and evaluation runner are preserved for reproducibility.
+
+2. **Warm bootstrap infrastructure added (opt-in).** New `src/hecsn/training/warm_bootstrap.py`: `generate_bootstrap_prototypes()` pipeline (GloVe via gensim → PCA + ReLU + L2-normalize → k-means centroids), `compute_bootstrap_alignment()` metric, save/load helpers. New config fields: `prototype_init_mode` ("random"|"teacher", default "random"), `teacher_embedding_source`, `teacher_vocab_limit`. `CompetitiveColumnLayer.__init__` accepts optional `bootstrap_prototypes` tensor. `HECSNModel.__post_init__` auto-generates bootstrap when `prototype_init_mode="teacher"`. `runtime_scope_report()` includes `warm_bootstrap` flag. Scripts: `scripts/warm_alignment_study.py`, `scripts/warm_bootstrap_eval.py`. All existing tests pass (51 core tests verified).
