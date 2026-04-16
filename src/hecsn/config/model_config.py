@@ -16,7 +16,7 @@ class HECSNConfig:
     context_mode: Literal["fixed", "adaptive"] = "adaptive"
     plasticity_mode: Literal["lite", "local_stdp"] = "lite"
     plasticity_rule: Literal["pair", "triplet"] = "triplet"
-    plasticity_spike_backend: Literal["proxy", "adex"] = "proxy"
+    plasticity_spike_backend: Literal["proxy", "adex"] = "adex"
     spike_trace_tau: float = 6.0
     spike_burst_decay: float = 0.85
     stdp_trace_tau: float = 20.0

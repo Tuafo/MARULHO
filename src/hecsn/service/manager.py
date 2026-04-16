@@ -68,7 +68,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 4, "plasticity_spike_backend": "adex"},
     },
     "wikipedia_news": {
         "label": "Wikipedia + News",
@@ -80,7 +80,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 4, "plasticity_spike_backend": "adex"},
     },
     "diverse": {
         "label": "Diverse (Wiki + News + Reviews)",
@@ -93,7 +93,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 4, "plasticity_spike_backend": "adex"},
     },
     "diverse_fast": {
         "label": "Diverse — Fast (Wiki + News + Reviews)",
@@ -106,7 +106,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 1024,
         "sleep_interval_seconds": 0.02,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube"},
+        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 8, "plasticity_spike_backend": "adex"},
     },
     "multimodal": {
         "label": "Multimodal (Wiki + N-MNIST + FSDD)",
@@ -124,7 +124,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 4, "plasticity_spike_backend": "adex"},
     },
     "multimodal_fast": {
         "label": "Multimodal — Fast",
@@ -142,7 +142,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 1024,
         "sleep_interval_seconds": 0.02,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube"},
+        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 8, "plasticity_spike_backend": "adex"},
     },
 }
 

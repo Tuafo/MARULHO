@@ -132,6 +132,7 @@ def train(
             context_mode="adaptive",
             plasticity_rule="triplet",
             plasticity_mode="local_stdp",
+            plasticity_spike_backend="adex",
         )
         model = HECSNModel(config)
         trainer = HECSNTrainer(model, config)

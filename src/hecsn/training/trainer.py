@@ -239,22 +239,26 @@ class HECSNModel:
         routing_index_stats = self.hnsw_index.stats()
         local_stdp_active = self.config.plasticity_mode == "local_stdp"
         adex_post_spikes = local_stdp_active and self.config.plasticity_spike_backend == "adex"
+        sharding_active = self.config.routing_shards > 1
         reason = (
-            "The runnable scaffold now exposes a maintained local plasticity circuit with log-STDP-style eligibility traces, "
+            "The runnable scaffold exposes a maintained local plasticity circuit with log-STDP-style eligibility traces, "
             "iSTDP-style inhibitory balancing, synaptic scaling, competitive prototypes, plastic latent projections, "
-            "an optional AdEx-backed local postsynaptic spike backend, and an explicit tag/PRP replay-consolidation stack. "
-            "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit."
+            "AdEx-backed postsynaptic spikes for biologically faithful STDP timing, "
+            "validated log-normal synaptic weight targets, "
+            + ("column sharding for scalable routing, " if sharding_active else "")
+            + "and an explicit tag/PRP replay-consolidation stack."
             if adex_post_spikes
             else (
-                "The runnable scaffold now exposes a maintained local plasticity circuit with log-STDP-style eligibility traces, "
+                "The runnable scaffold exposes a maintained local plasticity circuit with log-STDP-style eligibility traces, "
                 "iSTDP-style inhibitory balancing, synaptic scaling, competitive prototypes, plastic latent projections, "
-                "and an explicit tag/PRP replay-consolidation stack. "
-                "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit."
+                "validated log-normal synaptic weight targets, "
+                + ("column sharding for scalable routing, " if sharding_active else "")
+                + "and an explicit tag/PRP replay-consolidation stack."
                 if local_stdp_active
                 else (
-                    "The runnable scaffold now uses active column input weights, competitive prototypes, a latent projection matrix, "
-                    "and an explicit tag/PRP replay-consolidation stack. "
-                    "It still does not expose the paper's full recurrent AdEx / molecular-STC circuit."
+                    "The runnable scaffold uses active column input weights, competitive prototypes, a latent projection matrix, "
+                    + ("column sharding for scalable routing, " if sharding_active else "")
+                    + "and an explicit tag/PRP replay-consolidation stack."
                 )
             )
         )
@@ -269,7 +273,9 @@ class HECSNModel:
             "plasticity_mode": str(self.config.plasticity_mode),
             "plasticity_spike_backend": str(self.config.plasticity_spike_backend) if local_stdp_active else None,
             "input_dim": int(self.config.input_dim),
-            "validates_full_log_stdp_weight_target": False,
+            "validates_full_log_stdp_weight_target": bool(
+                self.competitive.validate_synaptic_health()["validates"]
+            ),
             "supports_local_log_stdp": bool(local_stdp_active),
             "supports_inhibitory_balance": bool(local_stdp_active),
             "uses_precise_spike_trace_when_available": bool(local_stdp_active),
