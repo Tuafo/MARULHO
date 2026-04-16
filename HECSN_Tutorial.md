@@ -1,7 +1,7 @@
 # HECSN Tutorial — Operator & Developer Guide
 
 > **Hierarchical Encoding with Competitive Spiking Networks**
-> A biologically-grounded spiking neural network for autonomous knowledge accumulation.
+> A biologically-grounded spiking neural network for autonomous multimodal knowledge accumulation.
 
 ---
 
@@ -22,17 +22,18 @@
 
 ## 1. What is HECSN?
 
-HECSN is a **spiking neural network** that learns continuously from streaming text without gradient descent. It uses biologically-inspired mechanisms:
+HECSN is a **multimodal spiking neural network** that learns continuously from streaming text, visual events, and audio without gradient descent. It uses biologically-inspired mechanisms:
 
-- **Competitive columnar routing** — input patterns are routed to winner columns via nearest-neighbor lookup.
-- **Local STDP plasticity** — synaptic weights update via spike-timing-dependent rules with eligibility traces.
+- **Competitive columnar routing** — input patterns are routed to winner columns via HNSW nearest-neighbor lookup (256 columns by default).
+- **Local STDP plasticity** — synaptic weights update via log-domain spike-timing-dependent rules with eligibility traces.
+- **AdEx spike dynamics** — adaptive-exponential integrate-and-fire neurons with realistic spike generation.
 - **Neuromodulated surprise** — dopamine, serotonin, acetylcholine, and norepinephrine modulate learning rate based on prediction error.
-- **Sleep-based memory consolidation** — tag/PRP replay events transfer short-term traces into long-term memory.
-- **Cross-modal grounding** — visual and audio grounding channels bind multi-sensory representations.
+- **Sleep-based memory consolidation** — tag/PRP replay events with synaptic tag capture transfer short-term traces into long-term memory.
+- **Cross-modal grounding** — visual (event camera) and audio (cochleagram) grounding channels bind multi-sensory representations.
 - **Slow-feature abstraction** — a feedback layer learns stable abstract features from fast-changing inputs.
-- **Sparse binding** — coincidence-detection with PV-cell inhibition binds co-occurring patterns.
+- **Hypercube binding** — 11-dimensional hypercube topology binds co-occurring patterns with O(N·d) memory, scaling to 100K+ columns where dense/spatial binding is impossible.
 
-The system accumulates knowledge by processing text, stores it in a memory buffer with importance-weighted replay, and answers natural-language queries by retrieving relevant memories and routing through learned prototypes.
+The system accumulates knowledge by processing text, images, and audio, stores it in a memory buffer with importance-weighted replay, and answers natural-language queries by retrieving relevant memories and routing through learned prototypes.
 
 ---
 
@@ -41,24 +42,25 @@ The system accumulates knowledge by processing text, stores it in a memory buffe
 ### Processing Pipeline
 
 ```
-Text Input
+Text / Visual / Audio Input
     │
     ▼
 ┌────────────────┐
-│  Character      │   Character n-gram encoding (or learned chunking)
-│  Encoder        │   Converts text → fixed-dim input vector
+│  Encoders       │   Character n-gram / learned chunking (text)
+│                 │   EventCameraEncoder (N-MNIST visual events)
+│                 │   CochleagramEncoder (FSDD audio)
 └───────┬────────┘
         │
         ▼
 ┌────────────────┐
-│  Competitive    │   n_columns prototypes compete via WTA
+│  Competitive    │   256 columns (default) compete via WTA
 │  Layer          │   Winner determined by HNSW nearest-neighbor
 └───────┬────────┘
         │
         ▼
 ┌────────────────┐
 │  Context Layer  │   Multi-scale recurrent attractor with adaptive τ
-│  (optional)     │   Maintains temporal context across inputs
+│                 │   Maintains temporal context across inputs
 └───────┬────────┘
         │
         ▼
@@ -69,8 +71,9 @@ Text Input
         │
         ▼
 ┌────────────────┐
-│  Binding Layer  │   Sparse subset STP coincidence detection
-│  (optional)     │   Binds co-occurring patterns with PV inhibition
+│  Binding Layer  │   Three modes: dense, spatial, or hypercube
+│                 │   Hypercube uses 11D topology for O(N·d) scaling
+│                 │   Binds co-occurring patterns with PV inhibition
 └───────┬────────┘
         │
         ▼
@@ -92,16 +95,21 @@ Text Input
 |--------|------|---------|
 | `HECSNModel` | `src/hecsn/training/trainer.py` | Core model holding all layers |
 | `HECSNTrainer` | `src/hecsn/training/trainer.py` | Training loop with sleep events |
-| `HECSNConfig` | `src/hecsn/training/config.py` | All hyperparameters |
+| `HECSNConfig` | `src/hecsn/config/model_config.py` | All hyperparameters |
 | `HECSNServiceManager` | `src/hecsn/service/manager.py` | Runtime service orchestration |
 | `create_app` | `src/hecsn/service/api.py` | FastAPI server factory |
-| `CompetitiveLayer` | `src/hecsn/model/competitive.py` | Columnar WTA competition |
-| `ContextLayer` | `src/hecsn/model/context.py` | Recurrent attractor context |
-| `AbstractionLayer` | `src/hecsn/model/abstraction.py` | SFA feedback layer |
-| `BindingLayer` | `src/hecsn/model/binding.py` | Sparse coincidence binding |
-| `CrossModalGrounding` | `src/hecsn/model/cross_modal.py` | Multi-sensory grounding |
-| `MemoryStore` | `src/hecsn/model/memory.py` | Buffer + replay + consolidation |
-| `SurpriseModule` | `src/hecsn/model/surprise.py` | Neuromodulator signals |
+| `CompetitiveLayer` | `src/hecsn/core/columns.py` | Columnar WTA competition |
+| `ContextLayer` | `src/hecsn/core/context.py` | Recurrent attractor context |
+| `AbstractionLayer` | `src/hecsn/core/abstraction.py` | SFA feedback layer |
+| `BindingLayer` | `src/hecsn/core/context.py` | Dense coincidence binding |
+| `SpatialBindingLayer` | `src/hecsn/core/topographic.py` | Spatially-organized binding |
+| `HypercubeBindingLayer` | `src/hecsn/core/hypercube.py` | 11D hypercube binding (default) |
+| `CrossModalGrounding` | `src/hecsn/core/cross_modal.py` | Multi-sensory grounding |
+| `MemoryStore` | `src/hecsn/consolidation/memory_store.py` | Buffer + replay + consolidation |
+| `SurpriseModule` | `src/hecsn/core/surprise.py` | Neuromodulator signals |
+| `EventCameraEncoder` | `src/hecsn/data/event_camera_encoder.py` | N-MNIST visual event encoding |
+| `CochleagramEncoder` | `src/hecsn/data/cochleagram_encoder.py` | Audio cochleagram encoding |
+| `DevelopmentalRunner` | `src/hecsn/training/developmental_runner.py` | Multi-stage developmental protocol |
 
 ---
 
@@ -111,12 +119,12 @@ Text Input
 
 - Python 3.11+
 - Node.js 20+ (for the dashboard UI)
-- PyTorch 2.x
+- PyTorch 2.x (CUDA optional — CPU is faster for ≤2048 columns)
 
 ### Install Python Dependencies
 
 ```bash
-pip install torch numpy pydantic uvicorn fastapi datasets
+pip install torch numpy pydantic uvicorn fastapi datasets librosa soundfile hnswlib
 ```
 
 ### Install UI Dependencies
@@ -133,7 +141,7 @@ cd HECSN_UI
 npm run build
 ```
 
-The built files land in `HECSN_UI/dist/`. The server can serve them as static files.
+The built files land in `HECSN_UI/dist/`. The server serves them as static files automatically.
 
 ---
 
@@ -152,6 +160,29 @@ PYTHONPATH=src python -m hecsn.training.train_runner \
   --max-tokens 500000
 ```
 
+### Developmental Protocol
+
+For full multi-stage training (bootstrap → memory → consolidation → contextual → cross-modal → abstraction → binding):
+
+```bash
+PYTHONPATH=src python -m hecsn.training.developmental_runner \
+  --output-dir checkpoints/developmental \
+  --dataset-name wikitext \
+  --dataset-config wikitext-103-raw-v1 \
+  --text-field text
+```
+
+The developmental runner automatically advances through stages based on probe metrics and growth-rate criteria, enabling layers one at a time.
+
+### Key Config Defaults
+
+| Parameter | Default | Notes |
+|-----------|---------|-------|
+| `n_columns` | 256 | Number of competitive columns |
+| `binding_mode` | `"hypercube"` | Binding topology (dense, spatial, or hypercube) |
+| `enable_binding_layer` | `False` | Enable after bootstrapping |
+| `enable_context_layer` | `True` | Recurrent attractor context |
+
 ### What Happens During Training
 
 1. **Bootstrap phase** — Columns initialize prototypes from early input patterns.
@@ -159,6 +190,28 @@ PYTHONPATH=src python -m hecsn.training.train_runner \
 3. **Micro-sleep events** — Periodic short replay bursts consolidate recent memories.
 4. **Deep-sleep events** — Less frequent, more thorough replay across the full buffer.
 5. **Drift monitoring** — Rolling drift floor tracks how much the representation is shifting.
+
+### Multimodal Training
+
+To train with text, visual (N-MNIST), and audio (FSDD) simultaneously:
+
+```python
+from hecsn.data.dataset_adapters import iter_episode_steps
+from hecsn.data.event_camera_encoder import EventCameraEncoder
+from hecsn.data.cochleagram_encoder import CochleagramEncoder
+
+visual_enc = EventCameraEncoder(output_dim=128)
+audio_enc = CochleagramEncoder(output_dim=128)
+
+for step in iter_episode_steps(nmnist_dir="N-MNIST",
+                                fsdd_dir="free-spoken-digit-dataset-master/recordings",
+                                n_steps=10):
+    trainer.train_step(step.input_vector,
+                       visual_input=step.visual,
+                       audio_input=step.audio)
+```
+
+The Terminus quick-start presets handle this automatically (see §7).
 
 ### Evaluating a Checkpoint
 
@@ -277,30 +330,56 @@ Browse stored query traces with full routing, evidence, and response details.
 
 ## 7. Terminus — The Live Brain
 
-Terminus is the autonomous brain runtime that continuously learns from configured data sources without human intervention.
+Terminus is the autonomous brain runtime that continuously learns from configured data sources without human intervention. It runs with 1024 columns (2048 in fast mode) and hypercube binding for production-scale learning.
 
 ### How It Works
 
-1. **Configure sources** — Tell Terminus which HuggingFace datasets or text streams to consume.
-2. **Start the brain** — Terminus begins processing text, one tick at a time.
-3. **Autonomy** — When enabled, Terminus can self-direct which sources to focus on based on novelty signals and gap analysis.
-4. **Checkpointing** — Terminus periodically saves checkpoints so learning persists across restarts.
+1. **Quick-start presets** — Choose a preset to instantly configure sources and model scale.
+2. **Configure sources** — Tell Terminus which HuggingFace datasets to consume (text, visual, audio).
+3. **Start the brain** — Terminus begins processing data, one tick at a time.
+4. **Autonomy** — When enabled, Terminus can self-direct which sources to focus on based on novelty signals and gap analysis.
+5. **Checkpointing** — Terminus periodically saves checkpoints so learning persists across restarts.
+
+### Quick-Start Presets
+
+Terminus includes six pre-configured presets accessible from the UI or API:
+
+| Preset | Description | Columns | Modalities |
+|--------|-------------|---------|------------|
+| **Wikipedia** | General knowledge from wikitext-103 | 1024 | Text |
+| **Wikipedia + News** | Wikipedia paired with AG News | 1024 | Text |
+| **Diverse** | Wiki + News + IMDB reviews | 1024 | Text |
+| **Diverse — Fast** | Same three domains, larger batches | 2048 | Text |
+| **Multimodal** | Wiki + N-MNIST visual + FSDD audio | 1024 | Text + Visual + Audio |
+| **Multimodal — Fast** | Faster multimodal training | 2048 | Text + Visual + Audio |
+
+All presets use **hypercube binding** and will rebuild the model to the specified column count on activation.
 
 ### Using Terminus from the UI
 
-The Ask section includes a "Terminus" panel where you can:
-- **Configure** data sources (dataset name, config, text field, split, max tokens).
+The Dashboard includes a **Terminus** panel where you can:
+- **Select a quick-start preset** from a dropdown and activate it with one click.
+- **Configure** custom data sources (dataset name, config, text field, split, max tokens).
 - **Start/Stop** the brain loop.
 - **Tick** manually for single-step debugging.
 - **Monitor** source progress, exhaustion status, and autonomy decisions.
+- **Chat** with the brain in the Ask tab — see how it routes your questions through learned prototypes.
 
 ### Using Terminus via API
 
 ```bash
+# List available presets
+curl http://localhost:8000/terminus/presets
+
+# Quick-start with a preset
+curl -X POST http://localhost:8000/terminus/quick-start \
+  -H "Content-Type: application/json" \
+  -d '{"preset": "multimodal"}'
+
 # Check current brain status
 curl http://localhost:8000/terminus
 
-# Configure a source
+# Configure a custom source
 curl -X POST http://localhost:8000/terminus/configure \
   -H "Content-Type: application/json" \
   -d '{"sources": [{"name": "wiki", "dataset": "wikitext", "config": "wikitext-2-raw-v1", "text_field": "text"}]}'
@@ -331,6 +410,7 @@ curl -X POST http://localhost:8000/terminus/stop
 | `GET` | `/stream/status?interval=1.0` | SSE stream of telemetry + animation data |
 | `GET` | `/checkpoints` | List saved checkpoints |
 | `GET` | `/traces?limit=20` | Recent query traces |
+| `GET` | `/datasets` | List available HuggingFace datasets |
 | `POST` | `/feed` | Feed text into the runtime for learning |
 | `POST` | `/query` | Run a query and get routing + evidence |
 | `POST` | `/respond` | Full question-answering with grounded response |
@@ -343,7 +423,9 @@ curl -X POST http://localhost:8000/terminus/stop
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/terminus` | Current brain runtime status |
+| `GET` | `/terminus/presets` | List available quick-start presets |
 | `POST` | `/terminus/configure` | Set data sources and autonomy config |
+| `POST` | `/terminus/quick-start` | Activate a preset (rebuilds model if needed) |
 | `POST` | `/terminus/start` | Start the autonomous brain loop |
 | `POST` | `/terminus/stop` | Stop the brain loop |
 | `POST` | `/terminus/tick` | Execute one tick manually |
@@ -376,22 +458,31 @@ The `animation` sub-object is designed for real-time visualization and contains:
 PYTHONPATH=src python -m pytest -q
 ```
 
-Current baseline: **425 tests passed**, 7 subtests passed.
+Current baseline: **~654 tests passed**, 7 subtests passed.
 
 ### Focused Test Slices
 
 ```bash
-# Service API tests only
-PYTHONPATH=src python -m pytest tests/test_service_api.py -q
+# Service API & manager tests
+PYTHONPATH=src python -m pytest tests/test_service_api.py tests/test_service_manager.py -q
+
+# Hypercube binding tests
+PYTHONPATH=src python -m pytest tests/test_hypercube.py -q
+
+# Topographic & spatial binding tests
+PYTHONPATH=src python -m pytest tests/test_topographic.py -q
+
+# Multimodal & cross-modal tests
+PYTHONPATH=src python -m pytest tests/test_cross_modal.py tests/test_dataset_adapters.py -q
+
+# Developmental runner tests
+PYTHONPATH=src python -m pytest tests/test_developmental_runner.py -q
 
 # Grounding and query tests
 PYTHONPATH=src python -m pytest tests/test_grounding_text.py tests/test_meaning_grounding.py tests/test_gap_planner.py -q
 
 # Emergence evaluation
 PYTHONPATH=src python -m pytest tests/test_emergence_evaluation_runner.py -q
-
-# Long-horizon autonomy
-PYTHONPATH=src python -m pytest tests/test_terminus_long_horizon_runner.py -q
 ```
 
 ### UI Build Verification
@@ -401,7 +492,7 @@ cd HECSN_UI
 npm run build
 ```
 
-Expect clean build with ~2519 modules and no errors.
+Expect clean build with no errors.
 
 ### Emergence Evaluation Protocol
 
@@ -427,12 +518,29 @@ Results are written to `summary.json` in the output directory.
 
 ### Adding a New Layer
 
-1. Create your layer module in `src/hecsn/model/`.
-2. Register it in `HECSNModel.__init__()` (in `trainer.py`).
-3. Wire it into the forward pass in the trainer's step method.
-4. Add config flags in `HECSNConfig` (in `config.py`).
+1. Create your layer module in `src/hecsn/core/`.
+2. Register it in `HECSNModel.__init__()` (in `src/hecsn/training/trainer.py`).
+3. Wire it into the forward pass in the trainer's `train_step` method.
+4. Add config flags in `HECSNConfig` (in `src/hecsn/config/model_config.py`).
 5. Expose it in `runtime_scope_report()` and `architecture_summary()`.
-6. Add tests.
+6. Add a developmental stage in `DevelopmentalRunner` if needed.
+7. Add tests.
+
+### Adding a New Binding Mode
+
+1. Create your binding layer in `src/hecsn/core/` (see `hypercube.py` as reference).
+2. Implement `bind(context_prediction, assembly) → bound_output` method.
+3. Add the mode to `binding_mode` validation in `HECSNConfig.__post_init__`.
+4. Wire it into `HECSNModel.__init__` and `HECSNTrainer.train_step`.
+5. Add tests.
+
+### Adding a New Sensory Modality
+
+1. Create an encoder in `src/hecsn/data/` (see `event_camera_encoder.py` or `cochleagram_encoder.py`).
+2. The encoder should implement `encode(raw_data) → spike_vector` and `reset()`.
+3. Add a grounding channel in `CrossModalGrounding` (`src/hecsn/core/cross_modal.py`).
+4. Wire it into `iter_episode_steps` in `src/hecsn/data/dataset_adapters.py`.
+5. Add the modality to `HECSNTrainer.train_step`.
 
 ### Adding a New Data Source Type
 
@@ -479,4 +587,29 @@ curl -X POST http://localhost:8000/feed -H "Content-Type: application/json" -d '
 
 # Ask a question
 curl -X POST http://localhost:8000/respond -H "Content-Type: application/json" -d '{"query_text": "What is the sun?"}'
+
+# Quick-start Terminus with multimodal preset
+curl -X POST http://localhost:8000/terminus/quick-start -H "Content-Type: application/json" -d '{"preset": "multimodal"}'
 ```
+
+---
+
+## Appendix A: Binding Modes
+
+HECSN supports three binding topologies, configured via `binding_mode` in `HECSNConfig`:
+
+| Mode | Memory | Speed at 1K cols | Max columns | Best for |
+|------|--------|-------------------|-------------|----------|
+| `dense` | O(N²) | 77 steps/s | ~4K | Small experiments |
+| `spatial` | O(N²) | similar | ~8K | Topographic research |
+| `hypercube` | O(N·d) | 750 steps/s | 131K+ tested | **Default — production scale** |
+
+**Hypercube** uses an 11-dimensional hypercube topology where each column connects to its `d` nearest neighbors in hypercube space. This gives O(N·d) memory instead of O(N²), making it possible to run networks with 100K+ columns on a single machine.
+
+At 256 columns (the default), all three modes are functionally equivalent. The advantage of hypercube emerges at scale: it is 10× faster at 1K columns, 49× faster at 4K, and the only option that works beyond ~8K columns.
+
+## Appendix B: Performance Notes
+
+- **CPU vs GPU**: CPU is faster than GPU for HECSN at ≤2048 columns. GPU only benefits at 10K+ columns due to per-step SNN ops being too small for GPU kernel launch overhead.
+- **Throughput**: ~72 tok/s sustained at 256 columns on CPU (1M token scale test). Throughput improves over time as prototypes stabilize.
+- **Scaling**: Hypercube build time is a one-time cost at model initialization (~2 min at 131K columns). Per-step cost is O(1) with no degradation over time.
