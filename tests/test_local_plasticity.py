@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class LocalPlasticityConfigTests(unittest.TestCase):
@@ -180,7 +180,7 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
             input_weight_blend=0.0,
             plasticity_mode="local_stdp",
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "bank"])
 
@@ -206,7 +206,7 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
             plasticity_mode="local_stdp",
             plasticity_spike_backend="adex",
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "bank"])
 
@@ -231,7 +231,7 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
             eta_decay=0.0,
             input_weight_blend=0.0,
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "bank"])
 

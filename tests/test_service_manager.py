@@ -9,7 +9,7 @@ from unittest.mock import patch
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:
@@ -24,7 +24,7 @@ def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     checkpoint_path = save_trainer_checkpoint(
         root / "initial.pt",
@@ -496,7 +496,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 enable_binding_layer=True,
                 enable_abstraction_layer=True,
             )
-            trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial_abstraction.pt",
                 trainer,
@@ -562,7 +562,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 enable_binding_layer=True,
                 enable_abstraction_layer=True,
             )
-            trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial_geometric_curriculum.pt",
                 trainer,

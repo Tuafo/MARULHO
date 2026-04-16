@@ -382,12 +382,12 @@ class TestTextOnlyControl(unittest.TestCase):
         from hecsn.data.rtf_encoder import RTFEncoder
         from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
         from hecsn.training.runner_utils import set_seed
-        from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+        from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
         set_seed(42)
         cfg = HECSNConfig()
         encoder = RTFEncoder.from_config(cfg)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
 
         # Train text-only (no multimodal spikes)

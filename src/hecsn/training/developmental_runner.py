@@ -31,7 +31,7 @@ from hecsn.evaluation.grounding_probe import evaluate_grounding_probe
 from hecsn.semantics.geometric_curiosity import GeometricCuriosityController
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.query_runner import feed_text
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 @dataclass
@@ -826,7 +826,7 @@ def run_stage_1(
         trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(1, config)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
 
@@ -937,7 +937,7 @@ def run_stage_2(
                 )
     else:
         cfg = _make_config_for_stage(2, config)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
 
@@ -1111,7 +1111,7 @@ def run_stage_3(
             )
     else:
         cfg = _make_config_for_stage(3, config)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
 
@@ -1256,7 +1256,7 @@ def run_stage_4(
         trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(4, config)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
 
@@ -1374,7 +1374,7 @@ def run_stage_5(
         trainer.model.config = cfg
     else:
         cfg = _make_config_for_stage(5, config)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
 

@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
@@ -153,7 +153,7 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[HECSNTrainer, dict[str, A
     checkpoint_path = Path(path)
     payload = torch.load(checkpoint_path, map_location="cpu")
     cfg = HECSNConfig(**payload["config"])
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     _restore_model(trainer, payload["model"])
     encoder_snapshot = payload.get("encoder")

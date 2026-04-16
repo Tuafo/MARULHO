@@ -206,7 +206,7 @@ class CompetitiveColumnLayer:
             "supports_full_synaptic_weight_validation": False,
             "paper_target_directly_measured": True,
             "reason": (
-                "HECSNModelLite now exposes active local synapses with log-STDP-style updates, "
+                "HECSNModel now exposes active local synapses with log-STDP-style updates, "
                 "iSTDP-style inhibitory balancing, and synaptic scaling over the maintained "
                 "competitive scaffold, but it still does not implement the full recurrent AdEx circuit."
             ),

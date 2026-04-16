@@ -29,7 +29,7 @@ from hecsn.data.dataset_adapters import (
 from hecsn.data.event_camera_encoder import EventCameraEncoder
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.training.developmental_runner import _train_on_real_digits
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ def cfg() -> HECSNConfig:
 @pytest.fixture
 def trainer_and_encoder(cfg: HECSNConfig):
     encoder = RTFEncoder.from_config(cfg)
-    model = HECSNModelLite(config=cfg)
+    model = HECSNModel(config=cfg)
     trainer = HECSNTrainer(model, cfg)
     return trainer, encoder
 

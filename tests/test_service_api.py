@@ -15,7 +15,7 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.service.api import create_app
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _build_checkpoint(root: Path, *, test_case: str) -> Path:
@@ -30,7 +30,7 @@ def _build_checkpoint(root: Path, *, test_case: str) -> Path:
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     return save_trainer_checkpoint(
         root / "initial.pt",
@@ -1293,7 +1293,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
-            self.assertEqual(data["model_name"], "HECSNModelLite")
+            self.assertEqual(data["model_name"], "HECSNModel")
             self.assertEqual(data["version"], "v4")
             layers = data["layers"]
             self.assertIsInstance(layers, list)

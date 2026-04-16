@@ -298,23 +298,23 @@ class TestSpatialBindingConfig:
 
     def test_model_creates_spatial_binding(self):
         from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.trainer import HECSNModelLite
+        from hecsn.training.trainer import HECSNModel
         cfg = HECSNConfig(
             n_columns=16, enable_binding_layer=True,
             enable_context_layer=True, binding_mode="spatial",
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         assert isinstance(model.binding_layer, SpatialBindingLayer)
 
     def test_model_creates_dense_binding(self):
         from hecsn.config.model_config import HECSNConfig
         from hecsn.core.context import BindingLayer
-        from hecsn.training.trainer import HECSNModelLite
+        from hecsn.training.trainer import HECSNModel
         cfg = HECSNConfig(
             n_columns=16, enable_binding_layer=True,
             enable_context_layer=True, binding_mode="dense",
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         assert isinstance(model.binding_layer, BindingLayer)
 
 
@@ -332,10 +332,10 @@ class TestWinnerHistoryPerToken:
             _build_concept_signatures,
             _train_multimodal_on_corpus,
         )
-        from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+        from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
         cfg = HECSNConfig(n_columns=8, enable_cross_modal=True)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
         corpus = _build_concept_corpus()
@@ -364,10 +364,10 @@ class TestWinnerHistoryPerToken:
             _build_concept_signatures,
             _train_multimodal_on_corpus,
         )
-        from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+        from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
         cfg = HECSNConfig(n_columns=8, enable_cross_modal=True)
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
         corpus = _build_concept_corpus()

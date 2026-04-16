@@ -23,7 +23,7 @@ from hecsn.training.behavioral_metrics import grounding_probe as grounding_probe
 from hecsn.training.behavioral_metrics import novelty_coverage_curve
 from hecsn.training.query_runner import feed_text, text_pattern_stream
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 from hecsn.training.developmental_runner import run_full_developmental_protocol
 
 
@@ -253,7 +253,7 @@ def _probe_feed_corpus() -> str:
 def _build_direct_probe_world(seed: int) -> tuple[HECSNTrainer, RTFEncoder]:
     set_seed(seed)
     cfg = meaning_grounding_benchmark_config()
-    trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     encoder = RTFEncoder.from_config(cfg)
     feed_text(trainer, encoder, _probe_feed_corpus())
     trainer.model.hnsw_index.rebuild()
@@ -418,7 +418,7 @@ def _calibrated_novelty_shift_threshold(shifts: Sequence[float]) -> float:
 def _direct_novelty_coverage_probe(seed: int) -> dict[str, Any]:
     set_seed(seed)
     cfg = meaning_grounding_benchmark_config()
-    trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     encoder = RTFEncoder.from_config(cfg)
     trainer.encoder = encoder
     segments = encoder.segment_text(_probe_feed_corpus(), learn=True)

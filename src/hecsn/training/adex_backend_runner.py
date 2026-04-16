@@ -9,7 +9,7 @@ import torch
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.reporting.io import write_json_file
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 TOKENS = (
@@ -38,7 +38,7 @@ def _run_backend(backend: str, *, seed: int) -> dict[str, Any]:
         plasticity_spike_backend=backend,
         enable_learned_chunking=False,
     )
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
 
     recon_errors: list[float] = []

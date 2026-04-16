@@ -37,7 +37,7 @@ from hecsn.training.autonomy_runner import (
     summarize_training_metrics,
 )
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 ACQUISITION_ABSOLUTE_IMPROVEMENT_TARGET = 0.01
@@ -722,7 +722,7 @@ def initialize_acquisition_trainer(
     warmup_rounds: int,
 ) -> tuple[HECSNTrainer, list[SourceBank], list[dict[str, Any]]]:
     set_seed(seed)
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     seed_bank_state = deepcopy(seed_banks)
     candidate_state = deepcopy(candidate_banks)

@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from hecsn.config.model_config import HECSNConfig
 from hecsn.data.corpus_loader import StreamingCorpusLoader
 from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,7 +73,7 @@ def run_scale_test(args: argparse.Namespace) -> None:
         cross_modal_dim_audio=32,
     )
 
-    model = HECSNModelLite(config)
+    model = HECSNModel(config)
     trainer = HECSNTrainer(model, config)
     encoder = trainer.encoder
 

@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.reporting.io import write_json_file
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 TOKENS = (
@@ -75,7 +75,7 @@ def run_abstraction_routing_benchmark(*, output_dir: Path, seed: int = 17) -> di
         input_weight_blend=0.0,
         enable_abstraction_layer=True,
     )
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
 
     winner_counts: dict[int, int] = {}

@@ -19,7 +19,7 @@ class AdExNeuron:
 
     This is an executable surface for the paper's reference AdEx circuit.
     It now backs the standalone stability runner and an optional local-plasticity
-    postsynaptic spike backend inside HECSNModelLite, but the full recurrent
+    postsynaptic spike backend inside HECSNModel, but the full recurrent
     AdEx / molecular-STC runtime described in the paper is still unfinished.
     """
 

@@ -15,7 +15,7 @@ from hecsn.training.memory_consolidation_runner import (
     mean_reconstruction_error,
 )
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 TASK_A_WINDOWS = (
@@ -69,7 +69,7 @@ def _run_backend(backend: str, *, seed: int) -> dict[str, Any]:
         deep_sleep_candidate_pool=24,
         enable_learned_chunking=False,
     )
-    trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     task_a_examples = _pattern_examples(trainer, TASK_A_WINDOWS)
     task_b_examples = _pattern_examples(trainer, TASK_B_WINDOWS)
     task_a_eval = [pattern for _, pattern in task_a_examples]

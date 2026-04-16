@@ -24,7 +24,7 @@ from hecsn.training.behavioral_metrics import (
     vector_completion_coherence,
 )
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _feature_windows(encoder: RTFEncoder, windows: Iterable[str]) -> list[torch.Tensor]:
@@ -104,7 +104,7 @@ def _run_hecsn_competitive_only(
     eval_patterns = _feature_windows(encoder, eval_windows)
 
     set_seed(seed)
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     for raw_window, pattern in zip(train_windows, train_patterns):
         trainer.train_step(pattern, raw_window=raw_window)

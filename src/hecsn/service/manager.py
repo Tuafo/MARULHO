@@ -774,7 +774,7 @@ class HECSNServiceManager:
                 },
             })
             return {
-                "model_name": "HECSNModelLite",
+                "model_name": "HECSNModel",
                 "version": "v4",
                 "layers": layers,
                 "config": {

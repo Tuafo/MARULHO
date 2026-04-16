@@ -22,7 +22,7 @@ from hecsn.training.baselines import CharNGramMemory
 from hecsn.training.behavioral_metrics import ascii_codes, clustering_metrics, completion_coherence, cosine_similarity
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _linear_slope(series: List[float]) -> float:
@@ -130,7 +130,7 @@ def _random_assignment_baseline_eval_error(
     seed: int,
 ) -> float:
     set_seed(seed)
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
 
     for p in train_patterns:
@@ -247,7 +247,7 @@ def run_mechanism_validation(
         raise ValueError("No evaluation patterns produced; increase eval tokens or source size")
 
     set_seed(seed)
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
 
     output_dir.mkdir(parents=True, exist_ok=True)

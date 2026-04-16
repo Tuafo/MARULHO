@@ -90,7 +90,7 @@ Text Input
 
 | Module | File | Purpose |
 |--------|------|---------|
-| `HECSNModelLite` | `src/hecsn/training/trainer.py` | Core model holding all layers |
+| `HECSNModel` | `src/hecsn/training/trainer.py` | Core model holding all layers |
 | `HECSNTrainer` | `src/hecsn/training/trainer.py` | Training loop with sleep events |
 | `HECSNConfig` | `src/hecsn/training/config.py` | All hyperparameters |
 | `HECSNServiceManager` | `src/hecsn/service/manager.py` | Runtime service orchestration |
@@ -428,7 +428,7 @@ Results are written to `summary.json` in the output directory.
 ### Adding a New Layer
 
 1. Create your layer module in `src/hecsn/model/`.
-2. Register it in `HECSNModelLite.__init__()` (in `trainer.py`).
+2. Register it in `HECSNModel.__init__()` (in `trainer.py`).
 3. Wire it into the forward pass in the trainer's step method.
 4. Add config flags in `HECSNConfig` (in `config.py`).
 5. Expose it in `runtime_scope_report()` and `architecture_summary()`.

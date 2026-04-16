@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core import AbstractionLayer, CompetitiveColumnLayer
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class AbstractionLayerTests(unittest.TestCase):
@@ -124,7 +124,7 @@ class AbstractionTrainerIntegrationTests(unittest.TestCase):
             input_weight_blend=0.0,
             enable_abstraction_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "river"])
 
         metrics = trainer.train_step(pattern, raw_window="river")
@@ -146,7 +146,7 @@ class AbstractionTrainerIntegrationTests(unittest.TestCase):
             input_weight_blend=0.0,
             enable_abstraction_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         for text in ("river", "bank", "money", "loan"):
             pattern = trainer.encoder.feature_vector([ord(ch) for ch in text])
             trainer.train_step(pattern, raw_window=text)

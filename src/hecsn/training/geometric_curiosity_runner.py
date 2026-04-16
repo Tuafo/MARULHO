@@ -9,7 +9,7 @@ import torch
 from hecsn.config.model_config import HECSNConfig
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics import GeometricCuriosityController
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 TOKENS = (
@@ -37,7 +37,7 @@ def run_geometric_curiosity_benchmark(*, output_dir: Path, seed: int = 23) -> di
         input_weight_blend=0.0,
         enable_abstraction_layer=True,
     )
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     controller = GeometricCuriosityController(model.abstraction_layer)
 

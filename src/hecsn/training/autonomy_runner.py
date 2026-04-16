@@ -24,7 +24,7 @@ from hecsn.semantics.grounding_text import match_terms, salient_query_terms, spl
 from hecsn.semantics.frontier import bank_gap_plan
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class ProbeDiagnostics(TypedDict):
@@ -811,7 +811,7 @@ def run_policy(
     gap_focus_margin: float,
 ) -> tuple[dict[str, Any], HECSNTrainer]:
     set_seed(seed)
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
     banks = deepcopy(base_banks)
     metrics_rows: list[dict[str, Any]] = []

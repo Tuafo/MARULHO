@@ -1375,7 +1375,7 @@ This is an honest limitation: HECSN can ground concrete, visually-frequent conce
 
 4. ✅ **Triplet STDP implementation:** Triplet rule configured as default (`plasticity_rule="triplet"`). A3+ and A3− parameters present. Competitive layer uses triplet variant during training. Frequency-response validation against Pfister & Gerstner (2006) Fig. 2 confirmed: LTP increases monotonically with spike pair frequency (1–50 Hz), triplet rule shows stronger frequency sensitivity than pair rule (o2 accumulation effect), and the frequency sensitivity ratio (50 Hz / 1 Hz potentiation) exceeds 1.5×.
 
-5. ✅ **AdEx reference architecture:** AdEx neuron model validated as reference architecture. `HECSNModelLite` is the production runtime (lower computational cost, same functional output). AdEx benchmarks green (backend + consolidation runners).
+5. ✅ **AdEx reference architecture:** AdEx neuron model validated as reference architecture. `HECSNModel` is the production runtime (lower computational cost, same functional output). AdEx benchmarks green (backend + consolidation runners).
 
 6. ✅ **TurboQuant store:** `TurboQuantPrototypeStore` implemented as standalone component with random orthogonal rotation, 3-bit quantization, exact and approximate routing, cosine accuracy validation. **Integrated as first-class `turboquant_plus` routing backend** in `HierarchicalAssemblyIndex` — selectable via `routing_index_mode="turboquant_plus"`. Lazy cache rebuild pattern mirrors `torch_topk` backend; ID mapping handles arbitrary vector IDs. 39 tests pass (28 store + 11 routing backend integration).
 

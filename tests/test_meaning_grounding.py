@@ -12,7 +12,7 @@ from hecsn.semantics import ConceptStore
 from hecsn.training.meaning_grounding_runner import run_meaning_grounding_benchmark
 from hecsn.training.query_runner import build_memory_episodes, build_query_result
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class MeaningGroundingTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class MeaningGroundingTests(unittest.TestCase):
             enable_context_layer=True,
             enable_binding_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         encoder = RTFEncoder.from_config(cfg)
 
         corpus = "\n".join(

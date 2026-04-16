@@ -15,7 +15,7 @@ from hecsn.reporting.io import write_json_file
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _benchmark_config() -> HECSNConfig:
@@ -34,7 +34,7 @@ def _benchmark_config() -> HECSNConfig:
 
 def _build_checkpoint(root: Path, *, test_case: str) -> Path:
     cfg = _benchmark_config()
-    trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     return save_trainer_checkpoint(
         root / "initial.pt",
         trainer,

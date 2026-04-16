@@ -12,7 +12,7 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 from hecsn.training.query_runner import feed_text, text_pattern_stream
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def _build_trainer() -> HECSNTrainer:
@@ -37,7 +37,7 @@ def _build_trainer() -> HECSNTrainer:
         learned_chunk_boundary_threshold=0.04,
         learned_chunk_association_blend=0.0,
     )
-    return HECSNTrainer(HECSNModelLite(cfg), cfg)
+    return HECSNTrainer(HECSNModel(cfg), cfg)
 
 
 def _pattern_for_term(trainer: HECSNTrainer, term: str) -> torch.Tensor:

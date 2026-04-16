@@ -9,7 +9,7 @@ import torch
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.context import BindingLayer, ContextLayer
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class ContextCircuitTests(unittest.TestCase):
@@ -177,7 +177,7 @@ class ContextCheckpointTests(unittest.TestCase):
             enable_context_layer=True,
             enable_binding_layer=True,
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
         patterns = [
             trainer.encoder.feature_vector([ord(ch) for ch in text])

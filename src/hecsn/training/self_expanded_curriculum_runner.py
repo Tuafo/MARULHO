@@ -12,7 +12,7 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.reporting.io import write_json_file
 from hecsn.service.manager import AUTO_REMOTE_QUERY_BUDGET_MAX, HECSNServiceManager
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def run_self_expanded_curriculum_benchmark(*, output_dir: Path, seed: int = 29) -> dict[str, Any]:
@@ -33,7 +33,7 @@ def run_self_expanded_curriculum_benchmark(*, output_dir: Path, seed: int = 29) 
             enable_binding_layer=True,
             enable_abstraction_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         checkpoint_path = save_trainer_checkpoint(
             root / "initial_curriculum.pt",
             trainer,

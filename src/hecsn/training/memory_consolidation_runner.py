@@ -15,7 +15,7 @@ from hecsn.reporting.io import write_json_file
 from hecsn.reporting.benchmark_plots import plot_memory_consolidation_summary
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 def mean_reconstruction_error(trainer: HECSNTrainer, patterns: List[torch.Tensor]) -> float:
@@ -197,7 +197,7 @@ def run_memory_consolidation(
         raise ValueError("Task B did not produce enough HuggingFace patterns")
 
     set_seed(seed)
-    model = HECSNModelLite(cfg)
+    model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)
 
     output_dir.mkdir(parents=True, exist_ok=True)

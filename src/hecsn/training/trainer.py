@@ -22,7 +22,7 @@ from hecsn.training.bootstrap import PredictiveBootstrap
 
 
 @dataclass
-class HECSNModelLite:
+class HECSNModel:
     """Stage-0 executable subset of HECSN.
 
     This model implements the representation contract, competitive routing,
@@ -243,7 +243,7 @@ class HECSNModelLite:
             )
         )
         return {
-            "model_type": "HECSNModelLite",
+            "model_type": "HECSNModel",
             "benchmark_family": (
                 "contextual_routing_multiscale"
                 if self.context_layer is not None
@@ -291,7 +291,7 @@ class HECSNModelLite:
 class HECSNTrainer:
     """Main stage-0 trainer."""
 
-    def __init__(self, model: HECSNModelLite, config: HECSNConfig):
+    def __init__(self, model: HECSNModel, config: HECSNConfig):
         self.model = model
         self.config = config
         self.token_count = 0

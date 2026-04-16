@@ -7,7 +7,7 @@ import torch
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
-from hecsn.training.trainer import HECSNModelLite
+from hecsn.training.trainer import HECSNModel
 
 
 class RoutingIndexTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class RoutingIndexTests(unittest.TestCase):
             column_latent_dim=8,
             routing_index_mode="torch_topk",
         )
-        model = HECSNModelLite(cfg)
+        model = HECSNModel(cfg)
         scope = model.runtime_scope_report()
 
         self.assertEqual(scope["routing_backend_mode"], "torch_topk")

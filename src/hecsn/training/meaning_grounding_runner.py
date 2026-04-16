@@ -11,7 +11,7 @@ from hecsn.reporting.io import write_json_file
 from hecsn.semantics import ConceptStore
 from hecsn.training.query_runner import build_query_result
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 from hecsn.data.rtf_encoder import RTFEncoder
 
 
@@ -161,7 +161,7 @@ def run_meaning_grounding_benchmark(
     set_seed(seed)
     payload = _scenario_payload(scenario)
     cfg = _benchmark_config()
-    trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     encoder = RTFEncoder.from_config(cfg)
     concept_store = ConceptStore()
     responder = EvidenceResponder(min_similarity=0.0, min_token_coverage=0.25)

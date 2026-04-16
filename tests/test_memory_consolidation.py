@@ -9,7 +9,7 @@ from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.consolidation.memory_store import DualMemoryStore
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.memory_consolidation_runner import build_memory_consolidation_gate
-from hecsn.training.trainer import HECSNModelLite, HECSNTrainer
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class MemoryConsolidationTests(unittest.TestCase):
@@ -79,7 +79,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             deep_sleep_replay_steps=24,
             deep_sleep_candidate_pool=24,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
 
         def pattern(*indices: int) -> torch.Tensor:
             vec = torch.zeros(cfg.input_dim, dtype=torch.float32)
@@ -216,7 +216,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
         pattern[1:5] = 1.0
         pattern = pattern / pattern.sum()
@@ -254,7 +254,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         trainer.memory_warm_started = True
         trainer.token_count = 10
 
@@ -300,7 +300,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
-        trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
         pattern[3:7] = 1.0
         pattern = pattern / pattern.sum()
@@ -404,7 +404,7 @@ class MemoryConsolidationTests(unittest.TestCase):
                 enable_learned_chunking=False,
                 functional_minute=fm,
             )
-            trainer = HECSNTrainer(HECSNModelLite(cfg), cfg)
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
             task_a = [trainer.encoder.feature_vector([ord(c) for c in w]).float() for w in task_a_windows]
             task_b = [trainer.encoder.feature_vector([ord(c) for c in w]).float() for w in task_b_windows]
 
