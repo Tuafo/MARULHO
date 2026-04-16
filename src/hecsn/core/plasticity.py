@@ -271,7 +271,6 @@ class LocalPlasticityCircuit:
         weights: torch.Tensor,
         pre_signal: torch.Tensor,
         post_signal: torch.Tensor,
-        winner_indices: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Triplet STDP (Pfister & Gerstner 2006) combined with log-STDP.
 
@@ -368,7 +367,6 @@ class LocalPlasticityCircuit:
                 weights=input_weights,
                 pre_signal=pre_signal,
                 post_signal=post_signal,
-                winner_indices=winner_indices,
             )
         else:
             input_delta = self._log_stdp_delta(
