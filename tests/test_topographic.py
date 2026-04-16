@@ -278,11 +278,11 @@ class TestSpatialBindingLayer:
 class TestSpatialBindingConfig:
     """Test that config binding_mode works correctly."""
 
-    def test_config_dense_default(self):
+    def test_config_hypercube_default(self):
         from hecsn.config.model_config import HECSNConfig
         cfg = HECSNConfig(n_columns=16, enable_binding_layer=True,
                           enable_context_layer=True)
-        assert cfg.binding_mode == "dense"
+        assert cfg.binding_mode == "hypercube"
 
     def test_config_spatial_mode(self):
         from hecsn.config.model_config import HECSNConfig

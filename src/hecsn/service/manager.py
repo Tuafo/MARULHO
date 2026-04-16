@@ -15,6 +15,7 @@ from uuid import uuid4
 import torch
 
 from hecsn.config.presets import get_autonomy_acquisition_preset
+from hecsn.config.model_config import HECSNConfig
 from hecsn.data.corpus_loader import StreamingCorpusLoader
 from hecsn.data.dataset_adapters import (
     NMNISTAdapter,
@@ -33,6 +34,7 @@ from hecsn.semantics import ConceptStore, GeometricCuriosityController
 from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
+from hecsn.training.trainer import HECSNModel, HECSNTrainer
 from hecsn.training.query_runner import build_query_result, feed_text
 
 
@@ -66,6 +68,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
     },
     "wikipedia_news": {
         "label": "Wikipedia + News",
@@ -77,6 +80,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
     },
     "diverse": {
         "label": "Diverse (Wiki + News + Reviews)",
@@ -89,6 +93,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
     },
     "diverse_fast": {
         "label": "Diverse — Fast (Wiki + News + Reviews)",
@@ -101,6 +106,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 1024,
         "sleep_interval_seconds": 0.02,
         "repeat_sources": True,
+        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube"},
     },
     "multimodal": {
         "label": "Multimodal (Wiki + N-MNIST + FSDD)",
@@ -118,6 +124,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube"},
     },
     "multimodal_fast": {
         "label": "Multimodal — Fast",
@@ -135,6 +142,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "tick_tokens": 1024,
         "sleep_interval_seconds": 0.02,
         "repeat_sources": True,
+        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube"},
     },
 }
 
@@ -655,7 +663,12 @@ class HECSNServiceManager:
             }
 
     def quick_start_terminus(self, *, preset: str = "wikipedia") -> dict[str, Any]:
-        """Configure and start Terminus in one atomic call using a named preset."""
+        """Configure and start Terminus in one atomic call using a named preset.
+
+        If the preset includes ``model_overrides`` that differ from the current
+        model (e.g. different n_columns or binding_mode), the model is rebuilt
+        from scratch with the new config before starting.
+        """
         if preset not in TERMINUS_QUICK_START_PRESETS:
             raise ValueError(f"Unknown preset '{preset}'. Available: {', '.join(sorted(TERMINUS_QUICK_START_PRESETS))}")
         with self._lock:
@@ -668,6 +681,23 @@ class HECSNServiceManager:
                     "already_running": True,
                 }
         config = TERMINUS_QUICK_START_PRESETS[preset]
+        overrides = config.get("model_overrides")
+        if overrides:
+            current_cfg = self._trainer.config
+            needs_rebuild = any(
+                getattr(current_cfg, k, None) != v for k, v in overrides.items()
+            )
+            if needs_rebuild:
+                cfg_dict = {
+                    field_name: getattr(current_cfg, field_name)
+                    for field_name, field_obj in current_cfg.__dataclass_fields__.items()
+                    if field_obj.init
+                }
+                cfg_dict.update(overrides)
+                new_cfg = HECSNConfig(**cfg_dict)
+                new_model = HECSNModel(new_cfg)
+                self._trainer = HECSNTrainer(new_model, new_cfg)
+                self._encoder = self._trainer.encoder
         self.configure_terminus(
             source_bank=config["source_bank"],
             tick_tokens=config["tick_tokens"],

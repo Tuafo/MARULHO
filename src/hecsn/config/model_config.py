@@ -56,7 +56,7 @@ class HECSNConfig:
     learned_chunk_association_lr: float = 0.15
     learned_chunk_association_decay: float = 0.995
 
-    n_columns: int = 10
+    n_columns: int = 256
     column_latent_dim: int = 256
 
     bootstrap_tokens: int = 5000
@@ -141,7 +141,7 @@ class HECSNConfig:
     abstraction_feedback_strength: float = 0.15
 
     enable_binding_layer: bool = False
-    binding_mode: str = "dense"  # "dense" | "spatial" | "hypercube"
+    binding_mode: str = "hypercube"  # "dense" | "spatial" | "hypercube"
     binding_threshold: float = 0.02
     binding_association_lr: float = 0.20
     binding_association_decay: float = 0.995

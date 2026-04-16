@@ -77,7 +77,7 @@ _NEWS_WIKI_HF_TASKS = {
 
 _COMMON_HECSN_PRESET = {
     "seed": 7,
-    "n_columns": 100,
+    "n_columns": 256,
     "column_latent_dim": 256,
     "memory_capacity": 1000,
     "input_weight_blend": 0.02,
@@ -86,6 +86,8 @@ _COMMON_HECSN_PRESET = {
     "input_weight_row_target": 1.0,
     "homeostasis_beta": 0.01,
     "homeostasis_lr": 0.2,
+    "enable_binding_layer": True,
+    "binding_mode": "hypercube",
 }
 
 _COMMON_SLEEP_PRESET = {
