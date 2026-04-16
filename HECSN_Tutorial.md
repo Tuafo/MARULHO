@@ -148,40 +148,57 @@ The built files land in `HECSN_UI/dist/`. The server serves them as static files
 ## 4. Training a Checkpoint
 
 Training creates a `.pt` checkpoint file that stores the model's learned weights, prototypes, and memory buffer.
+The train runner automatically progresses through **3 developmental stages**:
 
-### Quick Training Run
+| Stage | Trigger | What Happens |
+|-------|---------|------|
+| 1 — Bootstrap | Start | Competitive routing + context + cross-modal |
+| 2 — Binding | 20% of tokens | Enables binding layer (hypercube/spatial/dense) |
+| 3 — Abstraction | 50% of tokens | Enables slow-feature abstraction layer |
+
+### Quick Training Run (recommended)
 
 ```bash
+# Using train_runner directly:
 PYTHONPATH=src python -m hecsn.training.train_runner \
   --output-dir checkpoints/my_first_run \
   --dataset-name wikitext \
-  --dataset-config wikitext-2-raw-v1 \
+  --dataset-config wikitext-103-raw-v1 \
+  --text-field text \
+  --max-tokens 500000
+
+# Or equivalently via developmental_runner with --dataset-name:
+PYTHONPATH=src python -m hecsn.training.developmental_runner \
+  --output-dir checkpoints/terminus \
+  --dataset-name wikitext \
+  --dataset-config wikitext-103-raw-v1 \
   --text-field text \
   --max-tokens 500000
 ```
 
-### Developmental Protocol
+Both commands produce the same result — a full multi-stage developmental training run with checkpointing.
 
-For full multi-stage training (bootstrap → memory → consolidation → contextual → cross-modal → abstraction → binding):
+### Developmental Validation Protocol
+
+To run the **built-in validation protocol** (uses curated concept corpus for probe evaluation, not for production training):
 
 ```bash
 PYTHONPATH=src python -m hecsn.training.developmental_runner \
-  --output-dir checkpoints/developmental \
-  --dataset-name wikitext \
-  --dataset-config wikitext-103-raw-v1 \
-  --text-field text
+  --output-dir reports/developmental \
+  --n-tokens 5000
 ```
 
-The developmental runner automatically advances through stages based on probe metrics and growth-rate criteria, enabling layers one at a time.
+This validates each developmental stage passes its criteria using controlled test data.
 
-### Key Config Defaults
+### Key CLI Options
 
-| Parameter | Default | Notes |
-|-----------|---------|-------|
-| `n_columns` | 256 | Number of competitive columns |
-| `binding_mode` | `"hypercube"` | Binding topology (dense, spatial, or hypercube) |
-| `enable_binding_layer` | `False` | Enable after bootstrapping |
-| `enable_context_layer` | `True` | Recurrent attractor context |
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--n-columns` | 256 | Number of competitive columns |
+| `--binding-mode` | `hypercube` | Binding topology (dense, spatial, or hypercube) |
+| `--max-tokens` | 500,000 | Total tokens to train |
+| `--checkpoint-interval` | 100,000 | Save checkpoint every N tokens (0 to disable) |
+| `--resume-from` | — | Path to `.pt` checkpoint to resume from |
 
 ### What Happens During Training
 

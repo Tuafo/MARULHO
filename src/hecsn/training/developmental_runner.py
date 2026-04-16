@@ -1659,23 +1659,58 @@ def run_full_developmental_protocol(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run HECSN developmental protocol")
-    parser.add_argument("--output-dir", type=Path, default=Path("reports/developmental"))
-    parser.add_argument("--n-tokens", type=int, default=5000)
+    parser = argparse.ArgumentParser(
+        description="HECSN training — developmental validation or production training",
+    )
+    parser.add_argument("--output-dir", type=Path, default=Path("checkpoints/terminus"))
+    parser.add_argument("--n-tokens", type=int, default=5000,
+                        help="Tokens per stage (validation mode) or total tokens (production mode)")
     parser.add_argument("--seed", type=int, default=7)
+
+    # Production training args — if --dataset-name is provided, runs train_runner instead
+    parser.add_argument("--dataset-name", type=str, default=None,
+                        help="HuggingFace dataset name (e.g. wikitext). Enables production training mode.")
+    parser.add_argument("--dataset-config", type=str, default=None,
+                        help="HF dataset config (e.g. wikitext-103-raw-v1)")
+    parser.add_argument("--text-field", type=str, default="text",
+                        help="Field name containing text")
+    parser.add_argument("--max-tokens", type=int, default=None,
+                        help="Max tokens for production training (defaults to --n-tokens)")
+    parser.add_argument("--n-columns", type=int, default=256)
+    parser.add_argument("--binding-mode", type=str, default="hypercube",
+                        choices=["dense", "spatial", "hypercube"])
+    parser.add_argument("--checkpoint-interval", type=int, default=100_000)
+    parser.add_argument("--resume-from", type=str, default=None)
     args = parser.parse_args()
 
-    results = run_full_developmental_protocol(
-        n_tokens_per_stage=args.n_tokens,
-        seed=args.seed,
-        output_dir=args.output_dir,
-    )
-
-    for r in results:
-        status = "PASS" if r.passed else "FAIL"
-        print(f"[developmental] Stage {r.stage}: {status}")
-        for k, v in r.metrics.items():
-            if isinstance(v, float):
-                print(f"  {k} = {v:.4f}")
-            else:
-                print(f"  {k} = {v}")
+    if args.dataset_name:
+        # Production training with HuggingFace dataset
+        from hecsn.training.train_runner import train
+        print("[developmental] Production mode: using train_runner with developmental stages")
+        train(
+            output_dir=args.output_dir,
+            dataset_name=args.dataset_name,
+            dataset_config=args.dataset_config,
+            text_field=args.text_field,
+            max_tokens=args.max_tokens or args.n_tokens,
+            n_columns=args.n_columns,
+            binding_mode=args.binding_mode,
+            checkpoint_interval=args.checkpoint_interval,
+            resume_from=args.resume_from,
+        )
+    else:
+        # Validation mode: built-in developmental protocol
+        print("[developmental] Validation mode: running built-in developmental protocol")
+        results = run_full_developmental_protocol(
+            n_tokens_per_stage=args.n_tokens,
+            seed=args.seed,
+            output_dir=args.output_dir,
+        )
+        for r in results:
+            status = "PASS" if r.passed else "FAIL"
+            print(f"[developmental] Stage {r.stage}: {status}")
+            for k, v in r.metrics.items():
+                if isinstance(v, float):
+                    print(f"  {k} = {v:.4f}")
+                else:
+                    print(f"  {k} = {v}")
