@@ -16,6 +16,7 @@ from hecsn.core.cross_modal import CrossModalGroundingLayer
 from hecsn.core.surprise import SurpriseMonitor
 from hecsn.consolidation.memory_store import DualMemoryStore
 from hecsn.data.base_encoder import BaseEncoder
+from hecsn.data.encoder_factory import build_encoder
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from hecsn.training.bootstrap import PredictiveBootstrap
@@ -358,7 +359,7 @@ class HECSNTrainer:
         self._dead_column_census: dict[str, int | float] = {}
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
-        self.encoder: BaseEncoder = RTFEncoder.from_config(self.config)
+        self.encoder: BaseEncoder = build_encoder(self.config)
         self._recent_stream_text = ""
         self._last_raw_window_text: str | None = None
         self._cached_episode_text: str | None = None
@@ -724,7 +725,7 @@ class HECSNTrainer:
     ) -> torch.Tensor | None:
         if self.config.plasticity_mode != "local_stdp":
             return None
-        if raw_window is None or self.config.input_dim != self.config.n_ascii:
+        if raw_window is None or self.config.input_representation not in ("order_weighted_ascii", "unigram_ascii"):
             return None
 
         ascii_codes = [ord(ch) if ord(ch) < self.config.n_ascii else 0 for ch in str(raw_window)]

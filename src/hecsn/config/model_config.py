@@ -12,7 +12,7 @@ class HECSNConfig:
 
     n_ascii: int = 128
     window_size: int = 10
-    input_representation: Literal["order_weighted_ascii", "unigram_ascii", "hashed_ngram"] = "order_weighted_ascii"
+    input_representation: Literal["order_weighted_ascii", "unigram_ascii", "hashed_ngram", "semantic"] = "order_weighted_ascii"
     context_mode: Literal["fixed", "adaptive"] = "adaptive"
     plasticity_mode: Literal["lite", "local_stdp"] = "lite"
     plasticity_rule: Literal["pair", "triplet"] = "triplet"
@@ -62,6 +62,14 @@ class HECSNConfig:
     prototype_init_mode: Literal["random", "teacher"] = "random"
     teacher_embedding_source: str = "glove-wiki-gigaword-300"
     teacher_vocab_limit: int = 50_000
+
+    # Semantic encoder configuration (used when input_representation="semantic")
+    semantic_n_buckets: int = 10_000
+    semantic_embed_dim: int = 64
+    semantic_top_k_sparse: int = 8
+    semantic_glove_source: str = "glove-wiki-gigaword-300"
+    semantic_glove_vocab_limit: int = 50_000
+    semantic_ridge_alpha: float = 1.0
 
     bootstrap_tokens: int = 5000
     k_routing: int = 10
@@ -178,7 +186,7 @@ class HECSNConfig:
     input_dim: int = field(init=False)
 
     def __post_init__(self) -> None:
-        valid_representations = {"order_weighted_ascii", "unigram_ascii", "hashed_ngram"}
+        valid_representations = {"order_weighted_ascii", "unigram_ascii", "hashed_ngram", "semantic"}
         valid_plasticity_modes = {"lite", "local_stdp"}
         valid_spike_backends = {"proxy", "adex"}
         if self.input_representation not in valid_representations:
@@ -319,7 +327,12 @@ class HECSNConfig:
             raise ValueError("acquisition_concept_novelty_weight must be non-negative")
         if self.acquisition_concept_uncertainty_weight < 0.0:
             raise ValueError("acquisition_concept_uncertainty_weight must be non-negative")
-        base_input_dim = self.hashed_ngram_dim if self.input_representation == "hashed_ngram" else self.n_ascii
+        if self.input_representation == "semantic":
+            base_input_dim = 2 * self.semantic_embed_dim
+        elif self.input_representation == "hashed_ngram":
+            base_input_dim = self.hashed_ngram_dim
+        else:
+            base_input_dim = self.n_ascii
         if self.enable_learned_chunking and self.learned_chunk_feature_mode == "concat":
             self.input_dim = int(base_input_dim + self.learned_chunk_concat_dim)
         else:

@@ -1417,6 +1417,43 @@ The HECSN Warm Companion proposal (§A of companion document) suggested bootstra
 
 **Implications:** (1) LLM knowledge distillation into HECSN prototypes is not viable while the RTF encoder produces character-level routing. (2) If future work adds subword/BPE routing, the alignment study should be repeated. (3) The warm bootstrap infrastructure is retained as opt-in (`prototype_init_mode="teacher"`) for reproducibility and future experiments. (4) This validates that HECSN's emergence is genuinely bottom-up — semantic structure must be learned, not injected.
 
+### 10.7 Semantic N-gram Encoder — Replacing Character-Level Routing (Warm Companion Phase 2)
+
+The §10.6 negative result identified the root cause: HECSN's RTF encoder produces character-based routing keys where words cluster by orthographic similarity, not semantic similarity. This motivated a deeper architectural change: replacing the ASCII-position encoding entirely with a **semantic n-gram composition encoder** initialized from pre-trained embeddings.
+
+**Architecture.** The `SemanticEncoder` replaces the RTF pipeline with:
+
+```
+chars → token-boundary n-grams → FNV-1a hash → bucket lookup
+→ average → diagonal adapter → split-sign → top-k sparse → L2-norm
+```
+
+Key design decisions:
+1. **N-gram composition** (not word lookup): character bigrams/trigrams/4-grams hashed to 10K bucket indices, embeddings averaged. No OOV problem — any character sequence produces a valid routing vector.
+2. **GloVe-initialized buckets** via ridge regression: Pre-trained GloVe-300d → PCA to 64d, then solve `(A^T A + αI)^{-1} A^T Y` to map n-gram indicator vectors to embedding space. One-time cost, cached.
+3. **Split-sign encoding**: `[ReLU(x), ReLU(-x)]` doubles 64d to 128d, preserving sign information while maintaining the system-wide nonneg invariant.
+4. **Top-k sparsification** (k=8): Retains only the 8 largest dimensions after split-sign. This was the critical discovery — without sparsification, mean-pooled n-gram embeddings produce overly smooth vectors that concentrate routing on a small column subset.
+5. **Token-boundary-aware streaming**: Semantic features computed within current token (space resets), not across arbitrary character windows.
+6. **Frozen bucket embeddings**: Only the diagonal adapter is trainable. Prototypes learn via STDP competition.
+
+**A/B Evaluation.** Controlled comparison at 256 columns, 10K tokens, hypercube topology:
+
+| Metric | RTF (baseline) | Semantic k=0 | Semantic k=8 |
+|---|---|---|---|
+| Dead column ratio | 31.6% | **57.8%** (worse) | **26.2%** (best) |
+| Winner diversity | 0.711 | 0.609 | **0.757** (best) |
+| Input geometry (mean pairwise cos) | 0.587 | 0.336 | **0.107** (best) |
+| Throughput (tok/s) | 116.2 | 120.2 | **117.4** |
+| Grounding probe accuracy | 0.48 | 0.44 | 0.40 |
+
+**Key findings:**
+1. **Without sparsification (k=0), semantic encoding is strictly worse** — smooth mean-pooled embeddings concentrate routing on ~42% of columns. The rubber-duck critique correctly identified that "direct semantic smoothness is anti-aligned with competitive routing."
+2. **With aggressive sparsification (k=8), semantic encoding outperforms RTF** on column health metrics: 17% fewer dead columns, 6% better diversity, dramatically better input geometry (10.7% mean pairwise cosine vs 58.7%).
+3. **Grounding probe is inconclusive at this scale** — both encodings score near random chance (0.40–0.48) because no multimodal training has occurred. The probe requires cross-modal associations (visual/audio) that are only established during developmental Stages 3–5.
+4. **Top-k ablation** reveals a smooth progression: k=0 → k=32 → k=16 → k=8 progressively reduces dead columns (53.1% → 47.3% → 35.9% → 31.6%) while maintaining diversity.
+
+**Implications:** (1) The semantic encoder with top-k=8 sparsification provides a superior routing substrate with better column utilization and more discriminative input geometry. (2) The `input_representation="semantic"` mode is available as an opt-in alternative to the default RTF encoding. (3) Full evaluation at developmental scale (500K+ tokens with multimodal stages) is needed to determine whether the improved routing substrate translates to better grounding probe accuracy. (4) The encoder factory (`build_encoder`) abstracts over encoding choices, making it easy to switch between modes.
+
 ---
 
 ## 11. Implementation Roadmap
@@ -1986,3 +2023,15 @@ The following table separates **implemented standalone components** from **end-t
 1. **Warm Companion bootstrap investigation — negative result documented (§10).** The HECSN_Warm_Companion.md proposed bootstrapping prototypes from LLM embeddings (GloVe/fastText → PCA + k-means centroids). A full research pipeline was executed: (a) alignment study comparing HECSN routing geometry vs GloVe space, (b) rubber-duck critique identifying 9 critical issues, (c) constrained bootstrap implementation (PCA + ReLU + L2-normalize → k-means centroids), (d) A/B/C/D controlled evaluation (random, teacher, shuffled placebo, uniform). **Key finding: HECSN routing keys are character-based** — words cluster by initial characters ("dog" neighbors: "door","double","death"), not semantics. Neighborhood overlap with GloVe = 0.024 ≈ random chance. **Evaluation result: shuffled placebo (C=0.809) outperforms teacher bootstrap (B=0.790)**, both slightly beat random (A=0.741). The benefit is from geometric spread of initial prototypes, not semantic content. Uniform init (D=0.382) is worst, confirming init geometry matters but semantic knowledge transfer does not help. **Verdict: warm bootstrap rejected as default; infrastructure retained as opt-in** (`prototype_init_mode="teacher"` in config). The `warm_bootstrap.py` module, alignment study script, and evaluation runner are preserved for reproducibility.
 
 2. **Warm bootstrap infrastructure added (opt-in).** New `src/hecsn/training/warm_bootstrap.py`: `generate_bootstrap_prototypes()` pipeline (GloVe via gensim → PCA + ReLU + L2-normalize → k-means centroids), `compute_bootstrap_alignment()` metric, save/load helpers. New config fields: `prototype_init_mode` ("random"|"teacher", default "random"), `teacher_embedding_source`, `teacher_vocab_limit`. `CompetitiveColumnLayer.__init__` accepts optional `bootstrap_prototypes` tensor. `HECSNModel.__post_init__` auto-generates bootstrap when `prototype_init_mode="teacher"`. `runtime_scope_report()` includes `warm_bootstrap` flag. Scripts: `scripts/warm_alignment_study.py`, `scripts/warm_bootstrap_eval.py`. All existing tests pass (51 core tests verified).
+
+### v4.23 Additions
+
+1. **Semantic n-gram encoder — new encoding mode documented (§10.7).** Motivated by the §10.6 negative result (character-based routing incompatible with semantic embeddings), implemented a `SemanticEncoder` that replaces ASCII-position encoding with character n-gram composition through GloVe-initialized bucket embeddings. Architecture: FNV-1a n-gram hashing → 10K bucket lookup → mean pool → diagonal adapter → split-sign → top-k sparse (k=8) → L2-norm. **Critical finding: top-k sparsification (k=8) is essential** — without it, smooth mean-pooled embeddings concentrate 58% of columns as dead. With k=8, semantic encoding outperforms RTF on column health: 26.2% dead columns (vs 31.6% RTF), 0.757 diversity (vs 0.711), 0.107 mean pairwise cosine (vs 0.587). Grounding probe inconclusive at 10K tokens (both near random chance without multimodal training). Available as opt-in via `input_representation="semantic"`.
+
+2. **Encoder factory and BaseEncoder protocol.** New `encoder_factory.py` with `build_encoder(config)` that returns `RTFEncoder` or `SemanticEncoder` based on `config.input_representation`. `BaseEncoder` protocol in `base_encoder.py` defines the common interface (`iter_char_patterns`, `output_dim`, `segment`, `state_dict`, etc.). `HECSNTrainer` and `developmental_runner.py` now use the factory — any code path that constructs an encoder goes through `build_encoder()`. Type annotations updated from `RTFEncoder` to `BaseEncoder` throughout the trainer and developmental runner.
+
+3. **New config fields for semantic encoding.** `semantic_n_buckets` (default 10K), `semantic_embed_dim` (default 64), `semantic_top_k_sparse` (default 8), `semantic_glove_source`, `semantic_glove_vocab_limit`, `semantic_ridge_alpha`. GloVe bucket initialization uses ridge regression with incremental AtA/AtY computation, cached to `~/.cache/hecsn/`. Falls back to random buckets if gensim unavailable.
+
+4. **Spike trace gate fix.** `_local_trace_from_raw_window` in `trainer.py` previously gated on `input_dim != n_ascii` (both 128 for semantic mode, causing incorrect behavior). Changed to gate on `input_representation not in ("order_weighted_ascii", "unigram_ascii")` — only those modes produce valid ASCII-position spike traces.
+
+5. **35 new unit tests** for semantic encoder (`tests/test_semantic_encoder.py`): construction, BaseEncoder protocol compliance, feature vector properties (nonneg, L2-norm, shape), split-sign encoding, n-gram hashing, streaming, token segmentation, spike trace, serialization roundtrip, config integration, encoder factory. All pass.

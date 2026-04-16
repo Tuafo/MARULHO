@@ -26,6 +26,8 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.core.cross_modal import CrossModalGroundingLayer
 from hecsn.data.event_camera_encoder import EventCameraEncoder
 from hecsn.data.cochleagram_encoder import CochleagramEncoder
+from hecsn.data.base_encoder import BaseEncoder
+from hecsn.data.encoder_factory import build_encoder
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.evaluation.grounding_probe import evaluate_grounding_probe
 from hecsn.semantics.geometric_curiosity import GeometricCuriosityController
@@ -42,7 +44,7 @@ class ProtocolState:
     """
 
     trainer: HECSNTrainer
-    text_encoder: RTFEncoder
+    text_encoder: BaseEncoder
     config: HECSNConfig
     concept_signatures: dict[str, dict[str, torch.Tensor]] | None = None
 
@@ -192,7 +194,7 @@ def _compute_column_correlations(
 
 
 def _make_vector_fn(
-    trainer: HECSNTrainer, encoder: RTFEncoder, cfg: HECSNConfig
+    trainer: HECSNTrainer, encoder: BaseEncoder, cfg: HECSNConfig
 ):
     """Build vector_fn callable for grounding probe from trainer + encoder.
 
@@ -267,7 +269,7 @@ def _make_vector_fn(
 
 def _train_on_corpus(
     trainer: HECSNTrainer,
-    encoder: RTFEncoder,
+    encoder: BaseEncoder,
     corpus: list[str],
     n_tokens: int,
 ) -> int:
@@ -497,7 +499,7 @@ def _resolve_signatures(
 
 def _train_multimodal_on_corpus(
     trainer: HECSNTrainer,
-    encoder: RTFEncoder,
+    encoder: BaseEncoder,
     corpus: list[str],
     n_tokens: int,
     signatures: dict[str, dict[str, torch.Tensor]],
@@ -569,7 +571,7 @@ def _train_multimodal_on_corpus(
 
 def _train_on_real_digits(
     trainer: HECSNTrainer,
-    encoder: RTFEncoder,
+    encoder: BaseEncoder,
     episodes: list,
     visual_encoder: EventCameraEncoder | None,
     audio_encoder: CochleagramEncoder | None,
@@ -828,7 +830,7 @@ def run_stage_1(
         cfg = _make_config_for_stage(1, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = RTFEncoder.from_config(cfg)
+        encoder = build_encoder(cfg)
 
     trainer.developmental_stage = 1
 
@@ -955,7 +957,7 @@ def run_stage_2(
         cfg = _make_config_for_stage(2, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = RTFEncoder.from_config(cfg)
+        encoder = build_encoder(cfg)
 
     trainer.developmental_stage = 2
     # Preserve bootstrap counter if continuing from prior state;
@@ -1129,7 +1131,7 @@ def run_stage_3(
         cfg = _make_config_for_stage(3, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = RTFEncoder.from_config(cfg)
+        encoder = build_encoder(cfg)
 
     trainer.developmental_stage = 3
 
@@ -1274,7 +1276,7 @@ def run_stage_4(
         cfg = _make_config_for_stage(4, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = RTFEncoder.from_config(cfg)
+        encoder = build_encoder(cfg)
 
     trainer.developmental_stage = 4
 
@@ -1392,7 +1394,7 @@ def run_stage_5(
         cfg = _make_config_for_stage(5, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = RTFEncoder.from_config(cfg)
+        encoder = build_encoder(cfg)
 
     trainer.developmental_stage = 5
 
