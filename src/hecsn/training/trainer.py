@@ -130,6 +130,22 @@ class HECSNModel:
                 association_lr=self.config.binding_association_lr,
                 association_decay=self.config.binding_association_decay,
             )
+        elif self.config.binding_mode == "hypercube":
+            from hecsn.core.hypercube import HypercubeBindingLayer
+            self.binding_layer = HypercubeBindingLayer(
+                n_columns=self.config.n_columns,
+                device=self.device,
+                threshold=self.config.binding_threshold,
+                gain_strength=self.config.binding_gain_strength,
+                tau_binding=self.config.binding_tau,
+                stp_u_inc=self.config.binding_stp_u_inc,
+                stp_tau_f=self.config.binding_stp_tau_f,
+                stp_tau_d=self.config.binding_stp_tau_d,
+                pv_threshold=self.config.binding_pv_threshold,
+                pv_gain=self.config.binding_pv_gain,
+                association_lr=self.config.binding_association_lr,
+                association_decay=self.config.binding_association_decay,
+            )
         else:
             self.binding_layer = BindingLayer(
                 n_columns=self.config.n_columns,

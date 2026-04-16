@@ -917,6 +917,22 @@ def run_stage_2(
                     association_lr=cfg.binding_association_lr,
                     association_decay=cfg.binding_association_decay,
                 )
+            elif cfg.binding_mode == "hypercube":
+                from hecsn.core.hypercube import HypercubeBindingLayer
+                trainer.model.binding_layer = HypercubeBindingLayer(
+                    n_columns=cfg.n_columns,
+                    device=trainer.model.device,
+                    threshold=cfg.binding_threshold,
+                    gain_strength=cfg.binding_gain_strength,
+                    tau_binding=cfg.binding_tau,
+                    stp_u_inc=cfg.binding_stp_u_inc,
+                    stp_tau_f=cfg.binding_stp_tau_f,
+                    stp_tau_d=cfg.binding_stp_tau_d,
+                    pv_threshold=cfg.binding_pv_threshold,
+                    pv_gain=cfg.binding_pv_gain,
+                    association_lr=cfg.binding_association_lr,
+                    association_decay=cfg.binding_association_decay,
+                )
             else:
                 from hecsn.core.context import BindingLayer
                 trainer.model.binding_layer = BindingLayer(
