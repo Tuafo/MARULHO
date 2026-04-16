@@ -111,39 +111,33 @@ class CrossModalGroundingLayer:
 
         STDP: potentiate W_tv where visual_trace is active (co-occurrence),
         depress W_tv where visual_trace is inactive (text-alone).
+        Uses full-matrix outer products — zero rows in t self-mask, avoiding
+        costly boolean index gather/scatter on small matrices.
         """
         t = text_assembly.to(self.device).float()
         if t.dim() > 1:
             t = t.squeeze(0)
 
-        # Update text trace
         self.text_trace += t
 
-        # Sparse outer products: only update rows where text is active
-        active = t > 0.01
-        if active.any():
-            t_active = t[active]  # [k]
+        if t.max() > 0.01:
+            # Full outer products: zero rows in t auto-mask inactive dimensions
+            visual_clamped = torch.clamp(self.visual_trace, 0, 1)
+            audio_clamped = torch.clamp(self.audio_trace, 0, 1)
 
-            # LTP: text × visual_trace (sparse rows)
-            self.W_tv[active] += self.A_plus * torch.outer(t_active, self.visual_trace)
-            self.W_ta[active] += self.A_plus * torch.outer(t_active, self.audio_trace)
+            # W_tv: LTP + LTD in single update
+            ltp_v = torch.outer(t, self.visual_trace)
+            ltd_v = torch.outer(t, 1.0 - visual_clamped) * self.W_tv.abs()
+            self.W_tv += self.A_plus * ltp_v - self.A_minus * ltd_v
 
-            # LTD: anti-Hebbian decay where sensory trace is low
-            visual_inactive = 1.0 - torch.clamp(self.visual_trace, 0, 1)
-            audio_inactive = 1.0 - torch.clamp(self.audio_trace, 0, 1)
-            self.W_tv[active] -= (self.A_minus
-                                  * torch.outer(t_active, visual_inactive)
-                                  * self.W_tv[active].abs())
-            self.W_ta[active] -= (self.A_minus
-                                  * torch.outer(t_active, audio_inactive)
-                                  * self.W_ta[active].abs())
+            # W_ta: LTP + LTD in single update
+            ltp_a = torch.outer(t, self.audio_trace)
+            ltd_a = torch.outer(t, 1.0 - audio_clamped) * self.W_ta.abs()
+            self.W_ta += self.A_plus * ltp_a - self.A_minus * ltd_a
 
-            # Update grounding confidence (sum already known > 0)
+            active = t > 0.01
             self._update_visual_confidence(t, active)
             self._update_audio_confidence(t, active)
-        else:
-            # All-zero assembly — skip STDP and confidence
-            pass
 
         self._maybe_synaptic_scaling()
         self._decay_traces()
