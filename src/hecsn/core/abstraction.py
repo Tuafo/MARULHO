@@ -142,6 +142,13 @@ class AbstractionLayer:
             max=1.0 + self.feedback_strength,
         )
 
+    def max_curiosity_gap_score(self) -> float:
+        """Fast path: return max gap score without building dicts."""
+        gap_scores = self.slow_var * (1.0 - self.concept_certainty)
+        if int(gap_scores.numel()) <= 0:
+            return 0.0
+        return float(gap_scores.max())
+
     def curiosity_gaps(self, top_n: int = 4) -> list[dict[str, float]]:
         gap_scores = self.slow_var * (1.0 - self.concept_certainty)
         if int(gap_scores.numel()) <= 0:

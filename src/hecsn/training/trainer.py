@@ -1292,8 +1292,7 @@ class HECSNTrainer:
             )
             # Top-down boundary bias: Abstraction Layer → Chunking Layer (§3.1)
             if getattr(self.encoder, "uses_learned_chunking", False):
-                gaps = self.model.abstraction_layer.curiosity_gaps(top_n=1)
-                max_gap = float(gaps[0]["gap_score"]) if gaps else 0.0
+                max_gap = self.model.abstraction_layer.max_curiosity_gap_score()
                 mean_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())
                 self.encoder.learned_chunking.set_abstraction_bias(mean_cert, max_gap)
         assembly, binding_strength = self._apply_binding(
@@ -1517,7 +1516,7 @@ class HECSNTrainer:
             _abs_stab = float(self.model.abstraction_layer.concept_stability.mean().item())
             _abs_cert = float(self.model.abstraction_layer.concept_certainty.mean().item())
             _abs_gain = float(self.model.abstraction_layer.routing_gain().mean().item())
-            _abs_gap = max((float(item["gap_score"]) for item in self.model.abstraction_layer.curiosity_gaps(top_n=4)), default=0.0)
+            _abs_gap = self.model.abstraction_layer.max_curiosity_gap_score()
             self._cached_abs_metrics = (_abs_stab, _abs_cert, _abs_gain, _abs_gap)
         elif not hasattr(self, "_cached_abs_metrics"):
             self._cached_abs_metrics = (0.0, 0.0, 1.0, 0.0)
