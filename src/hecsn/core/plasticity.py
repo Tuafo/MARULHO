@@ -278,32 +278,19 @@ class LocalPlasticityCircuit:
         LTP at post-spike: A2+ * r1 + A3+ * r1 * o2(t-ε)
         LTD at pre-spike:  -(A2- + A3- * r2(t-ε)) * o1 * f_sublinear(w)
 
-        Sparse optimization: LTP only computed for winner columns (post_signal
-        is non-zero only at winners), reducing [n_col × input_dim] to [k × input_dim].
+        Full-matrix computation: zero elements in post_signal/o1_trace
+        self-mask inactive rows, avoiding costly fancy indexing.
         """
-        delta = torch.zeros_like(weights)
+        # LTP: post_signal is sparse (only winners non-zero) — self-masks
+        r1 = self.r1_trace
+        combined = (self.triplet_A2_plus + self.triplet_A3_plus * self.o2_trace.unsqueeze(1)) * r1.unsqueeze(0)
+        w_pow = self._weight_pow_plus(weights)
+        delta = w_pow * post_signal.unsqueeze(1) * combined
 
-        # Sparse LTP: use caller-provided winner indices to avoid .nonzero()
-        win_idx = winner_indices if winner_indices is not None else post_signal.nonzero(as_tuple=True)[0]
-        if win_idx.numel() > 0:
-            r1 = self.r1_trace  # [input_dim]
-            o2_win = self.o2_trace[win_idx]  # [k]
-            w_win = weights[win_idx]  # [k, input_dim]
-            w_pow = self._weight_pow_plus(w_win)
-            combined = (self.triplet_A2_plus + self.triplet_A3_plus * o2_win.unsqueeze(1)) * r1.unsqueeze(0)
-            delta[win_idx] = w_pow * post_signal[win_idx].unsqueeze(1) * combined
-
-        # LTD: uses o1_trace — boolean mask avoids .nonzero()
-        active = self.o1_trace > 1e-5
-        if active.any():
-            f_sub = 1.0 / (1.0 + torch.clamp(weights[active], min=1e-6))
-            ltd_coeff = self.triplet_A2_minus + self.triplet_A3_minus * self.r2_trace.unsqueeze(0)
-            delta[active] -= (
-                f_sub
-                * self.o1_trace[active].unsqueeze(1)
-                * pre_signal.unsqueeze(0)
-                * ltd_coeff
-            )
+        # LTD: o1_trace naturally masks inactive columns (near-zero values)
+        f_sub = 1.0 / (1.0 + torch.clamp(weights, min=1e-6))
+        ltd_coeff = self.triplet_A2_minus + self.triplet_A3_minus * self.r2_trace.unsqueeze(0)
+        delta -= f_sub * self.o1_trace.unsqueeze(1) * pre_signal.unsqueeze(0) * ltd_coeff
 
         return delta
 
