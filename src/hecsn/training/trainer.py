@@ -370,7 +370,7 @@ class HECSNTrainer:
 
     def _buffer_hnsw_update(self, indices: torch.Tensor, vectors: torch.Tensor) -> None:
         """Buffer HNSW updates; flush when buffer reaches interval size."""
-        ids = indices.detach().cpu().tolist()
+        ids = indices.detach().tolist() if not indices.is_cuda else indices.detach().cpu().tolist()
         vecs = vectors.detach()
         for i, vid in enumerate(ids):
             self._hnsw_buffer_ids.append(int(vid))

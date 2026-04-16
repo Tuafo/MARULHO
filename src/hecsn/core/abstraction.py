@@ -53,6 +53,9 @@ class AbstractionLayer:
         self.last_activations: torch.Tensor | None = None
         self.last_input: torch.Tensor | None = None
         self.updates = 0
+        self._stable_cache: torch.Tensor | None = None
+        self._stable_cache_version: int = -1
+        self._state_version: int = 0
 
     def _normalized_assembly(self, assembly: torch.Tensor) -> torch.Tensor:
         values = torch.as_tensor(assembly, dtype=torch.float32, device=self.device).flatten()
@@ -61,10 +64,17 @@ class AbstractionLayer:
         return _normalize_nonnegative(values, eps=self.eps)
 
     def _stable_signal(self) -> torch.Tensor:
+        if self._stable_cache is not None and self._stable_cache_version == self._state_version:
+            return self._stable_cache
         stable = torch.clamp(self.slow_state, min=0.0) * self.concept_stability * self.concept_certainty
-        if float(stable.sum().item()) <= self.eps:
-            return torch.zeros_like(stable)
-        return stable / (stable.sum() + self.eps)
+        total = stable.sum()
+        if float(total) <= self.eps:
+            result = torch.zeros_like(stable)
+        else:
+            result = stable / (total + self.eps)
+        self._stable_cache = result
+        self._stable_cache_version = self._state_version
+        return result
 
     def observe(
         self,
@@ -88,6 +98,9 @@ class AbstractionLayer:
 
         certainty_target = torch.sigmoid(4.0 * raw)
         self.concept_certainty = (1.0 - slow_rate) * self.concept_certainty + slow_rate * certainty_target
+
+        # Invalidate _stable_signal cache (state was mutated)
+        self._state_version += 1
 
         if update_weights and precision > 0.0:
             stable_signal = self._stable_signal()
@@ -113,13 +126,14 @@ class AbstractionLayer:
 
     def routing_gain(self) -> torch.Tensor:
         stable_signal = self._stable_signal()
-        if float(stable_signal.sum().item()) <= self.eps:
+        total = stable_signal.sum()
+        if float(total) <= self.eps:
             return torch.ones(self.n_columns, dtype=torch.float32, device=self.device)
 
         bias = torch.mv(self.feedback, stable_signal)
         bias = bias - bias.mean()
-        max_abs = float(bias.abs().max().item())
-        if max_abs <= self.eps:
+        max_abs = bias.abs().max()
+        if float(max_abs) <= self.eps:
             return torch.ones(self.n_columns, dtype=torch.float32, device=self.device)
         bias = bias / max_abs
         return torch.clamp(
@@ -134,12 +148,17 @@ class AbstractionLayer:
             return []
         k = min(max(1, int(top_n)), int(gap_scores.numel()))
         values, indices = torch.topk(gap_scores, k=k)
+        # Batch extract via .tolist() instead of per-element .item()
+        idx_list = indices.tolist()
+        val_list = values.tolist()
+        stab_list = self.concept_stability[indices].tolist()
+        cert_list = self.concept_certainty[indices].tolist()
         return [
             {
-                "concept_idx": float(indices[i].item()),
-                "gap_score": float(values[i].item()),
-                "stability": float(self.concept_stability[indices[i]].item()),
-                "certainty": float(self.concept_certainty[indices[i]].item()),
+                "concept_idx": float(idx_list[i]),
+                "gap_score": float(val_list[i]),
+                "stability": float(stab_list[i]),
+                "certainty": float(cert_list[i]),
             }
             for i in range(k)
         ]
@@ -160,20 +179,16 @@ class AbstractionLayer:
         if self.updates < warmup_steps:
             return None
         gap_scores = self.slow_var * (1.0 - self.concept_certainty)
-        max_gap = float(gap_scores.max().item())
+        max_gap = float(gap_scores.max())
         if max_gap < gap_threshold:
             return None
         k = min(max(1, int(top_n)), int(gap_scores.numel()))
         values, indices = torch.topk(gap_scores, k=k)
-        # Map high-gap concepts to columns via feedforward weights
-        bonus = torch.zeros(self.n_columns, dtype=torch.float32, device=self.device)
-        for i in range(k):
-            concept_idx = int(indices[i].item())
-            col_weights = self.feedforward[concept_idx]  # shape: [n_columns]
-            bonus += float(values[i].item()) * col_weights
+        # Vectorized: weighted sum of feedforward rows
+        bonus = (values.unsqueeze(1) * self.feedforward[indices]).sum(0)
         # Mean-center then normalize (same pattern as routing_gain)
         bonus = bonus - bonus.mean()
-        max_abs = float(bonus.abs().max().item())
+        max_abs = float(bonus.abs().max())
         if max_abs <= self.eps:
             return None
         bonus = bonus / max_abs
@@ -187,6 +202,7 @@ class AbstractionLayer:
         self.fast_state.zero_()
         self.last_activations = None
         self.last_input = None
+        self._state_version += 1
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -232,6 +248,7 @@ class AbstractionLayer:
             value = snapshot.get(attr)
             setattr(self, attr, None if value is None else value.to(self.device))
         self.updates = int(snapshot.get("updates", self.updates))
+        self._state_version += 1
 
     def sfa_correction_step(
         self,

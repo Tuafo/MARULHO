@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import deque
 from typing import Dict, List
 import torch
@@ -28,7 +29,9 @@ class SurpriseMonitor:
         buf = self.layers[layer_name]["errors"]
         buf.append(err)
         if len(buf) >= 10:
-            var = torch.var(torch.tensor(list(buf), dtype=torch.float32)).item()
+            errors = list(buf)
+            mean = sum(errors) / len(errors)
+            var = sum((e - mean) ** 2 for e in errors) / (len(errors) - 1)
             self.layers[layer_name]["precision"] = 1.0 / (var + 1e-6)
 
     def update_predicted_error(self, actual_error: float, alpha: float = 0.01) -> None:
@@ -37,17 +40,17 @@ class SurpriseMonitor:
     def compute_dopamine_rpe(self, current_error: float) -> float:
         baseline = self.predicted_error + 1e-6
         frac = (self.predicted_error - current_error) / baseline
-        return float(torch.tanh(torch.tensor(frac * 3.0)).item())
+        return math.tanh(frac * 3.0)
 
     def compute_serotonin_punishment(self, current_error: float) -> float:
         baseline = self.predicted_error + 1e-6
         frac = max(0.0, (current_error - self.predicted_error) / baseline)
-        return float(torch.tanh(torch.tensor(frac * 3.0)).item())
+        return math.tanh(frac * 3.0)
 
     def compute_unexpected_uncertainty(self, current_error: float) -> float:
         baseline = self.predicted_error + 1e-6
         frac = abs(current_error - self.predicted_error) / baseline
-        return _clamp01(float(torch.tanh(torch.tensor(frac * 2.0)).item()))
+        return _clamp01(math.tanh(frac * 2.0))
 
     def valence_balance(self) -> float:
         return max(-1.0, min(1.0, 2.0 * (self.dopamine - self.serotonin)))
@@ -89,8 +92,9 @@ class SurpriseMonitor:
         if len(errors) < 10:
             return 1.0
         raw_precision = float(layer.get("precision", 1.0))
-        weight = torch.sigmoid(torch.tensor(0.1 * (raw_precision - 10.0))).item()
-        return max(0.0, min(1.0, float(weight)))
+        x = 0.1 * (raw_precision - 10.0)
+        weight = 1.0 / (1.0 + math.exp(-x))
+        return max(0.0, min(1.0, weight))
 
     def get_modulator(self, layer_name: str) -> float:
         errors = list(self.layers[layer_name]["errors"])
