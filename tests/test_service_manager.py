@@ -1752,5 +1752,96 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 manager.close()
 
 
+class CortexIntegrationTests(unittest.TestCase):
+    """Test cortex/ThoughtLoop integration with service manager."""
+
+    def test_cortex_methods_available_without_ollama(self) -> None:
+        """Cortex methods return graceful fallbacks when Ollama is unavailable."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_no_ollama")
+            try:
+                # cortex_ask returns unavailable
+                result = manager.cortex_ask("hello")
+                self.assertIn("accepted", result)
+
+                # cortex_thoughts returns disabled
+                thoughts = manager.cortex_thoughts()
+                self.assertIn("thoughts", thoughts)
+
+                # cortex_snapshot returns disabled
+                snap = manager.cortex_snapshot()
+                self.assertIn("enabled", snap)
+            finally:
+                manager.close()
+
+    def test_runtime_snapshot_includes_cortex(self) -> None:
+        """The terminus runtime snapshot includes a 'cortex' key."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_snapshot_key")
+            try:
+                status = manager.status()
+                runtime = status["terminus_runtime"]
+                self.assertIn("cortex", runtime)
+                self.assertIn("enabled", runtime["cortex"])
+            finally:
+                manager.close()
+
+    def test_cortex_with_fake_cortex(self) -> None:
+        """Wire a FakeCortex into the manager to test the full integration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_fake_integration")
+            try:
+                from hecsn.cortex.core import FakeCortex
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                cortex = FakeCortex()
+                thought_loop = ThoughtLoop(cortex=cortex)
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                # Ask should be accepted now
+                result = manager.cortex_ask("What is the meaning of life?")
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["query"], "What is the meaning of life?")
+
+                # Step the thought loop manually
+                thought_loop.step()
+
+                # Thoughts should now be available
+                thoughts = manager.cortex_thoughts()
+                self.assertTrue(thoughts["enabled"])
+                self.assertGreater(thoughts["thoughts_generated"], 0)
+                self.assertGreater(len(thoughts["thoughts"]), 0)
+
+                # Snapshot should include drives
+                snap = manager.cortex_snapshot()
+                self.assertTrue(snap["enabled"])
+                self.assertIn("drives", snap)
+                self.assertIn("recent_thoughts", snap)
+
+                # Runtime snapshot should include cortex
+                status = manager.status()
+                cortex_data = status["terminus_runtime"]["cortex"]
+                self.assertTrue(cortex_data["enabled"])
+                self.assertGreater(cortex_data["thoughts_generated"], 0)
+            finally:
+                manager.close()
+
+    def test_telemetry_includes_cortex(self) -> None:
+        """Telemetry snapshot includes cortex key from runtime."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_telemetry")
+            try:
+                telemetry = manager.telemetry_snapshot()
+                runtime = telemetry["terminus_runtime"]
+                self.assertIn("cortex", runtime)
+            finally:
+                manager.close()
+
+
 if __name__ == "__main__":
     unittest.main()

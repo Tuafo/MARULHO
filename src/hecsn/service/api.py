@@ -202,6 +202,23 @@ def create_app(
     def terminus_presets() -> list[dict[str, Any]]:
         return HECSNServiceManager.quick_start_presets()
 
+    # --- Cortex (LLM thought loop) endpoints ---
+
+    @app.post("/terminus/ask")
+    def terminus_ask(query: str = Query(..., min_length=1, max_length=2000)) -> dict[str, Any]:
+        """Submit a question for the cortex to answer asynchronously."""
+        return manager.cortex_ask(query)
+
+    @app.get("/terminus/thoughts")
+    def terminus_thoughts(limit: int = Query(20, ge=1, le=50)) -> dict[str, Any]:
+        """Get recent thoughts from the cortex."""
+        return manager.cortex_thoughts(limit=limit)
+
+    @app.get("/terminus/cortex")
+    def terminus_cortex() -> dict[str, Any]:
+        """Full cortex snapshot (drives, memories, stats)."""
+        return manager.cortex_snapshot()
+
     @app.get("/traces", response_model=TraceHistoryResponse)
     def traces(limit: int = Query(20, ge=1, le=200)) -> TraceHistoryResponse:
         return TraceHistoryResponse(traces=manager.recent_traces(limit=limit))

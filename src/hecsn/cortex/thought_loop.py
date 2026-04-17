@@ -90,6 +90,10 @@ class ThoughtLoop:
         self._last_sleep_time = 0.0
         self._lock = threading.Lock()
 
+        # Thought history (bounded deque — append is CPython-atomic)
+        from collections import deque
+        self._thought_history: deque[dict[str, Any]] = deque(maxlen=50)
+
     # -- Lifecycle --
 
     def start(self) -> None:
@@ -107,7 +111,11 @@ class ThoughtLoop:
         logger.info("ThoughtLoop started")
 
     def stop(self, timeout: float = 5.0) -> None:
-        """Stop the thought loop gracefully."""
+        """Stop the thought loop gracefully.
+
+        Signal stop, then join the thread.  Callers should NOT hold
+        external locks while calling stop() to avoid deadlock.
+        """
         if not self._running:
             return
         self._stop_event.set()
@@ -117,9 +125,46 @@ class ThoughtLoop:
         logger.info("ThoughtLoop stopped (thoughts=%d, dreams=%d)",
                      self.stats.thoughts_generated, self.stats.dreams_generated)
 
+    def request_stop(self) -> None:
+        """Signal stop without joining — safe to call under external lock."""
+        self._stop_event.set()
+        self._running = False
+
     @property
     def is_running(self) -> bool:
         return self._running
+
+    # -- Snapshot (thread-safe) --
+
+    def snapshot(self) -> dict[str, Any]:
+        """Thread-safe snapshot of brain stats + recent thoughts."""
+        with self._lock:
+            s = self.stats
+            return {
+                "enabled": True,
+                "running": self._running,
+                "thoughts_generated": s.thoughts_generated,
+                "dreams_generated": s.dreams_generated,
+                "sleep_cycles": s.sleep_cycles,
+                "ticks": s.ticks,
+                "avg_inference_ms": round(s.avg_inference_ms, 1),
+                "last_thought": s.last_thought,
+                "last_thought_time": s.last_thought_time,
+                "current_mode": s.current_mode,
+                "is_sleeping": s.is_sleeping,
+                "memory_count": s.memory_count,
+                "memory_fill_ratio": round(s.memory_fill_ratio, 3),
+                "drives": {
+                    "curiosity": round(self.drives.state.curiosity, 3),
+                    "anxiety": round(self.drives.state.anxiety, 3),
+                    "satisfaction": round(self.drives.state.satisfaction, 3),
+                    "boredom": round(self.drives.state.boredom, 3),
+                    "fatigue": round(self.drives.state.fatigue, 3),
+                    "social": round(self.drives.state.social, 3),
+                    "arousal": round(self.drives.state.arousal, 3),
+                },
+                "recent_thoughts": list(self._thought_history),
+            }
 
     # -- External interface --
 
@@ -188,39 +233,50 @@ class ThoughtLoop:
     # -- Core loop --
 
     def _loop(self) -> None:
-        """Main autonomous loop — runs in background thread."""
+        """Main autonomous loop — runs in background thread.
+
+        Lock protocol: hold _lock only for state reads/writes, never across
+        LLM inference (which can block for seconds).  Snapshot state under
+        the lock, release it, run inference, then reacquire to commit.
+        """
         logger.debug("ThoughtLoop entering main loop")
         while not self._stop_event.is_set():
             try:
+                # --- fast tick (under lock) ---
                 with self._lock:
                     self.drives.tick()
                     self.stats.ticks += 1
                     now = time.time()
 
-                    # Sleep check
-                    if (
+                    should_sleep = (
                         self.drives.should_sleep()
                         and (now - self._last_sleep_time) > self.sleep_cooldown_s
-                    ):
+                    )
+                    should_think = (
+                        not should_sleep
+                        and self.drives.should_think()
+                        and (now - self._last_thought_time) > self.min_thought_interval_s
+                    )
+
+                # --- slow operations (outside lock) ---
+                if should_sleep:
+                    with self._lock:
                         self.stats.current_mode = "sleeping"
                         self.stats.is_sleeping = True
-                        dreams = self._sleep_cycle()
+                    dreams = self._sleep_cycle()
+                    with self._lock:
                         self.stats.is_sleeping = False
                         self.stats.current_mode = "idle"
-                        if self._on_sleep and dreams:
-                            self._on_sleep(dreams)
-                        continue
-
-                    # Deliberation check
-                    if (
-                        self.drives.should_think()
-                        and (now - self._last_thought_time) > self.min_thought_interval_s
-                    ):
+                    if self._on_sleep and dreams:
+                        self._on_sleep(dreams)
+                elif should_think:
+                    with self._lock:
                         self.stats.current_mode = "thinking"
-                        result = self._deliberate()
+                    result = self._deliberate()
+                    with self._lock:
                         self.stats.current_mode = "idle"
-                        if self._on_thought and result:
-                            self._on_thought(result)
+                    if self._on_thought and result:
+                        self._on_thought(result)
 
             except Exception:
                 logger.exception("ThoughtLoop error")
@@ -272,6 +328,17 @@ class ThoughtLoop:
             result.latency_ms,
             result.thought[:80],
         )
+
+        # Append to history (deque.append is CPython-atomic)
+        self._thought_history.append({
+            "thought": result.thought,
+            "confidence": result.confidence,
+            "emotional_valence": result.emotional_valence,
+            "topics": list(result.topics),
+            "latency_ms": round(result.latency_ms, 1),
+            "time": self._last_thought_time,
+        })
+
         return result
 
     def _sleep_cycle(self) -> list[ThoughtResult]:

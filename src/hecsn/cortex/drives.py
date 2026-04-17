@@ -256,13 +256,15 @@ class ThalamicGate:
         drives: DriveSystem,
         max_memories: int = 5,
         max_thread: int = 3,
+        max_query_queue: int = 8,
     ) -> None:
         self.memory = memory
         self.drives = drives
         self.max_memories = max_memories
         self.max_thread = max_thread
         self._thought_thread: list[str] = []
-        self._pending_query: str = ""
+        from collections import deque
+        self._query_queue: deque[str] = deque(maxlen=max_query_queue)
 
     def assemble(self) -> ContextPacket:
         """Build a context packet from current SNN state."""
@@ -305,10 +307,9 @@ class ThalamicGate:
             recent_thread=list(self._thought_thread[-self.max_thread:]),
             self_state=self_state,
             mode=mode,
-            external_query=self._pending_query,
+            external_query=self._query_queue.popleft() if self._query_queue else "",
             max_response_tokens=max_tokens,
         )
-        self._pending_query = ""
         return packet
 
     def record_thought(self, result: ThoughtResult) -> None:
@@ -319,8 +320,11 @@ class ThalamicGate:
             self._thought_thread = self._thought_thread[-self.max_thread:]
 
     def submit_query(self, query: str) -> None:
-        """Submit an external query for the cortex to answer."""
-        self._pending_query = query
+        """Submit an external query for the cortex to answer.
+
+        Uses a bounded queue so multiple queries can be pending.
+        """
+        self._query_queue.append(query)
         self.drives.update_from_external_input()
 
     def assemble_for_sleep(self) -> ContextPacket:

@@ -37,6 +37,10 @@ from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_c
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 from hecsn.training.query_runner import build_query_result, feed_text
 
+import logging as _logging
+
+_cortex_logger = _logging.getLogger(__name__ + ".cortex")
+
 
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
@@ -264,6 +268,20 @@ class HECSNServiceManager:
         self._state_revision = 0
         self._load_persisted_traces_locked()
 
+        # --- Cortex / ThoughtLoop (lazy, graceful degradation) ---
+        self._thought_loop: Any = None  # type: ThoughtLoop | None
+        self._cortex_available = False
+        try:
+            from hecsn.cortex.thought_loop import ThoughtLoop
+            from hecsn.cortex.core import CorticalCore
+
+            cortex = CorticalCore()  # will fail if Ollama unreachable
+            self._thought_loop = ThoughtLoop(cortex=cortex)
+            self._cortex_available = True
+            _cortex_logger.info("Cortex module initialised (Ollama cortex)")
+        except Exception as exc:
+            _cortex_logger.info("Cortex module unavailable: %s", exc)
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             last_trace = self._trace_history[0] if self._trace_history else None
@@ -292,11 +310,13 @@ class HECSNServiceManager:
 
     def telemetry_snapshot(self) -> dict[str, Any]:
         with self._lock:
-            # Cache-invalidation: only rebuild when state changes
+            # Cache-invalidation: only rebuild when state changes.
+            # If cortex is active, bypass cache (thought loop updates independently).
             current_rev = int(self._state_revision)
+            cortex_active = self._thought_loop is not None and self._thought_loop.is_running
             cached = getattr(self, "_cached_telemetry", None)
             cached_rev = getattr(self, "_cached_telemetry_rev", -1)
-            if cached is not None and cached_rev == current_rev:
+            if not cortex_active and cached is not None and cached_rev == current_rev:
                 return cached
 
             memory_store = self._trainer.model.memory_store.summary_stats()
@@ -637,6 +657,15 @@ class HECSNServiceManager:
                 "timestamp": self._brain_running_since,
             })
             self._brain_thread.start()
+
+            # Start cortex thought loop alongside brain
+            if self._thought_loop is not None and not self._thought_loop.is_running:
+                try:
+                    self._thought_loop.start()
+                    _cortex_logger.info("ThoughtLoop started alongside Terminus brain")
+                except Exception as exc:
+                    _cortex_logger.warning("ThoughtLoop failed to start: %s", exc)
+
             return {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
                 "dirty_state": bool(self._dirty_state),
@@ -645,8 +674,21 @@ class HECSNServiceManager:
             }
 
     def stop_terminus(self) -> dict[str, Any]:
+        # Signal ThoughtLoop stop under lock (safe), join outside (avoids deadlock)
+        thought_loop = self._thought_loop
+        if thought_loop is not None and thought_loop.is_running:
+            thought_loop.request_stop()
+
         thread = self._request_brain_stop(reason="manual")
         self._join_brain_thread(thread)
+
+        # Join ThoughtLoop thread outside all locks
+        if thought_loop is not None:
+            try:
+                thought_loop.stop(timeout=3.0)
+            except Exception:
+                pass
+
         with self._lock:
             self._record_brain_event_locked(
                 {
@@ -718,9 +760,55 @@ class HECSNServiceManager:
             for key, val in TERMINUS_QUICK_START_PRESETS.items()
         ]
 
+    # --- Cortex / ThoughtLoop public interface ---
+
+    def cortex_ask(self, query: str) -> dict[str, Any]:
+        """Submit a question to the cortex and return immediately.
+
+        The cortex will answer asynchronously in its next deliberation cycle.
+        Returns acknowledgement with queue depth.
+        """
+        if self._thought_loop is None:
+            return {"accepted": False, "reason": "cortex_unavailable"}
+        self._thought_loop.submit_query(query)
+        return {"accepted": True, "query": query}
+
+    def cortex_thoughts(self, limit: int = 20) -> dict[str, Any]:
+        """Return recent thoughts from the cortex thought loop."""
+        if self._thought_loop is None:
+            return {"enabled": False, "thoughts": []}
+        snap = self._thought_loop.snapshot()
+        thoughts = snap.get("recent_thoughts", [])
+        return {
+            "enabled": True,
+            "running": snap.get("running", False),
+            "thoughts_generated": snap.get("thoughts_generated", 0),
+            "dreams_generated": snap.get("dreams_generated", 0),
+            "current_mode": snap.get("current_mode", "idle"),
+            "thoughts": thoughts[-limit:],
+        }
+
+    def cortex_snapshot(self) -> dict[str, Any]:
+        """Full cortex status snapshot."""
+        if self._thought_loop is None:
+            return {"enabled": False}
+        return self._thought_loop.snapshot()
+
     def close(self) -> None:
+        # Stop cortex first (signal, no join yet)
+        if self._thought_loop is not None and self._thought_loop.is_running:
+            self._thought_loop.request_stop()
+
         thread = self._request_brain_stop(reason="shutdown")
         self._join_brain_thread(thread)
+
+        # Join cortex thread outside locks
+        if self._thought_loop is not None:
+            try:
+                self._thought_loop.stop(timeout=3.0)
+            except Exception:
+                pass
+
         with self._lock:
             self._close_brain_sources_locked()
 
@@ -1756,6 +1844,20 @@ class HECSNServiceManager:
         autonomy_summary = self._run_brain_autonomy_locked()
         did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or multimodal_summary is not None
         token_count_after = int(self._trainer.token_count)
+
+        # --- Inject SNN neuromodulator state into cortex drives ---
+        if did_work and self._thought_loop is not None:
+            try:
+                surprise = self._trainer.model.surprise
+                self._thought_loop.inject_surprise(
+                    dopamine=float(surprise.dopamine),
+                    serotonin=float(surprise.serotonin),
+                    norepinephrine=float(surprise.norepinephrine),
+                    acetylcholine=float(surprise.acetylcholine),
+                )
+            except Exception:
+                pass  # cortex is non-critical
+
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)
         summary = {
@@ -2081,6 +2183,7 @@ class HECSNServiceManager:
                     getattr(self._trainer, "_cross_modal_audio_accepted", 0)
                 ),
             },
+            "cortex": self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False},
         }
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:
