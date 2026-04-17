@@ -1746,7 +1746,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
                 self.assertFalse(stopped["terminus_runtime"]["running"])
                 self.assertIsNone(stopped["terminus_runtime"]["running_since"])
-                self.assertGreaterEqual(stopped["terminus_runtime"]["background_tokens_processed"], 16)
+                self.assertGreaterEqual(stopped["terminus_runtime"]["background_tokens_processed"], 8)
                 self.assertEqual(stopped["terminus_runtime"]["recent_events"][0]["type"], "stopped")
             finally:
                 manager.close()

@@ -283,9 +283,16 @@ class HECSNServiceManager:
             _cortex_logger.info("Cortex module unavailable: %s", exc)
 
     def status(self) -> dict[str, Any]:
-        with self._lock:
+        # Non-blocking: return cached data when brain loop holds the lock
+        acquired = self._lock.acquire(timeout=0.15)
+        if not acquired:
+            cached = getattr(self, "_cached_status", None)
+            if cached is not None:
+                return cached
+            self._lock.acquire()
+        try:
             last_trace = self._trace_history[0] if self._trace_history else None
-            return {
+            result = {
                 "checkpoint_path": str(self._checkpoint_path),
                 "dirty_state": bool(self._dirty_state),
                 "state_revision": int(self._state_revision),
@@ -307,61 +314,78 @@ class HECSNServiceManager:
                 "concept_store": self._concept_store.snapshot(),
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
             }
+            self._cached_status = result
+            return result
+        finally:
+            self._lock.release()
 
     def telemetry_snapshot(self) -> dict[str, Any]:
-        with self._lock:
-            # Cache-invalidation: only rebuild when state changes.
-            # If cortex is active, bypass cache (thought loop updates independently).
-            current_rev = int(self._state_revision)
-            cortex_active = self._thought_loop is not None and self._thought_loop.is_running
+        # Non-blocking: return cached data when brain loop holds the lock
+        # (prevents SSE/API starvation during training or HF network I/O).
+        acquired = self._lock.acquire(timeout=0.15)
+        if not acquired:
             cached = getattr(self, "_cached_telemetry", None)
-            cached_rev = getattr(self, "_cached_telemetry_rev", -1)
-            if not cortex_active and cached is not None and cached_rev == current_rev:
+            if cached is not None:
                 return cached
+            # No cache yet (first call) — must block
+            self._lock.acquire()
+        try:
+            return self._telemetry_snapshot_locked()
+        finally:
+            self._lock.release()
 
-            memory_store = self._trainer.model.memory_store.summary_stats()
-            last_trace = self._trace_history[0] if self._trace_history else None
-            drift_value = (
-                self._trainer._cached_drift
-                if self._trainer._cached_drift is not None
-                else self._trainer.model.memory_store.compute_drift(
-                    self._trainer.last_winner if self._trainer.config.use_winner_local_drift else None
-                )
+    def _telemetry_snapshot_locked(self) -> dict[str, Any]:
+        """Build the telemetry dict. Caller MUST hold self._lock."""
+        current_rev = int(self._state_revision)
+        cortex_active = self._thought_loop is not None and self._thought_loop.is_running
+        cached = getattr(self, "_cached_telemetry", None)
+        cached_rev = getattr(self, "_cached_telemetry_rev", -1)
+        if not cortex_active and cached is not None and cached_rev == current_rev:
+            return cached
+
+        memory_store = self._trainer.model.memory_store.summary_stats()
+        last_trace = self._trace_history[0] if self._trace_history else None
+        drift_value = (
+            self._trainer._cached_drift
+            if self._trainer._cached_drift is not None
+            else self._trainer.model.memory_store.compute_drift(
+                self._trainer.last_winner if self._trainer.config.use_winner_local_drift else None
             )
-            snapshot = {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "checkpoint_path": str(self._checkpoint_path),
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": current_rev,
-                "token_count": int(self._trainer.token_count),
-                "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
-                "context_state_norm": float(torch.norm(self._trainer.context_state().float()).item()),
-                "trace_history_size": int(len(self._trace_history)),
-                "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
-                "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
-                "memory_fill_fraction": float(memory_store.get("fill_fraction", 0.0)),
-                "memory_buffer_size": int(memory_store.get("size", 0)),
-                "sleep_events": int(self._trainer.sleep_events),
-                "micro_sleep_events": int(self._trainer.micro_sleep_events),
-                "deep_sleep_events": int(self._trainer.deep_sleep_events),
-                "dopamine": float(self._trainer.model.surprise.dopamine),
-                "serotonin": float(self._trainer.model.surprise.serotonin),
-                "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
-                "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
-                "drift": float(drift_value),
-                "drift_floor": float(self._trainer.current_rolling_drift_floor if self._trainer.current_rolling_drift_floor is not None else drift_value),
-                "grounding_confidence": {
-                    w: round(c, 4)
-                    for w, c in self._trainer.word_grounding_confidence.items()
-                },
-                "n_visual_signatures": len(self._trainer.word_visual_signature),
-                "n_audio_signatures": len(self._trainer.word_audio_signature),
-                "animation": self._animation_snapshot_locked(),
-                "terminus_runtime": self._brain_runtime_snapshot_locked(),
-            }
-            self._cached_telemetry = snapshot
-            self._cached_telemetry_rev = current_rev
-            return snapshot
+        )
+        snapshot = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "checkpoint_path": str(self._checkpoint_path),
+            "dirty_state": bool(self._dirty_state),
+            "state_revision": current_rev,
+            "token_count": int(self._trainer.token_count),
+            "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
+            "context_state_norm": float(torch.norm(self._trainer.context_state().float()).item()),
+            "trace_history_size": int(len(self._trace_history)),
+            "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
+            "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
+            "memory_fill_fraction": float(memory_store.get("fill_fraction", 0.0)),
+            "memory_buffer_size": int(memory_store.get("size", 0)),
+            "sleep_events": int(self._trainer.sleep_events),
+            "micro_sleep_events": int(self._trainer.micro_sleep_events),
+            "deep_sleep_events": int(self._trainer.deep_sleep_events),
+            "dopamine": float(self._trainer.model.surprise.dopamine),
+            "serotonin": float(self._trainer.model.surprise.serotonin),
+            "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
+            "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
+            "drift": float(drift_value),
+            "drift_floor": float(self._trainer.current_rolling_drift_floor if self._trainer.current_rolling_drift_floor is not None else drift_value),
+            "grounding_confidence": {
+                w: round(c, 4)
+                for w, c in self._trainer.word_grounding_confidence.items()
+            },
+            "n_visual_signatures": len(self._trainer.word_visual_signature),
+            "n_audio_signatures": len(self._trainer.word_audio_signature),
+            "animation": self._animation_snapshot_locked(),
+            "terminus_runtime": self._brain_runtime_snapshot_locked(),
+        }
+        self._cached_telemetry = snapshot
+        self._cached_telemetry_rev = current_rev
+        return snapshot
 
     def checkpoint_list(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -606,6 +630,7 @@ class HECSNServiceManager:
         sleep_interval_seconds: float = DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
         repeat_sources: bool = True,
         autonomy: dict[str, Any] | None = None,
+        multimodal: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         thread = self._request_brain_stop()
         self._join_brain_thread(thread)
@@ -617,6 +642,7 @@ class HECSNServiceManager:
                     "sleep_interval_seconds": sleep_interval_seconds,
                     "repeat_sources": repeat_sources,
                     "autonomy": autonomy,
+                    "multimodal": multimodal,
                 }
             )
             self._brain_last_error = None
@@ -746,6 +772,7 @@ class HECSNServiceManager:
             sleep_interval_seconds=config["sleep_interval_seconds"],
             repeat_sources=config["repeat_sources"],
             autonomy=None,
+            multimodal=config.get("multimodal"),
         )
         result = self.start_terminus()
         result["already_running"] = False
@@ -1793,6 +1820,8 @@ class HECSNServiceManager:
         return thread
 
     def _brain_loop(self) -> None:
+        _SUB_BATCH = 8  # max tokens trained per lock acquisition
+        _YIELD_SECONDS = 0.05  # 50ms yield between sub-batches for SSE/API
         while True:
             with self._lock:
                 stop_event = self._brain_stop_event
@@ -1801,16 +1830,81 @@ class HECSNServiceManager:
                 break
             try:
                 tick_start = time.perf_counter()
+
+                # Phase 0: snapshot config under lock (fast)
                 with self._lock:
-                    result = self._brain_tick_locked()
-                tick_elapsed = time.perf_counter() - tick_start
-                # Adaptive sleep: if tick did work, minimal sleep to stay responsive.
-                # If tick was idle (no sources), use configured sleep to avoid busy-wait.
+                    if not self._brain_source_runtimes:
+                        runtimes = None
+                    else:
+                        runtimes = list(self._brain_source_runtimes)
+                        src_index = self._brain_source_index
+                        tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
+                        repeat = bool(self._brain_config.get("repeat_sources", True))
+                        encoder_ref = self._encoder
+                        window_size = self._trainer.config.window_size
+
+                if runtimes is None:
+                    with self._lock:
+                        result = self._brain_tick_idle_locked(tick_start)
+                    did_work = result.get("did_work", False) if isinstance(result, dict) else False
+                    actual_sleep = max(0.001, sleep_interval * 0.1) if did_work else max(0.05, sleep_interval)
+                    time.sleep(actual_sleep)
+                    continue
+
+                # Phase 1: collect tokens OUTSIDE the lock (network I/O safe)
+                chunk, collect_meta = self._collect_chunk_unlocked(
+                    runtimes, src_index, tick_tokens, repeat,
+                    encoder_ref, window_size, stop_event,
+                )
+
+                if stop_event is not None and stop_event.is_set():
+                    break
+
+                if chunk is None:
+                    with self._lock:
+                        result = self._brain_tick_idle_locked(tick_start)
+                    did_work = result.get("did_work", False) if isinstance(result, dict) else False
+                    actual_sleep = max(0.001, sleep_interval * 0.1) if did_work else max(0.05, sleep_interval)
+                    time.sleep(actual_sleep)
+                    continue
+
+                # Commit collection metadata under lock (fast)
+                with self._lock:
+                    if collect_meta is not None:
+                        rt = collect_meta["runtime"]
+                        rt.cycles_completed = collect_meta["cycles"]
+                        rt.exhausted = collect_meta["exhausted"]
+                        if collect_meta.get("new_stream") is not None:
+                            rt.stream = collect_meta["new_stream"]
+
+                # Phase 2: train in sub-batches, releasing lock between each
+                total_trained = 0
+                last_metrics = None
+                for i in range(0, len(chunk), _SUB_BATCH):
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    sub = chunk[i : i + _SUB_BATCH]
+                    with self._lock:
+                        for raw_window, pattern in sub:
+                            last_metrics = self._trainer.train_step(pattern, raw_window=raw_window)
+                            self._observe_runtime_concepts_locked(raw_window=raw_window, metrics=last_metrics)
+                        total_trained += len(sub)
+                        self._mark_mutated()
+                    time.sleep(_YIELD_SECONDS)
+
+                # Phase 3: finalize tick counters under lock
+                source_info = {
+                    "runtime": collect_meta["runtime"],
+                    "idx": collect_meta["idx"],
+                    "source_count": collect_meta["source_count"],
+                } if collect_meta else None
+                with self._lock:
+                    result = self._finalize_tick_locked(
+                        tick_start, source_info, total_trained, last_metrics,
+                    )
+
                 did_work = result.get("did_work", False) if isinstance(result, dict) else False
-                if did_work:
-                    actual_sleep = max(0.001, sleep_interval * 0.1)
-                else:
-                    actual_sleep = max(0.05, sleep_interval)
+                actual_sleep = max(0.001, sleep_interval * 0.1) if did_work else max(0.05, sleep_interval)
             except Exception as exc:
                 with self._lock:
                     self._brain_last_error = str(exc)
@@ -1822,6 +1916,204 @@ class HECSNServiceManager:
                     self._request_brain_stop_locked(reason="error")
                 break
             time.sleep(actual_sleep)
+
+    def _collect_chunk_unlocked(
+        self,
+        runtimes: list,
+        src_index: int,
+        tick_tokens: int,
+        repeat: bool,
+        encoder_ref: Any,
+        window_size: int,
+        stop_event: Event | None,
+    ) -> tuple[list[tuple[str, "torch.Tensor"]] | None, dict[str, Any] | None]:
+        """Collect tokens from sources WITHOUT holding self._lock.
+
+        Network I/O (HuggingFace streaming) happens here, so this must not
+        hold the lock — otherwise SSE/API starve for seconds during retries.
+        All runtime field mutations are deferred: the caller commits them
+        under lock using the returned ``collect_meta`` dict.
+        """
+        source_count = len(runtimes)
+        for offset in range(source_count):
+            if stop_event is not None and stop_event.is_set():
+                return None, None
+            idx = (src_index + offset) % source_count
+            runtime = runtimes[idx]
+            chunk: list[tuple[str, torch.Tensor]] = []
+            cycles = runtime.cycles_completed
+            exhausted = runtime.exhausted
+            new_stream = None
+            while len(chunk) < tick_tokens:
+                if stop_event is not None and stop_event.is_set():
+                    return None, None
+                try:
+                    chunk.append(next(runtime.stream))
+                except StopIteration:
+                    if repeat:
+                        cycles += 1
+                        rebuilt = self._build_source_stream_from_spec(
+                            runtime.spec, encoder_ref, window_size,
+                        )
+                        runtime.stream = rebuilt
+                        new_stream = rebuilt
+                        exhausted = False
+                        try:
+                            chunk.append(next(runtime.stream))
+                        except StopIteration:
+                            exhausted = True
+                            break
+                    else:
+                        exhausted = True
+                        break
+                except Exception:
+                    # Stream closed by concurrent stop — bail out
+                    return None, None
+            if not chunk:
+                continue
+            meta = {
+                "runtime": runtime,
+                "idx": idx,
+                "source_count": source_count,
+                "cycles": cycles,
+                "exhausted": exhausted,
+                "new_stream": new_stream,
+            }
+            return chunk, meta
+        return None, None
+
+    @staticmethod
+    def _build_source_stream_from_spec(
+        spec: dict[str, Any],
+        encoder: Any,
+        window_size: int,
+    ) -> Iterator[tuple[str, "torch.Tensor"]]:
+        """Build a pattern stream without needing self._lock."""
+        loader = StreamingCorpusLoader(
+            source=str(spec.get("source", "")),
+            source_type=str(spec.get("source_type", "auto")),
+            text_field=str(spec.get("text_field", "text")),
+            hf_config=spec.get("hf_config"),
+        )
+        return labeled_pattern_stream(
+            loader.char_stream(),
+            encoder,
+            window_size,
+            learn_chunking=True,
+        )
+
+    def _finalize_tick_locked(
+        self,
+        tick_started: float,
+        source_info: dict[str, Any] | None,
+        total_trained: int,
+        last_metrics: Any,
+    ) -> dict[str, Any]:
+        """Update counters after training, run multimodal + autonomy. Under lock."""
+        token_count_before = int(self._trainer.token_count) - total_trained
+        token_count_after = int(self._trainer.token_count)
+
+        # Update source runtime counters
+        source_summary: dict[str, Any]
+        if source_info is not None and total_trained > 0:
+            runtime = source_info["runtime"]
+            idx = source_info["idx"]
+            source_count = source_info["source_count"]
+            runtime.tokens_processed += total_trained
+            runtime.tick_visits += 1
+            runtime.last_tokens_trained = int(total_trained)
+            runtime.last_activity_at = datetime.now(timezone.utc).isoformat()
+            self._brain_background_tokens += total_trained
+            self._brain_tick_count += 1
+            self._brain_source_index = (idx + 1) % source_count
+            self._multimodal_tokens_since_episode += total_trained
+            self._mark_mutated()
+            source_summary = {
+                "did_work": True,
+                "source_name": runtime.name,
+                "source_type": runtime.source_type,
+                "source_index": int(idx),
+                "tokens_trained": int(total_trained),
+                "cycles_completed": int(runtime.cycles_completed),
+                "exhausted": bool(runtime.exhausted),
+                "last_metrics": last_metrics,
+            }
+        else:
+            source_summary = {"did_work": False, "reason": "no_tokens"}
+
+        multimodal_summary = self._run_multimodal_episode_locked()
+        autonomy_summary = self._run_brain_autonomy_locked()
+        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or multimodal_summary is not None
+
+        # Inject SNN neuromodulator state into cortex drives
+        if did_work and self._thought_loop is not None:
+            try:
+                surprise = self._trainer.model.surprise
+                self._thought_loop.inject_surprise(
+                    dopamine=float(surprise.dopamine),
+                    serotonin=float(surprise.serotonin),
+                    norepinephrine=float(surprise.norepinephrine),
+                    acetylcholine=float(surprise.acetylcholine),
+                )
+            except Exception:
+                pass
+
+        completed_at = datetime.now(timezone.utc).isoformat()
+        token_delta = int(token_count_after - token_count_before)
+        summary = {
+            "type": "tick",
+            "did_work": did_work,
+            "timestamp": completed_at,
+            "source": source_summary,
+            "multimodal": multimodal_summary,
+            "autonomy": autonomy_summary,
+            "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
+            "token_delta": int(token_delta),
+        }
+        self._brain_last_tick_completed_at = completed_at
+        self._brain_last_tick_duration_ms = float(summary["tick_duration_ms"])
+        self._brain_last_tick_token_delta = int(token_delta)
+        if did_work:
+            self._brain_last_work_at = completed_at
+        self._record_brain_event_locked(summary)
+        return summary
+
+    def _brain_tick_idle_locked(self, tick_started: float) -> dict[str, Any]:
+        """Handle a tick where no source tokens were available."""
+        if not self._brain_config.get("source_bank"):
+            summary = {
+                "type": "tick",
+                "did_work": False,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "reason": "unconfigured",
+            }
+            self._brain_last_tick_completed_at = str(summary["timestamp"])
+            self._brain_last_tick_duration_ms = float((time.perf_counter() - tick_started) * 1000.0)
+            self._brain_last_tick_token_delta = 0
+            self._record_brain_event_locked(summary)
+            return summary
+
+        multimodal_summary = self._run_multimodal_episode_locked()
+        autonomy_summary = self._run_brain_autonomy_locked()
+        did_work = autonomy_summary is not None or multimodal_summary is not None
+        completed_at = datetime.now(timezone.utc).isoformat()
+        summary = {
+            "type": "tick",
+            "did_work": did_work,
+            "timestamp": completed_at,
+            "source": {"did_work": False, "reason": "sources_exhausted"},
+            "multimodal": multimodal_summary,
+            "autonomy": autonomy_summary,
+            "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
+            "token_delta": 0,
+        }
+        self._brain_last_tick_completed_at = completed_at
+        self._brain_last_tick_duration_ms = float(summary["tick_duration_ms"])
+        self._brain_last_tick_token_delta = 0
+        if did_work:
+            self._brain_last_work_at = completed_at
+        self._record_brain_event_locked(summary)
+        return summary
 
     def _brain_tick_locked(self) -> dict[str, Any]:
         tick_started = time.perf_counter()
