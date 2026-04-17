@@ -263,6 +263,8 @@ class HECSNServiceManager:
         self._multimodal_audio_encoder: CochleagramEncoder | None = None
         self._multimodal_tokens_since_episode = 0
         self._multimodal_episodes_completed = 0
+        self._multimodal_visual_accepted = 0
+        self._multimodal_audio_accepted = 0
         self._rebuild_brain_sources_locked()
         self._dirty_state = False
         self._state_revision = 0
@@ -380,6 +382,14 @@ class HECSNServiceManager:
             },
             "n_visual_signatures": len(self._trainer.word_visual_signature),
             "n_audio_signatures": len(self._trainer.word_audio_signature),
+            "cross_modal_visual_confidence": (
+                float(self._trainer.model.cross_modal.visual_confidence.mean().item())
+                if self._trainer.model.cross_modal is not None else None
+            ),
+            "cross_modal_audio_confidence": (
+                float(self._trainer.model.cross_modal.audio_confidence.mean().item())
+                if self._trainer.model.cross_modal is not None else None
+            ),
             "animation": self._animation_snapshot_locked(),
             "terminus_runtime": self._brain_runtime_snapshot_locked(),
         }
@@ -1695,6 +1705,8 @@ class HECSNServiceManager:
             self._multimodal_audio_encoder = None
             self._multimodal_tokens_since_episode = 0
             self._multimodal_episodes_completed = 0
+            self._multimodal_visual_accepted = 0
+            self._multimodal_audio_accepted = 0
             return
 
         nmnist_dir = Path(mm.get("nmnist_dir", "N-MNIST"))
@@ -1738,6 +1750,8 @@ class HECSNServiceManager:
             )
             self._multimodal_tokens_since_episode = 0
             self._multimodal_episodes_completed = 0
+            self._multimodal_visual_accepted = 0
+            self._multimodal_audio_accepted = 0
         except Exception as exc:
             _cortex_logger.warning("Multimodal init failed: %s", exc)
             self._multimodal_dataset = None
@@ -1788,6 +1802,11 @@ class HECSNServiceManager:
                     audio_spikes=step.audio_spikes,
                 )
                 steps_trained += 1
+                if last_metrics:
+                    if last_metrics.get("cross_modal_visual_accepted"):
+                        self._multimodal_visual_accepted += 1
+                    if last_metrics.get("cross_modal_audio_accepted"):
+                        self._multimodal_audio_accepted += 1
 
             self._multimodal_episodes_completed += 1
             self._mark_mutated()
@@ -2497,12 +2516,8 @@ class HECSNServiceManager:
                 "episode_interval": int(
                     (self._brain_config.get("multimodal") or {}).get("episode_interval_tokens", 256)
                 ),
-                "cross_modal_visual_accepted": int(
-                    getattr(self._trainer, "_cross_modal_visual_accepted", 0)
-                ),
-                "cross_modal_audio_accepted": int(
-                    getattr(self._trainer, "_cross_modal_audio_accepted", 0)
-                ),
+                "cross_modal_visual_accepted": int(self._multimodal_visual_accepted),
+                "cross_modal_audio_accepted": int(self._multimodal_audio_accepted),
             },
             "cortex": self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False},
         }
