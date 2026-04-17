@@ -1741,7 +1741,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 started = manager.start_terminus()
                 self.assertTrue(started["terminus_runtime"]["running"])
                 self.assertIsNotNone(started["terminus_runtime"]["running_since"])
-                time.sleep(0.05)
+                time.sleep(0.5)
                 stopped = manager.stop_terminus()
 
                 self.assertFalse(stopped["terminus_runtime"]["running"])

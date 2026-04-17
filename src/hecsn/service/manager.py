@@ -121,14 +121,14 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "multimodal": {
             "enabled": True,
             "nmnist_dir": "N-MNIST",
-            "fsdd_dir": "free-spoken-digit-dataset-master/recordings",
+            "fsdd_dir": "free-spoken-digit-dataset-master",
             "episode_interval_tokens": 256,
             "n_steps": 10,
         },
         "tick_tokens": 512,
         "sleep_interval_seconds": 0.05,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 4, "plasticity_spike_backend": "adex"},
+        "model_overrides": {"n_columns": 1024, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 4, "plasticity_spike_backend": "adex", "enable_cross_modal": True, "cross_modal_dim_visual": 64, "cross_modal_dim_audio": 64},
     },
     "multimodal_fast": {
         "label": "Multimodal — Fast",
@@ -139,14 +139,14 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "multimodal": {
             "enabled": True,
             "nmnist_dir": "N-MNIST",
-            "fsdd_dir": "free-spoken-digit-dataset-master/recordings",
+            "fsdd_dir": "free-spoken-digit-dataset-master",
             "episode_interval_tokens": 128,
             "n_steps": 10,
         },
         "tick_tokens": 1024,
         "sleep_interval_seconds": 0.02,
         "repeat_sources": True,
-        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 8, "plasticity_spike_backend": "adex"},
+        "model_overrides": {"n_columns": 2048, "enable_binding_layer": True, "binding_mode": "hypercube", "routing_shards": 8, "plasticity_spike_backend": "adex", "enable_cross_modal": True, "cross_modal_dim_visual": 64, "cross_modal_dim_audio": 64},
     },
 }
 
@@ -614,13 +614,31 @@ class HECSNServiceManager:
             }
 
     def terminus_status(self) -> dict[str, Any]:
-        with self._lock:
-            return {
+        # Non-blocking: return cached data when brain loop holds the lock
+        acquired = self._lock.acquire(timeout=0.15)
+        if not acquired:
+            cached = getattr(self, "_cached_terminus_status", None)
+            if cached is not None:
+                return cached
+            self._lock.acquire()
+        try:
+            mm_enabled = self._multimodal_dataset is not None
+            mm_info = {
+                "enabled": mm_enabled,
+                "episodes_completed": int(self._multimodal_episodes_completed),
+                "tokens_since_episode": int(self._multimodal_tokens_since_episode),
+            }
+            result = {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
                 "dirty_state": bool(self._dirty_state),
                 "state_revision": int(self._state_revision),
                 "token_count": int(self._trainer.token_count),
+                "multimodal": mm_info,
             }
+            self._cached_terminus_status = result
+            return result
+        finally:
+            self._lock.release()
 
     def configure_terminus(
         self,
@@ -1638,7 +1656,7 @@ class HECSNServiceManager:
         return {
             "enabled": True,
             "nmnist_dir": str(config.get("nmnist_dir", "N-MNIST")),
-            "fsdd_dir": str(config.get("fsdd_dir", "free-spoken-digit-dataset-master/recordings")),
+            "fsdd_dir": str(config.get("fsdd_dir", "free-spoken-digit-dataset-master")),
             "episode_interval_tokens": max(32, int(config.get("episode_interval_tokens", 256))),
             "n_steps": max(1, int(config.get("n_steps", 10))),
         }
@@ -1680,7 +1698,7 @@ class HECSNServiceManager:
             return
 
         nmnist_dir = Path(mm.get("nmnist_dir", "N-MNIST"))
-        fsdd_dir = Path(mm.get("fsdd_dir", "free-spoken-digit-dataset-master/recordings"))
+        fsdd_dir = Path(mm.get("fsdd_dir", "free-spoken-digit-dataset-master"))
         n_steps = int(mm.get("n_steps", 10))
 
         # Resolve relative paths from CWD
@@ -1689,26 +1707,29 @@ class HECSNServiceManager:
         if not fsdd_dir.is_absolute():
             fsdd_dir = Path.cwd() / fsdd_dir
 
+        # NMNISTAdapter expects root with Train/ subdir, FSDDAdapter expects root with recordings/ subdir
         train_dir = nmnist_dir / "Train"
-        if not train_dir.exists() or not fsdd_dir.exists():
+        rec_dir = fsdd_dir / "recordings"
+        if not train_dir.exists() or not rec_dir.exists():
             self._multimodal_dataset = None
             self._multimodal_step_iter = None
             return
 
         model = self._trainer.model
-        visual_dim = model.cross_modal.visual_dim if model.cross_modal is not None else 128
-        audio_dim = model.cross_modal.audio_dim if model.cross_modal is not None else 64
+        # EventCameraEncoder(34,34,pool=4) → 8×8 = 64 output dim
+        # CochleagramEncoder(n_bands=64) → 64 output dim
+        # Cross-modal layer must match these real encoder dims
 
         try:
-            nmnist = NMNISTAdapter(train_dir)
+            nmnist = NMNISTAdapter(nmnist_dir)
             fsdd = FSDDAdapter(fsdd_dir)
             dataset = PairedDigitDataset(nmnist, fsdd, n_steps=n_steps)
             self._multimodal_dataset = dataset
             self._multimodal_visual_encoder = EventCameraEncoder(
-                height=34, width=34, output_dim=visual_dim,
+                height=34, width=34, pool=4,
             )
             self._multimodal_audio_encoder = CochleagramEncoder(
-                sample_rate=8000, output_dim=audio_dim,
+                sample_rate=8000, n_bands=64,
             )
             self._multimodal_step_iter = iter_episode_steps(
                 dataset.iter_episodes(),
@@ -1717,7 +1738,8 @@ class HECSNServiceManager:
             )
             self._multimodal_tokens_since_episode = 0
             self._multimodal_episodes_completed = 0
-        except Exception:
+        except Exception as exc:
+            _cortex_logger.warning("Multimodal init failed: %s", exc)
             self._multimodal_dataset = None
             self._multimodal_step_iter = None
 
@@ -1755,7 +1777,10 @@ class HECSNServiceManager:
                     else:
                         break
 
-                pattern = self._encoder.encode(step.text)
+                # Encode text label using blended_feature_vector (same path
+                # as iter_char_patterns used by the regular brain loop).
+                codes = [ord(c) if 0 <= ord(c) < 128 else 0 for c in step.text]
+                pattern = self._encoder.blended_feature_vector(codes)
                 last_metrics = self._trainer.train_step(
                     pattern,
                     raw_window=step.text,
@@ -1773,7 +1798,8 @@ class HECSNServiceManager:
                 "episodes_completed": self._multimodal_episodes_completed,
                 "last_metrics": last_metrics,
             }
-        except Exception:
+        except Exception as exc:
+            _cortex_logger.warning("Multimodal episode failed: %s", exc, exc_info=True)
             return None
 
     def _rebuild_brain_sources_locked(self) -> None:
@@ -1887,7 +1913,10 @@ class HECSNServiceManager:
                     with self._lock:
                         for raw_window, pattern in sub:
                             last_metrics = self._trainer.train_step(pattern, raw_window=raw_window)
-                            self._observe_runtime_concepts_locked(raw_window=raw_window, metrics=last_metrics)
+                        # Observe concepts once per sub-batch (last token only)
+                        # to avoid O(n_concepts) linear scan per token.
+                        if sub:
+                            self._observe_runtime_concepts_locked(raw_window=sub[-1][0], metrics=last_metrics)
                         total_trained += len(sub)
                         self._mark_mutated()
                     time.sleep(_YIELD_SECONDS)

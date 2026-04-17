@@ -153,6 +153,10 @@ class StatusResponse(BaseModel):
     last_trace_id: str | None
     last_trace_created_at: str | None
     checkpoint_metadata: dict[str, Any]
+    dopamine: float = 0.0
+    serotonin: float = 0.0
+    acetylcholine: float = 0.0
+    norepinephrine: float = 0.0
     runtime_scope: dict[str, Any]
     memory_store: dict[str, Any]
     concept_store: dict[str, Any]
@@ -165,6 +169,7 @@ class TerminusRuntimeResponse(BaseModel):
     dirty_state: bool
     state_revision: int
     token_count: int
+    multimodal: dict[str, Any] | None = None
 
 
 class ResponseBundle(BaseModel):
