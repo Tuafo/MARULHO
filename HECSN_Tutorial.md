@@ -1,7 +1,7 @@
 # HECSN Tutorial — Operator & Developer Guide
 
 > **Hierarchical Encoding with Competitive Spiking Networks**
-> A biologically-grounded spiking neural network for autonomous multimodal knowledge accumulation.
+> A hybrid SNN-LLM cognitive architecture for autonomous learning, memory, and continuous thought.
 
 ---
 
@@ -14,15 +14,29 @@
 5. [Running the Service](#5-running-the-service)
 6. [Using the Dashboard UI](#6-using-the-dashboard-ui)
 7. [Terminus — The Live Brain](#7-terminus--the-live-brain)
-8. [API Reference](#8-api-reference)
-9. [Validation & Testing](#9-validation--testing)
-10. [Extension Points](#10-extension-points)
+8. [The Cortex — Hybrid SNN-LLM Cognition](#8-the-cortex--hybrid-snn-llm-cognition)
+9. [API Reference](#9-api-reference)
+10. [Validation & Testing](#10-validation--testing)
+11. [Extension Points](#11-extension-points)
 
 ---
 
 ## 1. What is HECSN?
 
-HECSN is a **multimodal spiking neural network** that learns continuously from streaming text, visual events, and audio without gradient descent. It uses biologically-inspired mechanisms:
+HECSN is a **hybrid SNN-LLM cognitive architecture** that combines a biologically-inspired spiking neural network with a large language model (Gemma 4 E4B) to create a continuously-thinking, autonomous brain — **Terminus**.
+
+### The Hybrid Architecture
+
+The core insight: SNNs excel at what LLMs structurally cannot do (continuous learning, episodic memory, drives, sleep consolidation, surprise-driven attention), while LLMs excel at what SNNs cannot feasibly reach (language understanding, reasoning, generation). HECSN combines both:
+
+- **Neocortex** (Gemma 4 E4B via Ollama) — language understanding, reasoning, generation
+- **Subcortical SNN** — drives, memory, sleep, curiosity, emotional valence, surprise detection
+
+The SNN does not try to understand language. It **drives** the LLM — controlling when inference fires, what memories enter context, how creative the output is, and whether to think, dream, or sleep.
+
+### SNN Foundation
+
+The subcortical SNN uses biologically-inspired mechanisms:
 
 - **Competitive columnar routing** — input patterns are routed to winner columns via HNSW nearest-neighbor lookup (256 columns by default).
 - **Local STDP plasticity** — synaptic weights update via log-domain spike-timing-dependent rules with eligibility traces.
@@ -31,9 +45,7 @@ HECSN is a **multimodal spiking neural network** that learns continuously from s
 - **Sleep-based memory consolidation** — tag/PRP replay events with synaptic tag capture transfer short-term traces into long-term memory.
 - **Cross-modal grounding** — visual (event camera) and audio (cochleagram) grounding channels bind multi-sensory representations.
 - **Slow-feature abstraction** — a feedback layer learns stable abstract features from fast-changing inputs.
-- **Hypercube binding** — 11-dimensional hypercube topology binds co-occurring patterns with O(N·d) memory, scaling to 100K+ columns where dense/spatial binding is impossible.
-
-The system accumulates knowledge by processing text, images, and audio, stores it in a memory buffer with importance-weighted replay, and answers natural-language queries by retrieving relevant memories and routing through learned prototypes.
+- **Hypercube binding** — 11-dimensional hypercube topology binds co-occurring patterns with O(N·d) memory.
 
 ---
 
@@ -42,6 +54,23 @@ The system accumulates knowledge by processing text, images, and audio, stores i
 ### Processing Pipeline
 
 ```
+                        ┌─────────────────────────────┐
+                        │  Cortex (Gemma 4 E4B)       │  Language, reasoning, generation
+                        │  CorticalCore via Ollama    │  Frozen LLM — controlled by SNN
+                        └──────────┬──────────────────┘
+                                   │ ThoughtLoop (event-driven)
+                 ┌─────────────────┼─────────────────┐
+                 │                 │                  │
+          ┌──────▼──────┐  ┌──────▼──────┐  ┌───────▼──────┐
+          │ DriveSystem │  │  Thalamic   │  │  Episodic    │
+          │ (limbic)    │  │  Gate       │  │  Memory      │
+          │ curiosity,  │  │  context    │  │  provenance  │
+          │ anxiety,    │  │  assembly   │  │  typed stores│
+          │ fatigue     │  │  + budget   │  │  (hippocampus│
+          └──────┬──────┘  └─────────────┘  └──────────────┘
+                 │
+     ────────────┼──────────── SNN Subcortex ──────────────
+                 │
 Text / Visual / Audio Input
     │
     ▼
@@ -78,6 +107,12 @@ Text / Visual / Audio Input
         │
         ▼
 ┌────────────────┐
+│  Surprise       │   4-channel neuromodulation (DA/5-HT/ACh/NE)
+│  Monitor        │   → feeds DriveSystem above
+└───────┬────────┘
+        │
+        ▼
+┌────────────────┐
 │  Cross-Modal    │   Visual & audio grounding channels
 │  Grounding      │   Builds multi-sensory associations
 └───────┬────────┘
@@ -93,16 +128,19 @@ Text / Visual / Audio Input
 
 | Module | File | Purpose |
 |--------|------|---------|
-| `HECSNModel` | `src/hecsn/training/trainer.py` | Core model holding all layers |
-| `HECSNTrainer` | `src/hecsn/training/trainer.py` | Training loop with sleep events |
+| `CorticalCore` | `src/hecsn/cortex/core.py` | LLM wrapper (Ollama/Gemma 4) with JSON output |
+| `EpisodicMemory` | `src/hecsn/cortex/episodic_memory.py` | Typed memory stores with provenance |
+| `DriveSystem` | `src/hecsn/cortex/drives.py` | SNN-driven curiosity, anxiety, fatigue |
+| `ThalamicGate` | `src/hecsn/cortex/drives.py` | Budgeted context assembly for LLM |
+| `ThoughtLoop` | `src/hecsn/cortex/thought_loop.py` | Multi-clock autonomous brain loop |
+| `HECSNModel` | `src/hecsn/training/trainer.py` | Core SNN model holding all layers |
+| `HECSNTrainer` | `src/hecsn/training/trainer.py` | SNN training loop with sleep events |
 | `HECSNConfig` | `src/hecsn/config/model_config.py` | All hyperparameters |
 | `HECSNServiceManager` | `src/hecsn/service/manager.py` | Runtime service orchestration |
 | `create_app` | `src/hecsn/service/api.py` | FastAPI server factory |
 | `CompetitiveLayer` | `src/hecsn/core/columns.py` | Columnar WTA competition |
 | `ContextLayer` | `src/hecsn/core/context.py` | Recurrent attractor context |
 | `AbstractionLayer` | `src/hecsn/core/abstraction.py` | SFA feedback layer |
-| `BindingLayer` | `src/hecsn/core/context.py` | Dense coincidence binding |
-| `SpatialBindingLayer` | `src/hecsn/core/topographic.py` | Spatially-organized binding |
 | `HypercubeBindingLayer` | `src/hecsn/core/hypercube.py` | 11D hypercube binding (default) |
 | `CrossModalGrounding` | `src/hecsn/core/cross_modal.py` | Multi-sensory grounding |
 | `MemoryStore` | `src/hecsn/consolidation/memory_store.py` | Buffer + replay + consolidation |
@@ -120,12 +158,39 @@ Text / Visual / Audio Input
 - Python 3.11+
 - Node.js 20+ (for the dashboard UI)
 - PyTorch 2.x (CUDA optional — CPU is faster for ≤2048 columns)
+- [Ollama](https://ollama.ai/) (for the Cortex/LLM integration)
 
 ### Install Python Dependencies
 
 ```bash
-pip install torch numpy pydantic uvicorn fastapi datasets librosa soundfile hnswlib
+pip install torch numpy pydantic uvicorn fastapi datasets librosa soundfile hnswlib httpx
 ```
+
+### Install Ollama & Gemma 4
+
+The Cortex module uses Ollama to serve Gemma 4 E4B locally:
+
+```bash
+# Install Ollama (Windows: download from https://ollama.ai/download)
+# Then pull the Gemma 4 model:
+ollama pull gemma4:e4b
+```
+
+This downloads ~9.6 GB. After pulling, start the Ollama server:
+
+```bash
+ollama serve
+# Server listens on http://127.0.0.1:11434
+```
+
+Verify it's working:
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+# Should list gemma4:e4b in the models array
+```
+
+> **Note:** The Cortex operates in **offline mode** if Ollama is unavailable — the SNN subsystem continues to function normally. Ollama is only required for the Living Brain thought loop.
 
 ### Install UI Dependencies
 
@@ -148,27 +213,13 @@ The built files land in `HECSN_UI/dist/`. The server serves them as static files
 ## 4. Training a Checkpoint
 
 Training creates a `.pt` checkpoint file that stores the model's learned weights, prototypes, and memory buffer.
-The train runner automatically progresses through **3 developmental stages**:
-
-| Stage | Trigger | What Happens |
-|-------|---------|------|
-| 1 — Bootstrap | Start | Competitive routing + context + cross-modal |
-| 2 — Binding | 20% of tokens | Enables binding layer (hypercube/spatial/dense) |
-| 3 — Abstraction | 50% of tokens | Enables slow-feature abstraction layer |
+The developmental runner automatically progresses through **5 developmental stages** with multi-stage criteria.
 
 ### Quick Training Run (recommended)
 
 ```bash
-# Using train_runner directly:
-PYTHONPATH=src python -m hecsn.training.train_runner \
-  --output-dir checkpoints/my_first_run \
-  --dataset-name wikitext \
-  --dataset-config wikitext-103-raw-v1 \
-  --text-field text \
-  --max-tokens 500000
-
-# Or equivalently via developmental_runner with --dataset-name:
-PYTHONPATH=src python -m hecsn.training.developmental_runner \
+# Full multi-stage developmental training:
+python -m hecsn.training.developmental_runner \
   --output-dir checkpoints/terminus \
   --dataset-name wikitext \
   --dataset-config wikitext-103-raw-v1 \
@@ -176,14 +227,14 @@ PYTHONPATH=src python -m hecsn.training.developmental_runner \
   --max-tokens 500000
 ```
 
-Both commands produce the same result — a full multi-stage developmental training run with checkpointing.
+This is the primary training entrypoint — it handles all stages, checkpointing, and probe evaluation automatically.
 
 ### Developmental Validation Protocol
 
 To run the **built-in validation protocol** (uses curated concept corpus for probe evaluation, not for production training):
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.developmental_runner \
+python -m hecsn.training.developmental_runner \
   --output-dir reports/developmental \
   --n-tokens 5000
 ```
@@ -415,7 +466,110 @@ curl -X POST http://localhost:8000/terminus/stop
 
 ---
 
-## 8. API Reference
+## 8. The Cortex — Hybrid SNN-LLM Cognition
+
+The cortex module (`src/hecsn/cortex/`) implements the hybrid brain architecture where a frozen LLM (Gemma 4 E4B) serves as the neocortex, driven by the SNN subcortical systems.
+
+### Architecture: Cortex-Subcortex Split
+
+| Component | Role | Module |
+|-----------|------|--------|
+| **CorticalCore** | Neocortex — language, reasoning | `cortex/core.py` |
+| **EpisodicMemory** | Hippocampus — store/retrieve episodes | `cortex/episodic_memory.py` |
+| **DriveSystem** | Hypothalamus — curiosity, anxiety, fatigue | `cortex/drives.py` |
+| **ThalamicGate** | Thalamus — attention gating, context assembly | `cortex/drives.py` |
+| **ThoughtLoop** | Basal ganglia — action selection, sleep/wake | `cortex/thought_loop.py` |
+| **SurpriseMonitor** | Limbic — novelty, neuromodulation | `core/surprise.py` (existing SNN) |
+
+### Multi-Clock Architecture
+
+The ThoughtLoop operates at three temporal scales:
+
+1. **Fast loop (100ms):** SNN drive updates — curiosity, fatigue, boredom tracking
+2. **Deliberation (event-driven):** LLM inference fires ONLY when drives cross threshold
+3. **Sleep (periodic):** Memory replay, compression, dream recombination via LLM
+
+The LLM is idle most of the time. It fires only when the SNN determines something needs conscious processing.
+
+### Using the Cortex Programmatically
+
+```python
+from hecsn.cortex import CorticalCore, ThoughtLoop, EpisodicMemory
+
+# Create a cortex (connects to local Ollama)
+cortex = CorticalCore(model="gemma4:e4b")
+
+# Create the full brain
+brain = ThoughtLoop(cortex=cortex)
+
+# Inject an observation
+brain.inject_observation("The Eiffel Tower is in Paris", topics=["geography"])
+
+# Inject SNN surprise signals (from your SurpriseMonitor)
+brain.inject_surprise(dopamine=0.8, norepinephrine=0.6)
+
+# Run a single thought cycle
+thought = brain.step()
+if thought:
+    print(f"Thought: {thought.thought}")
+    print(f"Topics: {thought.topics}")
+    print(f"Confidence: {thought.confidence}")
+
+# Or start autonomous background thinking
+brain.start()
+# ... brain thinks autonomously, sleeps, dreams ...
+brain.stop()
+```
+
+### Testing Without Ollama
+
+The `FakeCortex` provides deterministic, instant responses for testing:
+
+```python
+from hecsn.cortex import FakeCortex, ThoughtLoop
+
+brain = ThoughtLoop(cortex=FakeCortex())
+thought = brain.step()
+# Works instantly without any LLM server
+```
+
+### Memory Provenance
+
+Episodes carry provenance tags that track their origin and trustworthiness:
+
+| Provenance | Source | Confidence |
+|------------|--------|-----------|
+| `OBSERVED` | External input | High — direct evidence |
+| `INFERRED` | Model reasoning | Medium — needs validation |
+| `DREAMED` | Sleep recombination | Low — hypothesis only |
+| `VERIFIED` | Externally confirmed | Highest — protected from eviction |
+| `CONTRADICTED` | Proven wrong | Lowest — candidate for removal |
+
+Dreams never auto-graduate to facts. They require external validation.
+
+### Drive System
+
+The SNN controls the LLM through neuromodulator-derived drives:
+
+| Drive | Source | Effect |
+|-------|--------|--------|
+| Curiosity | High DA + NE | Triggers exploration, increases LLM temperature |
+| Anxiety | Low 5-HT + high NE | Triggers urgent processing |
+| Boredom | Repeated topics | Anti-rumination, forces topic change |
+| Fatigue | Sustained activity | Triggers sleep cycle |
+| Social | No external input | Drives question-asking behavior |
+
+### Anti-Rumination
+
+The `AntiRuminationCircuit` prevents the brain from getting stuck:
+- Exponential decay on repeated topic counts
+- Diversity tracking over recent thoughts
+- Topic avoidance suggestions for over-represented themes
+- Forced sleep when thinking becomes unproductive
+
+---
+
+## 9. API Reference
 
 ### Core Endpoints
 
@@ -467,39 +621,42 @@ The `animation` sub-object is designed for real-time visualization and contains:
 
 ---
 
-## 9. Validation & Testing
+## 10. Validation & Testing
 
 ### Running the Full Test Suite
 
 ```bash
-PYTHONPATH=src python -m pytest -q
+python -m pytest -q
 ```
 
-Current baseline: **~654 tests passed**, 7 subtests passed.
+Current baseline: **~700+ tests passed**, 7 subtests passed (includes 100 cortex + thought loop tests).
 
 ### Focused Test Slices
 
 ```bash
+# Cortex / thought loop tests (fast, no Ollama needed)
+python -m pytest tests/test_cortical_core.py tests/test_thought_loop.py -q
+
+# Cortex integration tests (requires Ollama + Gemma 4)
+python -m pytest tests/test_cortical_core.py -k "slow" -q
+
 # Service API & manager tests
-PYTHONPATH=src python -m pytest tests/test_service_api.py tests/test_service_manager.py -q
+python -m pytest tests/test_service_api.py tests/test_service_manager.py -q
 
 # Hypercube binding tests
-PYTHONPATH=src python -m pytest tests/test_hypercube.py -q
-
-# Topographic & spatial binding tests
-PYTHONPATH=src python -m pytest tests/test_topographic.py -q
+python -m pytest tests/test_hypercube.py -q
 
 # Multimodal & cross-modal tests
-PYTHONPATH=src python -m pytest tests/test_cross_modal.py tests/test_dataset_adapters.py -q
+python -m pytest tests/test_cross_modal.py tests/test_dataset_adapters.py -q
 
 # Developmental runner tests
-PYTHONPATH=src python -m pytest tests/test_developmental_runner.py -q
+python -m pytest tests/test_developmental_runner.py -q
 
 # Grounding and query tests
-PYTHONPATH=src python -m pytest tests/test_grounding_text.py tests/test_meaning_grounding.py tests/test_gap_planner.py -q
+python -m pytest tests/test_grounding_text.py tests/test_meaning_grounding.py tests/test_gap_planner.py -q
 
 # Emergence evaluation
-PYTHONPATH=src python -m pytest tests/test_emergence_evaluation_runner.py -q
+python -m pytest tests/test_emergence_evaluation_runner.py -q
 ```
 
 ### UI Build Verification
@@ -516,7 +673,7 @@ Expect clean build with no errors.
 The full quality gate battery:
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.emergence_evaluation_runner \
+python -m hecsn.training.emergence_evaluation_runner \
   --output-dir reports/my_evaluation
 ```
 
@@ -531,7 +688,7 @@ Results are written to `summary.json` in the output directory.
 
 ---
 
-## 10. Extension Points
+## 11. Extension Points
 
 ### Adding a New Layer
 
@@ -587,17 +744,30 @@ Terminus data sources are configured via the `/terminus/configure` endpoint. To 
 ## Quick Reference Card
 
 ```
+# Train a checkpoint (full multi-stage developmental)
+python -m hecsn.training.developmental_runner \
+  --output-dir checkpoints/terminus \
+  --dataset-name wikitext \
+  --dataset-config wikitext-103-raw-v1 \
+  --text-field text
+
 # Start service
-PYTHONPATH=src python -m hecsn.service.server --checkpoint checkpoints/model.pt
+python -m hecsn.service.server --checkpoint checkpoints/terminus/model.pt
 
 # Start UI dev server
 cd HECSN_UI && npm run dev
 
 # Run tests
-PYTHONPATH=src python -m pytest -q
+python -m pytest -q
+
+# Run cortex tests (no Ollama needed)
+python -m pytest tests/test_cortical_core.py tests/test_thought_loop.py -q
 
 # Run emergence gates
-PYTHONPATH=src python -m hecsn.training.emergence_evaluation_runner --output-dir reports/eval
+python -m hecsn.training.emergence_evaluation_runner --output-dir reports/eval
+
+# Start Ollama for Living Brain mode
+ollama serve
 
 # Feed text to the service
 curl -X POST http://localhost:8000/feed -H "Content-Type: application/json" -d '{"text": "The sun is a star."}'
