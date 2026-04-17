@@ -93,8 +93,8 @@ class AntiRuminationCircuit:
 
     def __init__(
         self,
-        topic_decay_rate: float = 0.9,
-        boredom_threshold: int = 3,
+        topic_decay_rate: float = 0.85,
+        boredom_threshold: int = 2,
         diversity_window: int = 10,
     ) -> None:
         self.topic_decay_rate = topic_decay_rate
@@ -111,7 +111,7 @@ class AntiRuminationCircuit:
             if self._topic_counts[k] < 0.01:
                 del self._topic_counts[k]
 
-        # Increment current topics
+        # Increment current topics (normalize to lower-case single-token stems)
         for t in topics:
             key = t.lower().strip()
             if key:
@@ -122,12 +122,17 @@ class AntiRuminationCircuit:
         self._recent_topics = self._recent_topics[-self.diversity_window:]
 
     def boredom_signal(self) -> float:
-        """How bored are we? Based on topic repetition."""
+        """How bored are we? Based on topic repetition.
+
+        Returns 0→1 where 1 means extreme rumination.
+        Uses faster ramp: exceeding threshold by 1 → 0.4, by 2 → 0.7, by 3 → 0.9.
+        """
         if not self._topic_counts:
             return 0.0
         max_count = max(self._topic_counts.values())
         if max_count >= self.boredom_threshold:
-            return min(1.0, (max_count - self.boredom_threshold + 1) * 0.3)
+            excess = max_count - self.boredom_threshold
+            return min(1.0, 0.4 + excess * 0.25)
         return 0.0
 
     def diversity_score(self) -> float:
@@ -139,7 +144,7 @@ class AntiRuminationCircuit:
 
     def suggest_topic_avoidance(self) -> set[str]:
         """Topics to avoid (currently over-represented)."""
-        threshold = self.boredom_threshold * 0.8
+        threshold = self.boredom_threshold * 0.7
         return {t for t, c in self._topic_counts.items() if c >= threshold}
 
 
@@ -209,13 +214,21 @@ class DriveSystem:
         self.state.fatigue = max(0.0, self.state.fatigue - 0.001)
         # Social drive decays without input
         self.state.social = max(0.0, self.state.social * 0.995)
-        # Boredom decays slightly each tick
-        self.state.boredom = max(0.0, self.state.boredom * 0.999)
+        # Boredom decays moderately so the system recovers from rumination
+        # pauses (half-life ~70 ticks at 100ms tick = ~7s)
+        self.state.boredom = max(0.0, self.state.boredom * 0.990)
 
     def should_think(self) -> bool:
-        """Should the cortex fire a deliberation cycle?"""
+        """Should the cortex fire a deliberation cycle?
+
+        Boredom above 0.8 forces a cooldown — the system must wait for
+        external input or drive decay before thinking again, preventing
+        runaway rumination loops.
+        """
         if self.state.fatigue > 0.9:
             return False  # Too tired, need sleep
+        if self.state.boredom > 0.8:
+            return False  # Ruminating — wait for novelty
         # Think when curiosity or anxiety exceed threshold
         return (
             self.state.curiosity > 0.4
@@ -267,13 +280,26 @@ class ThalamicGate:
         self._query_queue: deque[str] = deque(maxlen=max_query_queue)
 
     def assemble(self) -> ContextPacket:
-        """Build a context packet from current SNN state."""
+        """Build a context packet from current SNN state.
+
+        Uses diverse memory recall when boredom is high — avoids the
+        echo-chamber effect where the LLM only sees its own rumination.
+        """
         drive_state = self.drives.state
         mode = self.drives.choose_mode()
 
-        # Select memories based on drive summary (what we're curious about)
-        query = drive_state.to_summary()
-        memories = self.memory.recall_by_similarity(query, top_k=self.max_memories)
+        # Determine topics to avoid
+        avoid_topics = self.drives.anti_rumination.suggest_topic_avoidance()
+
+        # Select memories: use diverse recall when bored, similarity otherwise
+        if drive_state.boredom > 0.4 or len(avoid_topics) > 0:
+            memories = self.memory.recall_diverse(
+                top_k=self.max_memories,
+                avoid_topics=avoid_topics,
+            )
+        else:
+            query = drive_state.to_summary()
+            memories = self.memory.recall_by_similarity(query, top_k=self.max_memories)
 
         # Convert to MemoryItems
         mem_items = [
@@ -308,6 +334,7 @@ class ThalamicGate:
             self_state=self_state,
             mode=mode,
             external_query=self._query_queue.popleft() if self._query_queue else "",
+            avoid_topics=sorted(avoid_topics)[:6],
             max_response_tokens=max_tokens,
         )
         return packet

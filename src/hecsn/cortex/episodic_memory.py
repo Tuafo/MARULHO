@@ -278,6 +278,47 @@ class EpisodicMemory:
             ep.touch()
         return results
 
+    def recall_diverse(
+        self,
+        top_k: int = 5,
+        avoid_topics: set[str] | None = None,
+    ) -> list[Episode]:
+        """Retrieve a diverse set of memories — prioritise OBSERVED over INFERRED.
+
+        Specifically avoids episodes whose topics overlap with *avoid_topics*,
+        breaking the echo-chamber effect where the LLM only sees its own
+        ruminating thoughts as memories.
+        """
+        if not self._episodes:
+            return []
+
+        avoid = {t.lower() for t in (avoid_topics or set())}
+
+        # Separate observed/external from self-generated
+        observed: list[Episode] = []
+        other: list[Episode] = []
+        for ep in self._episodes.values():
+            ep_topics = {t.lower() for t in ep.topics}
+            if avoid and ep_topics & avoid:
+                continue  # skip over-represented topics
+            if ep.provenance in (Provenance.OBSERVED, Provenance.VERIFIED):
+                observed.append(ep)
+            else:
+                other.append(ep)
+
+        # Prefer observed (external) content, supplement with diverse inferred
+        observed.sort(key=lambda ep: ep.created_at, reverse=True)
+        other.sort(key=lambda ep: ep.composite_importance, reverse=True)
+
+        results = observed[:top_k]
+        remaining = top_k - len(results)
+        if remaining > 0:
+            results.extend(other[:remaining])
+
+        for ep in results:
+            ep.touch()
+        return results
+
     def recall_by_topic(self, topic: str, top_k: int = 10) -> list[Episode]:
         """Retrieve episodes tagged with a specific topic."""
         ids = self._topic_index.get(topic.lower(), set())

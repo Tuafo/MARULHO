@@ -64,6 +64,7 @@ class ContextPacket:
     self_state: str = ""
     mode: ThinkingMode = ThinkingMode.THINK
     external_query: str = ""
+    avoid_topics: list[str] = field(default_factory=list)
     max_response_tokens: int = 256
 
     # Budget limits (token approximation: 1 token ≈ 4 chars)
@@ -84,6 +85,15 @@ class ContextPacket:
         if self.self_state:
             state = self.self_state[:self.MAX_STATE_CHARS]
             parts.append(f"## Internal State\n{state}")
+
+        if self.avoid_topics:
+            avoid_str = ", ".join(self.avoid_topics[:8])
+            parts.append(
+                f"## Topic Constraint\n"
+                f"You have been thinking too much about: {avoid_str}. "
+                f"You MUST think about something completely different. "
+                f"Choose a new angle, a concrete example, or an unrelated domain."
+            )
 
         if self.top_memories:
             mem_lines = [

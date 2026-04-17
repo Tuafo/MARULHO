@@ -2106,6 +2106,29 @@ class HECSNServiceManager:
             except Exception:
                 pass
 
+            # Inject a content observation so Cortex has real data to think about
+            if source_info is not None and total_trained > 0:
+                try:
+                    src_rt = source_info.get("runtime")
+                    src_label = getattr(src_rt, "name", "unknown") if src_rt is not None else "unknown"
+                    # Get recent concept labels from concept store
+                    recent_concepts: list[str] = []
+                    snap = self._concept_store.snapshot(limit=5)
+                    for c in snap.get("top_concepts", [])[:5]:
+                        label = c.get("label", "")
+                        if label:
+                            recent_concepts.append(label)
+                    obs_text = f"SNN processed {total_trained} tokens from {src_label}."
+                    if recent_concepts:
+                        obs_text += f" Recent concepts: {', '.join(recent_concepts)}."
+                    self._thought_loop.inject_observation(
+                        content=obs_text,
+                        topics=[src_label] + recent_concepts[:3],
+                        salience=0.6,
+                    )
+                except Exception:
+                    pass
+
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)
         summary = {
@@ -2197,6 +2220,28 @@ class HECSNServiceManager:
                 )
             except Exception:
                 pass  # cortex is non-critical
+
+            # Inject content observations so Cortex has real data
+            if bool(source_summary.get("did_work")):
+                try:
+                    src_label = str(source_summary.get("source_name", "unknown"))
+                    tok_count = int(source_summary.get("tokens_trained", 0))
+                    recent_concepts: list[str] = []
+                    snap = self._concept_store.snapshot(limit=5)
+                    for c in snap.get("top_concepts", [])[:5]:
+                        label = c.get("label", "")
+                        if label:
+                            recent_concepts.append(label)
+                    obs_text = f"SNN processed {tok_count} tokens from {src_label}."
+                    if recent_concepts:
+                        obs_text += f" Recent concepts: {', '.join(recent_concepts)}."
+                    self._thought_loop.inject_observation(
+                        content=obs_text,
+                        topics=[src_label] + recent_concepts[:3],
+                        salience=0.6,
+                    )
+                except Exception:
+                    pass
 
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)

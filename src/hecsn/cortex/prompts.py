@@ -47,7 +47,10 @@ REFLECT = (
     "Assess your recent thoughts and memories: what have you learned? "
     "What patterns do you notice? Where are you uncertain or confused? "
     "Identify gaps in your understanding and suggest what to explore next. "
-    "Be honest about confidence levels."
+    "Be honest about confidence levels. "
+    "IMPORTANT: Do NOT repeat what you've already said. If your recent thoughts "
+    "are repetitive, you MUST change direction entirely — pick a concrete topic "
+    "from your memories rather than talking about your own drives."
     + JSON_SCHEMA_INSTRUCTION
 )
 

@@ -224,11 +224,21 @@ class ThoughtLoop:
         # Check deliberation
         if (
             self.drives.should_think()
-            and (now - self._last_thought_time) > self.min_thought_interval_s
+            and (now - self._last_thought_time) > self._effective_thought_interval()
         ):
             return self._deliberate()
 
         return None
+
+    def _effective_thought_interval(self) -> float:
+        """Dynamic thought interval — increases with boredom to slow rumination."""
+        base = self.min_thought_interval_s
+        boredom = self.drives.state.boredom
+        if boredom > 0.6:
+            # Scale from base to 4× base as boredom goes 0.6→1.0
+            scale = 1.0 + 3.0 * ((boredom - 0.6) / 0.4)
+            return base * scale
+        return base
 
     # -- Core loop --
 
@@ -255,7 +265,7 @@ class ThoughtLoop:
                     should_think = (
                         not should_sleep
                         and self.drives.should_think()
-                        and (now - self._last_thought_time) > self.min_thought_interval_s
+                        and (now - self._last_thought_time) > self._effective_thought_interval()
                     )
 
                 # --- slow operations (outside lock) ---
