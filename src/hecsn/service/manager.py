@@ -2126,6 +2126,9 @@ class HECSNServiceManager:
                         topics=[src_label] + recent_concepts[:3],
                         salience=0.6,
                     )
+                    # Feed concept labels to thalamic gate for forced-topic injection
+                    if recent_concepts and hasattr(self._thought_loop, '_gate'):
+                        self._thought_loop._gate.update_snn_concepts(recent_concepts)
                 except Exception:
                     pass
 

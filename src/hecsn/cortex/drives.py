@@ -88,8 +88,26 @@ class DriveState:
         return ". ".join(parts)
 
 
+_STOP_WORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "in", "to", "for", "is", "it",
+    "on", "at", "by", "with", "from", "as", "that", "this", "its", "my",
+    "i", "vs", "vs.", "not", "no", "but", "so", "how", "what", "when",
+    "where", "why", "which", "can", "do", "does", "did", "was", "are",
+    "be", "been", "has", "had", "have", "will", "would", "could", "should",
+    "about", "into", "between", "through", "over", "under", "more", "most",
+    "very", "just", "also", "than", "then", "these", "those", "some",
+    "all", "each", "every", "both", "few", "many", "much", "other",
+    "such", "only", "own", "same", "new", "like", "after", "before",
+})
+
+
 class AntiRuminationCircuit:
-    """Prevents degenerate thought loops via boredom and diversity tracking."""
+    """Prevents degenerate thought loops via boredom and diversity tracking.
+
+    Uses word-level counting so "pottery", "Neolithic pottery", and
+    "pottery material science" all count toward the same word-stems,
+    catching semantic clusters that phrase-level tracking misses.
+    """
 
     def __init__(
         self,
@@ -100,39 +118,58 @@ class AntiRuminationCircuit:
         self.topic_decay_rate = topic_decay_rate
         self.boredom_threshold = boredom_threshold
         self.diversity_window = diversity_window
-        self._topic_counts: dict[str, float] = defaultdict(float)
+        self._word_counts: dict[str, float] = defaultdict(float)
+        self._phrase_counts: dict[str, float] = defaultdict(float)
         self._recent_topics: list[str] = []
 
-    def record_topics(self, topics: Sequence[str]) -> None:
-        """Record topics from a thought result."""
-        # Decay all existing counts
-        for k in list(self._topic_counts.keys()):
-            self._topic_counts[k] *= self.topic_decay_rate
-            if self._topic_counts[k] < 0.01:
-                del self._topic_counts[k]
+    @staticmethod
+    def _extract_words(topic: str) -> list[str]:
+        """Extract meaningful words from a topic phrase."""
+        words = []
+        for w in topic.lower().split():
+            w = w.strip(".,;:!?'\"()-")
+            if len(w) >= 3 and w not in _STOP_WORDS:
+                words.append(w)
+        return words
 
-        # Increment current topics (normalize to lower-case single-token stems)
+    def record_topics(self, topics: Sequence[str]) -> None:
+        """Record topics from a thought result.
+
+        Tracks both phrase-level and word-level counts so that semantic
+        clusters are detected even when the LLM uses different phrasings.
+        """
+        # Decay all existing counts
+        for k in list(self._word_counts.keys()):
+            self._word_counts[k] *= self.topic_decay_rate
+            if self._word_counts[k] < 0.01:
+                del self._word_counts[k]
+        for k in list(self._phrase_counts.keys()):
+            self._phrase_counts[k] *= self.topic_decay_rate
+            if self._phrase_counts[k] < 0.01:
+                del self._phrase_counts[k]
+
         for t in topics:
             key = t.lower().strip()
             if key:
-                self._topic_counts[key] += 1.0
+                self._phrase_counts[key] += 1.0
                 self._recent_topics.append(key)
+                for word in self._extract_words(t):
+                    self._word_counts[word] += 1.0
 
-        # Trim window
         self._recent_topics = self._recent_topics[-self.diversity_window:]
 
     def boredom_signal(self) -> float:
         """How bored are we? Based on topic repetition.
 
         Returns 0→1 where 1 means extreme rumination.
-        Uses faster ramp: exceeding threshold by 1 → 0.4, by 2 → 0.7, by 3 → 0.9.
+        Uses word-level counts which detect semantic clusters.
         """
-        if not self._topic_counts:
+        if not self._word_counts:
             return 0.0
-        max_count = max(self._topic_counts.values())
+        max_count = max(self._word_counts.values())
         if max_count >= self.boredom_threshold:
             excess = max_count - self.boredom_threshold
-            return min(1.0, 0.4 + excess * 0.25)
+            return min(1.0, 0.4 + excess * 0.15)
         return 0.0
 
     def diversity_score(self) -> float:
@@ -143,9 +180,13 @@ class AntiRuminationCircuit:
         return unique / len(self._recent_topics)
 
     def suggest_topic_avoidance(self) -> set[str]:
-        """Topics to avoid (currently over-represented)."""
+        """Words to avoid (currently over-represented).
+
+        Returns individual words, not full phrases — used by the thalamic
+        gate to filter memory recall and by the prompt to redirect the LLM.
+        """
         threshold = self.boredom_threshold * 0.7
-        return {t for t, c in self._topic_counts.items() if c >= threshold}
+        return {w for w, c in self._word_counts.items() if c >= threshold}
 
 
 class DriveSystem:
@@ -276,15 +317,24 @@ class ThalamicGate:
         self.max_memories = max_memories
         self.max_thread = max_thread
         self._thought_thread: list[str] = []
+        self._snn_concept_labels: list[str] = []
         from collections import deque
         self._query_queue: deque[str] = deque(maxlen=max_query_queue)
+
+    def update_snn_concepts(self, labels: list[str]) -> None:
+        """Receive concept labels from SNN — used for forced topic injection."""
+        self._snn_concept_labels = labels[-20:]  # keep recent 20
 
     def assemble(self) -> ContextPacket:
         """Build a context packet from current SNN state.
 
         Uses diverse memory recall when boredom is high — avoids the
         echo-chamber effect where the LLM only sees its own rumination.
+        When very bored, injects a random SNN concept label as forced
+        topic to give the LLM fresh content from the training stream.
         """
+        import random
+
         drive_state = self.drives.state
         mode = self.drives.choose_mode()
 
@@ -325,17 +375,31 @@ class ThalamicGate:
         # Temperature modulation based on arousal
         max_tokens = 256
         if mode == ThinkingMode.DREAM:
-            max_tokens = 384  # Dreams can be longer
+            max_tokens = 384
+
+        # When bored, pick a random SNN concept as forced topic
+        forced_topic = ""
+        if drive_state.boredom > 0.5 and self._snn_concept_labels:
+            # Filter out concepts whose words overlap avoidance
+            avoid_words = {w.lower() for w in avoid_topics}
+            candidates = []
+            for label in self._snn_concept_labels:
+                label_words = {w.lower().strip(".,;:!?'\"()-")
+                              for w in label.split() if len(w) >= 3}
+                if not (label_words & avoid_words):
+                    candidates.append(label)
+            if candidates:
+                forced_topic = random.choice(candidates)
 
         packet = ContextPacket(
             drive_summary=drive_state.to_summary(),
             top_memories=mem_items,
-            # Clear thread when bored to break meta-rumination loops
             recent_thread=[] if drive_state.boredom > 0.4 else list(self._thought_thread[-self.max_thread:]),
             self_state=self_state,
             mode=mode,
             external_query=self._query_queue.popleft() if self._query_queue else "",
             avoid_topics=sorted(avoid_topics)[:6],
+            forced_topic=forced_topic,
             max_response_tokens=max_tokens,
         )
         return packet

@@ -285,22 +285,34 @@ class EpisodicMemory:
     ) -> list[Episode]:
         """Retrieve a diverse set of memories — prioritise OBSERVED over INFERRED.
 
-        Specifically avoids episodes whose topics overlap with *avoid_topics*,
-        breaking the echo-chamber effect where the LLM only sees its own
-        ruminating thoughts as memories.
+        Uses word-level avoidance: if *avoid_topics* contains the word
+        "pottery", then an episode tagged "Neolithic pottery" is also
+        filtered out.  This catches semantic clusters that phrase-level
+        matching misses.
         """
         if not self._episodes:
             return []
 
-        avoid = {t.lower() for t in (avoid_topics or set())}
+        avoid_words = {t.lower() for t in (avoid_topics or set())}
+
+        def _episode_overlaps_avoidance(ep: Episode) -> bool:
+            if not avoid_words:
+                return False
+            for topic in ep.topics:
+                topic_words = {w.strip(".,;:!?'\"()-").lower()
+                               for w in topic.split() if len(w) >= 3}
+                if topic_words & avoid_words:
+                    return True
+            return False
 
         # Separate observed/external from self-generated
         observed: list[Episode] = []
         other: list[Episode] = []
+        skipped: list[Episode] = []
         for ep in self._episodes.values():
-            ep_topics = {t.lower() for t in ep.topics}
-            if avoid and ep_topics & avoid:
-                continue  # skip over-represented topics
+            if _episode_overlaps_avoidance(ep):
+                skipped.append(ep)
+                continue
             if ep.provenance in (Provenance.OBSERVED, Provenance.VERIFIED):
                 observed.append(ep)
             else:
@@ -314,6 +326,14 @@ class EpisodicMemory:
         remaining = top_k - len(results)
         if remaining > 0:
             results.extend(other[:remaining])
+
+        # If avoidance is too aggressive and we found nothing,
+        # fall back to recent observations (even if they match avoidance words)
+        if not results and skipped:
+            skipped.sort(key=lambda ep: ep.created_at, reverse=True)
+            obs_skipped = [ep for ep in skipped
+                          if ep.provenance in (Provenance.OBSERVED, Provenance.VERIFIED)]
+            results = (obs_skipped or skipped)[:top_k]
 
         for ep in results:
             ep.touch()

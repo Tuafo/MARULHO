@@ -65,6 +65,7 @@ class ContextPacket:
     mode: ThinkingMode = ThinkingMode.THINK
     external_query: str = ""
     avoid_topics: list[str] = field(default_factory=list)
+    forced_topic: str = ""  # SNN-injected topic to redirect thinking
     max_response_tokens: int = 256
 
     # Budget limits (token approximation: 1 token ≈ 4 chars)
@@ -87,12 +88,18 @@ class ContextPacket:
             parts.append(f"## Internal State\n{state}")
 
         if self.avoid_topics:
-            avoid_str = ", ".join(self.avoid_topics[:8])
-            parts.append(
-                f"## Direction\n"
-                f"Explore something fresh and concrete — a specific fact, mechanism, "
-                f"or phenomenon you haven't considered yet."
-            )
+            if self.forced_topic:
+                parts.append(
+                    f"## Direction\n"
+                    f"Focus on: {self.forced_topic}. "
+                    f"Investigate a specific fact, mechanism, or phenomenon about this."
+                )
+            else:
+                parts.append(
+                    f"## Direction\n"
+                    f"Explore something fresh and concrete — a specific fact, mechanism, "
+                    f"or phenomenon you haven't considered yet."
+                )
 
         if self.top_memories:
             mem_lines = [
