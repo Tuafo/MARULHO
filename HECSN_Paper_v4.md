@@ -1706,6 +1706,69 @@ The following table separates **implemented standalone components** from **end-t
 
 ---
 
+## 14. Hybrid SNN-LLM Cognitive Architecture
+
+### 14.1 Motivation: The Scaling Wall
+
+HECSN's pure-SNN architecture demonstrates genuine grounded learning from temporal co-occurrence, but faces a fundamental scaling wall for language-level cognition. At 72 tok/s (§11 Phase 7), reaching 1T tokens (the minimum for competitive language understanding) would require ~440 years. This is not a software limitation — it reflects the computational mismatch between biologically-plausible local learning rules and the statistical depth required for natural language.
+
+However, what LLMs structurally *cannot* do — continuous learning, episodic memory, emotional drives, sleep consolidation, surprise-driven attention, curiosity-guided exploration — is precisely what HECSN's SNN mechanisms provide.
+
+### 14.2 The Cortex-Subcortex Split
+
+The hybrid architecture implements a biologically-inspired division of labor:
+
+| Component | Biological Analogue | Implementation |
+|-----------|-------------------|----------------|
+| Gemma 4 E4B (frozen) | Neocortex | Language understanding, reasoning, generation |
+| SurpriseMonitor + neuromodulators | Limbic system | Novelty detection, emotional valence, 4-channel drives |
+| EpisodicMemory | Hippocampus | Store/retrieve/consolidate experiences with provenance |
+| DriveSystem | Hypothalamus | Curiosity, anxiety, boredom, fatigue, social needs |
+| ThalamicGate | Thalamus | Context assembly, attention gating, budget enforcement |
+| ThoughtLoop | Basal ganglia | Action selection, mode switching, sleep/wake cycles |
+| Sleep consolidation | Existing 3-phase | Replay, compression, dream-hypothesis generation |
+
+**Key principle:** The SNN does not try to understand language. It *drives* the LLM — controlling when inference fires, what memories enter the context window, how generation temperature maps to arousal, and whether to think/dream/reflect/answer.
+
+### 14.3 Multi-Clock Architecture
+
+The system operates at three temporal scales:
+
+1. **Fast loop (100ms):** SNN drive updates, neuromodulator decay, fatigue/boredom tracking
+2. **Deliberation (event-driven):** LLM inference fires when drives cross threshold — NOT every tick
+3. **Sleep (periodic):** Memory replay, compression, dream recombination via LLM
+
+This multi-clock design means the LLM is idle most of the time, firing only when the SNN determines something needs conscious processing — analogous to how human deliberate thought is sparse relative to subcortical processing.
+
+### 14.4 Memory Provenance and Dream Validation
+
+Episodic memories carry provenance tags: `observed` (external input), `inferred` (model reasoning), `dreamed` (sleep recombination), `verified` (externally confirmed), `contradicted` (proven wrong). Dream outputs are stored as hypotheses with low confidence — they require external validation to graduate to verified status. This prevents hallucinated memories from contaminating the knowledge base.
+
+### 14.5 Anti-Rumination
+
+The `AntiRuminationCircuit` prevents degenerate thought loops via:
+- Exponential decay on repeated topic counts
+- Diversity tracking over a sliding window of recent thoughts
+- Topic avoidance suggestions for over-represented themes
+- Fatigue accumulation → forced sleep when thinking becomes unproductive
+
+### 14.6 Current Status
+
+- `src/hecsn/cortex/` — 5 modules (core, prompts, episodic_memory, drives, thought_loop)
+- Gemma 4 E4B validated on RTX 3060 12GB via Ollama
+- 97 unit tests + 3 integration tests, all passing
+- FakeCortex enables full offline testing of the SNN control loop
+
+### 14.7 Remaining Work
+
+- Wire ThoughtLoop into Terminus UI (service/manager.py) as "Living Brain" mode
+- Replace SimpleEmbedder with Ollama embed endpoint for better memory retrieval
+- Connect SurpriseMonitor from existing SNN pipeline to DriveSystem
+- Action channels: web search, file I/O, user interaction (environmental coupling)
+- Large-scale evaluation: thought quality, memory retention, drive diversity
+
+---
+
 ## 13. References
 
 [1] Hebb, D. O. (1949). *The Organization of Behavior.* Wiley.
@@ -2035,3 +2098,21 @@ The following table separates **implemented standalone components** from **end-t
 4. **Spike trace gate fix.** `_local_trace_from_raw_window` in `trainer.py` previously gated on `input_dim != n_ascii` (both 128 for semantic mode, causing incorrect behavior). Changed to gate on `input_representation not in ("order_weighted_ascii", "unigram_ascii")` — only those modes produce valid ASCII-position spike traces.
 
 5. **35 new unit tests** for semantic encoder (`tests/test_semantic_encoder.py`): construction, BaseEncoder protocol compliance, feature vector properties (nonneg, L2-norm, shape), split-sign encoding, n-gram hashing, streaming, token segmentation, spike trace, serialization roundtrip, config integration, encoder factory. All pass.
+
+### v4.24 Additions
+
+1. **Hybrid SNN-LLM "Living Brain" architecture implemented (§14).** New `src/hecsn/cortex/` module implementing the cortex-subcortex split described in the Warm Companion paper: a frozen LLM (Gemma 4 E4B via Ollama) serves as the neocortex for language/reasoning, while the existing SNN mechanisms (surprise monitor, neuromodulators, curiosity controller, sleep consolidation) serve as subcortical systems that DRIVE the LLM's attention, memory, and thinking patterns. Key insight: the SNN does not try to understand language — it controls when, what, and how the LLM thinks.
+
+2. **CorticalCore — LLM neocortex wrapper.** `cortex/core.py` implements `CorticalCore` (Ollama HTTP client with structured JSON output contract), `ContextPacket` (budgeted prompt slots: drive summary, structured memory items with provenance, recent thought thread, self-state, external query), `ThoughtResult` (parsed JSON with thought, topics, valence, confidence, action intent), and `FakeCortex` (deterministic mock for testing). Security: loopback-only connection, strict timeouts, memory-as-data prompt injection defense.
+
+3. **EpisodicMemory — hippocampal memory system.** `cortex/episodic_memory.py` implements typed episodic stores with provenance tracking (observed/inferred/dreamed/verified/contradicted). Episodes carry emotional valence, confidence, salience, and embedding vectors. Lightweight trigram-hash embedder for similarity search. Capacity-bounded with importance-weighted eviction (verified episodes protected). Dream outputs are hypotheses requiring external validation to graduate. Sleep replay selects high-salience, low-replay episodes.
+
+4. **DriveSystem + ThalamicGate — SNN control over cortex.** `cortex/drives.py` implements `DriveSystem` (converts SNN neuromodulator signals to actionable drives: curiosity, anxiety, satisfaction, boredom, social, fatigue), `AntiRuminationCircuit` (exponential decay on repeated topics, diversity tracking, topic avoidance), and `ThalamicGate` (assembles budgeted context packets from drives + memories for the cortex). The SNN materially controls the LLM: when inference fires (spike threshold), what memories are eligible (salience gating), how generation happens (temperature via arousal, topic via drives), and whether to explore/answer/sleep.
+
+5. **ThoughtLoop — multi-clock autonomous brain.** `cortex/thought_loop.py` implements the continuous thinking cycle: fast SNN tick (drive updates), event-driven LLM deliberation (triggered by curiosity/anxiety/social threshold crossing), and periodic sleep/dream cycles (replay + LLM recombination → hypothesis store). Background-threaded with callbacks. Anti-rumination prevents degenerate loops.
+
+6. **Gemma 4 E4B validated on RTX 3060 12GB.** Ollama 0.20.7 serving Gemma 4 E4B (9.6 GB, 128K context). First inference ~40s (VRAM cold load), subsequent <5s. JSON-structured output mode with schema enforcement. All 3 integration tests pass (think/answer/dream modes).
+
+7. **97 new unit tests** for hybrid architecture: `tests/test_cortical_core.py` (35 tests: ContextPacket, ThoughtResult parsing, FakeCortex, prompts, transport errors), `tests/test_thought_loop.py` (62 tests: EpisodicMemory, Episode lifecycle, DriveSystem, AntiRumination, ThalamicGate, ThoughtLoop step/background/callbacks/sleep). All pass.
+
+8. **httpx moved to runtime dependencies** in pyproject.toml (was dev-only; now required by CorticalCore for Ollama communication).

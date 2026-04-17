@@ -14,12 +14,12 @@ dependencies = [
     "uvicorn[standard]",
     "datasets",
     "tiktoken",
+    "httpx",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
-    "httpx",
 ]
 
 [tool.setuptools.packages.find]
