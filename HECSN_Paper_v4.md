@@ -2116,3 +2116,19 @@ The `AntiRuminationCircuit` prevents degenerate thought loops via:
 7. **97 new unit tests** for hybrid architecture: `tests/test_cortical_core.py` (35 tests: ContextPacket, ThoughtResult parsing, FakeCortex, prompts, transport errors), `tests/test_thought_loop.py` (62 tests: EpisodicMemory, Episode lifecycle, DriveSystem, AntiRumination, ThalamicGate, ThoughtLoop step/background/callbacks/sleep). All pass.
 
 8. **httpx moved to runtime dependencies** in pyproject.toml (was dev-only; now required by CorticalCore for Ollama communication).
+
+### v4.25 Additions
+
+1. **Cortex integrated into Terminus service manager (Phase 6).** ThoughtLoop now starts/stops alongside the Terminus brain. SNN neuromodulator signals (dopamine, serotonin, norepinephrine, acetylcholine) are injected into the cortex drive system on every brain tick, completing the SNN→LLM bridge. Graceful degradation: if Ollama is unavailable, all SNN training continues unaffected.
+
+2. **Lock-scope redesign for thread safety.** ThoughtLoop now releases its lock before LLM inference (snapshot-release-infer-commit pattern), preventing the brain loop from stalling on slow Ollama calls. `request_stop()` signals stop without joining, avoiding deadlock with the service manager's RLock.
+
+3. **Thread-safe cortex snapshot + thought history.** New `ThoughtLoop.snapshot()` returns a consistent dict of brain stats, drives, and recent thoughts under a dedicated lock. Bounded deque (50 entries) records thought history with CPython-atomic append.
+
+4. **ThalamicGate query queue.** Replaced single-slot `_pending_query` with an 8-deep bounded deque, preventing user queries from being silently overwritten when multiple arrive between deliberation cycles.
+
+5. **Three new API endpoints.** `POST /terminus/ask?query=...` submits questions to the cortex. `GET /terminus/thoughts?limit=N` returns recent thoughts. `GET /terminus/cortex` returns the full cortex snapshot (drives, memory, stats).
+
+6. **Telemetry cache bypass.** When the cortex thought loop is active, the SSE telemetry cache is bypassed since cortex state changes independently of `state_revision`.
+
+7. **4 new integration tests** for cortex-service wiring (127 total cortex + service tests passing).
