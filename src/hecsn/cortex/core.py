@@ -89,10 +89,9 @@ class ContextPacket:
         if self.avoid_topics:
             avoid_str = ", ".join(self.avoid_topics[:8])
             parts.append(
-                f"## Topic Constraint\n"
-                f"You have been thinking too much about: {avoid_str}. "
-                f"You MUST think about something completely different. "
-                f"Choose a new angle, a concrete example, or an unrelated domain."
+                f"## Direction\n"
+                f"Explore something fresh and concrete — a specific fact, mechanism, "
+                f"or phenomenon you haven't considered yet."
             )
 
         if self.top_memories:

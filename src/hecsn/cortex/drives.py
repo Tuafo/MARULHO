@@ -330,7 +330,8 @@ class ThalamicGate:
         packet = ContextPacket(
             drive_summary=drive_state.to_summary(),
             top_memories=mem_items,
-            recent_thread=list(self._thought_thread[-self.max_thread:]),
+            # Clear thread when bored to break meta-rumination loops
+            recent_thread=[] if drive_state.boredom > 0.4 else list(self._thought_thread[-self.max_thread:]),
             self_state=self_state,
             mode=mode,
             external_query=self._query_queue.popleft() if self._query_queue else "",
