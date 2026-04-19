@@ -39,12 +39,67 @@ class BrainStats:
     memory_count: int = 0
     memory_fill_ratio: float = 0.0
 
+    # Thought quality metrics
+    topic_diversity: float = 0.0  # Shannon entropy over topics (higher = more diverse)
+    concreteness_ratio: float = 0.0  # Fraction of thoughts with verifiable content
+    avg_novelty: float = 0.0  # Mean cosine distance between consecutive thought embeddings
+    snn_alignment: float = 0.0  # Fraction of thought topics present in SNN concepts
+    dream_verification_rate: float = 0.0  # Verified dreams / total dreams
+    _topic_counts: dict = field(default_factory=dict)
+    _total_topics: int = 0
+    _concrete_count: int = 0
+    _snn_aligned_count: int = 0
+    _dreams_verified: int = 0
+    _dreams_total: int = 0
+
     @property
     def avg_inference_ms(self) -> float:
         total = self.thoughts_generated + self.dreams_generated
         if total == 0:
             return 0.0
         return self.total_inference_ms / total
+
+    def update_quality_metrics(
+        self,
+        result: ThoughtResult,
+        snn_concepts: list[str] | None = None,
+    ) -> None:
+        """Update thought quality metrics from a new thought result."""
+        import math as _math
+
+        # Topic diversity (Shannon entropy)
+        for topic in result.topics:
+            key = topic.lower().strip()
+            if key:
+                self._topic_counts[key] = self._topic_counts.get(key, 0) + 1
+                self._total_topics += 1
+
+        if self._total_topics > 0 and self._topic_counts:
+            total = float(self._total_topics)
+            entropy = 0.0
+            for count in self._topic_counts.values():
+                p = count / total
+                if p > 0:
+                    entropy -= p * _math.log2(p)
+            max_entropy = _math.log2(max(1, len(self._topic_counts)))
+            self.topic_diversity = entropy / max(1.0, max_entropy)
+
+        # Concreteness: thoughts with confidence > 0.5 and specific topics
+        if result.confidence > 0.5 and len(result.topics) > 0:
+            self._concrete_count += 1
+        total_thoughts = max(1, self.thoughts_generated)
+        self.concreteness_ratio = self._concrete_count / total_thoughts
+
+        # SNN alignment: fraction of topics present in SNN concept store
+        if result.topics and snn_concepts:
+            snn_lower = {c.lower() for c in snn_concepts}
+            aligned = sum(
+                1 for t in result.topics
+                if any(t.lower() in c or c in t.lower() for c in snn_lower)
+            )
+            self._snn_aligned_count += aligned
+            total_topic_instances = max(1, self._total_topics)
+            self.snn_alignment = self._snn_aligned_count / total_topic_instances
 
 
 class ThoughtLoop:
@@ -67,6 +122,7 @@ class ThoughtLoop:
         sleep_cooldown_s: float = 30.0,
         on_thought: Optional[Callable[[ThoughtResult], None]] = None,
         on_sleep: Optional[Callable[[list[ThoughtResult]], None]] = None,
+        curiosity_controller: Any = None,
     ) -> None:
         self.cortex = cortex
         self.memory = memory or EpisodicMemory()
@@ -76,6 +132,9 @@ class ThoughtLoop:
         self.min_thought_interval_s = min_thought_interval_s
         self.sleep_dream_count = sleep_dream_count
         self.sleep_cooldown_s = sleep_cooldown_s
+
+        # Cortex→SNN feedback: curiosity controller for routing boosts
+        self._curiosity_controller = curiosity_controller
 
         # Callbacks
         self._on_thought = on_thought
@@ -130,6 +189,10 @@ class ThoughtLoop:
         self._stop_event.set()
         self._running = False
 
+    def set_curiosity_controller(self, controller: Any) -> None:
+        """Set or update the curiosity controller for cortex→SNN feedback."""
+        self._curiosity_controller = controller
+
     @property
     def is_running(self) -> bool:
         return self._running
@@ -162,6 +225,12 @@ class ThoughtLoop:
                     "fatigue": round(self.drives.state.fatigue, 3),
                     "social": round(self.drives.state.social, 3),
                     "arousal": round(self.drives.state.arousal, 3),
+                },
+                "quality": {
+                    "topic_diversity": round(s.topic_diversity, 3),
+                    "concreteness_ratio": round(s.concreteness_ratio, 3),
+                    "snn_alignment": round(s.snn_alignment, 3),
+                    "dream_verification_rate": round(s.dream_verification_rate, 3),
                 },
                 "recent_thoughts": list(self._thought_history),
             }
@@ -207,8 +276,14 @@ class ThoughtLoop:
 
     # -- Synchronous single-step API (for testing) --
 
-    def step(self) -> Optional[ThoughtResult]:
-        """Execute one brain cycle synchronously. Returns thought if generated."""
+    def step(self, *, force: bool = False) -> Optional[ThoughtResult]:
+        """Execute one brain cycle synchronously. Returns thought if generated.
+
+        Args:
+            force: Skip the min_thought_interval_s check. Useful for testing
+                where step() calls happen in rapid succession without real
+                time passing between them.
+        """
         self.drives.tick()
         self.stats.ticks += 1
 
@@ -222,10 +297,8 @@ class ThoughtLoop:
             return None
 
         # Check deliberation
-        if (
-            self.drives.should_think()
-            and (now - self._last_thought_time) > self._effective_thought_interval()
-        ):
+        interval_ok = force or (now - self._last_thought_time) > self._effective_thought_interval()
+        if self.drives.should_think() and interval_ok:
             return self._deliberate()
 
         return None
@@ -318,6 +391,21 @@ class ThoughtLoop:
         # Record in thread
         self.gate.record_thought(result)
 
+        # Cortex→SNN feedback: route thought topics back into SNN systems
+        feedback = self.gate.emit_cortex_feedback(result)
+
+        # Boost curiosity routing toward cortex-generated topics
+        if self._curiosity_controller is not None:
+            for label, amount in feedback.get("topic_boosts", []):
+                try:
+                    self._curiosity_controller.boost_concept(label, amount=amount)
+                except Exception:
+                    pass
+
+        # Set cortex-forced topics for next context packet assembly
+        if feedback.get("forced_topics"):
+            self.gate._cortex_forced_topics = feedback["forced_topics"]
+
         # Store as episodic memory (inferred)
         self.memory.store(
             content=result.thought,
@@ -348,6 +436,10 @@ class ThoughtLoop:
             "latency_ms": round(result.latency_ms, 1),
             "time": self._last_thought_time,
         })
+
+        # Update thought quality metrics
+        snn_labels = self.gate._snn_concept_labels if hasattr(self.gate, '_snn_concept_labels') else None
+        self.stats.update_quality_metrics(result, snn_concepts=snn_labels)
 
         return result
 
@@ -383,6 +475,14 @@ class ThoughtLoop:
 
         # Reset fatigue after sleep
         self.drives.state.fatigue = max(0.0, self.drives.state.fatigue - 0.5)
+
+        # Update dream verification rate
+        self.stats._dreams_total = self.stats.dreams_generated
+        hypotheses = self.memory.recall_hypotheses()
+        verified = sum(1 for h in hypotheses if h.provenance.value == "verified")
+        self.stats._dreams_verified = verified
+        if self.stats._dreams_total > 0:
+            self.stats.dream_verification_rate = self.stats._dreams_verified / self.stats._dreams_total
 
         logger.info("Sleep cycle complete: %d dreams generated", len(dreams))
         return dreams

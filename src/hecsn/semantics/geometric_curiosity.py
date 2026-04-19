@@ -205,6 +205,26 @@ class GeometricCuriosityController:
             "geometric_gaps": geometric_gaps[:4],
         }
 
+    def boost_concept(self, label: str, amount: float = 0.1) -> None:
+        """Boost curiosity for a concept — used by cortex→SNN feedback loop.
+
+        Lowers the concept's certainty in the abstraction layer, making it
+        a more attractive curiosity target for the next training steps.
+        """
+        if self.abstraction_layer is None or not label:
+            return
+        # Find matching concept index by label text
+        label_lower = label.lower()
+        for idx, words in self.lexicon.items():
+            for w in words:
+                if label_lower in w.lower() or w.lower() in label_lower:
+                    if idx < self.abstraction_layer.n_concepts:
+                        self.abstraction_layer.concept_certainty.data[idx] = max(
+                            0.0,
+                            self.abstraction_layer.concept_certainty.data[idx] - amount,
+                        )
+                    return
+
     def summary(self) -> dict[str, Any]:
         lexicon_entries = sum(len(values) for values in self.lexicon.values())
         gap_preview = self.focus_plan(top_n=2)

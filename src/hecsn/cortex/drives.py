@@ -241,7 +241,8 @@ class DriveSystem:
         self.state.boredom = self.anti_rumination.boredom_signal()
 
         # Fatigue accumulates with thoughts, decays with time
-        self.state.fatigue = min(1.0, self.state.fatigue + 0.02)
+        # Increased from 0.02 → 0.04 so sleep triggers sooner (25 vs 50 thoughts)
+        self.state.fatigue = min(1.0, self.state.fatigue + 0.04)
 
     def update_from_external_input(self) -> None:
         """External input arrived — reduce boredom, increase social drive."""
@@ -251,8 +252,9 @@ class DriveSystem:
 
     def tick(self) -> None:
         """Periodic drive decay/update (call on SNN fast loop)."""
-        # Fatigue decays slowly
-        self.state.fatigue = max(0.0, self.state.fatigue - 0.001)
+        # Fatigue decays very slowly — reduced from 0.001 to 0.0005
+        # so sleep actually triggers during sustained operation
+        self.state.fatigue = max(0.0, self.state.fatigue - 0.0005)
         # Social drive decays without input
         self.state.social = max(0.0, self.state.social * 0.995)
         # Boredom decays moderately so the system recovers from rumination
@@ -278,8 +280,13 @@ class DriveSystem:
         )
 
     def should_sleep(self) -> bool:
-        """Should we enter sleep/consolidation mode?"""
-        return self.state.fatigue > 0.7 and self.state.social < 0.2
+        """Should we enter sleep/consolidation mode?
+
+        Lowered threshold from 0.7 → 0.5 so dream cycles actually trigger
+        during sustained operation. Fatigue at 0.02/thought needs ~25 thoughts
+        to reach 0.5, which is realistic for a ~4-minute active session.
+        """
+        return self.state.fatigue > 0.5 and self.state.social < 0.2
 
     def choose_mode(self) -> ThinkingMode:
         """Choose thinking mode based on current drives."""
@@ -308,8 +315,8 @@ class ThalamicGate:
         self,
         memory: EpisodicMemory,
         drives: DriveSystem,
-        max_memories: int = 5,
-        max_thread: int = 3,
+        max_memories: int = 8,
+        max_thread: int = 5,
         max_query_queue: int = 8,
     ) -> None:
         self.memory = memory
@@ -318,6 +325,7 @@ class ThalamicGate:
         self.max_thread = max_thread
         self._thought_thread: list[str] = []
         self._snn_concept_labels: list[str] = []
+        self._cortex_forced_topics: list[str] = []  # From cortex→SNN feedback
         from collections import deque
         self._query_queue: deque[str] = deque(maxlen=max_query_queue)
 
@@ -365,21 +373,32 @@ class ThalamicGate:
             for ep in memories
         ]
 
-        # Self state from drives
-        self_state = (
-            f"Arousal: {drive_state.arousal:.2f}, "
-            f"Valence: {drive_state.valence:+.2f}, "
-            f"Dominant: {drive_state.dominant_drive}"
-        )
+        # Self state — stripped when bored or curious to prevent ANY self-reference
+        # The LLM will invent drive states from even minimal hints; give it nothing
+        self_state = "" if (drive_state.boredom > 0.2 or drive_state.curiosity > 0.4) else f"Dominant: {drive_state.dominant_drive}"
 
         # Temperature modulation based on arousal
-        max_tokens = 256
+        # Reduced from 256→160 tokens for faster inference while leaving room for JSON
+        max_tokens = 160
         if mode == ThinkingMode.DREAM:
-            max_tokens = 384
+            max_tokens = 224
 
-        # When bored, pick a random SNN concept as forced topic
+        # When bored OR curious, inject topic — cortex-forced topics have
+        # priority over SNN concept labels (cortex knows what it needs)
         forced_topic = ""
-        if drive_state.boredom > 0.5 and self._snn_concept_labels:
+        cortex_topics = self._cortex_forced_topics or []
+        if cortex_topics:
+            # Filter out concepts whose words overlap avoidance
+            avoid_words = {w.lower() for w in avoid_topics}
+            candidates = []
+            for label in cortex_topics:
+                label_words = {w.lower().strip(".,;:!?'\"()-")
+                              for w in label.split() if len(w) >= 3}
+                if not (label_words & avoid_words):
+                    candidates.append(label)
+            if candidates:
+                forced_topic = candidates[0]  # Highest-priority cortex topic
+        elif (drive_state.boredom > 0.3 or drive_state.curiosity > 0.6) and self._snn_concept_labels:
             # Filter out concepts whose words overlap avoidance
             avoid_words = {w.lower() for w in avoid_topics}
             candidates = []
@@ -391,8 +410,12 @@ class ThalamicGate:
             if candidates:
                 forced_topic = random.choice(candidates)
 
+        # Strip drive details when bored OR curious — prevent self-referential loops
+        # A curious cortex should focus on content, not its own state
+        drive_summary = "" if (drive_state.boredom > 0.3 or drive_state.curiosity > 0.5) else drive_state.to_summary()
+
         packet = ContextPacket(
-            drive_summary=drive_state.to_summary(),
+            drive_summary=drive_summary,
             top_memories=mem_items,
             recent_thread=[] if drive_state.boredom > 0.4 else list(self._thought_thread[-self.max_thread:]),
             self_state=self_state,
@@ -403,6 +426,48 @@ class ThalamicGate:
             max_response_tokens=max_tokens,
         )
         return packet
+
+    def emit_cortex_feedback(self, result: ThoughtResult) -> dict[str, Any]:
+        """Build a feedback payload from ThoughtResult for SNN consumption.
+
+        Called by ThoughtLoop._deliberate() after each cortex inference.
+        Routes thought topics back into SNN curiosity routing, cross-modal
+        grounding, and context assembly — closing the cortex→SNN loop.
+        """
+        boosts: list[tuple[str, float]] = []
+        grounding_candidates: list[str] = []
+
+        # Uncertainty-scaled boosts: low confidence = bigger curiosity gap
+        confidence_scale = float(result.confidence)
+        uncertainty = 1.0 - confidence_scale
+
+        for topic in result.topics:
+            if not topic or len(topic) < 2:
+                continue
+            boost_amount = 0.05 + 0.10 * uncertainty  # range [0.05, 0.15]
+            boosts.append((topic.lower().strip(), boost_amount))
+            # Extract candidate words for cross-modal grounding
+            words = [
+                w.strip(".,;:!?'\"()-")
+                for w in topic.split()
+                if len(w) >= 3
+            ]
+            grounding_candidates.extend(words)
+
+        # Emotional valence feedback into drives
+        valence = float(result.emotional_valence)
+        if valence > 0.2:
+            self.drives.state.satisfaction = min(1.0, self.drives.state.satisfaction + 0.05)
+        elif valence < -0.2:
+            self.drives.state.anxiety = min(1.0, self.drives.state.anxiety + 0.05 * abs(valence))
+
+        return {
+            "topic_boosts": boosts,
+            "grounding_candidates": grounding_candidates[:6],
+            "forced_topics": [t for t in result.topics if t][:3],
+            "emotional_valence": valence,
+            "confidence": float(result.confidence),
+        }
 
     def record_thought(self, result: ThoughtResult) -> None:
         """Add a thought to the continuity thread."""
@@ -440,7 +505,7 @@ class ThalamicGate:
             recent_thread=[],
             self_state="Sleeping, dreaming",
             mode=ThinkingMode.DREAM,
-            max_response_tokens=384,
+            max_response_tokens=224,
         )
 
 

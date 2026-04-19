@@ -66,11 +66,12 @@ class ContextPacket:
     external_query: str = ""
     avoid_topics: list[str] = field(default_factory=list)
     forced_topic: str = ""  # SNN-injected topic to redirect thinking
-    max_response_tokens: int = 256
+    max_response_tokens: int = 160
 
     # Budget limits (token approximation: 1 token ≈ 4 chars)
-    MAX_MEMORIES: int = 5
-    MAX_THREAD_ITEMS: int = 3
+    # Increased from 5→8 memories and 3→5 thread items for richer context
+    MAX_MEMORIES: int = 8
+    MAX_THREAD_ITEMS: int = 5
     MAX_DRIVE_CHARS: int = 400
     MAX_STATE_CHARS: int = 200
     MAX_QUERY_CHARS: int = 800

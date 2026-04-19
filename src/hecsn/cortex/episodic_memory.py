@@ -151,6 +151,145 @@ class SimpleEmbedder:
         return float(np.dot(a, b))
 
 
+class NIMEmbedder:
+    """NVIDIA NIM embedding service — replaces SimpleEmbedder with frontier quality.
+
+    Uses the OpenAI-compatible /v1/embeddings endpoint on NVIDIA NIM.
+    Falls back to SimpleEmbedder when NIM is unavailable (no API key,
+    network error, rate limit exceeded).
+
+    Supports caching to reduce API calls for repeated queries.
+    """
+
+    DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
+    DEFAULT_MODEL = "nvidia/llama-nemotron-embed-1b-v2"
+    DEFAULT_DIM = 2048
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str = DEFAULT_BASE_URL,
+        model: str = DEFAULT_MODEL,
+        dim: int = DEFAULT_DIM,
+        fallback_dim: int = 128,
+        cache_size: int = 256,
+    ) -> None:
+        import os
+
+        self._api_key = api_key or os.environ.get("NVIDIA_API_KEY", "")
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.dim = dim
+        self._fallback = SimpleEmbedder(dim=fallback_dim)
+        self._cache: dict[str, np.ndarray] = {}
+        self._cache_size = cache_size
+        self._call_count = 0
+        self._fallback_count = 0
+
+        if self._api_key:
+            import httpx
+            self._client = httpx.Client(
+                timeout=httpx.Timeout(30.0),
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            self._available = True
+        else:
+            self._client = None
+            self._available = False
+
+    def embed(self, text: str) -> np.ndarray:
+        """Produce a normalized embedding vector for text.
+
+        Tries NIM API first, falls back to SimpleEmbedder on failure.
+        """
+        if not text or not text.strip():
+            return np.zeros(self.dim, dtype=np.float32)
+
+        # Check cache
+        cache_key = text[:200].lower().strip()
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        # Try NIM
+        if self._available and self._client is not None:
+            try:
+                result = self._call_nim_embedding(text)
+                if result is not None:
+                    self._call_count += 1
+                    # Cache management
+                    if len(self._cache) >= self._cache_size:
+                        self._cache.pop(next(iter(self._cache)))
+                    self._cache[cache_key] = result
+                    return result
+            except Exception:
+                self._fallback_count += 1
+
+        # Fallback to SimpleEmbedder, then pad/resize to target dim
+        fb = self._fallback.embed(text)
+        if fb.shape[0] == self.dim:
+            return fb
+        result = np.zeros(self.dim, dtype=np.float32)
+        result[:fb.shape[0]] = fb
+        norm = np.linalg.norm(result)
+        if norm > 1e-8:
+            result /= norm
+        return result
+
+    def _call_nim_embedding(self, text: str) -> np.ndarray | None:
+        """Call NVIDIA NIM embedding endpoint."""
+        payload = {
+            "model": self.model,
+            "input": [text],
+            "input_type": "query",
+            "truncate": "END",
+        }
+        resp = self._client.post(  # type: ignore[union-attr]
+            f"{self.base_url}/embeddings",
+            json=payload,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        embeddings = data.get("data", [])
+        if not embeddings:
+            return None
+        vec = embeddings[0].get("embedding", [])
+        if not vec:
+            return None
+        result = np.array(vec, dtype=np.float32)
+        norm = np.linalg.norm(result)
+        if norm > 1e-8:
+            result /= norm
+        return result
+
+    def similarity(self, a: np.ndarray, b: np.ndarray) -> float:
+        """Cosine similarity between two embeddings."""
+        return float(np.dot(a, b))
+
+    @property
+    def stats(self) -> dict[str, Any]:
+        return {
+            "nim_calls": self._call_count,
+            "fallback_calls": self._fallback_count,
+            "cache_size": len(self._cache),
+            "available": self._available,
+            "model": self.model,
+        }
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 class EpisodicMemory:
     """The hippocampus — stores and retrieves episodic memories.
 
@@ -161,11 +300,17 @@ class EpisodicMemory:
     def __init__(
         self,
         capacity: int = 2048,
-        embedder: Optional[SimpleEmbedder] = None,
+        embedder: Optional[SimpleEmbedder | NIMEmbedder] = None,
         embedding_dim: int = 128,
+        use_nim_embeddings: bool = False,
     ) -> None:
         self.capacity = capacity
-        self.embedder = embedder or SimpleEmbedder(dim=embedding_dim)
+        if embedder is not None:
+            self.embedder = embedder
+        elif use_nim_embeddings:
+            self.embedder = NIMEmbedder()
+        else:
+            self.embedder = SimpleEmbedder(dim=embedding_dim)
         self._episodes: dict[str, Episode] = {}
         self._topic_index: dict[str, set[str]] = defaultdict(set)
         self._total_stored = 0

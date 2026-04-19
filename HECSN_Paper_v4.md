@@ -5,7 +5,7 @@
 
 **Domain:** Computational Neuroscience · Unsupervised Multimodal Learning · Neuromorphic Computing
 
-**Version:** 4.20 — Audited, Implementation-Current, 1M-Scale-Validated, Performance-Optimized Architecture Document
+**Version:** 4.23 — Audited, Implementation-Current, 1M-Scale-Validated, Performance-Optimized Architecture Document
 
 **Executable Status (2026-06-17):** Stage-0 gates pass: `silhouette ≈ 0.675`, `DBI ≈ 0.304`, `trained_eval_recon_error 0.0619 < random_assignment 0.0907`, `temporal_coherence_mean = 0.9916`, `semantic_triple_accuracy = 0.714286` (7-triple text-only validation). **50-triple grounding probe validated: 0.64–0.68 accuracy across seeds, concreteness gap +0.16 to +0.40 — well above baselines (fastText 0.46, SOM 0.46).** Visual-text sub-probe: 0.73 (22 triples), audio-text sub-probe: 0.67 (3 triples). `routing_key_between_score = 0.9934` (7-pair probe, 4 unique winners, no collapse), `terminal_novelty_rate = 0.0994`. **Task A/B recall: PASS** (full recovery after consolidation, overlap 0.69). **STC sensitivity: robust across functional_minute = {100, 500, 2000, 10000}.** Full test suite: **654 passed, 7 subtests passed** across 54 test files (1 pre-existing flaky test excluded). **Stage 2 validation fidelity fixed:** criterion 3 now uses active-dimension linear regression (§7.3) with early-competence waiver (probe > 0.65 bypasses growth rate), criterion 2 enforces min 50 pairs, `grow_binding()` wired for adaptive binding growth, Stage 3 curiosity causally drives sentence selection. **Architecture activation fix:** `_make_config_for_stage()` now correctly enables all paper-described layers progressively (context+STDP Stage 1, binding Stage 2+, abstraction Stage 3+); config validation ensures binding requires context. **Full 5-stage developmental protocol passes end-to-end with multimodal training throughout all stages** (seeds 42, 7, 123). Null-control validated: untrained models fail stages 3–5 (probe=0.34, gap=−0.28). Audio self-criticism wired alongside visual. TurboQuant+ integrated as optional routing backend (`routing_index_mode="turboquant_plus"`). Cross-modal grounding uses zero-initialized W matrices (tabula rasa) with lateral inhibition (centering) and per-word accumulated visual/audio signatures via EMA. Baseline calibration complete: fastText 0.46, SOM 0.46 on developmental corpus — thresholds validated (§8.1). Text-only HECSN control: 0.42 total, gap −0.24 (abstract > concrete without multimodal — confirms grounding effect). Multimodal dataset adapters implemented: N-MNIST visual + FSDD audio + PairedDigitDataset with episode→step flattening (40 tests). 2:4 structured sparsity + CSR utilities implemented (§6.3, 34 tests). Real-data training integration: `_train_on_real_digits()` wires dataset adapters into developmental protocol with per-episode grounding updates (9 tests). **GPU routing benchmarks complete:** RTX 3060 12GB, sub-1ms at 100K columns (0.67ms median flat GPU). **100K-step scale test complete:** 31.2 steps/s, all 10 digits grounded (0.86–0.91). **100K-token Stage 1 validated with full architecture:** 29.3 tok/s sustained (96.5K tokens, 3293s), grounding confidence 0.638, 27K visual+audio pairs, context+STDP active. **1M-token scale test complete:** 72 tok/s sustained (256 cols, CPU, wikitext-103, 3.8h), throughput improving 63→72 over run — no degradation. **50K Stage 1→2 validated with early-competence waiver:** probe=0.70 passes via competence (>0.65), 127/160 binding active, 55 self-criticism cycles. Remaining targets: 10M+ scale, submission formatting. **Performance optimizations (v4.17):** Fused spike trace encoder (3.5× encoder speedup, eliminates [128, n_bursts_max] intermediate tensor), sparse LTD in log-STDP and triplet-STDP (active-row threshold gating), deduplicated context prediction call. Combined: 21.7ms→18.4ms/step (+18%), 46→54.4 tok/s at 128 columns. Topographic spatial binding implemented: SpatialBindingLayer with Gaussian-decay local connectivity replaces dense BindingLayer (0.69ms vs 5.1ms, 7.4× faster). **50K-token full-architecture scale test (v4.17):** 20.3 tok/s sustained (256 cols, spatial binding, full local_stdp+triplet+context+binding+cross_modal), memory flat at 0.9MB (no leak), O(1) per-token cost confirmed across 50K tokens. **Performance optimizations (v4.18):** Sparse STDP outer products (active-row only), vectorized binding weight update (eliminates Python loop), redundant normalization removal, batch `.item()→.tolist()`, `torch.pow` elimination. Combined with v4.17: 256 cols full architecture 20.3→39.3 tok/s (+94%), 128 cols 40.5 tok/s. **Performance optimizations (v4.19):** Abstraction layer cached `_stable_signal()` with version-tracked invalidation, vectorized `curiosity_gaps()` and `curiosity_routing_gain()`. Surprise module replaced all `torch.tanh/sigmoid(torch.tensor(x)).item()` with `math.tanh`/`math.exp`, pure Python variance. `.item()` calls reduced 84% (6026→964 per 200 steps), `torch.tensor` calls reduced 79% (2448→518). Hot-path `.cpu()` eliminated. `@torch.no_grad()` on `train_step()` eliminates autograd tracking overhead (HECSN uses manual STDP, not backprop). Combined: 256 cols full architecture 39.3→~57 tok/s (+45%), cumulative 20.3→~57 (+181% from baseline). 654 tests pass. **50K post-optimization scale test (v4.19):** 26.4 tok/s overall under concurrent load (32.0 interval peak), memory flat 1373 MB, recon error 0.061→0.005 (13×), 27 sleep events per 5K interval — O(1) per-token cost confirmed with all v4.17–v4.19 optimizations active. **Feature enablement (v4.21):** AdEx spike backend now default (`plasticity_spike_backend="adex"`), providing biologically faithful postsynaptic STDP timing via Heun-integrated AdEx neurons (53.8 vs 66.2 steps/s, 19% overhead at 256 cols). Full synaptic weight validation active: log-space shape, row-sum stability, synaptic scale bounds — all three checks pass on fresh and trained models. Column sharding enabled for Terminus presets (4 shards at 1024 cols, 8 at 2048). All capability flags now true: `uses_adex_post_spikes`, `supports_column_sharding_proxy`, `validates_full_log_stdp_weight_target`.
 
@@ -1453,6 +1453,71 @@ Key design decisions:
 4. **Top-k ablation** reveals a smooth progression: k=0 → k=32 → k=16 → k=8 progressively reduces dead columns (53.1% → 47.3% → 35.9% → 31.6%) while maintaining diversity.
 
 **Implications:** (1) The semantic encoder with top-k=8 sparsification provides a superior routing substrate with better column utilization and more discriminative input geometry. (2) The `input_representation="semantic"` mode is available as an opt-in alternative to the default RTF encoding. (3) Full evaluation at developmental scale (500K+ tokens with multimodal stages) is needed to determine whether the improved routing substrate translates to better grounding probe accuracy. (4) The encoder factory (`build_encoder`) abstracts over encoding choices, making it easy to switch between modes.
+
+### 10.8 Cortex Integration: The Anti-Rumination Problem (v4.22)
+
+The Terminus living brain integrates a frozen LLM neocortex (Gemma 4 E4B via Ollama) with the SNN subcortical drive system. The SNN controls *when* and *about what* the LLM thinks — the cortex never self-initiates. This architecture mirrors the biological relationship between thalamic gating and cortical deliberation.
+
+**Critical finding:** The initial anti-rumination circuit was ineffective. Despite word-level topic tracking and avoidance directives, the LLM (Gemma 4) produced repetitive, self-referential thoughts about its own drive states rather than concrete content from the SNN training stream. In a 23-thought test run, 80%+ of thoughts circled around "fractal geometry," "neural networks," and "biophysics" — topics not present in the SNN's training data.
+
+**Root causes identified:**
+1. **Drive-summary self-reference:** The LLM's context included detailed drive states (arousal, valence, dominant drive), causing it to think *about* its drives rather than *using* them as directional signals.
+2. **Weak topic avoidance:** LLMs do not reliably follow `avoid_topics` directives in system prompts — the attention mechanism attends to the avoided words regardless.
+3. **Sleep/dream cycles never triggered:** Fatigue accumulated at 0.02/thought but decayed at 0.001/tick, requiring ~50 thoughts to reach the 0.7 sleep threshold — far more than a typical session generates.
+4. **Forced topic injection too late:** SNN concept labels were only injected when boredom > 0.5, by which point the rumination loop was already established.
+
+**Mitigations implemented (v4.22):**
+- Strip drive-summary from context when boredom > 0.4; reduce self-state to dominant-drive only
+- Lower forced-topic injection threshold to boredom > 0.3 OR curiosity > 0.6
+- Reduce sleep fatigue threshold from 0.7 → 0.5; increase fatigue per thought from 0.02 → 0.04; reduce tick fatigue decay from 0.001 → 0.0005
+- Strengthen system prompt anti-rumination rules with explicit behavioral constraints
+- Increase context packet budget: 8 memories (was 5), 5 thread items (was 3)
+- Reduce max response tokens from 256 → 128 for faster inference (6-11s → 3-6s per thought)
+
+**Remaining gap:** The cortex→SNN feedback loop is one-way. SNN injects surprise/observations into the cortex, but cortex thoughts do not feed back into SNN routing or training. The cortex is a spectator, not a participant. Closing this loop (thought topics biasing SNN curiosity routing) is a priority for v4.23.
+
+### 10.9 ARC-AGI Assessment (v4.22)
+
+ARC-AGI (Abstraction and Reasoning Corpus for Artificial General Intelligence; Chollet 2019) is a benchmark designed to test analogical and abstract reasoning. Tasks require inferring transformation rules from few grid-based input/output examples and applying them to novel inputs. SOTA systems achieve ~30-50% (vs ~85% human), primarily through program synthesis or neurosymbolic approaches.
+
+**HECSN cannot currently solve ARC-AGI tasks.** The architecture lacks:
+1. **Relational binding:** The ability to bind arbitrary properties to arbitrary objects (e.g., "red square left of blue circle") requires vector-symbolic architectures or attention-based binding beyond current competitive learning.
+2. **Program synthesis:** ARC tasks require composing discrete transformation sequences. STDP and competitive learning cannot represent these.
+3. **Few-shot rule induction:** HECSN's developmental protocol requires thousands of tokens for concept formation; ARC requires learning from 1-5 examples.
+4. **Structured working memory:** ARC requires maintaining object-property bindings across transformation steps.
+
+**What would be needed for ARC-AGI capability:**
+- Hyperdimensional computing / tensor product representations for relational binding
+- A discrete search component for transformation composition (neurosymbolic hybrid)
+- Separate working memory for objects and properties with write/read mechanisms
+- Attention-based global workspace for arbitrary role assignment
+
+**Honest assessment:** HECSN's strength — grounded concept formation through cross-modal co-occurrence — is orthogonal to ARC-AGI's requirements. The benchmark tests symbolic manipulation and few-shot rule induction, not perceptual grounding. An ARC-AGI-capable HECSN would require a fundamentally new symbolic layer alongside the existing SNN architecture. This is a legitimate research direction but a major architectural extension, not an incremental improvement.
+
+### 10.10 Cortex→SNN Feedback Loop (v4.23)
+
+The cortex→SNN feedback loop is now closed. Previously, the SNN injected surprise/observations into the cortex but cortex thoughts did not feed back into SNN routing or training — the cortex was a spectator, not a participant.
+
+**Feedback mechanism implemented:**
+- `ThalamicGate.emit_cortex_feedback()` produces a structured feedback payload from each `ThoughtResult`, containing topic boosts, grounding candidates, and forced topics
+- Uncertainty-scaled boosts: low-confidence thoughts produce larger curiosity gaps (range 0.05–0.15), high-confidence thoughts produce smaller but still meaningful routing bias
+- `GeometricCuriosityController.boost_concept()` lowers concept certainty for topics the cortex is thinking about, making them more attractive SNN routing targets
+- Cortex-forced topics have priority over SNN concept labels in the next context packet assembly, ensuring the cortex's expressed interests shape its next input
+- Emotional valence from `ThoughtResult` now feeds directly into `DriveSystem` (positive → satisfaction, negative → anxiety)
+
+**Thought quality metrics added to BrainStats:**
+- Topic diversity (Shannon entropy over topic distribution, normalized to [0,1])
+- Concreteness ratio (fraction of thoughts with confidence > 0.5 and specific topics)
+- SNN alignment (fraction of thought topics present in SNN concept store)
+- Dream verification rate (verified hypotheses / total dream hypotheses)
+
+**Multi-backend cortex (NVIDIA NIM):**
+- `NIMCortex` uses OpenAI-compatible `/v1/chat/completions` with JSON mode enforcement
+- `MultiCortex` routes THINK/REFLECT to fast model (phi-4-mini, <2s latency) and DREAM/ANSWER to deep model (qwen3-thinking, higher quality reasoning)
+- `NIMEmbedder` replaces `SimpleEmbedder` with frontier-quality embeddings when `NVIDIA_API_KEY` is set, with caching and graceful fallback
+- `create_cortex_from_env()` factory selects best available backend automatically
+
+**Joint triplet training clarification:** The "XOR per step" weakness identified in the v4.22 progress report was a misidentification. Both `_train_on_real_digits()` and the service manager already pass visual+audio+text simultaneously to `train_step()`. The cross-modal grounding layer processes both paths independently in the same step. The actual limitation is that text-only Wikipedia streaming does not inject multimodal spikes — multimodal grounding only occurs during explicit multimodal episodes.
 
 ---
 

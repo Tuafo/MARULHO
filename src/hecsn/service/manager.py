@@ -275,12 +275,21 @@ class HECSNServiceManager:
         self._cortex_available = False
         try:
             from hecsn.cortex.thought_loop import ThoughtLoop
-            from hecsn.cortex.core import CorticalCore
+            from hecsn.cortex.multi_cortex import create_cortex_from_env, create_embedder_from_env
+            from hecsn.cortex.episodic_memory import EpisodicMemory
 
-            cortex = CorticalCore()  # will fail if Ollama unreachable
-            self._thought_loop = ThoughtLoop(cortex=cortex)
+            cortex = create_cortex_from_env()
+            embedder = create_embedder_from_env()
+            memory = EpisodicMemory(capacity=2048, embedder=embedder)
+            curiosity_ctrl = getattr(self, "_geometric_curiosity", None)
+            self._thought_loop = ThoughtLoop(
+                cortex=cortex,
+                memory=memory,
+                curiosity_controller=curiosity_ctrl,
+            )
             self._cortex_available = True
-            _cortex_logger.info("Cortex module initialised (Ollama cortex)")
+            _cortex_logger.info("Cortex module initialised (%s, embedder=%s)", cortex.model, type(embedder).__name__)
+
         except Exception as exc:
             _cortex_logger.info("Cortex module unavailable: %s", exc)
 
@@ -1695,6 +1704,47 @@ class HECSNServiceManager:
                     continue
         self._brain_source_runtimes = []
 
+    def _run_curriculum_injection_locked(self, total_trained: int) -> int:
+        """Inject LLM-guided curriculum targeting SNN knowledge gaps.
+
+        Uses the GeometricCuriosityController to identify gap topics,
+        then asks NIM to generate educational text about those topics.
+        Returns the number of extra tokens trained.
+        """
+        if (
+            self._thought_loop is None
+            or not hasattr(self, '_geometric_curiosity')
+            or self._trainer is None
+            or total_trained <= 0
+            or total_trained % 5000 != 0
+        ):
+            return 0
+
+        try:
+            plan = self._geometric_curiosity.focus_plan(top_n=3)
+            gap_terms = [
+                g.get("concept", "")
+                for g in plan.get("geometric_gaps", [])
+                if g.get("concept")
+            ]
+            if not gap_terms:
+                return 0
+
+            from hecsn.cortex.curriculum import CurriculumGenerator
+            curriculum_gen = CurriculumGenerator()
+            segments = curriculum_gen.generate(gap_terms, max_segments=3)
+            extra = 0
+            for seg in segments:
+                if seg.text:
+                    codes = [ord(c) if 0 <= ord(c) < 128 else 0 for c in seg.text]
+                    pattern = self._encoder.blended_feature_vector(codes)
+                    self._trainer.train_step(pattern, raw_window=seg.text)
+                    extra += 1
+            curriculum_gen.close()
+            return extra
+        except Exception:
+            return 0
+
     def _init_multimodal_locked(self) -> None:
         """Initialize multimodal dataset + encoders if the config enables them."""
         mm = self._brain_config.get("multimodal")
@@ -2127,10 +2177,14 @@ class HECSNServiceManager:
                         salience=0.6,
                     )
                     # Feed concept labels to thalamic gate for forced-topic injection
-                    if recent_concepts and hasattr(self._thought_loop, '_gate'):
-                        self._thought_loop._gate.update_snn_concepts(recent_concepts)
+                    if recent_concepts and hasattr(self._thought_loop, 'gate'):
+                        self._thought_loop.gate.update_snn_concepts(recent_concepts)
                 except Exception:
                     pass
+
+        # LLM-guided curriculum: inject gap-targeted training from cortex
+        curriculum_extra = self._run_curriculum_injection_locked(total_trained)
+        total_trained += curriculum_extra
 
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)
