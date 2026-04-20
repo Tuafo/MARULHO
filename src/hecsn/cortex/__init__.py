@@ -1,9 +1,12 @@
-"""Cortical core — LLM neocortex for the hybrid SNN-LLM architecture.
+"""Cortical core -- LLM neocortex for the hybrid SNN-LLM architecture.
 
-The cortex module wraps frozen LLM(s) (Ollama, NVIDIA NIM, or both)
-as the language/reasoning engine of Terminus. The SNN subcortical
-systems (drives, memory, surprise, sleep) control *when*, *what*,
-and *how* the cortex thinks — but never the reverse.
+The cortex module wraps NVIDIA NIM cloud LLM(s) as the language/reasoning
+engine of Terminus. The SNN subcortical systems (drives, memory, surprise,
+sleep) control *when*, *what*, and *how* the cortex thinks -- never the
+reverse.
+
+No local Ollama or other local LLM is used. All inference goes through
+NVIDIA NIM (40 req/min free tier). MockCortex is available for testing.
 """
 
 from hecsn.cortex.core import (
@@ -12,7 +15,8 @@ from hecsn.cortex.core import (
     MemoryItem,
     ThoughtResult,
     ThinkingMode,
-    FakeCortex,
+    MockCortex,
+    FakeCortex,  # backwards compat alias for MockCortex
 )
 from hecsn.cortex.episodic_memory import (
     EpisodicMemory,
@@ -42,6 +46,7 @@ __all__ = [
     "MemoryItem",
     "ThoughtResult",
     "ThinkingMode",
+    "MockCortex",
     "FakeCortex",
     "EpisodicMemory",
     "Episode",

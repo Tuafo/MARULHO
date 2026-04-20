@@ -1,16 +1,19 @@
-"""CorticalCore — frozen LLM neocortex for the Terminus living brain.
+"""CorticalCore -- Abstract base class for LLM cortex backends.
 
-Wraps Ollama (Gemma 4) with a structured context-budget interface.
-The SNN subcortical systems control what enters the context and when
-inference fires.  The cortex never initiates — it only responds when
-the SNN triggers a deliberation event.
+The cortex is the language/reasoning layer of the Terminus hybrid
+architecture. The SNN subcortical systems control what enters the
+context and when inference fires. The cortex never initiates -- it
+only responds when the SNN triggers a deliberation event.
 
-Design decisions (from rubber-duck critique):
+Backends:
+- NIMCortex (production): NVIDIA NIM cloud API
+- MockCortex (testing): Deterministic, no network
+
+Design decisions:
 - Sync API (codebase is entirely sync, no pytest-asyncio)
 - JSON-only output contract (not free-text parsing)
 - Structured memory items with provenance metadata
-- Loopback-only Ollama by default + strict timeouts
-- FakeCortex for deterministic testing without LLM
+- No local Ollama -- NIM cloud only
 """
 
 from __future__ import annotations
@@ -22,15 +25,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal, Optional
 
-import httpx
-
-from hecsn.cortex.prompts import MODE_PROMPTS
-
 logger = logging.getLogger(__name__)
 
 
 class ThinkingMode(str, Enum):
-    """Cortical operating modes — each has a distinct system prompt."""
+    """Cortical operating modes -- each has a distinct system prompt."""
     THINK = "think"
     DREAM = "dream"
     REFLECT = "reflect"
@@ -53,10 +52,10 @@ class MemoryItem:
 
 @dataclass
 class ContextPacket:
-    """Structured input to the LLM — budgeted slots, not free-form.
+    """Structured input to the LLM -- budgeted slots, not free-form.
 
-    Each slot has a clear role and token budget.  The thalamic gate
-    (Phase 3) will learn to fill these slots optimally.
+    Each slot has a clear role and token budget. The thalamic gate
+    fills these slots optimally based on SNN state.
     """
     drive_summary: str = ""
     top_memories: list[MemoryItem] = field(default_factory=list)
@@ -68,8 +67,7 @@ class ContextPacket:
     forced_topic: str = ""  # SNN-injected topic to redirect thinking
     max_response_tokens: int = 160
 
-    # Budget limits (token approximation: 1 token ≈ 4 chars)
-    # Increased from 5→8 memories and 3→5 thread items for richer context
+    # Budget limits (token approximation: 1 token ~ 4 chars)
     MAX_MEMORIES: int = 8
     MAX_THREAD_ITEMS: int = 5
     MAX_DRIVE_CHARS: int = 400
@@ -98,7 +96,7 @@ class ContextPacket:
             else:
                 parts.append(
                     f"## Direction\n"
-                    f"Explore something fresh and concrete — a specific fact, mechanism, "
+                    f"Explore something fresh and concrete -- a specific fact, mechanism, "
                     f"or phenomenon you haven't considered yet."
                 )
 
@@ -122,7 +120,7 @@ class ContextPacket:
 
 @dataclass(frozen=True)
 class ThoughtResult:
-    """Parsed LLM output — structured signals for SNN consumption."""
+    """Parsed LLM output -- structured signals for SNN consumption."""
     raw_text: str
     thought: str
     topics: tuple[str, ...] = ()
@@ -154,21 +152,35 @@ class ThoughtResult:
             else:
                 return cls._fallback(raw, latency_ms)
 
-        thought = str(data.get("thought", raw[:200]))
-        topics_raw = data.get("topics", [])
-        if isinstance(topics_raw, list):
-            topics = tuple(str(t) for t in topics_raw[:8])
+        if not isinstance(data, dict):
+            return cls._fallback(raw, latency_ms)
+
+        thought = str(data.get("thought", ""))[:500]
+        if not thought:
+            return cls._fallback(raw, latency_ms)
+
+        # Parse topics — must be a list of strings
+        raw_topics = data.get("topics", [])
+        if isinstance(raw_topics, list):
+            topics = tuple(str(t) for t in raw_topics[:8] if t)
         else:
             topics = ()
 
-        valence = max(-1.0, min(1.0, float(data.get("valence", 0.0))))
-        confidence = max(0.0, min(1.0, float(data.get("confidence", 0.5))))
+        # Parse valence (clamped -1 to 1)
+        valence = float(data.get("valence", 0.0))
+        valence = max(-1.0, min(1.0, valence))
 
-        action = data.get("action")
-        if action is not None:
-            action = str(action).lower().strip()
-            if action not in cls.VALID_ACTIONS or action == "null":
-                action = None
+        # Parse confidence (clamped 0 to 1)
+        confidence = float(data.get("confidence", 0.5))
+        confidence = max(0.0, min(1.0, confidence))
+
+        # Parse action — only allow known actions
+        raw_action = data.get("action")
+        action: Optional[str] = None
+        if raw_action and str(raw_action).lower() not in ("none", "null", ""):
+            action_str = str(raw_action).lower().strip()
+            if action_str in cls.VALID_ACTIONS:
+                action = action_str
 
         return cls(
             raw_text=raw,
@@ -197,117 +209,37 @@ class ThoughtResult:
 
 
 class CorticalCore:
-    """Frozen LLM neocortex — generates thoughts from structured context.
+    """Abstract base for all cortex implementations.
 
-    The cortex is stateless between calls.  All state (memory, drives,
-    continuity) lives in the SNN subcortical systems and is passed in
-    via ContextPacket.
+    Subclasses must implement generate() and is_available().
+    No local Ollama. Use NIMCortex for production, MockCortex for tests.
     """
 
-    def __init__(
-        self,
-        model: str = "gemma4:e4b",
-        base_url: str = "http://127.0.0.1:11434",
-        timeout_seconds: float = 120.0,
-        temperature: float = 0.7,
-    ) -> None:
-        # Restrict to loopback for security
-        if "127.0.0.1" not in base_url and "localhost" not in base_url:
-            raise ValueError(
-                f"CorticalCore only connects to loopback Ollama. Got: {base_url}"
-            )
-        self.model = model
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout_seconds
-        self.temperature = temperature
-        self._client = httpx.Client(timeout=httpx.Timeout(timeout_seconds))
-        self._generation_count = 0
+    model: str = "abstract"
+    temperature: float = 0.7
 
     def generate(self, context: ContextPacket) -> ThoughtResult:
-        """Generate a thought from structured context.
-
-        This is the ONLY entry point the SNN calls.  The SNN decides
-        when to call it (event-driven, not every tick).
-        """
-        system_prompt = MODE_PROMPTS.get(context.mode.value, MODE_PROMPTS["think"])
-        user_prompt = context.to_user_prompt()
-
-        t0 = time.perf_counter()
-        try:
-            raw = self._call_ollama(system_prompt, user_prompt, context.max_response_tokens)
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            logger.warning("Cortex inference failed: %s", exc)
-            return ThoughtResult(
-                raw_text=str(exc),
-                thought="[cortex unavailable]",
-                confidence=0.0,
-                latency_ms=(time.perf_counter() - t0) * 1000,
-                parse_success=False,
-            )
-        latency_ms = (time.perf_counter() - t0) * 1000
-
-        self._generation_count += 1
-        result = ThoughtResult.from_json(raw, latency_ms=latency_ms)
-        logger.debug(
-            "Cortex gen #%d: %.0fms, parse=%s, action=%s",
-            self._generation_count,
-            latency_ms,
-            result.parse_success,
-            result.action_intent,
-        )
-        return result
-
-    def _call_ollama(self, system: str, user: str, max_tokens: int) -> str:
-        """HTTP POST to Ollama /api/generate endpoint."""
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "system": system,
-            "prompt": user,
-            "stream": False,
-            "format": "json",
-            "options": {
-                "num_predict": max_tokens,
-                "temperature": self.temperature,
-            },
-        }
-        resp = self._client.post(f"{self.base_url}/api/generate", json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("response", "")
+        """Generate a thought from structured context. Override in subclass."""
+        raise NotImplementedError("Subclasses must implement generate()")
 
     def is_available(self) -> bool:
-        """Check if Ollama is reachable and model is loaded."""
-        try:
-            resp = self._client.get(
-                f"{self.base_url}/api/tags",
-                timeout=httpx.Timeout(5.0),
-            )
-            if resp.status_code != 200:
-                return False
-            models = resp.json().get("models", [])
-            return any(m.get("name", "").startswith(self.model.split(":")[0]) for m in models)
-        except (httpx.ConnectError, httpx.TimeoutException):
-            return False
+        """Check if the cortex backend is reachable."""
+        return False
 
     @property
     def generation_count(self) -> int:
-        return self._generation_count
+        return 0
 
     def close(self) -> None:
-        self._client.close()
-
-    def __del__(self) -> None:
-        try:
-            self._client.close()
-        except Exception:
-            pass
+        pass
 
 
-class FakeCortex(CorticalCore):
-    """Deterministic mock cortex for testing — no LLM needed.
+class MockCortex(CorticalCore):
+    """Deterministic mock cortex for testing -- no network, no LLM.
 
-    Returns predictable responses based on the input mode and content,
-    useful for testing the SNN control loop without Ollama.
+    Returns predictable responses based on the input mode and content.
+    Use this in unit tests where you need the SNN control loop to work
+    without any external API calls.
     """
 
     def __init__(
@@ -316,10 +248,7 @@ class FakeCortex(CorticalCore):
         latency_ms: float = 10.0,
         **kwargs: Any,
     ) -> None:
-        # Don't call super().__init__ — we don't need httpx
-        self.model = "fake-cortex"
-        self.base_url = "http://127.0.0.1:0"
-        self.timeout = 1.0
+        self.model = "mock-cortex"
         self.temperature = 0.7
         self._generation_count = 0
         self._responses = responses or []
@@ -375,8 +304,13 @@ class FakeCortex(CorticalCore):
     def is_available(self) -> bool:
         return True
 
-    def _call_ollama(self, system: str, user: str, max_tokens: int) -> str:
-        raise NotImplementedError("FakeCortex does not call Ollama")
+    @property
+    def generation_count(self) -> int:
+        return self._generation_count
 
     def close(self) -> None:
         pass
+
+
+# Backwards compatibility alias -- FakeCortex is now MockCortex
+FakeCortex = MockCortex

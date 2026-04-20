@@ -1755,11 +1755,11 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 class CortexIntegrationTests(unittest.TestCase):
     """Test cortex/ThoughtLoop integration with service manager."""
 
-    def test_cortex_methods_available_without_ollama(self) -> None:
-        """Cortex methods return graceful fallbacks when Ollama is unavailable."""
+    def test_cortex_methods_available_without_nim_key(self) -> None:
+        """Cortex methods return graceful fallbacks when NIM API key is missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            manager = _build_manager(root, test_case="cortex_no_ollama")
+            manager = _build_manager(root, test_case="cortex_no_nim_key")
             try:
                 # cortex_ask returns unavailable
                 result = manager.cortex_ask("hello")

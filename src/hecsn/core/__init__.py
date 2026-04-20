@@ -1,7 +1,8 @@
 from .abstraction import AbstractionLayer
 from .adex import AdExNeuron
+from .binding import BindingLayer
 from .columns import CompetitiveColumnLayer
-from .context import AdaptiveContextLayer, BindingLayer, ContextLayer
+from .context import AdaptiveContextLayer, ContextLayer
 from .sparsity import SparsityManager, apply_2_4_mask, profiling_gate
 from .surprise import SurpriseMonitor
 from .topographic import SpatialBindingLayer, TopographicGrid

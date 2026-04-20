@@ -1,18 +1,11 @@
-"""MultiCortex — configurable multi-backend cortex for Terminus.
+"""MultiCortex -- configurable multi-backend cortex for Terminus.
 
-Supports multiple LLM backends:
-- Ollama (local, e.g. Gemma 4)
-- NVIDIA NIM (cloud, OpenAI-compatible API)
-- FakeCortex (deterministic testing)
+Supports NVIDIA NIM cloud models exclusively:
+- Fast model (nemotron-nano-8b) for routine THINK/REFLECT
+- Deep model (qwen3-next-80b) for DREAM/ANSWER
 
-The cortex selection is configurable per-mode:
-- Fast model for routine THINK/REFLECT
-- Deep model for DREAM/ANSWER
-- Local fallback when cloud unavailable
-
-NVIDIA NIM provides free-tier access to frontier models
-(meta/llama-3.3-70b-instruct, deepseek-ai/deepseek-r1,
-qwen/qwen2.5-72b-instruct, etc.) with 40 req/min.
+No local Ollama fallback. If NVIDIA_API_KEY is not set,
+create_cortex_from_env() returns MockCortex for testing.
 """
 
 from __future__ import annotations
@@ -27,7 +20,7 @@ import httpx
 from hecsn.cortex.core import (
     ContextPacket,
     CorticalCore,
-    FakeCortex,
+    MockCortex,
     ThoughtResult,
 )
 
@@ -40,10 +33,10 @@ DEFAULT_DEEP_MODEL = "qwen/qwen3-next-80b-a3b-thinking"
 
 
 class NIMCortex(CorticalCore):
-    """NVIDIA NIM cortex — cloud-based frontier models via OpenAI-compatible API.
+    """NVIDIA NIM cortex -- cloud-based frontier models via OpenAI-compatible API.
 
     Uses chat/completions endpoint which is standard across NIM models.
-    Falls back to Ollama on connection failure.
+    No local fallback. If NIM fails, returns graceful error ThoughtResult.
     """
 
     def __init__(
@@ -53,15 +46,12 @@ class NIMCortex(CorticalCore):
         base_url: str = DEFAULT_NIM_BASE_URL,
         timeout_seconds: float = 60.0,
         temperature: float = 0.7,
-        fallback_cortex: CorticalCore | None = None,
     ) -> None:
-        # Store config (don't call super().__init__ — different API)
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout_seconds
         self.temperature = temperature
         self._api_key = api_key or os.environ.get("NVIDIA_API_KEY", "")
-        self._fallback = fallback_cortex
         self._client = httpx.Client(
             timeout=httpx.Timeout(timeout_seconds),
             headers={
@@ -71,7 +61,6 @@ class NIMCortex(CorticalCore):
             },
         )
         self._generation_count = 0
-        self._fallback_count = 0
 
     def generate(self, context: ContextPacket) -> ThoughtResult:
         """Generate a thought via NVIDIA NIM chat/completions API."""
@@ -84,11 +73,7 @@ class NIMCortex(CorticalCore):
         try:
             raw = self._call_nim_chat(system_prompt, user_prompt, context.max_response_tokens)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-            logger.warning("NIM inference failed (%s), trying fallback", exc)
-            if self._fallback is not None:
-                result = self._fallback.generate(context)
-                self._fallback_count += 1
-                return result
+            logger.warning("NIM inference failed: %s", exc)
             return ThoughtResult(
                 raw_text=str(exc),
                 thought="[nim unavailable]",
@@ -101,8 +86,8 @@ class NIMCortex(CorticalCore):
         self._generation_count += 1
         result = ThoughtResult.from_json(raw, latency_ms=latency_ms)
         logger.debug(
-            "NIM gen #%d: %.0fms, parse=%s",
-            self._generation_count, latency_ms, result.parse_success,
+            "NIM gen #%d (%s): %.0fms, parse=%s",
+            self._generation_count, self.model, latency_ms, result.parse_success,
         )
         return result
 
@@ -146,22 +131,15 @@ class NIMCortex(CorticalCore):
     def generation_count(self) -> int:
         return self._generation_count
 
-    @property
-    def fallback_count(self) -> int:
-        return self._fallback_count
-
     def close(self) -> None:
         self._client.close()
-        if self._fallback:
-            self._fallback.close()
 
 
 class MultiCortex(CorticalCore):
-    """Tiered cortex — fast model for routine, deep model for complex reasoning.
+    """Tiered cortex -- fast model for routine, deep model for complex reasoning.
 
     Routes THINK/REFLECT to the fast model (low latency),
     DREAM/ANSWER to the deep model (high quality).
-    Falls back to local Ollama if cloud unavailable.
     """
 
     def __init__(
@@ -183,7 +161,6 @@ class MultiCortex(CorticalCore):
     @temperature.setter
     def temperature(self, value: float) -> None:
         self._temperature_override = value
-        # Also propagate to sub-cortices that support it
         for cortex in (self._fast, self._deep):
             if hasattr(cortex, "temperature"):
                 cortex.temperature = value
@@ -202,7 +179,6 @@ class MultiCortex(CorticalCore):
         else:
             cortex = self._fast
 
-        # Try preferred cortex, fall back to the other
         result = cortex.generate(context)
         self._generation_count += 1
 
@@ -227,63 +203,44 @@ class MultiCortex(CorticalCore):
 
 
 def create_cortex_from_env() -> CorticalCore:
-    """Factory: create the best available cortex from environment config.
+    """Factory: create cortex from environment config.
 
     Priority:
-    1. MultiCortex (NIM fast + NIM deep) if NVIDIA_API_KEY set
-    2. MultiCortex (NIM fast + Ollama deep) if NIM available
-    3. CorticalCore (Ollama only) as fallback
-    4. FakeCortex if nothing available
+    1. MultiCortex (NIM fast + NIM deep) -- requires NVIDIA_API_KEY
+    2. MockCortex if key not set (for testing only)
+
+    Never launches Ollama or any local process.
     """
     nim_key = os.environ.get("NVIDIA_API_KEY", "")
-    ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    ollama_model = os.environ.get("OLLAMA_MODEL", "gemma4:e4b")
-
     nim_fast_model = os.environ.get("NIM_FAST_MODEL", DEFAULT_FAST_MODEL)
     nim_deep_model = os.environ.get("NIM_DEEP_MODEL", DEFAULT_DEEP_MODEL)
 
-    # Try NIM + Ollama combo
     if nim_key:
         try:
-            ollama_cortex = CorticalCore(
-                model=ollama_model,
-                base_url=ollama_url,
-            )
             nim_fast = NIMCortex(
                 model=nim_fast_model,
                 api_key=nim_key,
-                fallback_cortex=ollama_cortex,
                 temperature=0.7,
             )
             nim_deep = NIMCortex(
                 model=nim_deep_model,
                 api_key=nim_key,
-                fallback_cortex=ollama_cortex,
                 temperature=0.8,
             )
             if nim_fast.is_available():
-                logger.info("MultiCortex: NIM fast=%s, NIM deep=%s, Ollama fallback",
+                logger.info("MultiCortex: NIM fast=%s, NIM deep=%s",
                             nim_fast_model, nim_deep_model)
                 return MultiCortex(fast_cortex=nim_fast, deep_cortex=nim_deep)
             else:
-                logger.info("NIM unavailable, falling back to Ollama-only")
-                if ollama_cortex.is_available():
-                    return ollama_cortex
+                logger.warning("NIM API unreachable -- using MockCortex")
+                return MockCortex()
         except Exception as exc:
-            logger.info("NIM init failed: %s, trying Ollama", exc)
+            logger.warning("NIM init failed: %s -- using MockCortex", exc)
+            return MockCortex()
 
-    # Ollama-only
-    try:
-        cortex = CorticalCore(model=ollama_model, base_url=ollama_url)
-        if cortex.is_available():
-            logger.info("Cortex: Ollama %s", ollama_model)
-            return cortex
-    except Exception:
-        pass
-
-    # Nothing available
-    logger.warning("No LLM backend available — using FakeCortex")
-    return FakeCortex()
+    # No API key set
+    logger.warning("NVIDIA_API_KEY not set -- using MockCortex (set key in .env)")
+    return MockCortex()
 
 
 def create_embedder_from_env():

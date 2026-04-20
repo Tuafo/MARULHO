@@ -1,19 +1,21 @@
-"""Tests for the CorticalCore — the LLM neocortex wrapper.
+"""Tests for the CorticalCore -- the LLM neocortex wrapper.
 
-Covers: ContextPacket building, ThoughtResult parsing, FakeCortex
-deterministic behaviour, transport error handling, and (optionally)
-real Ollama integration.
+Covers: ContextPacket building, ThoughtResult parsing, MockCortex
+deterministic behaviour, and transport error handling.
+No Ollama -- uses NVIDIA NIM in production, MockCortex in tests.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import pytest
 
 from hecsn.cortex.core import (
     ContextPacket,
     CorticalCore,
     FakeCortex,
+    MockCortex,
     MemoryItem,
     ThinkingMode,
     ThoughtResult,
@@ -187,12 +189,12 @@ class TestThoughtResult:
 
 
 # ---------------------------------------------------------------------------
-# FakeCortex
+# MockCortex (also accessible as FakeCortex for backwards compat)
 # ---------------------------------------------------------------------------
 
-class TestFakeCortex:
+class TestMockCortex:
     def test_think_mode_default(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         ctx = ContextPacket(drive_summary="explore space")
         result = cortex.generate(ctx)
         assert result.parse_success
@@ -200,13 +202,13 @@ class TestFakeCortex:
         assert result.latency_ms == 10.0
 
     def test_dream_mode(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         ctx = ContextPacket(mode=ThinkingMode.DREAM)
         result = cortex.generate(ctx)
         assert "dream" in result.thought.lower() or "connection" in result.thought.lower()
 
     def test_answer_mode(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         ctx = ContextPacket(
             mode=ThinkingMode.ANSWER,
             external_query="What is gravity?",
@@ -219,7 +221,7 @@ class TestFakeCortex:
             {"thought": "first", "valence": 0.1, "confidence": 0.9, "action": "search"},
             {"thought": "second", "valence": -0.2, "confidence": 0.4, "action": None},
         ]
-        cortex = FakeCortex(responses=responses)
+        cortex = MockCortex(responses=responses)
         ctx = ContextPacket()
 
         r1 = cortex.generate(ctx)
@@ -235,49 +237,36 @@ class TestFakeCortex:
         assert r3.thought == "first"
 
     def test_generation_count(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         assert cortex.generation_count == 0
         cortex.generate(ContextPacket())
         cortex.generate(ContextPacket())
         assert cortex.generation_count == 2
 
     def test_is_available(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         assert cortex.is_available()
 
-    def test_ollama_raises(self):
+    def test_fakecortex_alias(self):
+        """FakeCortex is just an alias for MockCortex."""
         cortex = FakeCortex()
+        assert isinstance(cortex, MockCortex)
+        assert cortex.is_available()
+
+
+# ---------------------------------------------------------------------------
+# CorticalCore (abstract base)
+# ---------------------------------------------------------------------------
+
+class TestCorticalCoreBase:
+    def test_generate_raises_not_implemented(self):
+        core = CorticalCore()
         with pytest.raises(NotImplementedError):
-            cortex._call_ollama("sys", "usr", 100)
+            core.generate(ContextPacket())
 
-
-# ---------------------------------------------------------------------------
-# CorticalCore (unit — transport mocked)
-# ---------------------------------------------------------------------------
-
-class TestCorticalCoreUnit:
-    def test_loopback_restriction(self):
-        with pytest.raises(ValueError, match="loopback"):
-            CorticalCore(base_url="http://evil.com:11434")
-
-    def test_localhost_allowed(self):
-        # Should not raise (won't connect, just validates URL)
-        core = CorticalCore(base_url="http://localhost:11434")
-        assert core.model == "gemma4:e4b"
-        core.close()
-
-    def test_127_allowed(self):
-        core = CorticalCore(base_url="http://127.0.0.1:11434")
-        core.close()
-
-    def test_generate_handles_connection_error(self):
-        # Use a port that nothing listens on
-        core = CorticalCore(base_url="http://127.0.0.1:19999", timeout_seconds=2.0)
-        result = core.generate(ContextPacket(drive_summary="test"))
-        assert not result.parse_success
-        assert result.confidence == 0.0
-        assert "cortex unavailable" in result.thought
-        core.close()
+    def test_is_available_false_by_default(self):
+        core = CorticalCore()
+        assert not core.is_available()
 
 
 # ---------------------------------------------------------------------------
@@ -300,35 +289,39 @@ class TestPrompts:
 
 
 # ---------------------------------------------------------------------------
-# Integration test — real Ollama (skipped if unavailable)
+# Integration test -- real NIM (skipped if no API key)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def live_cortex():
-    """Create a real CorticalCore, skip if Ollama is down."""
-    core = CorticalCore(model="gemma4:e4b", timeout_seconds=120.0)
-    if not core.is_available():
-        core.close()
-        pytest.skip("Ollama not available or model not loaded")
-    yield core
-    core.close()
+def live_nim_cortex():
+    """Create a real NIMCortex, skip if API key not available."""
+    from hecsn.cortex.multi_cortex import NIMCortex
+    api_key = os.environ.get("NVIDIA_API_KEY", "")
+    if not api_key:
+        pytest.skip("NVIDIA_API_KEY not set")
+    cortex = NIMCortex(api_key=api_key, timeout_seconds=30.0)
+    if not cortex.is_available():
+        cortex.close()
+        pytest.skip("NIM API not reachable")
+    yield cortex
+    cortex.close()
 
 
-class TestCorticalCoreIntegration:
+class TestNIMCortexIntegration:
     @pytest.mark.slow
-    def test_basic_thought(self, live_cortex: CorticalCore):
+    def test_basic_thought(self, live_nim_cortex):
         ctx = ContextPacket(
             drive_summary="curiosity about the nature of consciousness",
             self_state="alert, curious",
             mode=ThinkingMode.THINK,
         )
-        result = live_cortex.generate(ctx)
+        result = live_nim_cortex.generate(ctx)
         assert result.thought
         assert len(result.thought) > 10
         assert result.latency_ms > 0
 
     @pytest.mark.slow
-    def test_answer_mode(self, live_cortex: CorticalCore):
+    def test_answer_mode(self, live_nim_cortex):
         ctx = ContextPacket(
             mode=ThinkingMode.ANSWER,
             external_query="What is the speed of light?",
@@ -336,12 +329,12 @@ class TestCorticalCoreIntegration:
                 MemoryItem(text="Light travels at approximately 300,000 km/s", source="verified"),
             ],
         )
-        result = live_cortex.generate(ctx)
+        result = live_nim_cortex.generate(ctx)
         assert result.thought
         assert result.parse_success
 
     @pytest.mark.slow
-    def test_dream_mode(self, live_cortex: CorticalCore):
+    def test_dream_mode(self, live_nim_cortex):
         ctx = ContextPacket(
             mode=ThinkingMode.DREAM,
             top_memories=[
@@ -349,5 +342,5 @@ class TestCorticalCoreIntegration:
                 MemoryItem(text="Solar panels convert light to electricity", source="observed"),
             ],
         )
-        result = live_cortex.generate(ctx)
+        result = live_nim_cortex.generate(ctx)
         assert result.thought

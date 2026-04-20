@@ -70,6 +70,8 @@ class DualMemoryStore:
         self.slow_entry_timestamps: List[int] = []
         self.slow_last_replay_token: List[int] = []
         self.slow_replay_count: List[int] = []
+        self.slow_ripple_tagged: List[bool] = []
+        self.slow_ripple_tagged: List[bool] = []  # Awake ripple tag (Yang & Buzsaki 2024)
         self.fast_ema: Optional[torch.Tensor] = None
         self.local_fast_ema: dict[int, torch.Tensor] = {}
         self.local_slow_mean: dict[int, torch.Tensor] = {}
@@ -447,6 +449,7 @@ class DualMemoryStore:
         self.slow_entry_timestamps[index] = int(token_marker)
         self.slow_last_replay_token[index] = int(token_marker)
         self.slow_replay_count[index] = 0
+        self.slow_ripple_tagged[index] = False
 
     def update(
         self,
@@ -499,6 +502,7 @@ class DualMemoryStore:
             self.slow_entry_timestamps.append(token_marker)
             self.slow_last_replay_token.append(token_marker)
             self.slow_replay_count.append(0)
+            self.slow_ripple_tagged.append(False)
             self._store_slot(
                 len(self.slow_buffer) - 1,
                 assembly=x,
@@ -557,8 +561,58 @@ class DualMemoryStore:
                 + 0.50 * max(0.0, 1.0 - consolidation)
             )
             score = importance * (1.0 + spacing) * (1.0 + frontier) / (1.0 + 0.35 * float(replay_count))
+            # Awake ripple boost: tagged memories get 3x replay priority
+            if idx < len(self.slow_ripple_tagged) and self.slow_ripple_tagged[idx]:
+                score *= 3.0
             scores.append(float(score))
         return torch.tensor(scores, dtype=torch.float32)
+
+    def ripple_tag_awake(
+        self,
+        *,
+        current_token: int,
+        window_tokens: int,
+        da_level: float,
+        da_threshold: float = 0.7,
+    ) -> int:
+        """Awake ripple tagging (Yang & Buzsaki 2024, Science).
+
+        When dopamine (DA) exceeds threshold during wakefulness,
+        mark recent memories with a ripple tag. These get 3-5x
+        replay priority during subsequent sleep consolidation.
+
+        Args:
+            current_token: Current training token/timestep.
+            window_tokens: How far back to look for recent entries.
+            da_level: Current dopamine level from SurpriseMonitor.
+            da_threshold: DA threshold to trigger ripple tagging.
+
+        Returns:
+            Number of entries ripple-tagged.
+        """
+        if da_level < da_threshold or window_tokens <= 0:
+            return 0
+
+        self._advance_state(current_token)
+        floor_token = max(0, int(current_token) - int(window_tokens))
+        tagged = 0
+        for idx, ts in enumerate(self.slow_entry_timestamps):
+            if int(ts) < floor_token:
+                continue
+            if not self.slow_ripple_tagged[idx]:
+                self.slow_ripple_tagged[idx] = True
+                # Also boost the capture tag strength
+                boost = min(1.0, 0.3 * da_level)
+                self.slow_capture_tag[idx] = float(
+                    min(1.0, self.slow_capture_tag[idx] + boost)
+                )
+                tagged += 1
+        return tagged
+
+    @property
+    def ripple_tagged_count(self) -> int:
+        """Number of currently ripple-tagged memories."""
+        return sum(1 for v in self.slow_ripple_tagged if v)
 
     def tag_recent_entries(
         self,
@@ -958,6 +1012,7 @@ class DualMemoryStore:
             "slow_entry_timestamps": list(self.slow_entry_timestamps),
             "slow_last_replay_token": list(self.slow_last_replay_token),
             "slow_replay_count": list(self.slow_replay_count),
+            "slow_ripple_tagged": list(self.slow_ripple_tagged),
             "fast_ema": None if self.fast_ema is None else self.fast_ema.detach().clone().cpu(),
             "local_fast_ema": {
                 int(key): value.detach().clone().cpu()
@@ -1046,6 +1101,7 @@ class DualMemoryStore:
             for idx, value in enumerate(self.slow_last_replay_token)
         ]
         self.slow_replay_count = [int(value) for value in _pad(snapshot.get("slow_replay_count"), 0, size)]
+        self.slow_ripple_tagged = [bool(value) for value in _pad(snapshot.get("slow_ripple_tagged"), False, size)]
 
         fast_ema = snapshot.get("fast_ema")
         self.fast_ema = fast_ema.detach().clone().cpu() if isinstance(fast_ema, torch.Tensor) else None

@@ -257,6 +257,15 @@ class HypercubeBindingLayer:
         self.binding_usage = torch.zeros(n_columns, device=device)
         self.pv_inhibition = torch.tensor(0.0, device=device)
 
+        # Hub tracking: columns with highest activation frequency get boosted
+        # influence. Updated every bind() call. Hub columns (top 5% by usage)
+        # get their learned_weights scaled up by hub_boost_factor.
+        self._hub_activation_ema = torch.zeros(n_columns, device=device)
+        self._hub_ema_alpha = 0.01  # EMA smoothing for activation tracking
+        self._hub_top_fraction = 0.05  # Top 5% are hubs
+        self._hub_boost_factor = 1.5  # Hubs get 1.5x weight influence
+        self._hub_mask = torch.zeros(n_columns, dtype=torch.bool, device=device)
+
         # Sparse connectivity from topology
         max_deg = self.topology.max_degree
         self.neighbor_ids = self.topology._neighbor_ids[:n_columns, :max_deg].to(device)
@@ -269,8 +278,16 @@ class HypercubeBindingLayer:
         self.fan_in = self.topology.dim
 
     def _sparse_drive(self, signal: torch.Tensor, *, already_normalized: bool = False) -> torch.Tensor:
-        """Compute local drive from hypercube neighbors. O(N·d)."""
+        """Compute local drive from hypercube neighbors. O(N*d).
+
+        Hub columns (top 5% by activation frequency) have their
+        outgoing influence boosted by hub_boost_factor.
+        """
         normed = signal if already_normalized else _normalize(signal.to(self.device))
+        # Apply hub boost: hub columns' signals are amplified
+        if self._hub_mask.any():
+            normed = normed.clone()
+            normed[self._hub_mask] *= self._hub_boost_factor
         # Clamp neighbor_ids: replace -1 (padding) with 0, then zero out via weights
         safe_ids = self.neighbor_ids.clamp(min=0)
         neighbor_acts = normed[safe_ids]  # [n_columns, max_degree]
@@ -341,6 +358,19 @@ class HypercubeBindingLayer:
         self.binding_state = _normalize(support)
 
         strength = float(output.sum().item())
+
+        # Update hub activation tracking
+        active_float = (output > 0.0).float()
+        self._hub_activation_ema = (
+            self._hub_ema_alpha * active_float
+            + (1.0 - self._hub_ema_alpha) * self._hub_activation_ema
+        )
+        # Recompute hub mask every 100 binds (cheap)
+        if int(self.binding_usage.sum().item()) % 100 == 0 and self.n_columns > 10:
+            k = max(1, int(self._hub_top_fraction * self.n_columns))
+            _, top_indices = torch.topk(self._hub_activation_ema, k)
+            self._hub_mask.zero_()
+            self._hub_mask[top_indices] = True
 
         # Hebbian weight update
         if update_weights and strength > 0.0:
@@ -463,6 +493,8 @@ class HypercubeBindingLayer:
         self.facilitation.zero_()
         self.resources.fill_(1.0)
         self.pv_inhibition.zero_()
+        self._hub_activation_ema.zero_()
+        self._hub_mask.zero_()
 
     def state_dict(self) -> dict[str, Any]:
         return {

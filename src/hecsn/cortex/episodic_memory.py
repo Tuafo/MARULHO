@@ -124,9 +124,8 @@ def _make_episode_id(content: str) -> str:
 class SimpleEmbedder:
     """Lightweight bag-of-characters embedder for memory indexing.
 
-    This is a placeholder — will be replaced with a proper sentence
-    embedder (e.g. via Ollama embed endpoint) once the basic system
-    works. Uses character n-gram hashing into a fixed-size vector,
+    This is a simple fallback embedder -- use NIMEmbedder for production.
+    Uses character n-gram hashing into a fixed-size vector,
     similar to the existing RTF encoder approach.
     """
 
