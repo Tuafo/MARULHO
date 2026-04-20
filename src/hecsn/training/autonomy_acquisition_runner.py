@@ -16,7 +16,6 @@ from hecsn.config.presets import (
 )
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.gap_planner import bank_semantic_relevance_score
-from hecsn.reporting.autonomy import plot_acquisition_summary
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics.frontier import (
     candidate_semantic_signature,
@@ -1998,6 +1997,7 @@ def run_acquisition_benchmark(
         summary["checkpoint_path"] = str(checkpoint_path)
     write_json_file(output_dir / "summary.json", summary)
     if save_plots:
+        from hecsn.reporting.autonomy import plot_acquisition_summary
         plot_acquisition_summary(output_dir, summary)
 
     print("Autonomy acquisition summary")

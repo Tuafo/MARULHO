@@ -12,7 +12,6 @@ from hecsn.config.presets import get_memory_consolidation_preset, memory_consoli
 from hecsn.data.pattern_loader import load_train_eval_examples
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.reporting.io import write_json_file
-from hecsn.reporting.benchmark_plots import plot_memory_consolidation_summary
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
@@ -349,6 +348,7 @@ def run_memory_consolidation(
 
     write_json_file(output_dir / "summary.json", summary)
     if save_plots:
+        from hecsn.reporting.benchmark_plots import plot_memory_consolidation_summary
         plot_memory_consolidation_summary(output_dir, summary)
     print("Memory-consolidation sequential AB summary")
     print(f"task_a_recon_after_a={task_a_after_a:.6f}")

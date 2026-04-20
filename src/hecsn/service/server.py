@@ -3,6 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load .env file (NVIDIA_API_KEY, etc.)
+except ImportError:
+    pass  # python-dotenv optional; user can set env vars directly
+
 import uvicorn
 
 from hecsn.service.api import create_app

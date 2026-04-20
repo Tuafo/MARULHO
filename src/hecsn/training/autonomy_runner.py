@@ -18,7 +18,6 @@ from hecsn.data.corpus_loader import SourceType
 from hecsn.data.pattern_loader import load_probe_train_examples
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.gap_planner import bank_semantic_relevance_score
-from hecsn.reporting.autonomy import plot_autonomy_summary
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics.grounding_text import match_terms, salient_query_terms, split_sentences
 from hecsn.semantics.frontier import bank_gap_plan
@@ -1210,6 +1209,7 @@ def run_autonomy(
         summary["checkpoint_path"] = str(checkpoint_path)
     write_json_file(output_dir / "summary.json", summary)
     if save_plots:
+        from hecsn.reporting.autonomy import plot_autonomy_summary
         plot_autonomy_summary(output_dir, summary)
 
     print("Autonomy gap-seeking summary")
