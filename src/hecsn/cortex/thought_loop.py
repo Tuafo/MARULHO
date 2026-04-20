@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
-from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult, ThinkingMode
+from hecsn.cortex.core import CorticalCore, ThoughtResult
 from hecsn.cortex.episodic_memory import EpisodicMemory, Provenance
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
 
@@ -370,13 +370,15 @@ class ThoughtLoop:
     def _deliberate(self) -> ThoughtResult:
         """Fire one deliberation cycle — LLM inference."""
         packet = self.gate.assemble()
-        # Modulate temperature based on arousal
-        old_temp = self.cortex.temperature
-        self.cortex.temperature = 0.3 + 0.7 * self.drives.state.arousal
+        # Modulate temperature based on arousal (only if cortex exposes temperature)
+        old_temp = getattr(self.cortex, "temperature", None)
+        if old_temp is not None:
+            self.cortex.temperature = 0.3 + 0.7 * self.drives.state.arousal
 
         result = self.cortex.generate(packet)
 
-        self.cortex.temperature = old_temp
+        if old_temp is not None:
+            self.cortex.temperature = old_temp
 
         # Process the thought
         self._last_thought_time = time.time()

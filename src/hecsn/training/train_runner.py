@@ -22,8 +22,6 @@ import json
 import time
 from pathlib import Path
 
-import torch
-
 from hecsn.config.model_config import HECSNConfig
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 from hecsn.training.checkpointing import save_trainer_checkpoint

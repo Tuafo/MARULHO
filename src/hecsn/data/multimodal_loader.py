@@ -22,10 +22,8 @@ text, it cycles.
 
 from __future__ import annotations
 
-import math
-import os
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Iterator, Optional
 
 import torch
 

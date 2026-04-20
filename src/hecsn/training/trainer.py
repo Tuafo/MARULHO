@@ -11,13 +11,12 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.abstraction import AbstractionLayer
 from hecsn.core.columns import CompetitiveColumnLayer
-from hecsn.core.context import AdaptiveContextLayer, BindingLayer, ContextLayer, create_context_layer
+from hecsn.core.context import AdaptiveContextLayer, BindingLayer, create_context_layer
 from hecsn.core.cross_modal import CrossModalGroundingLayer
 from hecsn.core.surprise import SurpriseMonitor
 from hecsn.consolidation.memory_store import DualMemoryStore
 from hecsn.data.base_encoder import BaseEncoder
 from hecsn.data.encoder_factory import build_encoder
-from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
 from hecsn.training.bootstrap import PredictiveBootstrap
 

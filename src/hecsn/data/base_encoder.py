@@ -7,7 +7,7 @@ on this protocol, never on a concrete encoder class.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Iterator, Protocol, Sequence, runtime_checkable
+from typing import Any, Iterable, Iterator, Protocol, runtime_checkable
 
 import torch
 

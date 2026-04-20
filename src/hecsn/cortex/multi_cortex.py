@@ -17,11 +17,10 @@ qwen/qwen2.5-72b-instruct, etc.) with 40 req/min.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -173,6 +172,25 @@ class MultiCortex(CorticalCore):
         self._fast = fast_cortex
         self._deep = deep_cortex or fast_cortex
         self._generation_count = 0
+        self._temperature_override: float | None = None
+
+    @property
+    def temperature(self) -> float:
+        if self._temperature_override is not None:
+            return self._temperature_override
+        return getattr(self._fast, "temperature", 0.7)
+
+    @temperature.setter
+    def temperature(self, value: float) -> None:
+        self._temperature_override = value
+        # Also propagate to sub-cortices that support it
+        for cortex in (self._fast, self._deep):
+            if hasattr(cortex, "temperature"):
+                cortex.temperature = value
+
+    @property
+    def model(self) -> str:
+        return f"multi({getattr(self._fast, 'model', 'fast')},{getattr(self._deep, 'model', 'deep')})"
 
     def generate(self, context: ContextPacket) -> ThoughtResult:
         """Route to appropriate cortex based on mode."""

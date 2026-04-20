@@ -20,7 +20,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal, Optional
 
 import httpx
 

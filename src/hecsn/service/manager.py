@@ -26,7 +26,6 @@ from hecsn.data.dataset_adapters import (
 from hecsn.data.event_camera_encoder import EventCameraEncoder
 from hecsn.data.cochleagram_encoder import CochleagramEncoder
 from hecsn.data.pattern_loader import labeled_pattern_stream
-from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.gap_planner import plan_query_gaps
 from hecsn.interaction import EvidenceResponder
 from hecsn.reporting.io import write_json_file

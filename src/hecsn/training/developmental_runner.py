@@ -28,7 +28,6 @@ from hecsn.data.event_camera_encoder import EventCameraEncoder
 from hecsn.data.cochleagram_encoder import CochleagramEncoder
 from hecsn.data.base_encoder import BaseEncoder
 from hecsn.data.encoder_factory import build_encoder
-from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.evaluation.grounding_probe import evaluate_grounding_probe
 from hecsn.semantics.geometric_curiosity import GeometricCuriosityController
 from hecsn.training.runner_utils import set_seed
@@ -607,7 +606,6 @@ def _train_on_real_digits(
     Returns:
         (steps_processed, visual_steps, audio_steps).
     """
-    from hecsn.data.dataset_adapters import iter_episode_steps, MultimodalStep
 
     total_steps = 0
     visual_count = 0

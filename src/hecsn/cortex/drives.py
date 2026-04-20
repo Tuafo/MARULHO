@@ -15,14 +15,13 @@ diversity penalties, and verified-progress triggers prevent degenerate loops.
 from __future__ import annotations
 
 import logging
-import math
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Sequence
 
 from hecsn.cortex.core import ContextPacket, MemoryItem, ThinkingMode, ThoughtResult
-from hecsn.cortex.episodic_memory import EpisodicMemory, Episode, Provenance
+from hecsn.cortex.episodic_memory import EpisodicMemory
 
 logger = logging.getLogger(__name__)
 

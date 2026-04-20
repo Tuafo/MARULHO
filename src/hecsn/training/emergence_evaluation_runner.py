@@ -12,7 +12,6 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.evaluation.grounding_probe import (
     GROUNDING_PROBE_TRIPLES_50,
     CONCRETE_TRIPLES,
-    evaluate_grounding_probe,
 )
 from hecsn.reporting.io import write_json_file
 from hecsn.training.meaning_grounding_runner import meaning_grounding_benchmark_config

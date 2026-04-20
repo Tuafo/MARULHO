@@ -11,16 +11,14 @@ so comparisons are apples-to-apples.
 
 from __future__ import annotations
 
-import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import torch
 
 from hecsn.evaluation.grounding_probe import (
-    GROUNDING_PROBE_TRIPLES_50,
     GroundingProbeResult,
     evaluate_grounding_probe,
 )

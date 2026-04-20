@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import torch
 import torch.nn.functional as F
