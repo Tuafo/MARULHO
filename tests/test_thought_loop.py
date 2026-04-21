@@ -6,7 +6,7 @@ import time
 import json
 import pytest
 
-from hecsn.cortex.core import FakeCortex, ContextPacket, ThinkingMode, ThoughtResult
+from hecsn.cortex.core import MockCortex, ContextPacket, ThinkingMode, ThoughtDepth, ThoughtResult
 from hecsn.cortex.episodic_memory import (
     EpisodicMemory,
     Episode,
@@ -21,6 +21,7 @@ from hecsn.cortex.drives import (
     AntiRuminationCircuit,
 )
 from hecsn.cortex.thought_loop import ThoughtLoop, BrainStats
+from hecsn.cortex.working_memory import WMItemType
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +215,16 @@ class TestEpisodicMemory:
         hyps = mem.recall_hypotheses()
         assert len(hyps) == 2
 
+    def test_recall_dream_lineage_tracks_graduated_dreams(self):
+        mem = EpisodicMemory(capacity=100)
+        mem.store("dream 1", provenance=Provenance.DREAMED, episode_id="ep-d1")
+        mem.store("dream 2", provenance=Provenance.DREAMED, episode_id="ep-d2")
+        mem.graduate_hypothesis("ep-d1")
+        lineage = mem.recall_dream_lineage()
+        assert len(lineage) == 2
+        assert any(ep.provenance == Provenance.VERIFIED for ep in lineage)
+        assert all(ep.dream_origin for ep in lineage)
+
     def test_recall_for_sleep(self):
         mem = EpisodicMemory(capacity=100)
         mem.store("high salience", salience=0.9, episode_id="ep-h")
@@ -230,6 +241,7 @@ class TestEpisodicMemory:
         assert stats["size"] == 2
         assert stats["provenance_distribution"]["observed"] == 1
         assert stats["provenance_distribution"]["dreamed"] == 1
+        assert stats["embedder"]["kind"] == "SimpleEmbedder"
 
     def test_min_trust_filter(self):
         mem = EpisodicMemory(capacity=100)
@@ -379,7 +391,9 @@ class TestThalamicGate:
 
         packet = gate.assemble()
         assert isinstance(packet, ContextPacket)
-        assert packet.drive_summary  # Not empty
+        # Drive summary is suppressed by default to prevent self-referential loops.
+        # Instead, a seed topic direction is always provided.
+        assert packet.mode == ThinkingMode.THINK
 
     def test_query_sets_answer_mode(self):
         mem = EpisodicMemory(capacity=100)
@@ -405,18 +419,20 @@ class TestThalamicGate:
         packet2 = gate.assemble()
         assert packet2.external_query == ""
 
-    def test_thought_thread(self):
+    def test_working_memory_replaces_thread_replay(self):
+        """Wakeful assembly should not include raw thought-thread replay.
+
+        Raw thread replay caused repetition loops, so the gate now relies on
+        fresh seed rotation plus working-memory broadcast only for later chain
+        phases.
+        """
         mem = EpisodicMemory(capacity=100)
         drives = DriveSystem()
         gate = ThalamicGate(mem, drives)
 
-        result = ThoughtResult(
-            raw_text="", thought="I wonder about stars",
-            topics=("astronomy",), parse_success=True,
-        )
-        gate.record_thought(result)
         packet = gate.assemble()
-        assert "stars" in " ".join(packet.recent_thread)
+        assert packet.working_memory_narrative == ""
+        assert packet.forced_topic
 
     def test_sleep_assembly(self):
         mem = EpisodicMemory(capacity=100)
@@ -428,6 +444,28 @@ class TestThalamicGate:
         assert packet.mode == ThinkingMode.DREAM
         assert len(packet.top_memories) > 0
 
+    def test_sleep_assembly_compose_phase(self):
+        mem = EpisodicMemory(capacity=100)
+        ep = mem.store("reef chemistry", salience=0.9)
+        drives = DriveSystem()
+        gate = ThalamicGate(mem, drives)
+
+        packet = gate.assemble_for_sleep([ep], phase="dream_compose")
+        assert packet.deliberation_phase == "dream_compose"
+        assert "testable hypothesis" in packet.drive_summary.lower()
+        assert packet.max_response_tokens == 192
+
+    def test_sleep_assembly_test_phase(self):
+        mem = EpisodicMemory(capacity=100)
+        ep = mem.store("reef chemistry", salience=0.9)
+        drives = DriveSystem()
+        gate = ThalamicGate(mem, drives)
+
+        packet = gate.assemble_for_sleep([ep], phase="dream_test", hypothesis="Reef chemistry mirrors cave mineral deposition")
+        assert packet.deliberation_phase == "dream_test"
+        assert "Candidate hypothesis" in packet.working_memory_narrative
+        assert packet.max_response_tokens == 160
+
 
 # ---------------------------------------------------------------------------
 # ThoughtLoop
@@ -435,7 +473,7 @@ class TestThalamicGate:
 
 class TestThoughtLoop:
     def test_step_with_fake_cortex(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
         # Boost curiosity to trigger thinking
         loop.drives.state.curiosity = 0.8
@@ -445,7 +483,7 @@ class TestThoughtLoop:
         assert loop.stats.thoughts_generated == 1
 
     def test_step_no_think_when_low_drives(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
         loop.drives.state.curiosity = 0.1
         loop.drives.state.anxiety = 0.1
@@ -453,15 +491,21 @@ class TestThoughtLoop:
         result = loop.step()
         assert result is None
 
+    def test_uses_provided_memory_instance_even_when_empty(self):
+        cortex = MockCortex()
+        mem = EpisodicMemory(capacity=100)
+        loop = ThoughtLoop(cortex=cortex, memory=mem, min_thought_interval_s=0.0)
+        assert loop.memory is mem
+
     def test_memory_stored_after_thought(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
         loop.drives.state.curiosity = 0.8
         loop.step()
         assert loop.memory.size >= 1
 
     def test_sleep_triggered_by_fatigue(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(
             cortex=cortex,
             min_thought_interval_s=0.0,
@@ -476,7 +520,7 @@ class TestThoughtLoop:
         assert loop.stats.dreams_generated == 2
 
     def test_fatigue_reduces_after_sleep(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(
             cortex=cortex,
             min_thought_interval_s=0.0,
@@ -488,20 +532,124 @@ class TestThoughtLoop:
         loop.step()
         assert loop.drives.state.fatigue < initial
 
+    def test_sleep_cycle_graduates_supported_dream_hypothesis(self):
+        cortex = MockCortex(responses=[
+            {
+                "thought": "Coral skeletons and cave formations both rely on calcium carbonate precipitation.",
+                "topics": ["coral reefs", "caves", "calcium carbonate"],
+                "valence": 0.1,
+                "confidence": 0.7,
+                "action": None,
+            },
+            {
+                "thought": "The memories support a shared calcium-carbonate precipitation mechanism.",
+                "topics": ["calcium carbonate"],
+                "valence": 0.1,
+                "confidence": 0.85,
+                "action": None,
+            },
+        ])
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0, sleep_dream_count=1)
+        loop.memory.store("Coral reefs build skeletons from calcium carbonate.", provenance=Provenance.OBSERVED, topics=["coral reefs"], salience=0.9)
+        loop.memory.store("Cave stalactites form through calcium carbonate precipitation.", provenance=Provenance.OBSERVED, topics=["caves"], salience=0.8)
+
+        dreams = loop._sleep_cycle()
+        lineage = loop.memory.recall_dream_lineage()
+        assert len(dreams) == 1
+        assert len(lineage) == 1
+        assert lineage[0].provenance == Provenance.VERIFIED
+        assert loop.stats.dream_verification_rate == 1.0
+
+    def test_sleep_cycle_contradiction_queues_wake_tension(self):
+        cortex = MockCortex(responses=[
+            {
+                "thought": "Whale migration and optical illusions may share long-distance signaling principles.",
+                "topics": ["whales", "optics"],
+                "valence": 0.0,
+                "confidence": 0.55,
+                "action": None,
+            },
+            {
+                "thought": "This hypothesis is unsupported because the memories do not share a real signaling mechanism.",
+                "topics": ["whales", "optics"],
+                "valence": -0.2,
+                "confidence": 0.2,
+                "action": None,
+            },
+        ])
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0, sleep_dream_count=1)
+        loop.memory.store("Humpback whales migrate long distances using ocean cues.", provenance=Provenance.OBSERVED, topics=["whales"], salience=0.9)
+        loop.memory.store("Optical illusions distort perceived line length.", provenance=Provenance.OBSERVED, topics=["optics"], salience=0.8)
+
+        loop._sleep_cycle()
+        lineage = loop.memory.recall_dream_lineage()
+        assert len(lineage) == 1
+        assert lineage[0].provenance == Provenance.CONTRADICTED
+        assert loop._pending_wake_tensions
+
+    def test_pending_wake_tension_hydrates_working_memory(self):
+        loop = ThoughtLoop(cortex=MockCortex(), min_thought_interval_s=0.0)
+        loop._queue_wake_tension("Dream contradiction: coral chemistry does not fit the memory evidence.", topics=["coral", "chemistry"])
+        loop.working_memory.clear()
+        loop._inject_pending_wake_tensions()
+        assert loop.working_memory.has_tension()
+        assert loop._choose_depth() == ThoughtDepth.DEEP
+        assert loop.working_memory.strongest_item().item_type == WMItemType.TENSION
+
+    def test_dream_validation_prefix_supported_is_honored(self):
+        loop = ThoughtLoop(cortex=MockCortex(), min_thought_interval_s=0.0)
+        hypothesis = ThoughtResult(
+            raw_text="",
+            thought="Coral reefs and caves share a calcium-carbonate precipitation mechanism.",
+            topics=("coral reefs", "caves", "calcium carbonate"),
+            confidence=0.6,
+        )
+        memories = [
+            Episode(episode_id="ep-1", content="Coral reefs build skeletons from calcium carbonate.", topics=("coral reefs", "calcium carbonate")),
+            Episode(episode_id="ep-2", content="Cave stalactites form by calcium carbonate precipitation.", topics=("caves", "calcium carbonate")),
+        ]
+        validation = ThoughtResult(
+            raw_text="",
+            thought="SUPPORTED: Both memories point to the same calcium-carbonate precipitation mechanism.",
+            topics=("calcium carbonate",),
+            confidence=0.55,
+        )
+        assert loop._dream_validation_verdict(validation, hypothesis=hypothesis, memories=memories) == "supported"
+
+    def test_dream_validation_moderate_confidence_can_still_be_supported_with_evidence(self):
+        loop = ThoughtLoop(cortex=MockCortex(), min_thought_interval_s=0.0)
+        hypothesis = ThoughtResult(
+            raw_text="",
+            thought="Coral reefs and caves share a calcium-carbonate precipitation mechanism.",
+            topics=("coral reefs", "caves", "calcium carbonate"),
+            confidence=0.6,
+        )
+        memories = [
+            Episode(episode_id="ep-1", content="Coral reefs build skeletons from calcium carbonate.", topics=("coral reefs", "calcium carbonate")),
+            Episode(episode_id="ep-2", content="Cave stalactites form by calcium carbonate precipitation.", topics=("caves", "calcium carbonate")),
+        ]
+        validation = ThoughtResult(
+            raw_text="",
+            thought="The memories support a shared calcium-carbonate precipitation mechanism.",
+            topics=("calcium carbonate",),
+            confidence=0.58,
+        )
+        assert loop._dream_validation_verdict(validation, hypothesis=hypothesis, memories=memories) == "supported"
+
     def test_inject_observation(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex)
         loop.inject_observation("The sun is a star", topics=["astronomy"])
         assert loop.memory.size == 1
 
     def test_inject_surprise(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex)
         loop.inject_surprise(dopamine=0.9, acetylcholine=0.9)
         assert loop.drives.state.curiosity > 0.5
 
     def test_submit_query(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
         loop.submit_query("What is life?")
         loop.drives.state.social = 0.5  # Ensure thinking is triggered
@@ -509,7 +657,7 @@ class TestThoughtLoop:
         assert result is not None
 
     def test_background_loop_start_stop(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(
             cortex=cortex,
             tick_interval_ms=50.0,
@@ -526,7 +674,7 @@ class TestThoughtLoop:
 
     def test_callback_on_thought(self):
         thoughts: list[ThoughtResult] = []
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(
             cortex=cortex,
             min_thought_interval_s=0.0,
@@ -539,7 +687,7 @@ class TestThoughtLoop:
         assert len(thoughts) > 0
 
     def test_stats_tracking(self):
-        cortex = FakeCortex()
+        cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
         loop.drives.state.curiosity = 0.8
         loop.step()
@@ -547,6 +695,12 @@ class TestThoughtLoop:
         assert loop.stats.last_thought != ""
         assert loop.stats.total_inference_ms > 0
         assert loop.stats.memory_count > 0
+
+    def test_snapshot_includes_episodic_memory_embedder_stats(self):
+        loop = ThoughtLoop(cortex=MockCortex(), min_thought_interval_s=0.0)
+        snap = loop.snapshot()
+        assert snap["episodic_memory"]["embedder"]["kind"] == "SimpleEmbedder"
+        assert snap["episodic_memory"]["embedder"]["available"] is False
 
 
 # ---------------------------------------------------------------------------

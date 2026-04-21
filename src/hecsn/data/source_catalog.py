@@ -88,7 +88,7 @@ class CatalogEntry:
     metadata: dict[str, Any]
 
 
-_REMOTE_SEARCH_CACHE: dict[tuple[int, str, str, int], _RemoteSearchCacheEntry] = {}
+_REMOTE_SEARCH_CACHE: dict[tuple[Any, str, str, int], _RemoteSearchCacheEntry] = {}
 _REMOTE_CONTENT_CACHE: dict[str, _RemoteContentCacheEntry] = {}
 
 
@@ -500,9 +500,9 @@ def _remote_search_cache_key(
     query: str,
     *,
     result_limit: int,
-) -> tuple[int, str, str, int]:
+) -> tuple[Any, str, str, int]:
     return (
-        id(provider_fn),
+        provider_fn,
         _normalize_text(provider).lower(),
         _normalize_text(query).lower(),
         max(1, int(result_limit)),

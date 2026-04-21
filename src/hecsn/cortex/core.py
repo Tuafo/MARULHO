@@ -36,6 +36,22 @@ class ThinkingMode(str, Enum):
     ANSWER = "answer"
 
 
+class ThoughtDepth(str, Enum):
+    """How deep should deliberation go?
+
+    System 1 (QUICK): Single LLM call, fast pattern matching.
+    System 2 (STANDARD): 2-step chain (observe + question).
+    System 2+ (DEEP): 4-step chain (observe → question → reason → synthesize).
+
+    The SNN decides depth based on prediction error, working memory
+    tensions, and drive state. Most thoughts are QUICK; deep thinking
+    is reserved for surprising or contradictory situations.
+    """
+    QUICK = "quick"        # 1 call — System 1
+    STANDARD = "standard"  # 2 calls — light chain
+    DEEP = "deep"          # 4 calls — full inner monologue
+
+
 @dataclass(frozen=True)
 class MemoryItem:
     """A single episodic memory with SNN-computed metadata."""
@@ -55,23 +71,27 @@ class ContextPacket:
     """Structured input to the LLM -- budgeted slots, not free-form.
 
     Each slot has a clear role and token budget. The thalamic gate
-    fills these slots optimally based on SNN state.
+    fills these slots optimally based on SNN state. Raw thought-thread
+    replay was removed; continuity is carried by working_memory_narrative
+    plus the persistent narrative_self summary.
     """
     drive_summary: str = ""
     top_memories: list[MemoryItem] = field(default_factory=list)
-    recent_thread: list[str] = field(default_factory=list)
     self_state: str = ""
     mode: ThinkingMode = ThinkingMode.THINK
     external_query: str = ""
     avoid_topics: list[str] = field(default_factory=list)
     forced_topic: str = ""  # SNN-injected topic to redirect thinking
+    narrative_self: str = ""  # Persistent autobiographical context
+    working_memory_narrative: str = ""  # Global workspace broadcast
+    deliberation_phase: str = ""  # Current phase in multi-step chain
     max_response_tokens: int = 160
 
     # Budget limits (token approximation: 1 token ~ 4 chars)
     MAX_MEMORIES: int = 8
-    MAX_THREAD_ITEMS: int = 5
     MAX_DRIVE_CHARS: int = 400
     MAX_STATE_CHARS: int = 200
+    MAX_NARRATIVE_CHARS: int = 500
     MAX_QUERY_CHARS: int = 800
 
     def to_user_prompt(self) -> str:
@@ -88,17 +108,33 @@ class ContextPacket:
 
         if self.avoid_topics:
             if self.forced_topic:
+                # Have a new topic — just direct toward it, don't mention avoidance
                 parts.append(
                     f"## Direction\n"
-                    f"Focus on: {self.forced_topic}. "
-                    f"Investigate a specific fact, mechanism, or phenomenon about this."
+                    f"Think about: {self.forced_topic}. "
+                    f"Share one specific fact, mechanism, or phenomenon about this topic."
                 )
             else:
+                # No forced topic — give a concrete redirect
                 parts.append(
                     f"## Direction\n"
-                    f"Explore something fresh and concrete -- a specific fact, mechanism, "
-                    f"or phenomenon you haven't considered yet."
+                    f"Switch to a completely new domain. Pick one specific fact about "
+                    f"geology, music, medicine, engineering, marine biology, or space "
+                    f"exploration. Be concrete and specific."
                 )
+        elif self.forced_topic:
+            parts.append(
+                f"## Direction\n"
+                f"Think about: {self.forced_topic}. "
+                f"Share one specific fact, mechanism, or phenomenon about this topic."
+            )
+
+        if self.narrative_self:
+            narrative = self.narrative_self[:self.MAX_NARRATIVE_CHARS]
+            parts.append(f"## Ongoing Narrative\n{narrative}")
+
+        if self.working_memory_narrative:
+            parts.append(f"## Working Memory\n{self.working_memory_narrative}")
 
         if self.top_memories:
             mem_lines = [
@@ -106,10 +142,6 @@ class ContextPacket:
                 for m in self.top_memories[:self.MAX_MEMORIES]
             ]
             parts.append("## Relevant Memories\n" + "\n".join(mem_lines))
-
-        if self.recent_thread:
-            thread = self.recent_thread[-self.MAX_THREAD_ITEMS:]
-            parts.append("## Recent Thoughts\n" + "\n".join(f"- {t}" for t in thread))
 
         if self.external_query:
             query = self.external_query[:self.MAX_QUERY_CHARS]
@@ -311,6 +343,3 @@ class MockCortex(CorticalCore):
     def close(self) -> None:
         pass
 
-
-# Backwards compatibility alias -- FakeCortex is now MockCortex
-FakeCortex = MockCortex

@@ -43,6 +43,7 @@ class HECSNTrainer:
         self.last_floor_check_token = -10**9
         self.memory_warm_started = self.config.slow_memory_start_tokens <= 0
         self.last_winner: int | None = None
+        self._prev_routing_key: torch.Tensor | None = None  # For predictive columns
         self.pending_emergency_deep_sleep = False
         self.last_network_reset_token: int = -10**9
         self._exploration_noise_scale: float = 1.0
@@ -963,6 +964,17 @@ class HECSNTrainer:
                 else:
                     context_gain = curiosity_gain
 
+        # Predictive column consensus voting: columns that agree with
+        # recent winners get a routing boost (Thousand Brains voting)
+        if self.last_winner is not None:
+            consensus_gain = self.model.predictive.vote(
+                [self.last_winner], routing_key
+            )
+            if context_gain is not None:
+                context_gain = torch.clamp(context_gain * consensus_gain, min=0.5, max=1.5)
+            else:
+                context_gain = consensus_gain
+
         candidate_ids, _ = self.model.hnsw_index.search(
             routing_key.unsqueeze(0),
             k=self.config.k_routing,
@@ -1004,7 +1016,23 @@ class HECSNTrainer:
         da_ltp_gain = 0.8 + 0.4 * da  # range [0.8, 1.2]: DA amplifies learning
         ht_patience = max(0.2, 1.0 - 0.6 * ht)  # high 5-HT → reduced wake plasticity
         wake_plasticity_scale = max(0.2, 1.0 - 0.8 * winner_consolidation) * ht_patience
-        effective_modulator = float(modulator) * wake_plasticity_scale * da_ltp_gain
+
+        # Predictive columns: compute prediction error and update location
+        pred_error_mod = self.model.predictive.compute_prediction_error(
+            winner_id_list, routing_key
+        )
+        # Prediction error boosts learning for surprised columns
+        pred_boost = float(pred_error_mod[winner_id_list].mean().item()) if winner_id_list else 1.0
+        pred_boost = min(2.0, max(0.5, pred_boost))  # clamp to [0.5, 2.0]
+
+        # Update predictive state
+        self.model.predictive.update_location(
+            winner_id_list, routing_key, self._prev_routing_key
+        )
+        self.model.predictive.update_predictions(winner_id_list, learning_rate=0.005)
+        self._prev_routing_key = routing_key.detach().clone()
+
+        effective_modulator = float(modulator) * wake_plasticity_scale * da_ltp_gain * pred_boost
 
         assembly = self.model.competitive.process(
             routing_key,

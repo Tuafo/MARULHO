@@ -165,14 +165,37 @@ class TestNIMCortexNoOllama:
         assert "httpx.Client" not in source
 
     def test_create_cortex_from_env_no_ollama(self):
-        """Without API key, get MockCortex — no Ollama attempted."""
+        """Without API key, raise RuntimeError — no silent MockCortex fallback."""
         import os
         old_key = os.environ.pop("NVIDIA_API_KEY", None)
         try:
             from hecsn.cortex.multi_cortex import create_cortex_from_env
-            from hecsn.cortex.core import MockCortex
-            cortex = create_cortex_from_env()
-            assert isinstance(cortex, MockCortex)
+            import pytest
+            with pytest.raises(RuntimeError, match="NVIDIA_API_KEY not set"):
+                create_cortex_from_env()
+        finally:
+            if old_key:
+                os.environ["NVIDIA_API_KEY"] = old_key
+
+    def test_create_embedder_from_env_is_strict_by_default(self):
+        import os
+        old_key = os.environ.pop("NVIDIA_API_KEY", None)
+        try:
+            from hecsn.cortex.multi_cortex import create_embedder_from_env
+            with pytest.raises(RuntimeError, match="NVIDIA_API_KEY not set"):
+                create_embedder_from_env()
+        finally:
+            if old_key:
+                os.environ["NVIDIA_API_KEY"] = old_key
+
+    def test_create_embedder_from_env_can_opt_into_simple_fallback(self):
+        import os
+        old_key = os.environ.pop("NVIDIA_API_KEY", None)
+        try:
+            from hecsn.cortex.multi_cortex import create_embedder_from_env
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+            embedder = create_embedder_from_env(allow_fallback=True)
+            assert isinstance(embedder, SimpleEmbedder)
         finally:
             if old_key:
                 os.environ["NVIDIA_API_KEY"] = old_key

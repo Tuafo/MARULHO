@@ -247,6 +247,15 @@ class HECSNModel:
         init_ids = np.arange(self.config.n_columns, dtype=np.int64)
         self.hnsw_index.add(self.competitive.prototypes.detach(), init_ids)
 
+        # Predictive columns (Thousand Brains Theory)
+        # Each column maintains location state, makes predictions, and votes
+        from hecsn.core.predictive_columns import PredictiveColumnState
+        self.predictive = PredictiveColumnState(
+            n_columns=self.config.n_columns,
+            location_dim=min(8, self.config.column_latent_dim),
+            device=self.device,
+        )
+
     def _invalidate_projection_cache(self) -> None:
         """Call after modifying W_assembly_project to refresh the transpose cache."""
         self._W_assembly_project_t = self.W_assembly_project.t().contiguous()

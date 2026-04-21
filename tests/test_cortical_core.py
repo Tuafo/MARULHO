@@ -14,7 +14,6 @@ import pytest
 from hecsn.cortex.core import (
     ContextPacket,
     CorticalCore,
-    FakeCortex,
     MockCortex,
     MemoryItem,
     ThinkingMode,
@@ -74,13 +73,21 @@ class TestContextPacket:
         count = prompt.count("[observed|sal=")
         assert count == p.MAX_MEMORIES
 
-    def test_thread_capped_to_recent(self):
-        thread = [f"thought-{i}" for i in range(10)]
-        p = ContextPacket(recent_thread=thread)
+    def test_narrative_self_included(self):
+        p = ContextPacket(
+            narrative_self="I've recently been exploring coral reefs and heat stress.",
+        )
         prompt = p.to_user_prompt()
-        assert "thought-7" in prompt
-        assert "thought-9" in prompt
-        assert "thought-0" not in prompt
+        assert "## Ongoing Narrative" in prompt
+        assert "coral reefs" in prompt
+
+    def test_working_memory_narrative_included(self):
+        p = ContextPacket(
+            working_memory_narrative="Currently thinking about coral reefs and heat stress.",
+        )
+        prompt = p.to_user_prompt()
+        assert "## Working Memory" in prompt
+        assert "coral reefs" in prompt
 
     def test_external_query_slot(self):
         p = ContextPacket(
@@ -101,17 +108,19 @@ class TestContextPacket:
         p = ContextPacket(
             drive_summary="explore",
             self_state="calm",
+            narrative_self="I've recently been exploring bridge stability.",
+            working_memory_narrative="Considering bridges and balance.",
             top_memories=[MemoryItem(text="m1")],
-            recent_thread=["t1"],
             external_query="q1",
         )
         prompt = p.to_user_prompt()
         drives_pos = prompt.index("Current Drives")
         state_pos = prompt.index("Internal State")
+        narrative_pos = prompt.index("Ongoing Narrative")
+        wm_pos = prompt.index("Working Memory")
         mem_pos = prompt.index("Relevant Memories")
-        thread_pos = prompt.index("Recent Thoughts")
         query_pos = prompt.index("External Query")
-        assert drives_pos < state_pos < mem_pos < thread_pos < query_pos
+        assert drives_pos < state_pos < narrative_pos < wm_pos < mem_pos < query_pos
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +198,7 @@ class TestThoughtResult:
 
 
 # ---------------------------------------------------------------------------
-# MockCortex (also accessible as FakeCortex for backwards compat)
+# MockCortex
 # ---------------------------------------------------------------------------
 
 class TestMockCortex:
@@ -245,12 +254,6 @@ class TestMockCortex:
 
     def test_is_available(self):
         cortex = MockCortex()
-        assert cortex.is_available()
-
-    def test_fakecortex_alias(self):
-        """FakeCortex is just an alias for MockCortex."""
-        cortex = FakeCortex()
-        assert isinstance(cortex, MockCortex)
         assert cortex.is_available()
 
 
@@ -344,3 +347,92 @@ class TestNIMCortexIntegration:
         )
         result = live_nim_cortex.generate(ctx)
         assert result.thought
+
+
+# ---------------------------------------------------------------------------
+# Shared Rate Limiter
+# ---------------------------------------------------------------------------
+
+class TestSharedRateLimiter:
+    """Test that rate limiting is shared across NIMCortex instances."""
+
+    def test_shared_across_same_key(self):
+        from hecsn.cortex.rate_limit import SharedRateLimiter
+        rl1 = SharedRateLimiter.for_key("test-key-12345678")
+        rl2 = SharedRateLimiter.for_key("test-key-12345678")
+        assert rl1 is rl2  # Same key = same instance
+
+    def test_different_keys_get_different_limiters(self):
+        from hecsn.cortex.rate_limit import SharedRateLimiter
+        rl1 = SharedRateLimiter.for_key("aaaa-key-11111111")
+        rl2 = SharedRateLimiter.for_key("bbbb-key-22222222")
+        assert rl1 is not rl2
+
+    def test_wait_enforces_min_interval(self):
+        import time
+        from hecsn.cortex.rate_limit import SharedRateLimiter
+        rl = SharedRateLimiter(max_rpm=60)  # 1 req/sec
+        t0 = time.time()
+        rl.wait()
+        rl.wait()
+        elapsed = time.time() - t0
+        assert elapsed >= 0.9  # Should have waited ~1 second
+
+    def test_backoff_adds_shared_cooldown(self):
+        import time
+        from hecsn.cortex.rate_limit import SharedRateLimiter
+        rl = SharedRateLimiter(max_rpm=6000)  # tiny min interval so cooldown dominates
+        rl.backoff(0.2)
+        t0 = time.time()
+        rl.wait()
+        elapsed = time.time() - t0
+        assert elapsed >= 0.18
+
+    def test_nim_cortex_defaults_to_20_rpm_budget(self):
+        from hecsn.cortex.multi_cortex import NIMCortex
+        cortex = NIMCortex(model="test-model", api_key="test-key-default-20rpm")
+        try:
+            assert cortex._rate_limiter._max_rpm == 20
+        finally:
+            cortex.close()
+
+
+# ---------------------------------------------------------------------------
+# Anti-rumination prompt steering
+# ---------------------------------------------------------------------------
+
+class TestAntiRuminationPrompt:
+    """Test that avoidance redirects the LLM to new topics."""
+
+    def test_avoid_topics_redirects_to_new_domain(self):
+        ctx = ContextPacket(
+            drive_summary="",
+            avoid_topics=["photosynthesis", "chlorophyll"],
+            mode=ThinkingMode.THINK,
+        )
+        prompt = ctx.to_user_prompt()
+        # Should redirect to concrete domains, NOT mention avoided topics
+        assert "completely new domain" in prompt or "geology" in prompt
+        assert "Do NOT mention" not in prompt  # Don't tell LLM what to avoid
+
+    def test_forced_topic_with_avoidance(self):
+        ctx = ContextPacket(
+            drive_summary="",
+            avoid_topics=["bears", "claws"],
+            forced_topic="quantum computing",
+            mode=ThinkingMode.THINK,
+        )
+        prompt = ctx.to_user_prompt()
+        assert "quantum computing" in prompt
+        # Avoided topics should NOT appear in the prompt
+        assert "bears" not in prompt
+        assert "claws" not in prompt
+
+    def test_forced_topic_without_avoidance(self):
+        ctx = ContextPacket(
+            drive_summary="",
+            forced_topic="quantum computing",
+            mode=ThinkingMode.THINK,
+        )
+        prompt = ctx.to_user_prompt()
+        assert "quantum computing" in prompt

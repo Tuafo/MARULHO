@@ -26,6 +26,8 @@ from typing import Any, Iterator, Optional, Sequence
 
 import numpy as np
 
+from hecsn.cortex.rate_limit import DEFAULT_MAX_RPM, SharedRateLimiter
+
 logger = logging.getLogger(__name__)
 
 
@@ -65,12 +67,15 @@ class Episode:
     replay_count: int = 0             # Times replayed during sleep
     embedding: Optional[np.ndarray] = field(default=None, repr=False)
     source_thought_id: str = ""       # Link to generating thought
+    dream_origin: bool = False        # True if this episode began as a dream hypothesis
 
     def __post_init__(self) -> None:
         if self.created_at == 0.0:
             self.created_at = time.time()
         if self.last_accessed == 0.0:
             self.last_accessed = self.created_at
+        if self.provenance == Provenance.DREAMED:
+            self.dream_origin = True
 
     @property
     def age_seconds(self) -> float:
@@ -149,19 +154,38 @@ class SimpleEmbedder:
         """Cosine similarity between two embeddings."""
         return float(np.dot(a, b))
 
+    @property
+    def stats(self) -> dict[str, Any]:
+        return {
+            "kind": type(self).__name__,
+            "model": "simple-hash-trigram",
+            "dim": self.dim,
+            "available": False,
+            "degraded": False,
+            "allow_fallback": True,
+            "nim_calls": 0,
+            "fallback_calls": 0,
+            "error_calls": 0,
+            "rate_limit_hits": 0,
+            "cache_size": 0,
+            "last_error": "",
+        }
+
 
 class NIMEmbedder:
-    """NVIDIA NIM embedding service — replaces SimpleEmbedder with frontier quality.
+    """NVIDIA NIM embedding service with shared budget awareness.
 
     Uses the OpenAI-compatible /v1/embeddings endpoint on NVIDIA NIM.
-    Falls back to SimpleEmbedder when NIM is unavailable (no API key,
-    network error, rate limit exceeded).
+    Embedding calls share the same API-key rate limiter as cortex chat
+    completions so Terminus stays under the global NIM request budget.
 
-    Supports caching to reduce API calls for repeated queries.
+    When ``allow_fallback`` is enabled, failures degrade to SimpleEmbedder.
+    In strict mode failures are surfaced through stats/telemetry and return a
+    zero vector rather than silently changing embedding models.
     """
 
     DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
-    DEFAULT_MODEL = "nvidia/llama-nemotron-embed-1b-v2"
+    DEFAULT_MODEL = "nvidia/llama-nemotron-embed-vl-1b-v2"  # Multimodal: text + vision
     DEFAULT_DIM = 2048
 
     def __init__(
@@ -172,21 +196,29 @@ class NIMEmbedder:
         dim: int = DEFAULT_DIM,
         fallback_dim: int = 128,
         cache_size: int = 256,
+        max_rpm: int = DEFAULT_MAX_RPM,
+        allow_fallback: bool = True,
     ) -> None:
         import os
+        import httpx
 
         self._api_key = api_key or os.environ.get("NVIDIA_API_KEY", "")
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.dim = dim
+        self._allow_fallback = allow_fallback
         self._fallback = SimpleEmbedder(dim=fallback_dim)
         self._cache: dict[str, np.ndarray] = {}
         self._cache_size = cache_size
         self._call_count = 0
         self._fallback_count = 0
+        self._error_count = 0
+        self._rate_limit_hits = 0
+        self._last_error = ""
+        self._degraded = False
+        self._max_retries = 1
 
         if self._api_key:
-            import httpx
             self._client = httpx.Client(
                 timeout=httpx.Timeout(30.0),
                 headers={
@@ -195,87 +227,196 @@ class NIMEmbedder:
                 },
             )
             self._available = True
+            self._rate_limiter = SharedRateLimiter.for_key(self._api_key, max_rpm=max_rpm)
         else:
+            if not allow_fallback:
+                raise RuntimeError(
+                    "NVIDIA_API_KEY not set. NIMEmbedder requires a key unless allow_fallback=True."
+                )
             self._client = None
             self._available = False
+            self._rate_limiter = None
+            self._degraded = True
+            self._last_error = "NVIDIA_API_KEY not set"
 
     def embed(self, text: str) -> np.ndarray:
-        """Produce a normalized embedding vector for text.
-
-        Tries NIM API first, falls back to SimpleEmbedder on failure.
-        """
+        """Produce a normalized embedding vector for text."""
         if not text or not text.strip():
             return np.zeros(self.dim, dtype=np.float32)
 
-        # Check cache
         cache_key = text[:200].lower().strip()
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        # Try NIM
         if self._available and self._client is not None:
-            try:
-                result = self._call_nim_embedding(text)
-                if result is not None:
-                    self._call_count += 1
-                    # Cache management
-                    if len(self._cache) >= self._cache_size:
-                        self._cache.pop(next(iter(self._cache)))
-                    self._cache[cache_key] = result
-                    return result
-            except Exception:
-                self._fallback_count += 1
+            result = self._call_nim_embedding(text)
+            if result is not None:
+                self._call_count += 1
+                if len(self._cache) >= self._cache_size:
+                    self._cache.pop(next(iter(self._cache)))
+                self._cache[cache_key] = result
+                self._degraded = False
+                self._last_error = ""
+                return result
 
-        # Fallback to SimpleEmbedder, then pad/resize to target dim
-        fb = self._fallback.embed(text)
-        if fb.shape[0] == self.dim:
-            return fb
-        result = np.zeros(self.dim, dtype=np.float32)
-        result[:fb.shape[0]] = fb
-        norm = np.linalg.norm(result)
-        if norm > 1e-8:
-            result /= norm
-        return result
+        return self._fallback_or_zero(text)
+
+    def _fallback_or_zero(self, text: str) -> np.ndarray:
+        self._degraded = True
+        if self._allow_fallback:
+            self._fallback_count += 1
+            fb = self._fallback.embed(text)
+            if fb.shape[0] == self.dim:
+                return fb
+            result = np.zeros(self.dim, dtype=np.float32)
+            result[:fb.shape[0]] = fb
+            norm = np.linalg.norm(result)
+            if norm > 1e-8:
+                result /= norm
+            return result
+        return np.zeros(self.dim, dtype=np.float32)
+
+    @staticmethod
+    def _retry_after_seconds(response: Any) -> float | None:
+        value = response.headers.get("retry-after") if getattr(response, "headers", None) else None
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def _post_embedding_payload(self, payload: dict[str, Any]) -> np.ndarray | None:
+        if not self._available or self._client is None or self._rate_limiter is None:
+            return None
+
+        for attempt in range(1 + self._max_retries):
+            try:
+                self._rate_limiter.wait()
+                resp = self._client.post(
+                    f"{self.base_url}/embeddings",
+                    json=payload,
+                )
+                if resp.status_code == 429:
+                    self._rate_limit_hits += 1
+                    wait = self._retry_after_seconds(resp) or (6.0 * (attempt + 1))
+                    self._rate_limiter.backoff(wait)
+                    self._last_error = f"HTTP 429: rate limited ({wait:.1f}s cooldown)"
+                    self._degraded = True
+                    if attempt < self._max_retries:
+                        logger.info("NIM embedder 429, backing off %.1fs (attempt %d)", wait, attempt + 1)
+                        continue
+                    self._error_count += 1
+                    return None
+                if resp.status_code != 200:
+                    self._error_count += 1
+                    self._last_error = f"HTTP {resp.status_code}"
+                    self._degraded = True
+                    logger.warning("NIM embedder failed: HTTP %s", resp.status_code)
+                    return None
+                data = resp.json()
+                embeddings = data.get("data", [])
+                if not embeddings:
+                    self._error_count += 1
+                    self._last_error = "empty embedding payload"
+                    self._degraded = True
+                    return None
+                vec = embeddings[0].get("embedding", [])
+                if not vec:
+                    self._error_count += 1
+                    self._last_error = "missing embedding vector"
+                    self._degraded = True
+                    return None
+                result = np.array(vec, dtype=np.float32)
+                norm = np.linalg.norm(result)
+                if norm > 1e-8:
+                    result /= norm
+                return result
+            except Exception as exc:
+                self._error_count += 1
+                self._last_error = str(exc)
+                self._degraded = True
+                logger.warning("NIM embedder failed: %s", exc)
+                return None
+        return None
 
     def _call_nim_embedding(self, text: str) -> np.ndarray | None:
-        """Call NVIDIA NIM embedding endpoint."""
+        """Call NVIDIA NIM embedding endpoint for text."""
         payload = {
             "model": self.model,
             "input": [text],
             "input_type": "query",
             "truncate": "END",
         }
-        resp = self._client.post(  # type: ignore[union-attr]
-            f"{self.base_url}/embeddings",
-            json=payload,
-        )
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        embeddings = data.get("data", [])
-        if not embeddings:
-            return None
-        vec = embeddings[0].get("embedding", [])
-        if not vec:
-            return None
-        result = np.array(vec, dtype=np.float32)
-        norm = np.linalg.norm(result)
-        if norm > 1e-8:
-            result /= norm
-        return result
+        return self._post_embedding_payload(payload)
 
     def similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Cosine similarity between two embeddings."""
         return float(np.dot(a, b))
 
+    def embed_image(self, image_base64: str, mime_type: str = "image/png") -> np.ndarray:
+        """Embed an image using the multimodal VL model."""
+        if not self._available or not self._client:
+            self._degraded = True
+            return np.zeros(self.dim, dtype=np.float32)
+
+        data_uri = f"data:{mime_type};base64,{image_base64}"
+        cache_key = f"img:{image_base64[:100]}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        payload = {
+            "model": self.model,
+            "input": [data_uri],
+            "input_type": "passage",
+            "truncate": "END",
+        }
+        result = self._post_embedding_payload(payload)
+        if result is None:
+            return np.zeros(self.dim, dtype=np.float32)
+        self._call_count += 1
+        if len(self._cache) >= self._cache_size:
+            self._cache.pop(next(iter(self._cache)))
+        self._cache[cache_key] = result
+        self._degraded = False
+        self._last_error = ""
+        return result
+
+    def embed_multimodal(self, text: str, image_base64: str | None = None, mime_type: str = "image/png") -> np.ndarray:
+        """Embed text + optional image as a combined multimodal embedding.
+
+        If image is provided, averages text and image embeddings (both
+        from the same VL model space, so averaging is meaningful).
+        """
+        text_emb = self.embed(text)
+        if image_base64 is None:
+            return text_emb
+        img_emb = self.embed_image(image_base64, mime_type)
+        if np.linalg.norm(img_emb) < 1e-8:
+            return text_emb
+        # Weighted average (text gets more weight for Q&A retrieval)
+        combined = 0.6 * text_emb + 0.4 * img_emb
+        norm = np.linalg.norm(combined)
+        if norm > 1e-8:
+            combined /= norm
+        return combined
+
     @property
     def stats(self) -> dict[str, Any]:
         return {
+            "kind": type(self).__name__,
+            "model": self.model,
+            "dim": self.dim,
+            "available": self._available,
+            "degraded": self._degraded,
+            "allow_fallback": self._allow_fallback,
             "nim_calls": self._call_count,
             "fallback_calls": self._fallback_count,
+            "error_calls": self._error_count,
+            "rate_limit_hits": self._rate_limit_hits,
             "cache_size": len(self._cache),
-            "available": self._available,
-            "model": self.model,
+            "last_error": self._last_error,
         }
 
     def close(self) -> None:
@@ -450,12 +591,21 @@ class EpisodicMemory:
             return False
 
         # Separate observed/external from self-generated
+        # Skip very recent inferred memories (< 30s) to prevent echo loops
+        # where the LLM sees its own just-generated thoughts as context
+        import time as _time
+        now = _time.time()
         observed: list[Episode] = []
         other: list[Episode] = []
         skipped: list[Episode] = []
         for ep in self._episodes.values():
             if _episode_overlaps_avoidance(ep):
                 skipped.append(ep)
+                continue
+            # Skip self-generated thoughts from last 120 seconds.
+            # This is critical: without this, the LLM sees its own just-generated
+            # thoughts as memories and produces identical output sequences.
+            if ep.provenance == Provenance.INFERRED and (now - ep.created_at) < 120.0:
                 continue
             if ep.provenance in (Provenance.OBSERVED, Provenance.VERIFIED):
                 observed.append(ep)
@@ -518,6 +668,14 @@ class EpisodicMemory:
             if ep.provenance == Provenance.DREAMED
         ]
 
+    def recall_dream_lineage(self) -> list[Episode]:
+        """Get all episodes that originated as dream hypotheses.
+
+        Includes current dreamed hypotheses plus those later graduated to
+        VERIFIED or marked CONTRADICTED.
+        """
+        return [ep for ep in self._episodes.values() if ep.dream_origin]
+
     # -- Lifecycle --
 
     def graduate_hypothesis(self, episode_id: str) -> bool:
@@ -560,6 +718,7 @@ class EpisodicMemory:
             "mean_confidence": (
                 sum(ep.confidence for ep in self._episodes.values()) / max(1, self.size)
             ),
+            "embedder": dict(getattr(self.embedder, "stats", {"kind": type(self.embedder).__name__})),
         }
 
     def __len__(self) -> int:

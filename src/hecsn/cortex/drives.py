@@ -35,12 +35,28 @@ class DriveState:
     boredom: float = 0.0         # Repeated topics / lack of novelty
     social: float = 0.0          # Want to interact / answer questions
     fatigue: float = 0.0         # Accumulated processing → need sleep
+    prediction_error: float = 0.0  # Core predictive-processing surprise signal
+    uncertainty: float = 0.5       # Low-confidence / unresolved state
+    exploration_urgency: float = 0.0  # How strongly the system wants targeted exploration
 
     # Neuromodulator mirrors (from SurpriseMonitor)
     dopamine: float = 0.5
     serotonin: float = 0.5
     norepinephrine: float = 0.5
     acetylcholine: float = 0.5
+
+    # Richer channelized neuromodulation (derived from the scalar monitors +
+    # predictive-processing state). These are not separate biology-faithful
+    # nuclei models yet, but they let the cortex-side controller react to
+    # reward/novelty/salience/attention in more brain-like ways.
+    da_reward: float = 0.5
+    da_novelty: float = 0.5
+    da_salience: float = 0.5
+    ne_alerting: float = 0.5
+    ne_orienting: float = 0.5
+    ach_learning: float = 0.5
+    ach_attention: float = 0.5
+    serotonin_patience: float = 0.5
 
     @property
     def arousal(self) -> float:
@@ -110,9 +126,9 @@ class AntiRuminationCircuit:
 
     def __init__(
         self,
-        topic_decay_rate: float = 0.85,
+        topic_decay_rate: float = 0.75,  # Faster decay so topics clear quicker
         boredom_threshold: int = 2,
-        diversity_window: int = 10,
+        diversity_window: int = 15,  # Wider window catches more repetition
     ) -> None:
         self.topic_decay_rate = topic_decay_rate
         self.boredom_threshold = boredom_threshold
@@ -193,6 +209,7 @@ class DriveSystem:
 
     Updates drives each SNN tick based on:
     - Surprise monitor neuromodulators
+    - Predictive-processing error / uncertainty
     - Anti-rumination boredom circuit
     - Fatigue accumulation
     - External input presence
@@ -219,16 +236,141 @@ class DriveSystem:
         self.state.norepinephrine = alpha * norepinephrine + (1 - alpha) * self.state.norepinephrine
         self.state.acetylcholine = alpha * acetylcholine + (1 - alpha) * self.state.acetylcholine
 
-        # Derive drives from neuromodulators
+        # Richer channelized neuromodulation derived from the scalar monitors.
+        beta = 0.22
+        self.state.da_reward = _clamp01((1 - beta) * self.state.da_reward + beta * self.state.dopamine)
+        self.state.da_novelty = _clamp01(
+            (1 - beta) * self.state.da_novelty
+            + beta * (0.6 * self.state.acetylcholine + 0.4 * self.state.dopamine)
+        )
+        self.state.da_salience = _clamp01(
+            (1 - beta) * self.state.da_salience
+            + beta * max(self.state.dopamine, self.state.norepinephrine)
+        )
+        self.state.ne_alerting = _clamp01(
+            (1 - beta) * self.state.ne_alerting + beta * self.state.norepinephrine
+        )
+        self.state.ne_orienting = _clamp01(
+            (1 - beta) * self.state.ne_orienting
+            + beta * (0.5 * self.state.norepinephrine + 0.5 * self.state.acetylcholine)
+        )
+        self.state.ach_learning = _clamp01(
+            (1 - beta) * self.state.ach_learning + beta * self.state.acetylcholine
+        )
+        self.state.ach_attention = _clamp01(
+            (1 - beta) * self.state.ach_attention
+            + beta * (0.6 * self.state.acetylcholine + 0.4 * self.state.norepinephrine)
+        )
+        self.state.serotonin_patience = _clamp01(
+            (1 - beta) * self.state.serotonin_patience + beta * self.state.serotonin
+        )
+
+        # Neuromodulators are secondary modulators now; predictive error is the
+        # primary signal and further shapes these drives in
+        # update_from_prediction_error().
         self.state.curiosity = _clamp01(
-            0.4 * self.state.acetylcholine + 0.3 * self.state.dopamine + 0.3 * (1 - self.state.serotonin)
+            0.65 * self.state.curiosity
+            + 0.35 * (
+                0.35 * self.state.ach_learning
+                + 0.35 * self.state.da_novelty
+                + 0.15 * self.state.da_reward
+                + 0.15 * (1 - self.state.serotonin_patience)
+            )
         )
         self.state.anxiety = _clamp01(
-            0.5 * self.state.norepinephrine + 0.3 * self.state.serotonin - 0.2 * self.state.dopamine
+            0.65 * self.state.anxiety
+            + 0.35 * (
+                0.45 * self.state.ne_alerting
+                + 0.25 * self.state.da_salience
+                + 0.20 * self.state.serotonin
+                - 0.10 * self.state.da_reward
+            )
         )
         self.state.satisfaction = _clamp01(
-            0.6 * self.state.dopamine - 0.3 * self.state.serotonin
+            0.7 * self.state.satisfaction
+            + 0.3 * (0.7 * self.state.da_reward + 0.3 * self.state.serotonin_patience)
         )
+
+    def update_from_prediction_error(
+        self,
+        prediction_error_mean: float,
+        prediction_error_max: float,
+        predictive_confidence_mean: float,
+        predictive_confidence_min: float,
+    ) -> None:
+        """Use predictive-processing error as the core drive signal.
+
+        High prediction error means the current internal model is failing and
+        should drive curiosity/anxiety. Low error with high confidence means
+        the system is overfamiliar with its current regime and boredom should
+        rise. This is a lightweight free-energy-inspired control rule.
+        """
+        alpha = 0.22
+        err_mean = _clamp01(prediction_error_mean)
+        err_max = _clamp01(prediction_error_max)
+        conf_mean = _clamp01(predictive_confidence_mean)
+        conf_min = _clamp01(predictive_confidence_min)
+        uncertainty = _clamp01(1.0 - (0.7 * conf_mean + 0.3 * conf_min))
+        prediction_pressure = _clamp01(0.6 * err_mean + 0.4 * err_max)
+        stability = _clamp01(conf_mean - err_mean)
+
+        self.state.prediction_error = alpha * prediction_pressure + (1 - alpha) * self.state.prediction_error
+        self.state.uncertainty = alpha * uncertainty + (1 - alpha) * self.state.uncertainty
+        self.state.exploration_urgency = _clamp01(
+            0.6 * self.state.prediction_error + 0.4 * self.state.uncertainty
+        )
+
+        # Channelized neuromodulation targets.
+        self.state.da_novelty = _clamp01(
+            (1 - alpha) * self.state.da_novelty
+            + alpha * (0.65 * prediction_pressure + 0.35 * uncertainty)
+        )
+        self.state.da_salience = _clamp01(
+            (1 - alpha) * self.state.da_salience
+            + alpha * max(err_max, 0.7 * prediction_pressure + 0.3 * uncertainty)
+        )
+        self.state.ne_alerting = _clamp01(
+            (1 - alpha) * self.state.ne_alerting
+            + alpha * max(err_max, 0.6 * prediction_pressure + 0.4 * self.state.norepinephrine)
+        )
+        self.state.ne_orienting = _clamp01(
+            (1 - alpha) * self.state.ne_orienting
+            + alpha * (0.55 * self.state.exploration_urgency + 0.45 * self.state.ach_attention)
+        )
+        self.state.ach_learning = _clamp01(
+            (1 - alpha) * self.state.ach_learning
+            + alpha * (0.55 * uncertainty + 0.45 * self.state.acetylcholine)
+        )
+        self.state.ach_attention = _clamp01(
+            (1 - alpha) * self.state.ach_attention
+            + alpha * (0.55 * prediction_pressure + 0.45 * self.state.exploration_urgency)
+        )
+        self.state.serotonin_patience = _clamp01(
+            (1 - alpha) * self.state.serotonin_patience
+            + alpha * max(0.0, 0.65 * stability + 0.35 * self.state.serotonin)
+        )
+
+        curiosity_target = _clamp01(
+            0.40 * self.state.da_novelty
+            + 0.25 * self.state.ach_learning
+            + 0.20 * prediction_pressure
+            + 0.15 * uncertainty
+        )
+        anxiety_target = _clamp01(
+            0.45 * self.state.ne_alerting
+            + 0.25 * self.state.da_salience
+            + 0.20 * err_max
+            + 0.10 * uncertainty
+        )
+        boredom_target = _clamp01(max(0.0, 0.85 * stability - 0.25 * self.state.da_novelty))
+        satisfaction_target = _clamp01(
+            max(0.0, 0.55 * stability + 0.25 * self.state.da_reward + 0.20 * self.state.serotonin_patience)
+        )
+
+        self.state.curiosity = _clamp01((1 - alpha) * self.state.curiosity + alpha * curiosity_target)
+        self.state.anxiety = _clamp01((1 - alpha) * self.state.anxiety + alpha * anxiety_target)
+        self.state.boredom = _clamp01(0.7 * self.state.boredom + 0.3 * boredom_target)
+        self.state.satisfaction = _clamp01((1 - alpha) * self.state.satisfaction + alpha * satisfaction_target)
 
     def update_from_thought(self, result: ThoughtResult) -> None:
         """Update drives after a thought is generated."""
@@ -271,11 +413,16 @@ class DriveSystem:
             return False  # Too tired, need sleep
         if self.state.boredom > 0.8:
             return False  # Ruminating — wait for novelty
-        # Think when curiosity or anxiety exceed threshold
+        # Prediction error is now a first-class trigger for cognition.
         return (
             self.state.curiosity > 0.4
             or self.state.anxiety > 0.5
             or self.state.social > 0.3
+            or self.state.prediction_error > 0.35
+            or self.state.uncertainty > 0.55
+            or self.state.exploration_urgency > 0.45
+            or self.state.ne_alerting > 0.7
+            or self.state.ach_attention > 0.7
         )
 
     def should_sleep(self) -> bool:
@@ -315,41 +462,86 @@ class ThalamicGate:
         memory: EpisodicMemory,
         drives: DriveSystem,
         max_memories: int = 8,
-        max_thread: int = 5,
         max_query_queue: int = 8,
     ) -> None:
         self.memory = memory
         self.drives = drives
         self.max_memories = max_memories
-        self.max_thread = max_thread
-        self._thought_thread: list[str] = []
         self._snn_concept_labels: list[str] = []
-        self._cortex_forced_topics: list[str] = []  # From cortex→SNN feedback
+        self.working_memory: Any = None  # Set by ThoughtLoop
+        self.narrative_self: Any = None  # Set by ThoughtLoop
+        self.active_exploration_target: str = ""
+        self.active_exploration_reason: str = ""
+        self.active_exploration_source: str = ""
+        self.active_exploration_score: float = 0.0
+        self.active_exploration_updated_at: float = 0.0
         from collections import deque
         self._query_queue: deque[str] = deque(maxlen=max_query_queue)
 
     def update_snn_concepts(self, labels: list[str]) -> None:
-        """Receive concept labels from SNN — used for forced topic injection."""
+        """Receive recent SNN concept labels for alignment/quality tracking."""
         self._snn_concept_labels = labels[-20:]  # keep recent 20
 
-    def assemble(self) -> ContextPacket:
+    def set_active_exploration_target(
+        self,
+        topic: str,
+        *,
+        reason: str = "",
+        source: str = "prediction_error",
+        score: float = 0.0,
+    ) -> None:
+        """Set the next wakeful exploration target chosen by the brain."""
+        cleaned = " ".join(str(topic).replace("/", " ").replace("|", " ").split()).strip()
+        if not cleaned:
+            self.clear_active_exploration_target()
+            return
+        self.active_exploration_target = cleaned[:120]
+        self.active_exploration_reason = " ".join(str(reason).split()).strip()[:160]
+        self.active_exploration_source = str(source).strip()[:40]
+        self.active_exploration_score = max(0.0, min(1.0, float(score)))
+        self.active_exploration_updated_at = time.time()
+
+    def clear_active_exploration_target(self) -> None:
+        """Clear the active exploration target after it has been consumed."""
+        self.active_exploration_target = ""
+        self.active_exploration_reason = ""
+        self.active_exploration_source = ""
+        self.active_exploration_score = 0.0
+        self.active_exploration_updated_at = 0.0
+
+    def assemble(self, phase: str = "") -> ContextPacket:
         """Build a context packet from current SNN state.
+
+        Args:
+            phase: Deliberation phase ("observe", "question", "reason",
+                   "synthesize"). Empty string = standard single-shot.
 
         Uses diverse memory recall when boredom is high — avoids the
         echo-chamber effect where the LLM only sees its own rumination.
-        When very bored, injects a random SNN concept label as forced
-        topic to give the LLM fresh content from the training stream.
+        Wakeful thoughts also receive a rotating seed topic so the cortex
+        keeps exploring new domains instead of replaying its own outputs.
         """
         import random
 
         drive_state = self.drives.state
         mode = self.drives.choose_mode()
+        external_query = self._query_queue.popleft() if (self._query_queue and not phase) else ""
 
         # Determine topics to avoid
         avoid_topics = self.drives.anti_rumination.suggest_topic_avoidance()
+        avoid_words = {w.lower() for w in avoid_topics}
 
-        # Select memories: use diverse recall when bored, similarity otherwise
-        if drive_state.boredom > 0.4 or len(avoid_topics) > 0:
+        exploration_target = ""
+        if not phase and not external_query and self.active_exploration_target:
+            target_words = {w.lower() for w in self.active_exploration_target.split() if len(w) >= 3}
+            if not (target_words & avoid_words):
+                exploration_target = self.active_exploration_target
+
+        # Select memories: active exploration targets get first-class retrieval,
+        # otherwise use diverse recall when bored or similarity recall when stable.
+        if exploration_target:
+            memories = self.memory.recall_by_similarity(exploration_target, top_k=self.max_memories)
+        elif drive_state.boredom > 0.4 or len(avoid_topics) > 0:
             memories = self.memory.recall_diverse(
                 top_k=self.max_memories,
                 avoid_topics=avoid_topics,
@@ -374,7 +566,9 @@ class ThalamicGate:
 
         # Self state — stripped when bored or curious to prevent ANY self-reference
         # The LLM will invent drive states from even minimal hints; give it nothing
-        self_state = "" if (drive_state.boredom > 0.2 or drive_state.curiosity > 0.4) else f"Dominant: {drive_state.dominant_drive}"
+        # Self-state is always empty — prevents the LLM from fixating on
+        # drive names ("curiosity", "boredom") and producing meta-thoughts
+        self_state = ""
 
         # Temperature modulation based on arousal
         # Reduced from 256→160 tokens for faster inference while leaving room for JSON
@@ -382,46 +576,92 @@ class ThalamicGate:
         if mode == ThinkingMode.DREAM:
             max_tokens = 224
 
-        # When bored OR curious, inject topic — cortex-forced topics have
-        # priority over SNN concept labels (cortex knows what it needs)
+        # Choose wakeful direction: first honor an active exploration target,
+        # otherwise rotate through broad seed domains to keep the system moving.
         forced_topic = ""
-        cortex_topics = self._cortex_forced_topics or []
-        if cortex_topics:
-            # Filter out concepts whose words overlap avoidance
-            avoid_words = {w.lower() for w in avoid_topics}
-            candidates = []
-            for label in cortex_topics:
-                label_words = {w.lower().strip(".,;:!?'\"()-")
-                              for w in label.split() if len(w) >= 3}
-                if not (label_words & avoid_words):
-                    candidates.append(label)
-            if candidates:
-                forced_topic = candidates[0]  # Highest-priority cortex topic
-        elif (drive_state.boredom > 0.3 or drive_state.curiosity > 0.6) and self._snn_concept_labels:
-            # Filter out concepts whose words overlap avoidance
-            avoid_words = {w.lower() for w in avoid_topics}
-            candidates = []
-            for label in self._snn_concept_labels:
-                label_words = {w.lower().strip(".,;:!?'\"()-")
-                              for w in label.split() if len(w) >= 3}
-                if not (label_words & avoid_words):
-                    candidates.append(label)
-            if candidates:
-                forced_topic = random.choice(candidates)
+        if exploration_target:
+            forced_topic = exploration_target
+            self.clear_active_exploration_target()
+        else:
+            _SEED_DOMAINS = [
+                "coral reef ecosystems", "volcanic eruptions", "jazz improvisation",
+                "bridge engineering", "deep sea creatures", "ancient Roman roads",
+                "bird migration patterns", "glacial formation", "fermentation in cooking",
+                "optical illusions", "earthquake prediction", "silk production",
+                "tidal forces", "cave formations", "wind turbine design",
+                "animal camouflage", "constellation navigation", "paper manufacturing",
+                "lightning physics", "seed dispersal mechanisms", "acoustic resonance",
+                "permafrost thawing", "compass magnetism", "origami mathematics",
+                "bioluminescence", "plate tectonics", "honey bee communication",
+                "superconductivity", "cloud formation", "spider silk properties",
+                "river delta formation", "radio telescope design", "whale migration",
+                "aurora borealis", "mushroom networks", "ocean thermal vents",
+            ]
+            if not hasattr(self, '_seed_idx'):
+                self._seed_idx = random.randint(0, len(_SEED_DOMAINS) - 1)
+                self._used_seeds: set[int] = set()  # Track used indices
+            # Filter out seeds that overlap with avoidance words OR already used
+            for _ in range(len(_SEED_DOMAINS)):
+                idx = self._seed_idx % len(_SEED_DOMAINS)
+                self._seed_idx += 1
+                if idx in self._used_seeds:
+                    continue  # Already used this seed — skip
+                candidate = _SEED_DOMAINS[idx]
+                candidate_words = {w.lower() for w in candidate.split() if len(w) >= 3}
+                if not (candidate_words & avoid_words):
+                    forced_topic = candidate
+                    self._used_seeds.add(idx)
+                    # Reset used seeds when all have been used (full cycle)
+                    if len(self._used_seeds) >= len(_SEED_DOMAINS):
+                        self._used_seeds.clear()
+                    break
+            else:
+                # All seeds avoided — reset and pick any
+                self._used_seeds.clear()
+                forced_topic = _SEED_DOMAINS[self._seed_idx % len(_SEED_DOMAINS)]
+                self._seed_idx += 1
 
-        # Strip drive details when bored OR curious — prevent self-referential loops
-        # A curious cortex should focus on content, not its own state
-        drive_summary = "" if (drive_state.boredom > 0.3 or drive_state.curiosity > 0.5) else drive_state.to_summary()
+        # Strip drive details almost always — prevent self-referential loops.
+        # The LLM fixates on drive names ("curiosity", "anxiety") and produces
+        # meta-thoughts about those drives instead of thinking about the world.
+        # Only show drive state when anxiety is high (something needs attention).
+        drive_summary = drive_state.to_summary() if drive_state.anxiety > 0.5 else ""
+
+        # Narrative self: persistent identity/context, useful for answering,
+        # reflection, and dreaming. Keep it out of ordinary wakeful chains so it
+        # does not dominate fresh topic exploration; working memory already carries
+        # within-chain continuity.
+        narrative = ""
+        if self.narrative_self is not None and (
+            external_query
+            or mode in (ThinkingMode.ANSWER, ThinkingMode.REFLECT, ThinkingMode.DREAM)
+        ):
+            narrative = self.narrative_self.to_prompt()
+
+        # Working memory narrative (global workspace broadcast)
+        # Only include for chain continuation phases (question/reason/synthesize)
+        # where continuity matters. For observe/quick (no phase), working memory
+        # would override the new Direction seed — causing topic repetition.
+        wm_narrative = ""
+        if self.working_memory is not None and phase in ("question", "reason", "synthesize"):
+            wm_narrative = self.working_memory.broadcast()
+
+        # For chain phases after observe, skip memories (working memory has context)
+        if phase in ("question", "reason", "synthesize"):
+            mem_items = []  # Working memory IS the context
+            forced_topic = ""  # Don't inject new topic mid-chain
 
         packet = ContextPacket(
             drive_summary=drive_summary,
             top_memories=mem_items,
-            recent_thread=[] if drive_state.boredom > 0.4 else list(self._thought_thread[-self.max_thread:]),
             self_state=self_state,
             mode=mode,
-            external_query=self._query_queue.popleft() if self._query_queue else "",
+            external_query=external_query,
             avoid_topics=sorted(avoid_topics)[:6],
             forced_topic=forced_topic,
+            narrative_self=narrative,
+            working_memory_narrative=wm_narrative,
+            deliberation_phase=phase,
             max_response_tokens=max_tokens,
         )
         return packet
@@ -463,17 +703,9 @@ class ThalamicGate:
         return {
             "topic_boosts": boosts,
             "grounding_candidates": grounding_candidates[:6],
-            "forced_topics": [t for t in result.topics if t][:3],
             "emotional_valence": valence,
             "confidence": float(result.confidence),
         }
-
-    def record_thought(self, result: ThoughtResult) -> None:
-        """Add a thought to the continuity thread."""
-        self._thought_thread.append(result.thought)
-        # Keep bounded
-        if len(self._thought_thread) > self.max_thread * 2:
-            self._thought_thread = self._thought_thread[-self.max_thread:]
 
     def submit_query(self, query: str) -> None:
         """Submit an external query for the cortex to answer.
@@ -483,9 +715,22 @@ class ThalamicGate:
         self._query_queue.append(query)
         self.drives.update_from_external_input()
 
-    def assemble_for_sleep(self) -> ContextPacket:
-        """Build a dream-mode context packet for sleep consolidation."""
-        episodes = self.memory.recall_for_sleep(top_k=self.max_memories)
+    def assemble_for_sleep(
+        self,
+        episodes: Sequence[Any] | None = None,
+        *,
+        phase: str = "",
+        hypothesis: str = "",
+    ) -> ContextPacket:
+        """Build a dream-mode context packet for sleep consolidation.
+
+        Args:
+            episodes: Optional subset of episodes to use for this dream step.
+                If omitted, the gate selects sleep-replay episodes itself.
+            phase: Dream sub-phase ("dream_compose" or "dream_test").
+            hypothesis: Candidate dream hypothesis to validate during dream_test.
+        """
+        selected = list(episodes) if episodes is not None else self.memory.recall_for_sleep(top_k=self.max_memories)
         mem_items = [
             MemoryItem(
                 text=ep.content,
@@ -496,15 +741,48 @@ class ThalamicGate:
                 ) else "observed",
                 memory_id=ep.episode_id,
             )
-            for ep in episodes
+            for ep in selected[:self.max_memories]
         ]
+
+        drive_summary = "Sleep consolidation — find connections between memories"
+        max_tokens = 224
+        wm_narrative = ""
+        external_query = ""
+        self_state = "Sleeping, dreaming"
+        narrative = self.narrative_self.to_prompt() if self.narrative_self is not None else ""
+        mode = ThinkingMode.DREAM
+        if phase == "dream_compose":
+            drive_summary = "Connect these memories into one testable hypothesis"
+            external_query = (
+                "Connect the provided memories into one concrete, testable hypothesis. "
+                "Focus on the memory content itself."
+            )
+            self_state = ""
+            narrative = ""
+            mode = ThinkingMode.THINK
+            max_tokens = 192
+        elif phase == "dream_test":
+            drive_summary = "Evaluate whether the candidate hypothesis fits the memories"
+            wm_narrative = f"Candidate hypothesis: {hypothesis}" if hypothesis else ""
+            external_query = (
+                "Evaluate whether the candidate hypothesis is supported by the memories. "
+                "If unsupported, explain the contradiction or missing mechanism clearly."
+            )
+            self_state = ""
+            narrative = ""
+            mode = ThinkingMode.THINK
+            max_tokens = 160
+
         return ContextPacket(
-            drive_summary="Sleep consolidation — find connections between memories",
+            drive_summary=drive_summary,
             top_memories=mem_items,
-            recent_thread=[],
-            self_state="Sleeping, dreaming",
-            mode=ThinkingMode.DREAM,
-            max_response_tokens=224,
+            self_state=self_state,
+            narrative_self=narrative,
+            working_memory_narrative=wm_narrative,
+            mode=mode,
+            external_query=external_query,
+            deliberation_phase=phase,
+            max_response_tokens=max_tokens,
         )
 
 

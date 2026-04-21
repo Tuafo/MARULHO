@@ -1788,16 +1788,16 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_cortex_with_fake_cortex(self) -> None:
-        """Wire a FakeCortex into the manager to test the full integration."""
+    def test_cortex_with_mock_cortex(self) -> None:
+        """Wire a MockCortex into the manager to test the full integration."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cortex_fake_integration")
             try:
-                from hecsn.cortex.core import FakeCortex
+                from hecsn.cortex.core import MockCortex
                 from hecsn.cortex.thought_loop import ThoughtLoop
 
-                cortex = FakeCortex()
+                cortex = MockCortex()
                 thought_loop = ThoughtLoop(cortex=cortex)
                 manager._thought_loop = thought_loop
                 manager._cortex_available = True
@@ -1821,6 +1821,7 @@ class CortexIntegrationTests(unittest.TestCase):
                 self.assertTrue(snap["enabled"])
                 self.assertIn("drives", snap)
                 self.assertIn("recent_thoughts", snap)
+                self.assertEqual(snap["episodic_memory"]["embedder"]["kind"], "SimpleEmbedder")
 
                 # Runtime snapshot should include cortex
                 status = manager.status()

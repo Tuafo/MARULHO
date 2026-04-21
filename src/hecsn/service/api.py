@@ -192,7 +192,7 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/terminus/quick-start")
-    def terminus_quick_start(preset: str = Query("wikipedia")) -> dict[str, Any]:
+    def terminus_quick_start(preset: str = Query("curriculum")) -> dict[str, Any]:
         try:
             return manager.quick_start_terminus(preset=preset)
         except ValueError as exc:

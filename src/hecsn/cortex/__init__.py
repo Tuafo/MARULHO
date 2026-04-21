@@ -6,7 +6,8 @@ sleep) control *when*, *what*, and *how* the cortex thinks -- never the
 reverse.
 
 No local Ollama or other local LLM is used. All inference goes through
-NVIDIA NIM (40 req/min free tier). MockCortex is available for testing.
+NVIDIA NIM (40 req/min free tier), with a shared budget across chat and
+embedding calls. MockCortex is available for testing.
 """
 
 from hecsn.cortex.core import (
@@ -15,8 +16,8 @@ from hecsn.cortex.core import (
     MemoryItem,
     ThoughtResult,
     ThinkingMode,
+    ThoughtDepth,
     MockCortex,
-    FakeCortex,  # backwards compat alias for MockCortex
 )
 from hecsn.cortex.episodic_memory import (
     EpisodicMemory,
@@ -32,6 +33,8 @@ from hecsn.cortex.drives import (
     AntiRuminationCircuit,
 )
 from hecsn.cortex.thought_loop import ThoughtLoop, BrainStats
+from hecsn.cortex.working_memory import WorkingMemory, WorkingMemoryItem, WMItemType
+from hecsn.cortex.narrative_self import NarrativeSelf
 from hecsn.cortex.multi_cortex import (
     NIMCortex,
     MultiCortex,
@@ -46,8 +49,8 @@ __all__ = [
     "MemoryItem",
     "ThoughtResult",
     "ThinkingMode",
+    "ThoughtDepth",
     "MockCortex",
-    "FakeCortex",
     "EpisodicMemory",
     "Episode",
     "Provenance",
@@ -59,6 +62,10 @@ __all__ = [
     "AntiRuminationCircuit",
     "ThoughtLoop",
     "BrainStats",
+    "WorkingMemory",
+    "WorkingMemoryItem",
+    "WMItemType",
+    "NarrativeSelf",
     "NIMCortex",
     "MultiCortex",
     "create_cortex_from_env",

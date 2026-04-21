@@ -1,0 +1,243 @@
+"""Predictive Columns -- Thousand Brains Theory extension for CompetitiveColumnLayer.
+
+Implements Phase 1 of the Thousand Brains improvement:
+- Each column maintains a small "location" state vector (reference frame)
+- Columns predict what they'll sense next based on location state
+- Prediction error drives additional STDP modulation
+- Inter-column voting produces consensus about active concepts
+
+This is a WRAPPER around CompetitiveColumnLayer -- it doesn't replace
+the existing WTA mechanism, it augments it with predictive capabilities.
+
+References:
+- Hawkins et al. (2019): "A Framework for Intelligence and Cortical Function"
+- Monty (tbp.monty v0.29.0): Official Thousand Brains implementation
+- Lewis et al. (2019): "Locations in the Neocortex" (grid cell analog)
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Optional
+
+import torch
+import torch.nn.functional as F
+
+
+class PredictiveColumnState:
+    """Per-column predictive state -- location, prediction, and confidence.
+
+    Each column acts as a miniature modeling system that:
+    1. Maintains a location vector (path integration analog)
+    2. Predicts what sensory input it expects at this location
+    3. Computes prediction error to modulate learning
+    4. Votes with other columns about what object/concept is active
+    """
+
+    def __init__(
+        self,
+        n_columns: int,
+        location_dim: int = 8,
+        device: torch.device | None = None,
+    ) -> None:
+        self.n_columns = n_columns
+        self.location_dim = location_dim
+        self.device = device or torch.device("cpu")
+
+        # Per-column location state (reference frame position)
+        # Initialized near origin with small random offset
+        self.location = torch.randn(n_columns, location_dim, device=self.device) * 0.1
+
+        # Location velocity (path integration -- updated by sensory transitions)
+        self.velocity = torch.zeros(n_columns, location_dim, device=self.device)
+
+        # Per-column prediction of next sensory input
+        # Learned mapping: location -> expected routing key
+        self._prediction_weights = torch.randn(
+            n_columns, location_dim, device=self.device
+        ) * 0.01
+
+        # Prediction error history (EMA for stability)
+        self.prediction_error = torch.zeros(n_columns, device=self.device)
+        self._error_ema_alpha = 0.2
+
+        # Column confidence (how well predictions have matched reality)
+        self.confidence = torch.ones(n_columns, device=self.device) * 0.5
+
+        # Voting state -- each column's hypothesis about active concept
+        self.hypothesis = torch.zeros(n_columns, device=self.device)
+
+    def predict(self, column_dim: int) -> torch.Tensor:
+        """Generate prediction of next input based on location state.
+
+        Returns a [n_columns] vector where each entry is the predicted
+        activation level for that column (based on its location).
+        """
+        # Simple prediction: dot product of location with learned weights
+        # This gives each column's confidence that IT should be the winner
+        pred = (self.location * self._prediction_weights).sum(dim=1)
+        return torch.sigmoid(pred)
+
+    def update_location(
+        self,
+        winners: list[int],
+        routing_key: torch.Tensor,
+        prev_routing_key: Optional[torch.Tensor] = None,
+    ) -> None:
+        """Update location state via path integration.
+
+        The "movement" signal is the transition between consecutive inputs.
+        Winner columns integrate this into their location state.
+        """
+        if prev_routing_key is not None:
+            # Compute movement as difference between consecutive inputs
+            # Project to location_dim via simple hash
+            diff = routing_key - prev_routing_key
+            # Use first location_dim elements as movement signal
+            movement = diff[:self.location_dim] if diff.shape[0] >= self.location_dim else \
+                F.pad(diff, (0, self.location_dim - diff.shape[0]))
+
+            # Path integration: update velocity and position for winners
+            decay = 0.9
+            self.velocity *= decay
+            for w in winners:
+                self.velocity[w] += 0.1 * movement.to(self.device)
+                self.location[w] += self.velocity[w]
+
+        # Normalize locations to prevent drift to infinity
+        loc_norm = self.location.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        scale = torch.where(loc_norm > 5.0, 5.0 / loc_norm, torch.ones_like(loc_norm))
+        self.location *= scale
+
+    def compute_prediction_error(
+        self,
+        winners: list[int],
+        actual_activation: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute prediction error: difference between predicted and actual.
+
+        Returns per-column prediction error (higher = more surprised).
+        This signal modulates STDP learning rate.
+        """
+        prediction = self.predict(actual_activation.shape[0])
+        # Error: columns that predicted they'd win but didn't (or vice versa)
+        actual_binary = torch.zeros(self.n_columns, device=self.device)
+        for w in winners:
+            actual_binary[w] = 1.0
+
+        raw_error = (prediction - actual_binary).abs()
+
+        # EMA smoothing
+        self.prediction_error = (
+            self._error_ema_alpha * raw_error
+            + (1 - self._error_ema_alpha) * self.prediction_error
+        )
+
+        # Update confidence (columns with low error gain confidence)
+        self.confidence = 0.95 * self.confidence + 0.05 * (1.0 - raw_error)
+        self.confidence.clamp_(0.0, 1.0)
+
+        return self.prediction_error
+
+    def update_predictions(
+        self,
+        winners: list[int],
+        learning_rate: float = 0.01,
+    ) -> None:
+        """Update prediction weights for winner columns.
+
+        Winners that correctly predicted their activation strengthen;
+        non-winners that incorrectly predicted weaken.
+        """
+        lr = float(learning_rate)
+        for w in winners:
+            # Strengthen prediction weights for winners
+            self._prediction_weights[w] += lr * self.location[w]
+        # Slight decay for non-winners that predicted high
+        prediction = self.predict(self.n_columns)
+        non_winner_mask = torch.ones(self.n_columns, dtype=torch.bool, device=self.device)
+        for w in winners:
+            non_winner_mask[w] = False
+        high_pred_non_winners = non_winner_mask & (prediction > 0.5)
+        if high_pred_non_winners.any():
+            self._prediction_weights[high_pred_non_winners] *= (1.0 - 0.5 * lr)
+
+    def vote(self, winners: list[int], top_k_activations: torch.Tensor) -> torch.Tensor:
+        """Inter-column voting to reach consensus.
+
+        Winner columns broadcast their "hypothesis" (confidence-weighted
+        activation). Other columns with compatible hypotheses get boosted.
+
+        Returns a consensus gain vector [n_columns] that modulates
+        the next competitive step.
+        """
+        # Each winner votes with its confidence
+        self.hypothesis.zero_()
+        for w in winners:
+            self.hypothesis[w] = self.confidence[w]
+
+        # Compute agreement: columns whose location is similar to winners
+        # get a consensus boost (they're "in the same reference frame")
+        if not winners:
+            return torch.ones(self.n_columns, device=self.device)
+
+        winner_locs = self.location[winners]  # [k, location_dim]
+        # Cosine similarity between each column's location and winner centroid
+        centroid = winner_locs.mean(dim=0)  # [location_dim]
+        centroid_norm = centroid.norm().clamp(min=1e-8)
+
+        loc_norms = self.location.norm(dim=1, keepdim=True).clamp(min=1e-8)
+        similarities = (self.location @ centroid) / (loc_norms.squeeze() * centroid_norm)
+
+        # Convert to gain: similar locations get boost, dissimilar get suppression
+        consensus_gain = 1.0 + 0.3 * similarities.clamp(-1, 1)
+        return consensus_gain
+
+    def prediction_error_modulation(self) -> torch.Tensor:
+        """Get STDP learning rate modulation from prediction error.
+
+        High prediction error -> higher learning rate (surprising things
+        should be learned more aggressively).
+        """
+        # Scale: base 1.0 + up to 2x boost for high-error columns
+        return 1.0 + 2.0 * self.prediction_error
+
+    def state_dict(self) -> dict[str, torch.Tensor]:
+        """Serialize predictive state for checkpointing."""
+        return {
+            "location": self.location.detach().clone().cpu(),
+            "velocity": self.velocity.detach().clone().cpu(),
+            "prediction_weights": self._prediction_weights.detach().clone().cpu(),
+            "prediction_error": self.prediction_error.detach().clone().cpu(),
+            "confidence": self.confidence.detach().clone().cpu(),
+            "hypothesis": self.hypothesis.detach().clone().cpu(),
+        }
+
+    def load_state_dict(self, state: dict[str, torch.Tensor]) -> None:
+        """Restore predictive state from checkpoint."""
+        for key in ("location", "velocity", "prediction_weights",
+                    "prediction_error", "confidence", "hypothesis"):
+            tensor_key = key if key != "prediction_weights" else "_prediction_weights"
+            attr_name = tensor_key if not key.startswith("_") else key
+            value = state.get(key)
+            if isinstance(value, torch.Tensor):
+                target = getattr(self, tensor_key if key != "prediction_weights" else "_prediction_weights")
+                if value.shape == target.shape:
+                    setattr(
+                        self,
+                        tensor_key if key != "prediction_weights" else "_prediction_weights",
+                        value.to(self.device),
+                    )
+
+    def reset(self) -> None:
+        """Reset all predictive state."""
+        self.location = torch.randn(
+            self.n_columns, self.location_dim, device=self.device
+        ) * 0.1
+        self.velocity.zero_()
+        self._prediction_weights = torch.randn(
+            self.n_columns, self.location_dim, device=self.device
+        ) * 0.01
+        self.prediction_error.zero_()
+        self.confidence.fill_(0.5)
+        self.hypothesis.zero_()

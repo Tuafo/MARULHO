@@ -170,7 +170,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         self._state_revision = 0
         self._load_persisted_traces_locked()
 
-        # --- Cortex / ThoughtLoop (lazy, graceful degradation) ---
+        # --- Cortex / ThoughtLoop (requires NVIDIA_API_KEY) ---
         self._thought_loop: Any = None  # type: ThoughtLoop | None
         self._cortex_available = False
         try:
@@ -179,17 +179,22 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             from hecsn.cortex.episodic_memory import EpisodicMemory
 
             cortex = create_cortex_from_env()
-            embedder = create_embedder_from_env()
+            embedder = create_embedder_from_env(allow_fallback=False)
             memory = EpisodicMemory(capacity=2048, embedder=embedder)
             curiosity_ctrl = getattr(self, "_geometric_curiosity", None)
             self._thought_loop = ThoughtLoop(
                 cortex=cortex,
                 memory=memory,
                 curiosity_controller=curiosity_ctrl,
+                signal_provider=self._cortex_signal_state,
+                narrative_state_path=str(self._checkpoint_dir / "cortex_narrative_self.json"),
             )
             self._cortex_available = True
             _cortex_logger.info("Cortex module initialised (%s, embedder=%s)", cortex.model, type(embedder).__name__)
 
+        except RuntimeError as exc:
+            # API key missing or NIM unreachable — cortex disabled
+            _cortex_logger.warning("Cortex disabled: %s", exc)
         except Exception as exc:
             _cortex_logger.info("Cortex module unavailable: %s", exc)
 
@@ -667,7 +672,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "token_count": int(self._trainer.token_count),
             }
 
-    def quick_start_terminus(self, *, preset: str = "multimodal") -> dict[str, Any]:
+    def quick_start_terminus(self, *, preset: str = "curriculum") -> dict[str, Any]:
         """Configure and start Terminus in one atomic call using a named preset.
 
         If the preset includes ``model_overrides`` that differ from the current
@@ -718,11 +723,24 @@ class HECSNServiceManager(TerminusAutonomyMixin):
 
     @staticmethod
     def quick_start_presets() -> list[dict[str, Any]]:
-        """Return available quick-start presets for the UI."""
-        return [
-            {"id": key, "label": val["label"], "description": val["description"], "source_count": len(val["source_bank"])}
+        """Return available quick-start presets for the UI/API.
+
+        Includes light metadata so clients can highlight the recommended default
+        while still exposing legacy presets for backwards-compatible manual use.
+        """
+        presets = [
+            {
+                "id": key,
+                "label": val["label"],
+                "description": val["description"],
+                "source_count": len(val["source_bank"]),
+                "default": bool(val.get("default", False)),
+                "legacy": bool(val.get("legacy", False)),
+            }
             for key, val in TERMINUS_QUICK_START_PRESETS.items()
         ]
+        presets.sort(key=lambda item: (not item["default"], item["legacy"], item["label"]))
+        return presets
 
     # --- Cortex / ThoughtLoop public interface ---
 
@@ -757,6 +775,77 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         if self._thought_loop is None:
             return {"enabled": False}
         return self._thought_loop.snapshot()
+
+    def _cortex_signal_state(self) -> dict[str, Any]:
+        """Expose recent SNN predictive/surprise signals to the ThoughtLoop."""
+        acquired = self._lock.acquire(timeout=0.05)
+        if not acquired:
+            return getattr(self, "_cached_cortex_signal_state", {})
+        try:
+            predictive = getattr(self._trainer.model, "predictive", None)
+            surprise = getattr(self._trainer.model, "surprise", None)
+            recent_concepts: list[str] = []
+            concept_candidates: list[dict[str, Any]] = []
+            try:
+                snap = self._concept_store.snapshot(limit=6)
+                for concept in snap.get("top_concepts", [])[:6]:
+                    if not isinstance(concept, dict):
+                        continue
+                    label = str(concept.get("label", "")).strip()
+                    if label:
+                        recent_concepts.append(label)
+                    top_terms = [
+                        str(term).strip()
+                        for term in list(concept.get("top_terms") or [])[:4]
+                        if str(term).strip()
+                    ]
+                    examples = [
+                        str(text).strip()
+                        for text in list(concept.get("example_windows") or [])[:2]
+                        if str(text).strip()
+                    ]
+                    if label or top_terms:
+                        concept_candidates.append(
+                            {
+                                "label": label,
+                                "top_terms": top_terms,
+                                "match_count": int(concept.get("match_count", concept.get("observations", 0)) or 0),
+                                "observations": int(concept.get("observations", concept.get("match_count", 0)) or 0),
+                                "uncertainty": float(concept.get("uncertainty", 1.0) or 1.0),
+                                "temporal_coherence": float(concept.get("temporal_coherence", 0.0) or 0.0),
+                                "example_windows": examples,
+                            }
+                        )
+            except Exception:
+                pass
+
+            payload = {
+                "prediction_error_mean": 0.0,
+                "prediction_error_max": 0.0,
+                "predictive_confidence_mean": 0.5,
+                "predictive_confidence_min": 0.5,
+                "dopamine": float(getattr(surprise, "dopamine", 0.0)) if surprise is not None else 0.0,
+                "norepinephrine": float(getattr(surprise, "norepinephrine", 0.0)) if surprise is not None else 0.0,
+                "recent_concepts": recent_concepts,
+                "concept_candidates": concept_candidates,
+            }
+            if predictive is not None:
+                try:
+                    prediction_error = predictive.prediction_error.detach().float().cpu()
+                    confidence = predictive.confidence.detach().float().cpu()
+                    if prediction_error.numel() > 0:
+                        payload["prediction_error_mean"] = float(prediction_error.mean().item())
+                        payload["prediction_error_max"] = float(prediction_error.max().item())
+                    if confidence.numel() > 0:
+                        payload["predictive_confidence_mean"] = float(confidence.mean().item())
+                        payload["predictive_confidence_min"] = float(confidence.min().item())
+                except Exception:
+                    pass
+
+            self._cached_cortex_signal_state = payload
+            return payload
+        finally:
+            self._lock.release()
 
     def close(self) -> None:
         # Stop cortex first (signal, no join yet)
@@ -1627,6 +1716,11 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 for g in plan.get("geometric_gaps", [])
                 if g.get("concept")
             ]
+            exploration_target = ""
+            if self._thought_loop is not None and hasattr(self._thought_loop, "gate"):
+                exploration_target = str(getattr(self._thought_loop.gate, "active_exploration_target", "")).strip()
+            if exploration_target and exploration_target not in gap_terms:
+                gap_terms = [exploration_target] + gap_terms
             if not gap_terms:
                 return 0
 
@@ -1790,7 +1884,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         with self._lock:
             return self._request_brain_stop_locked(reason=reason)
 
-    def _join_brain_thread(self, thread: Thread | None, *, timeout: float = 5.0) -> None:
+    def _join_brain_thread(self, thread: Thread | None, *, timeout: float = 15.0) -> None:
         if thread is None:
             return
         thread.join(timeout=timeout)
@@ -2076,9 +2170,6 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                         topics=[src_label] + recent_concepts[:3],
                         salience=0.6,
                     )
-                    # Feed concept labels to thalamic gate for forced-topic injection
-                    if recent_concepts and hasattr(self._thought_loop, 'gate'):
-                        self._thought_loop.gate.update_snn_concepts(recent_concepts)
                 except Exception:
                     pass
 

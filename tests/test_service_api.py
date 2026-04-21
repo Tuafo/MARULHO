@@ -1361,14 +1361,19 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertIsInstance(data, list)
             self.assertGreater(len(data), 0)
             ids = [p["id"] for p in data]
+            self.assertIn("curriculum", ids)
             self.assertIn("wikipedia", ids)
+            self.assertEqual(data[0]["id"], "curriculum")
+            self.assertTrue(data[0].get("default"))
             for preset in data:
                 self.assertIn("label", preset)
                 self.assertIn("description", preset)
                 self.assertIn("source_count", preset)
+                self.assertIn("default", preset)
+                self.assertIn("legacy", preset)
 
     def test_quick_start_configures_and_starts_terminus(self) -> None:
-        """POST /terminus/quick-start with default preset configures + starts brain."""
+        """POST /terminus/quick-start uses the recommended curriculum preset by default."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             source_path = root / "quick_start_source.txt"
@@ -1376,12 +1381,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             ckpt = _build_checkpoint(root, test_case="service_api_quick_start")
             app = create_app(ckpt, trace_dir=root / "traces")
             with TestClient(app) as client:
-                resp = client.post("/terminus/quick-start?preset=wikipedia")
-            self.assertEqual(resp.status_code, 200)
-            data = resp.json()
-            self.assertTrue(data["terminus_runtime"]["configured"])
-            self.assertFalse(data.get("already_running", False))
-            self.assertEqual(data.get("preset_applied"), "wikipedia")
+                resp = client.post("/terminus/quick-start")
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                self.assertTrue(data["terminus_runtime"]["configured"])
+                self.assertFalse(data.get("already_running", False))
+                self.assertEqual(data.get("preset_applied"), "curriculum")
+                stop_resp = client.post("/terminus/stop")
+                self.assertEqual(stop_resp.status_code, 200)
 
     def test_quick_start_rejects_unknown_preset(self) -> None:
         """POST /terminus/quick-start with bad preset returns 422."""
