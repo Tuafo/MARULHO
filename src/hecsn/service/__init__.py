@@ -3,6 +3,8 @@
 Module structure:
 - manager.py:          HECSNServiceManager (core orchestrator, ~2700 lines)
 - terminus_presets.py: Quick-start preset configurations
+- terminus_hf_sources.py: Recommended Hugging Face runtime sources
+- terminus_sensory.py: Real Hugging Face multimodal stream adapters
 - terminus_autonomy.py: TerminusAutonomyMixin (focus planning, provider curriculum)
 - api.py:             FastAPI route definitions
 - schemas.py:         Request/response Pydantic models

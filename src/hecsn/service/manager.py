@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 from collections import Counter, deque
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 from pathlib import Path
+import re
 from threading import Event, RLock, Thread
 import time
 from typing import Any, Iterator, Mapping, Sequence, cast
@@ -16,15 +19,7 @@ import torch
 
 from hecsn.config.presets import get_autonomy_acquisition_preset
 from hecsn.config.model_config import HECSNConfig
-from hecsn.data.corpus_loader import StreamingCorpusLoader
-from hecsn.data.dataset_adapters import (
-    NMNISTAdapter,
-    FSDDAdapter,
-    PairedDigitDataset,
-    iter_episode_steps,
-)
-from hecsn.data.event_camera_encoder import EventCameraEncoder
-from hecsn.data.cochleagram_encoder import CochleagramEncoder
+from hecsn.data.corpus_loader import StreamingCorpusLoader, huggingface_token_from_env
 from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.gap_planner import plan_query_gaps
 from hecsn.interaction import EvidenceResponder
@@ -66,6 +61,7 @@ from hecsn.service.terminus_autonomy import (  # noqa: E402
 )
 
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
+from hecsn.service.terminus_sensory import SensoryEpisode, build_sensory_stream
 
 
 from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E402
@@ -89,6 +85,33 @@ class _BrainSourceRuntime:
     @property
     def source_type(self) -> str:
         return str(self.spec.get("source_type", "auto"))
+
+
+@dataclass
+class _SensorySourceRuntime:
+    spec: dict[str, Any]
+    stream: Iterator[SensoryEpisode]
+    episodes_processed: int = 0
+    cycles_completed: int = 0
+    exhausted: bool = False
+    last_activity_at: str | None = None
+    last_text: str | None = None
+    last_semantic_match: float = 0.0
+    last_modality_need: float = 0.0
+    last_selection_score: float = 0.0
+    last_window_budget: int = 0
+    buffered_episodes: list[SensoryEpisode] = field(default_factory=list)
+    last_item_semantic_match: float = 0.0
+    last_item_candidates_considered: int = 0
+    last_item_retrieval_lookahead: int = 0
+
+    @property
+    def name(self) -> str:
+        return str(self.spec.get("name", "sensory_source"))
+
+    @property
+    def adapter(self) -> str:
+        return str(self.spec.get("adapter", "unknown"))
 
 
 from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
@@ -129,7 +152,9 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             terminus_state
         )
         self._brain_source_runtimes: list[_BrainSourceRuntime] = []
+        self._sensory_source_runtimes: list[_SensorySourceRuntime] = []
         self._brain_source_index = 0
+        self._sensory_source_index = 0
         self._brain_tick_count = 0
         self._brain_background_tokens = 0
         self._brain_last_error: str | None = None
@@ -154,17 +179,22 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         self._brain_last_tick_duration_ms: float | None = None
         self._brain_last_tick_token_delta = 0
         self._brain_last_work_at: str | None = None
+        self._last_curriculum_injection_time = 0.0
+        self._last_curriculum_injection_token_count = int(self._trainer.token_count)
+        self._last_real_sensory_episode_time = 0.0
+        self._last_real_sensory_episode_token_count = int(self._trainer.token_count)
+        self._real_sensory_last_error: str | None = None
+        self._last_sensory_focus_terms: tuple[str, ...] = ()
+        self._sensory_preview_history: deque[dict[str, Any]] = deque(maxlen=8)
         self._brain_thread: Thread | None = None
         self._brain_stop_event: Event | None = None
         self._brain_running = False
-        self._multimodal_dataset: PairedDigitDataset | None = None
-        self._multimodal_step_iter: Iterator | None = None
-        self._multimodal_visual_encoder: EventCameraEncoder | None = None
-        self._multimodal_audio_encoder: CochleagramEncoder | None = None
-        self._multimodal_tokens_since_episode = 0
-        self._multimodal_episodes_completed = 0
-        self._multimodal_visual_accepted = 0
-        self._multimodal_audio_accepted = 0
+        self._hint_sensory_episodes_completed = 0
+        self._hint_visual_accepted = 0
+        self._hint_audio_accepted = 0
+        self._real_sensory_episodes_completed = 0
+        self._real_visual_accepted = 0
+        self._real_audio_accepted = 0
         self._rebuild_brain_sources_locked()
         self._dirty_state = False
         self._state_revision = 0
@@ -537,6 +567,81 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "token_count": int(self._trainer.token_count),
             }
 
+    def _multimodal_runtime_summary_locked(self) -> dict[str, Any]:
+        curriculum = self._brain_config.get("curriculum") or {}
+        sensory = self._brain_config.get("sensory") or {}
+        cross_modal_enabled = bool(getattr(self._trainer.config, "enable_cross_modal", False))
+        hint_enabled = bool(curriculum.get("enabled", False)) and cross_modal_enabled
+        real_enabled = bool(sensory.get("enabled", False)) and cross_modal_enabled
+        visual_confidence, audio_confidence = self._cross_modal_confidence_means_locked()
+        mode_parts: list[str] = []
+        if real_enabled:
+            mode_parts.append("real_hf_sensory")
+        if hint_enabled:
+            mode_parts.append("curriculum_hints")
+        total_visual = int(self._hint_visual_accepted + self._real_visual_accepted)
+        total_audio = int(self._hint_audio_accepted + self._real_audio_accepted)
+        next_source_name = None
+        if self._sensory_source_runtimes:
+            next_source_name = self._sensory_source_runtimes[
+                self._sensory_source_index % len(self._sensory_source_runtimes)
+            ].name
+        return {
+            "enabled": bool(mode_parts),
+            "mode": "+".join(mode_parts) if mode_parts else "disabled",
+            "episodes_completed": int(self._hint_sensory_episodes_completed + self._real_sensory_episodes_completed),
+            "hint_episodes_completed": int(self._hint_sensory_episodes_completed),
+            "real_episodes_completed": int(self._real_sensory_episodes_completed),
+            "tokens_since_hint_episode": int(
+                max(0, int(self._trainer.token_count) - int(self._last_curriculum_injection_token_count))
+            ),
+            "tokens_since_real_episode": int(
+                max(0, int(self._trainer.token_count) - int(self._last_real_sensory_episode_token_count))
+            ),
+            "hint_episode_interval": int(curriculum.get("trigger_interval_tokens", 1024)) if curriculum else 0,
+            "real_episode_interval": int(sensory.get("episode_interval_tokens", 2048)) if sensory else 0,
+            "items_per_real_episode": int(sensory.get("items_per_episode", 1)) if sensory else 0,
+            "base_windows_per_item": int(sensory.get("base_windows_per_item", 0)) if sensory else 0,
+            "max_windows_per_item": int(sensory.get("max_windows_per_item", 0)) if sensory else 0,
+            "confidence_window_gain": float(sensory.get("confidence_window_gain", 0.0)) if sensory else 0.0,
+            "semantic_window_gain": float(sensory.get("semantic_window_gain", 0.0)) if sensory else 0.0,
+            "item_retrieval_lookahead": int(sensory.get("item_retrieval_lookahead", 1)) if sensory else 0,
+            "item_retrieval_semantic_weight": float(sensory.get("item_retrieval_semantic_weight", 0.0)) if sensory else 0.0,
+            "observation_salience": float(sensory.get("observation_salience", 0.0)) if sensory else 0.0,
+            "cross_modal_visual_accepted": total_visual,
+            "cross_modal_audio_accepted": total_audio,
+            "hint_cross_modal_visual_accepted": int(self._hint_visual_accepted),
+            "hint_cross_modal_audio_accepted": int(self._hint_audio_accepted),
+            "real_cross_modal_visual_accepted": int(self._real_visual_accepted),
+            "real_cross_modal_audio_accepted": int(self._real_audio_accepted),
+            "visual_confidence_mean": visual_confidence,
+            "audio_confidence_mean": audio_confidence,
+            "focus_terms": list(self._last_sensory_focus_terms),
+            "recent_preview_count": int(len(self._sensory_preview_history)),
+            "latest_preview_id": (
+                None if not self._sensory_preview_history else str(self._sensory_preview_history[0].get("preview_id", ""))
+            ),
+            "source_names": [runtime.name for runtime in self._sensory_source_runtimes],
+            "next_source_name": next_source_name,
+            "last_real_error": self._real_sensory_last_error,
+        }
+
+    def _huggingface_runtime_summary_locked(self) -> dict[str, Any]:
+        return {
+            "token_configured": bool(huggingface_token_from_env()),
+            "background_source_count": sum(
+                1
+                for spec in self._brain_config.get("source_bank", [])
+                if str(spec.get("source_type", "auto")) == "hf"
+            ),
+            "sensory_source_count": len(self._sensory_source_runtimes),
+            "source_count": sum(
+                1
+                for spec in self._brain_config.get("source_bank", [])
+                if str(spec.get("source_type", "auto")) == "hf"
+            ) + len(self._sensory_source_runtimes),
+        }
+
     def terminus_status(self) -> dict[str, Any]:
         # Non-blocking: return cached data when brain loop holds the lock
         acquired = self._lock.acquire(timeout=0.15)
@@ -546,18 +651,12 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 return cached
             self._lock.acquire()
         try:
-            mm_enabled = self._multimodal_dataset is not None
-            mm_info = {
-                "enabled": mm_enabled,
-                "episodes_completed": int(self._multimodal_episodes_completed),
-                "tokens_since_episode": int(self._multimodal_tokens_since_episode),
-            }
             result = {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
                 "dirty_state": bool(self._dirty_state),
                 "state_revision": int(self._state_revision),
                 "token_count": int(self._trainer.token_count),
-                "multimodal": mm_info,
+                "multimodal": self._multimodal_runtime_summary_locked(),
             }
             self._cached_terminus_status = result
             return result
@@ -572,7 +671,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         sleep_interval_seconds: float = DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
         repeat_sources: bool = True,
         autonomy: dict[str, Any] | None = None,
-        multimodal: dict[str, Any] | None = None,
+        curriculum: dict[str, Any] | None = None,
+        sensory: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         thread = self._request_brain_stop()
         self._join_brain_thread(thread)
@@ -584,10 +684,16 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                     "sleep_interval_seconds": sleep_interval_seconds,
                     "repeat_sources": repeat_sources,
                     "autonomy": autonomy,
-                    "multimodal": multimodal,
+                    "curriculum": curriculum,
+                    "sensory": sensory,
                 }
             )
             self._brain_last_error = None
+            self._last_curriculum_injection_time = 0.0
+            self._last_curriculum_injection_token_count = int(self._trainer.token_count)
+            self._last_real_sensory_episode_time = 0.0
+            self._last_real_sensory_episode_token_count = int(self._trainer.token_count)
+            self._real_sensory_last_error = None
             self._record_brain_event_locked({
                 "type": "configured",
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -714,7 +820,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             sleep_interval_seconds=config["sleep_interval_seconds"],
             repeat_sources=config["repeat_sources"],
             autonomy=None,
-            multimodal=config.get("multimodal"),
+            curriculum=config.get("curriculum"),
+            sensory=config.get("sensory"),
         )
         result = self.start_terminus()
         result["already_running"] = False
@@ -725,8 +832,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
     def quick_start_presets() -> list[dict[str, Any]]:
         """Return available quick-start presets for the UI/API.
 
-        Includes light metadata so clients can highlight the recommended default
-        while still exposing legacy presets for backwards-compatible manual use.
+        The preset surface is intentionally narrow: only the current supported
+        Terminus runtime path is exposed.
         """
         presets = [
             {
@@ -775,6 +882,60 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         if self._thought_loop is None:
             return {"enabled": False}
         return self._thought_loop.snapshot()
+
+    @staticmethod
+    def _sensory_media_payload(media: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(media, dict):
+            return None
+        raw_bytes = media.get("bytes")
+        if not isinstance(raw_bytes, (bytes, bytearray)):
+            return None
+        mime_type = str(media.get("mime_type", "application/octet-stream"))
+        data_url = f"data:{mime_type};base64,{base64.b64encode(bytes(raw_bytes)).decode('ascii')}"
+        payload = {
+            key: deepcopy(value)
+            for key, value in media.items()
+            if key != "bytes"
+        }
+        payload["byte_size"] = len(raw_bytes)
+        payload["data_url"] = data_url
+        return payload
+
+    def sensory_previews(self, limit: int = 6) -> dict[str, Any]:
+        acquired = self._lock.acquire(timeout=0.15)
+        if not acquired:
+            self._lock.acquire()
+        try:
+            previews = []
+            for item in list(self._sensory_preview_history)[: max(1, int(limit))]:
+                previews.append(
+                    {
+                        "preview_id": str(item.get("preview_id", "")),
+                        "captured_at": str(item.get("captured_at", "")),
+                        "source_name": str(item.get("source_name", "")),
+                        "adapter": str(item.get("adapter", "")),
+                        "text": str(item.get("text", "")),
+                        "semantic_match": float(item.get("semantic_match", 0.0) or 0.0),
+                        "modality_need": float(item.get("modality_need", 0.0) or 0.0),
+                        "item_semantic_match": float(item.get("item_semantic_match", 0.0) or 0.0),
+                        "item_candidates_considered": int(item.get("item_candidates_considered", 0) or 0),
+                        "item_retrieval_lookahead": int(item.get("item_retrieval_lookahead", 1) or 1),
+                        "selection_score": float(item.get("selection_score", 0.0) or 0.0),
+                        "window_budget": int(item.get("window_budget", 0) or 0),
+                        "topics": [str(topic) for topic in list(item.get("topics") or [])],
+                        "focus_terms": [str(term) for term in list(item.get("focus_terms") or [])],
+                        "metadata": deepcopy(item.get("metadata") or {}),
+                        "visual": self._sensory_media_payload(cast(dict[str, Any] | None, item.get("visual"))),
+                        "audio": self._sensory_media_payload(cast(dict[str, Any] | None, item.get("audio"))),
+                    }
+                )
+            return {
+                "count": int(len(self._sensory_preview_history)),
+                "latest_preview_id": None if not self._sensory_preview_history else str(self._sensory_preview_history[0].get("preview_id", "")),
+                "previews": previews,
+            }
+        finally:
+            self._lock.release()
 
     def _cortex_signal_state(self) -> dict[str, Any]:
         """Expose recent SNN predictive/surprise signals to the ThoughtLoop."""
@@ -864,27 +1025,34 @@ class HECSNServiceManager(TerminusAutonomyMixin):
 
         with self._lock:
             self._close_brain_sources_locked()
+            self._close_sensory_sources_locked()
 
     def architecture_summary(self) -> dict[str, Any]:
-        """Return a runtime-driven description of the active model architecture."""
+        """Return a current runtime-driven description of the active Terminus architecture."""
         with self._lock:
             model = self._trainer.model
             config = self._trainer.config
+            sensory = self._brain_config.get("sensory") or {}
+            curriculum = self._brain_config.get("curriculum") or {}
+            predictive_enabled = bool(getattr(model, "predictive", None) is not None)
+            cortex_snapshot = self.cortex_snapshot() if self._thought_loop is not None else {"enabled": False}
             layers: list[dict[str, Any]] = []
             layers.append({
                 "id": "input_encoding",
-                "name": "Input Encoding (RTF)",
+                "name": "Input + Stream Ingestion",
                 "enabled": True,
-                "type": "encoder",
+                "type": "input",
                 "params": {
                     "input_dim": int(config.input_dim),
                     "representation": config.input_representation,
+                    "background_sources": int(len(self._brain_source_runtimes)),
+                    "sensory_sources": int(len(self._sensory_source_runtimes)),
                     "learned_chunking": bool(config.enable_learned_chunking),
                 },
             })
             layers.append({
                 "id": "competitive_routing",
-                "name": "Competitive Column Routing",
+                "name": "GPCSN Column Field",
                 "enabled": True,
                 "type": "core",
                 "params": {
@@ -895,8 +1063,18 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 },
             })
             layers.append({
+                "id": "predictive_columns",
+                "name": "Predictive Columns",
+                "enabled": predictive_enabled,
+                "type": "prediction",
+                "params": {
+                    "enabled": predictive_enabled,
+                    "prediction_error_driven": predictive_enabled,
+                } if predictive_enabled else {},
+            })
+            layers.append({
                 "id": "context_prediction",
-                "name": f"Context Prediction ({config.context_mode})",
+                "name": f"Context Attractor ({config.context_mode})",
                 "enabled": model.context_layer is not None,
                 "type": "context",
                 "params": {
@@ -905,12 +1083,13 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             })
             layers.append({
                 "id": "binding",
-                "name": "Temporal Binding (STP)",
+                "name": "Hypercube Binding + Hubs",
                 "enabled": model.binding_layer is not None,
                 "type": "binding",
                 "params": {
                     "n_bindings": int(config.binding_n_bindings),
                     "fan_in": int(config.binding_fan_in),
+                    "topology": type(model.binding_layer).__name__ if model.binding_layer is not None else "disabled",
                 } if model.binding_layer is not None else {},
             })
             layers.append({
@@ -924,7 +1103,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             })
             layers.append({
                 "id": "cross_modal_grounding",
-                "name": "Cross-Modal Grounding",
+                "name": "Real Cross-Modal Grounding",
                 "enabled": model.cross_modal is not None,
                 "type": "grounding",
                 "params": {
@@ -932,11 +1111,12 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                     "dim_audio": int(config.cross_modal_dim_audio),
                     "visual_confidence": float(model.cross_modal.visual_confidence.mean().item()) if model.cross_modal else 0.0,
                     "audio_confidence": float(model.cross_modal.audio_confidence.mean().item()) if model.cross_modal else 0.0,
+                    "sensory_active": bool(sensory.get("enabled", False)),
                 },
             })
             layers.append({
                 "id": "memory_consolidation",
-                "name": "Dual Memory Store",
+                "name": "Dual Memory + Consolidation",
                 "enabled": True,
                 "type": "memory",
                 "params": {
@@ -944,13 +1124,39 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                     "stc_tag_duration_strong": float(config.stc_tag_duration_strong),
                 },
             })
+            layers.append({
+                "id": "nim_cortex",
+                "name": "NIM Mind Layer",
+                "enabled": bool(cortex_snapshot.get("enabled", False)),
+                "type": "cortex",
+                "params": {
+                    "thoughts_generated": int(cortex_snapshot.get("thoughts_generated", 0) or 0),
+                    "working_memory": bool(cortex_snapshot.get("working_memory") is not None),
+                    "narrative_self": bool(cortex_snapshot.get("narrative_self") is not None),
+                } if bool(cortex_snapshot.get("enabled", False)) else {},
+            })
+            layers.append({
+                "id": "autonomy_curriculum",
+                "name": "Active Exploration + Curriculum",
+                "enabled": bool(curriculum.get("enabled", False)) or bool(sensory.get("enabled", False)),
+                "type": "autonomy",
+                "params": {
+                    "curriculum_enabled": bool(curriculum.get("enabled", False)),
+                    "sensory_enabled": bool(sensory.get("enabled", False)),
+                    "items_per_episode": int(sensory.get("items_per_episode", 0)) if sensory else 0,
+                },
+            })
             return {
-                "model_name": "HECSNModel",
-                "version": "v4",
+                "model_name": "Terminus",
+                "core_name": "GPCSN",
+                "version": "current",
+                "family": "hybrid_snn_llm",
                 "layers": layers,
                 "config": {
                     "context_mode": config.context_mode,
                     "plasticity_rule": config.plasticity_rule,
+                    "n_columns": int(config.n_columns),
+                    "cross_modal": bool(model.cross_modal is not None),
                 },
             }
 
@@ -1304,6 +1510,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         if not source:
             raise ValueError("Each Terminus source requires a non-empty source")
         source_type = str(spec.get("source_type", "auto")).strip() or "auto"
+        if source_type not in {"auto", "file", "hf", "web"}:
+            raise ValueError("Terminus sources only support source_type auto/file/hf/web")
         name = str(spec.get("name", f"source_{index + 1}")).strip() or f"source_{index + 1}"
         text_field = str(spec.get("text_field", "text")).strip() or "text"
         hf_config_raw = spec.get("hf_config")
@@ -1315,6 +1523,51 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             "text_field": text_field,
             "hf_config": hf_config,
         }
+        metadata = spec.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            normalized["metadata"] = deepcopy(metadata)
+        return normalized
+
+    def _normalize_sensory_source_spec(self, spec: Any, index: int) -> dict[str, Any]:
+        if not isinstance(spec, dict):
+            raise ValueError("Each Terminus sensory source must be an object")
+        adapter = str(spec.get("adapter", "")).strip().lower()
+        if adapter not in {"s1_mmalign", "audiocaps"}:
+            raise ValueError("Terminus sensory sources require adapter 's1_mmalign' or 'audiocaps'")
+        source = str(spec.get("source", "")).strip()
+        if not source:
+            source = "ScienceOne-AI/S1-MMAlign" if adapter == "s1_mmalign" else "OpenSound/AudioCaps"
+        name = str(spec.get("name", f"sensory_{index + 1}")).strip() or f"sensory_{index + 1}"
+        split = str(spec.get("split", "train")).strip() or "train"
+        normalized: dict[str, Any] = {
+            "name": name,
+            "adapter": adapter,
+            "source": source,
+            "split": split,
+        }
+        if adapter == "s1_mmalign":
+            year_prefixes = spec.get("year_prefixes")
+            if isinstance(year_prefixes, Sequence) and not isinstance(year_prefixes, (str, bytes)):
+                normalized["year_prefixes"] = [
+                    str(item).zfill(2)[:2]
+                    for item in list(year_prefixes)
+                    if str(item).strip()
+                ] or ["07", "08", "09"]
+            else:
+                normalized["year_prefixes"] = ["07", "08", "09"]
+            normalized["max_text_chars"] = max(64, int(spec.get("max_text_chars", 480)))
+        else:
+            normalized["sample_rate"] = max(1000, int(spec.get("sample_rate", 16000)))
+            normalized["n_fft"] = max(64, int(spec.get("n_fft", 512)))
+            normalized["max_text_chars"] = max(32, int(spec.get("max_text_chars", 240)))
+            normalized["audio_candidates_per_item"] = max(1, int(spec.get("audio_candidates_per_item", 6)))
+        topic_terms = spec.get("topic_terms")
+        if isinstance(topic_terms, Sequence) and not isinstance(topic_terms, (str, bytes)):
+            normalized["topic_terms"] = [
+                " ".join(str(term).split()).strip().lower()
+                for term in list(topic_terms)
+                if " ".join(str(term).split()).strip()
+            ]
         metadata = spec.get("metadata")
         if isinstance(metadata, dict) and metadata:
             normalized["metadata"] = deepcopy(metadata)
@@ -1382,6 +1635,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                     "source_type": str(entry.get("source_type", "auto")).strip() or "auto",
                     "text_field": str(entry.get("text_field", "text")).strip() or "text",
                 }
+                if normalized_entry["source_type"] not in {"auto", "hf", "web"}:
+                    raise ValueError("catalog_entries source_type must be auto/hf/web")
                 if not normalized_entry["name"] or not normalized_entry["source"]:
                     raise ValueError("catalog_entries items require non-empty name and source")
                 hf_config_raw = entry.get("hf_config")
@@ -1635,6 +1890,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "sleep_interval_seconds": DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS,
                 "repeat_sources": True,
                 "autonomy": None,
+                "curriculum": None,
+                "sensory": None,
             }
         if not isinstance(config, dict):
             raise ValueError("Terminus runtime configuration must be an object")
@@ -1651,28 +1908,61 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             ),
             "repeat_sources": bool(config.get("repeat_sources", True)),
             "autonomy": self._normalize_autonomy_config(config.get("autonomy")),
-            "multimodal": self._normalize_multimodal_config(config.get("multimodal")),
+            "curriculum": self._normalize_curriculum_config(config.get("curriculum")),
+            "sensory": self._normalize_sensory_config(config.get("sensory")),
         }
         return normalized
 
     @staticmethod
-    def _normalize_multimodal_config(config: Any) -> dict[str, Any] | None:
+    def _normalize_curriculum_config(config: Any) -> dict[str, Any] | None:
         if config is None or not isinstance(config, dict):
             return None
         if not config.get("enabled"):
             return None
         return {
             "enabled": True,
-            "nmnist_dir": str(config.get("nmnist_dir", "N-MNIST")),
-            "fsdd_dir": str(config.get("fsdd_dir", "free-spoken-digit-dataset-master")),
-            "episode_interval_tokens": max(32, int(config.get("episode_interval_tokens", 256))),
-            "n_steps": max(1, int(config.get("n_steps", 10))),
+            "topics_per_cycle": max(1, int(config.get("topics_per_cycle", 3))),
+            "episode_length_tokens": max(64, int(config.get("episode_length_tokens", 256))),
+            "diversity_threshold": max(0.0, min(1.0, float(config.get("diversity_threshold", 0.7)))),
+            "trigger_interval_tokens": max(256, int(config.get("trigger_interval_tokens", 1024))),
+            "cooldown_seconds": max(5.0, float(config.get("cooldown_seconds", 30.0))),
+        }
+
+    def _normalize_sensory_config(self, config: Any) -> dict[str, Any] | None:
+        if config is None or not isinstance(config, dict):
+            return None
+        if not config.get("enabled"):
+            return None
+        source_bank = [
+            self._normalize_sensory_source_spec(item, index)
+            for index, item in enumerate(list(config.get("source_bank") or []))
+        ]
+        if not source_bank:
+            return None
+        base_windows = max(1, int(config.get("base_windows_per_item", 4)))
+        max_windows = max(base_windows, int(config.get("max_windows_per_item", 10)))
+        return {
+            "enabled": True,
+            "source_bank": source_bank,
+            "episode_interval_tokens": max(256, int(config.get("episode_interval_tokens", 1536))),
+            "items_per_episode": max(1, int(config.get("items_per_episode", 2))),
+            "base_windows_per_item": base_windows,
+            "max_windows_per_item": max_windows,
+            "confidence_window_gain": max(0.0, float(config.get("confidence_window_gain", 3.0))),
+            "semantic_window_gain": max(0.0, float(config.get("semantic_window_gain", 3.0))),
+            "item_retrieval_lookahead": max(1, int(config.get("item_retrieval_lookahead", 6))),
+            "item_retrieval_semantic_weight": max(0.0, min(1.0, float(config.get("item_retrieval_semantic_weight", 0.72)))),
+            "modality_target_confidence": max(0.1, min(1.0, float(config.get("modality_target_confidence", 0.70)))),
+            "observation_salience": max(0.1, min(1.0, float(config.get("observation_salience", 0.82)))),
+            "cooldown_seconds": max(1.0, float(config.get("cooldown_seconds", 8.0))),
+            "repeat_sources": bool(config.get("repeat_sources", True)),
         }
 
     def _build_brain_source_stream_locked(self, spec: dict[str, Any]) -> Iterator[tuple[str, torch.Tensor]]:
+        source_type = str(spec.get("source_type", "auto"))
         loader = StreamingCorpusLoader(
             source=str(spec.get("source", "")),
-            source_type=str(spec.get("source_type", "auto")),
+            source_type=source_type,
             text_field=str(spec.get("text_field", "text")),
             hf_config=spec.get("hf_config"),
         )
@@ -1681,6 +1971,14 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             self._encoder,
             self._trainer.config.window_size,
             learn_chunking=True,
+        )
+
+    def _build_sensory_stream_locked(self, spec: dict[str, Any]) -> Iterator[SensoryEpisode]:
+        return build_sensory_stream(
+            spec,
+            visual_dim=int(getattr(self._trainer.config, "cross_modal_dim_visual", 64)),
+            audio_dim=int(getattr(self._trainer.config, "cross_modal_dim_audio", 64)),
+            device=self._trainer.model.device,
         )
 
     def _close_brain_sources_locked(self) -> None:
@@ -1693,192 +1991,734 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                     continue
         self._brain_source_runtimes = []
 
-    def _run_curriculum_injection_locked(self, total_trained: int) -> int:
-        """Inject LLM-guided curriculum targeting SNN knowledge gaps.
+    def _close_sensory_sources_locked(self) -> None:
+        for runtime in self._sensory_source_runtimes:
+            close = getattr(runtime.stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    continue
+        self._sensory_source_runtimes = []
 
-        Uses the GeometricCuriosityController to identify gap topics,
-        then asks NIM to generate educational text about those topics.
-        Returns the number of extra tokens trained.
+    def _curriculum_gap_terms_locked(self, limit: int = 4) -> list[str]:
+        terms: list[str] = []
+
+        exploration_target = ""
+        if self._thought_loop is not None and hasattr(self._thought_loop, "gate"):
+            exploration_target = str(getattr(self._thought_loop.gate, "active_exploration_target", "")).strip()
+        if exploration_target:
+            terms.append(exploration_target)
+
+        try:
+            plan = self._geometric_curiosity.focus_plan(top_n=max(1, limit))
+            for item in list((plan or {}).get("geometric_gaps", []))[:limit]:
+                concept = " ".join(str(item.get("concept", "")).split()).strip()
+                if concept:
+                    terms.append(concept)
+        except Exception:
+            pass
+
+        try:
+            snap = self._concept_store.snapshot(limit=max(1, limit))
+            for concept in list(snap.get("top_concepts", []))[:limit]:
+                if not isinstance(concept, dict):
+                    continue
+                label = " ".join(str(concept.get("label", "")).split()).strip()
+                if label:
+                    terms.append(label)
+                for term in list(concept.get("top_terms", []))[:2]:
+                    cleaned = " ".join(str(term).split()).strip()
+                    if cleaned:
+                        terms.append(cleaned)
+        except Exception:
+            pass
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for term in terms:
+            cleaned = " ".join(term.replace("/", " ").replace("|", " ").split()).strip().lower()
+            if cleaned and cleaned not in seen:
+                normalized.append(cleaned)
+                seen.add(cleaned)
+            if len(normalized) >= max(1, limit):
+                break
+        return normalized
+
+    def _curriculum_hint_spikes(self, hint: str, dim: int, *, salt: str) -> torch.Tensor | None:
+        cleaned = " ".join(str(hint).split()).strip().lower()
+        if not cleaned or dim <= 0:
+            return None
+        tokens = re.findall(r"[a-zA-Z][a-zA-Z'-]+", cleaned)
+        if not tokens:
+            return None
+        vec = torch.zeros(dim, device=self._trainer.model.device)
+        for token in tokens:
+            grams = [token]
+            if len(token) >= 3:
+                grams.extend(token[i:i + 3] for i in range(len(token) - 2))
+            for gram in grams:
+                digest = hashlib.sha256(f"{salt}:{gram}".encode("utf-8")).digest()
+                idx_a = int.from_bytes(digest[:4], byteorder="little") % dim
+                idx_b = int.from_bytes(digest[4:8], byteorder="little") % dim
+                vec[idx_a] += 1.0
+                vec[idx_b] += 0.5
+        total = vec.sum()
+        if float(total.item()) <= 0.0:
+            return None
+        return vec / total
+
+    def _run_curriculum_injection_locked(self) -> int:
+        """Inject LLM-guided curriculum and synthetic sensory hints.
+
+        The current Terminus runtime uses a cheap local text stream for steady
+        background learning and relies on curriculum generation for targeted,
+        higher-value episodes. Curriculum can now also provide synthetic visual
+        and audio hint channels so the live runtime retains multimodal support
+        without depending on narrow digit datasets.
         """
+        curriculum = self._brain_config.get("curriculum")
         if (
             self._thought_loop is None
-            or not hasattr(self, '_geometric_curiosity')
+            or not hasattr(self, "_geometric_curiosity")
             or self._trainer is None
-            or total_trained <= 0
-            or total_trained % 5000 != 0
+            or not curriculum
+            or not curriculum.get("enabled")
         ):
             return 0
 
+        current_tokens = int(self._trainer.token_count)
+        trigger_interval = int(curriculum.get("trigger_interval_tokens", 2048))
+        cooldown = float(curriculum.get("cooldown_seconds", 30.0))
+        now = time.time()
+        if current_tokens - self._last_curriculum_injection_token_count < trigger_interval:
+            return 0
+        if (now - self._last_curriculum_injection_time) < cooldown:
+            return 0
+
+        gap_terms = self._curriculum_gap_terms_locked(limit=int(curriculum.get("topics_per_cycle", 3)))
+        if not gap_terms:
+            return 0
+
         try:
-            plan = self._geometric_curiosity.focus_plan(top_n=3)
-            gap_terms = [
-                g.get("concept", "")
-                for g in plan.get("geometric_gaps", [])
-                if g.get("concept")
-            ]
-            exploration_target = ""
-            if self._thought_loop is not None and hasattr(self._thought_loop, "gate"):
-                exploration_target = str(getattr(self._thought_loop.gate, "active_exploration_target", "")).strip()
-            if exploration_target and exploration_target not in gap_terms:
-                gap_terms = [exploration_target] + gap_terms
-            if not gap_terms:
+            from hecsn.cortex.curriculum import CurriculumGenerator
+
+            curriculum_gen = CurriculumGenerator()
+            segments = curriculum_gen.generate(
+                gap_terms,
+                max_segments=int(curriculum.get("topics_per_cycle", 3)),
+            )
+            curriculum_gen.close()
+            if not segments:
                 return 0
 
-            from hecsn.cortex.curriculum import CurriculumGenerator
-            curriculum_gen = CurriculumGenerator()
-            segments = curriculum_gen.generate(gap_terms, max_segments=3)
             extra = 0
+            dim_visual = int(getattr(self._trainer.config, "cross_modal_dim_visual", 64))
+            dim_audio = int(getattr(self._trainer.config, "cross_modal_dim_audio", 64))
             for seg in segments:
-                if seg.text:
-                    codes = [ord(c) if 0 <= ord(c) < 128 else 0 for c in seg.text]
-                    pattern = self._encoder.blended_feature_vector(codes)
-                    self._trainer.train_step(pattern, raw_window=seg.text)
+                text = " ".join(str(getattr(seg, "text", "")).split()).strip()
+                if not text:
+                    continue
+                visual_spikes = self._curriculum_hint_spikes(
+                    getattr(seg, "visual_hint", "") or text,
+                    dim_visual,
+                    salt="visual",
+                )
+                audio_spikes = self._curriculum_hint_spikes(
+                    getattr(seg, "audio_hint", "") or text,
+                    dim_audio,
+                    salt="audio",
+                )
+                for raw_window, pattern in self._encoder.iter_char_patterns(text, self._trainer.config.window_size):
+                    metrics = self._trainer.train_step(
+                        pattern,
+                        raw_window=raw_window,
+                        visual_spikes=visual_spikes,
+                        audio_spikes=audio_spikes,
+                    )
+                    if metrics:
+                        if metrics.get("cross_modal_visual_accepted"):
+                            self._hint_visual_accepted += 1
+                        if metrics.get("cross_modal_audio_accepted"):
+                            self._hint_audio_accepted += 1
                     extra += 1
-            curriculum_gen.close()
+
+            if extra > 0:
+                self._hint_sensory_episodes_completed += len(segments)
+                self._mark_mutated()
+                self._last_curriculum_injection_time = now
+                self._last_curriculum_injection_token_count = int(self._trainer.token_count)
             return extra
         except Exception:
             return 0
 
-    def _init_multimodal_locked(self) -> None:
-        """Initialize multimodal dataset + encoders if the config enables them."""
-        mm = self._brain_config.get("multimodal")
-        if not mm or not mm.get("enabled"):
-            self._multimodal_dataset = None
-            self._multimodal_step_iter = None
-            self._multimodal_visual_encoder = None
-            self._multimodal_audio_encoder = None
-            self._multimodal_tokens_since_episode = 0
-            self._multimodal_episodes_completed = 0
-            self._multimodal_visual_accepted = 0
-            self._multimodal_audio_accepted = 0
-            return
-
-        nmnist_dir = Path(mm.get("nmnist_dir", "N-MNIST"))
-        fsdd_dir = Path(mm.get("fsdd_dir", "free-spoken-digit-dataset-master"))
-        n_steps = int(mm.get("n_steps", 10))
-
-        # Resolve relative paths from CWD
-        if not nmnist_dir.is_absolute():
-            nmnist_dir = Path.cwd() / nmnist_dir
-        if not fsdd_dir.is_absolute():
-            fsdd_dir = Path.cwd() / fsdd_dir
-
-        # NMNISTAdapter expects root with Train/ subdir, FSDDAdapter expects root with recordings/ subdir
-        train_dir = nmnist_dir / "Train"
-        rec_dir = fsdd_dir / "recordings"
-        if not train_dir.exists() or not rec_dir.exists():
-            self._multimodal_dataset = None
-            self._multimodal_step_iter = None
-            return
-
-        model = self._trainer.model
-        # EventCameraEncoder(34,34,pool=4) → 8×8 = 64 output dim
-        # CochleagramEncoder(n_bands=64) → 64 output dim
-        # Cross-modal layer must match these real encoder dims
-
+    def _cross_modal_confidence_means_locked(self) -> tuple[float, float]:
+        cross_modal = getattr(self._trainer.model, "cross_modal", None)
+        if cross_modal is None:
+            return 0.0, 0.0
         try:
-            nmnist = NMNISTAdapter(nmnist_dir)
-            fsdd = FSDDAdapter(fsdd_dir)
-            dataset = PairedDigitDataset(nmnist, fsdd, n_steps=n_steps)
-            self._multimodal_dataset = dataset
-            self._multimodal_visual_encoder = EventCameraEncoder(
-                height=34, width=34, pool=4,
-            )
-            self._multimodal_audio_encoder = CochleagramEncoder(
-                sample_rate=8000, n_bands=64,
-            )
-            self._multimodal_step_iter = iter_episode_steps(
-                dataset.iter_episodes(),
-                visual_encoder=self._multimodal_visual_encoder,
-                audio_encoder=self._multimodal_audio_encoder,
-            )
-            self._multimodal_tokens_since_episode = 0
-            self._multimodal_episodes_completed = 0
-            self._multimodal_visual_accepted = 0
-            self._multimodal_audio_accepted = 0
-        except Exception as exc:
-            _cortex_logger.warning("Multimodal init failed: %s", exc)
-            self._multimodal_dataset = None
-            self._multimodal_step_iter = None
+            visual_conf = float(cross_modal.visual_confidence.mean().item())
+        except Exception:
+            visual_conf = 0.0
+        try:
+            audio_conf = float(cross_modal.audio_confidence.mean().item())
+        except Exception:
+            audio_conf = 0.0
+        return max(0.0, min(1.0, visual_conf)), max(0.0, min(1.0, audio_conf))
 
-    def _run_multimodal_episode_locked(self) -> dict[str, Any] | None:
-        """Run one multimodal episode if due. Returns summary or None."""
-        mm = self._brain_config.get("multimodal")
-        if not mm or not mm.get("enabled") or self._multimodal_step_iter is None:
+    @staticmethod
+    def _sensory_runtime_modalities(adapter: str) -> tuple[bool, bool]:
+        cleaned = str(adapter).strip().lower()
+        if cleaned == "s1_mmalign":
+            return True, False
+        if cleaned == "audiocaps":
+            return False, True
+        return False, False
+
+    def _sensory_focus_terms_locked(self, limit: int = 12) -> list[str]:
+        phrases: list[str] = []
+        if self._thought_loop is not None and hasattr(self._thought_loop, "gate"):
+            target = str(getattr(self._thought_loop.gate, "active_exploration_target", "")).strip()
+            if target:
+                phrases.append(target)
+        if self._brain_recent_query_gaps:
+            recent_gap = self._brain_recent_query_gaps[0]
+            phrases.append(str(recent_gap.get("query_text", "")))
+            phrases.extend(str(term) for term in list(recent_gap.get("unsupported_terms") or [])[:4])
+            phrases.extend(
+                str(item.get("term", ""))
+                for item in list(recent_gap.get("gap_terms") or [])[:4]
+                if isinstance(item, dict)
+            )
+        if not phrases:
+            phrases.extend(self._curriculum_gap_terms_locked(limit=max(4, limit // 2)))
+
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for phrase in phrases:
+            for term in salient_query_terms(str(phrase)):
+                cleaned = " ".join(str(term).split()).strip().lower()
+                if len(cleaned) < 4 or cleaned in seen:
+                    continue
+                seen.add(cleaned)
+                ordered.append(cleaned)
+                if len(ordered) >= max(1, limit):
+                    return ordered
+        return ordered
+
+    @staticmethod
+    def _sensory_source_topic_terms(runtime: _SensorySourceRuntime) -> set[str]:
+        terms: set[str] = set()
+        for raw in list(runtime.spec.get("topic_terms") or []):
+            for term in salient_query_terms(str(raw)):
+                cleaned = " ".join(str(term).split()).strip().lower()
+                if len(cleaned) >= 4:
+                    terms.add(cleaned)
+        metadata = runtime.spec.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("role", "label"):
+                for term in salient_query_terms(str(metadata.get(key, ""))):
+                    cleaned = " ".join(str(term).split()).strip().lower()
+                    if len(cleaned) >= 4:
+                        terms.add(cleaned)
+        return terms
+
+    @staticmethod
+    def _sensory_episode_terms(episode: SensoryEpisode) -> set[str]:
+        terms: set[str] = set()
+        text_parts = [str(episode.text)]
+        metadata = episode.metadata if isinstance(episode.metadata, Mapping) else {}
+        for key in ("title", "caption", "categories", "summary", "label", "observation"):
+            value = metadata.get(key)
+            if isinstance(value, str):
+                text_parts.append(value)
+            elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+                text_parts.extend(str(item) for item in list(value) if str(item).strip())
+        for chunk in text_parts:
+            for term in salient_query_terms(str(chunk)):
+                cleaned = " ".join(str(term).split()).strip().lower()
+                if len(cleaned) >= 4:
+                    terms.add(cleaned)
+        return terms
+
+    def _sensory_episode_semantic_match_locked(
+        self,
+        episode: SensoryEpisode,
+        focus_terms: Sequence[str] | None = None,
+    ) -> float:
+        normalized_focus = [
+            " ".join(str(term).split()).strip().lower()
+            for term in list(focus_terms or self._sensory_focus_terms_locked())
+            if " ".join(str(term).split()).strip()
+        ]
+        episode_terms = self._sensory_episode_terms(episode)
+        if not normalized_focus or not episode_terms:
+            return 0.0
+        focus_set = set(normalized_focus)
+        overlap = len(focus_set & episode_terms) / max(1.0, min(float(len(focus_set)), float(len(episode_terms))))
+        head_hits = sum(1 for term in normalized_focus[:3] if term in episode_terms)
+        head_bonus = min(1.0, 0.5 * head_hits)
+        combined_text = " ".join(
+            part
+            for part in [
+                str(episode.text),
+                *(str(value) for value in list((episode.metadata or {}).values()) if isinstance(value, str)),
+            ]
+            if part
+        ).lower()
+        phrase_hits = sum(1 for term in normalized_focus[:4] if term and term in combined_text)
+        phrase_bonus = min(1.0, 0.34 * phrase_hits)
+        return max(0.0, min(1.0, 0.55 * overlap + 0.30 * head_bonus + 0.15 * phrase_bonus))
+
+    def _sensory_semantic_match_locked(
+        self,
+        runtime: _SensorySourceRuntime,
+        focus_terms: Sequence[str] | None = None,
+    ) -> float:
+        normalized_focus = [
+            " ".join(str(term).split()).strip().lower()
+            for term in list(focus_terms or self._sensory_focus_terms_locked())
+            if " ".join(str(term).split()).strip()
+        ]
+        source_terms = self._sensory_source_topic_terms(runtime)
+        if not normalized_focus or not source_terms:
+            return 0.0
+        focus_set = set(normalized_focus)
+        overlap = len(focus_set & source_terms) / max(1.0, min(float(len(focus_set)), float(len(source_terms))))
+        head_hits = sum(1 for term in normalized_focus[:3] if term in source_terms)
+        head_bonus = min(1.0, 0.5 * head_hits)
+        return max(0.0, min(1.0, 0.65 * overlap + 0.35 * head_bonus))
+
+    def _sensory_selection_score_locked(
+        self,
+        runtime: _SensorySourceRuntime,
+        *,
+        focus_terms: Sequence[str],
+    ) -> tuple[float, float, float]:
+        semantic_match = self._sensory_semantic_match_locked(runtime, focus_terms)
+        modality_need = self._sensory_modality_need_locked(runtime.adapter)
+        source_count = max(1, len(self._sensory_source_runtimes))
+        min_episodes = min((rt.episodes_processed for rt in self._sensory_source_runtimes), default=0)
+        fairness = max(
+            0.0,
+            min(
+                1.0,
+                1.0 - max(0, runtime.episodes_processed - min_episodes) / float(source_count + 1),
+            ),
+        )
+        freshness = 1.0 if runtime.last_activity_at is None else 0.0
+        score = 0.46 * semantic_match + 0.34 * modality_need + 0.12 * fairness + 0.08 * freshness
+        runtime.last_semantic_match = semantic_match
+        runtime.last_modality_need = modality_need
+        runtime.last_selection_score = score
+        return score, semantic_match, modality_need
+
+    def _select_sensory_runtime_locked(
+        self,
+        excluded_indices: set[int] | None = None,
+    ) -> tuple[int, _SensorySourceRuntime, float, float, float] | None:
+        excluded = excluded_indices or set()
+        focus_terms = self._sensory_focus_terms_locked()
+        self._last_sensory_focus_terms = tuple(focus_terms)
+        best: tuple[int, _SensorySourceRuntime, float, float, float] | None = None
+        for idx, runtime in enumerate(self._sensory_source_runtimes):
+            if idx in excluded or runtime.exhausted:
+                continue
+            score, semantic_match, modality_need = self._sensory_selection_score_locked(
+                runtime,
+                focus_terms=focus_terms,
+            )
+            if best is None or score > best[4] + 1e-6:
+                best = (idx, runtime, semantic_match, modality_need, score)
+                continue
+            if best is not None and abs(score - best[4]) <= 1e-6 and runtime.episodes_processed < best[1].episodes_processed:
+                best = (idx, runtime, semantic_match, modality_need, score)
+        return best
+
+    def _sensory_item_retrieval_config_locked(self) -> tuple[int, float]:
+        sensory = self._brain_config.get("sensory") or {}
+        lookahead = max(1, int(sensory.get("item_retrieval_lookahead", 6)))
+        semantic_weight = max(0.0, min(1.0, float(sensory.get("item_retrieval_semantic_weight", 0.72))))
+        return lookahead, semantic_weight
+
+    def _pull_next_sensory_episode_locked(
+        self,
+        runtime: _SensorySourceRuntime,
+        *,
+        repeat_sources: bool,
+    ) -> SensoryEpisode | None:
+        restarted = False
+        while True:
+            try:
+                runtime.exhausted = False
+                return next(runtime.stream)
+            except StopIteration:
+                if not repeat_sources or restarted:
+                    runtime.exhausted = True
+                    return None
+                runtime.cycles_completed += 1
+                runtime.stream = self._build_sensory_stream_locked(runtime.spec)
+                runtime.exhausted = False
+                restarted = True
+            except Exception as exc:
+                runtime.exhausted = True
+                self._real_sensory_last_error = str(exc)
+                return None
+
+    def _next_sensory_episode_locked(
+        self,
+        runtime: _SensorySourceRuntime,
+        *,
+        repeat_sources: bool,
+        focus_terms: Sequence[str],
+    ) -> SensoryEpisode | None:
+        lookahead, semantic_weight = self._sensory_item_retrieval_config_locked()
+        while len(runtime.buffered_episodes) < lookahead:
+            episode = self._pull_next_sensory_episode_locked(runtime, repeat_sources=repeat_sources)
+            if episode is None:
+                break
+            runtime.buffered_episodes.append(episode)
+        if not runtime.buffered_episodes:
+            runtime.last_item_semantic_match = 0.0
+            runtime.last_item_candidates_considered = 0
+            runtime.last_item_retrieval_lookahead = lookahead
             return None
 
-        interval = int(mm.get("episode_interval_tokens", 256))
-        if self._multimodal_tokens_since_episode < interval:
+        considered = min(len(runtime.buffered_episodes), lookahead)
+        best_index = 0
+        best_match = self._sensory_episode_semantic_match_locked(runtime.buffered_episodes[0], focus_terms)
+        best_score = semantic_weight * best_match + (1.0 - semantic_weight)
+        if considered > 1:
+            denom = max(1, considered - 1)
+            for idx, episode in enumerate(runtime.buffered_episodes[:considered]):
+                item_match = self._sensory_episode_semantic_match_locked(episode, focus_terms)
+                recency = 1.0 - (idx / float(denom))
+                score = semantic_weight * item_match + (1.0 - semantic_weight) * recency
+                if score > best_score + 1e-6:
+                    best_index = idx
+                    best_match = item_match
+                    best_score = score
+                    continue
+                if abs(score - best_score) <= 1e-6 and item_match > best_match + 1e-6:
+                    best_index = idx
+                    best_match = item_match
+                    best_score = score
+
+        runtime.last_item_semantic_match = float(max(0.0, min(1.0, best_match)))
+        runtime.last_item_candidates_considered = int(considered)
+        runtime.last_item_retrieval_lookahead = int(lookahead)
+        return runtime.buffered_episodes.pop(best_index)
+
+    def _sensory_modality_need_locked(self, adapter: str) -> float:
+        sensory = self._brain_config.get("sensory") or {}
+        target_confidence = float(sensory.get("modality_target_confidence", 0.70))
+        visual_conf, audio_conf = self._cross_modal_confidence_means_locked()
+        use_visual, use_audio = self._sensory_runtime_modalities(adapter)
+        confs: list[float] = []
+        if use_visual:
+            confs.append(visual_conf)
+        if use_audio:
+            confs.append(audio_conf)
+        if not confs:
+            return 0.0
+        mean_conf = sum(confs) / float(len(confs))
+        if mean_conf >= target_confidence:
+            return 0.0
+        return max(0.0, min(1.0, (target_confidence - mean_conf) / max(0.1, target_confidence)))
+
+    def _sensory_window_budget_locked(
+        self,
+        runtime: _SensorySourceRuntime,
+        *,
+        semantic_match: float | None = None,
+        modality_need: float | None = None,
+    ) -> int:
+        sensory = self._brain_config.get("sensory") or {}
+        base_windows = max(1, int(sensory.get("base_windows_per_item", 4)))
+        max_windows = max(base_windows, int(sensory.get("max_windows_per_item", 10)))
+        confidence_gain = max(0.0, float(sensory.get("confidence_window_gain", 3.0)))
+        semantic_gain = max(0.0, float(sensory.get("semantic_window_gain", 3.0)))
+        need = runtime.last_modality_need if modality_need is None else max(0.0, min(1.0, float(modality_need)))
+        semantic = runtime.last_semantic_match if semantic_match is None else max(0.0, min(1.0, float(semantic_match)))
+        bonus = int(round(confidence_gain * need + semantic_gain * semantic))
+        return max(base_windows, min(max_windows, base_windows + bonus))
+
+    def _inject_sensory_observation_locked(
+        self,
+        *,
+        runtime: _SensorySourceRuntime,
+        episode: SensoryEpisode,
+        last_metrics: dict[str, Any] | None,
+        semantic_match: float | None = None,
+    ) -> dict[str, Any]:
+        if self._thought_loop is None:
+            return {"topics": [], "salience": 0.0}
+        text = " ".join(str(episode.text).split()).strip()
+        if not text:
+            return {"topics": [], "salience": 0.0}
+        sensory = self._brain_config.get("sensory") or {}
+        base_salience = float(sensory.get("observation_salience", 0.82))
+        modality_need = self._sensory_modality_need_locked(runtime.adapter)
+        semantic_score = runtime.last_semantic_match if semantic_match is None else max(0.0, min(1.0, float(semantic_match)))
+        accepted_bonus = 0.0
+        if isinstance(last_metrics, dict):
+            if last_metrics.get("cross_modal_visual_accepted"):
+                accepted_bonus += 0.04
+            if last_metrics.get("cross_modal_audio_accepted"):
+                accepted_bonus += 0.04
+        salience = max(
+            0.25,
+            min(
+                0.98,
+                base_salience
+                + 0.10 * modality_need
+                + 0.08 * semantic_score
+                + accepted_bonus,
+            ),
+        )
+        topics: list[str] = []
+        if runtime.adapter == "s1_mmalign":
+            title = " ".join(str(episode.metadata.get("title", "")).split()).strip()
+            categories = " ".join(str(episode.metadata.get("categories", "")).split()).strip()
+            if title:
+                topics.extend(salient_query_terms(title)[:2])
+            if categories:
+                topics.extend(salient_query_terms(categories)[:2])
+        topics.extend(list(self._last_sensory_focus_terms)[:2])
+        topics.extend(salient_query_terms(text)[:4])
+        seen: set[str] = set()
+        deduped_topics: list[str] = []
+        for topic in topics:
+            cleaned = " ".join(str(topic).split()).strip()
+            lowered = cleaned.lower()
+            if not cleaned or lowered in seen:
+                continue
+            seen.add(lowered)
+            deduped_topics.append(cleaned)
+            if len(deduped_topics) >= 6:
+                break
+        modality_label = "image-grounded" if episode.visual_spikes is not None and episode.audio_spikes is None else (
+            "audio-grounded" if episode.audio_spikes is not None and episode.visual_spikes is None else "multisensory"
+        )
+        content = f"{modality_label} episode from {runtime.name}: {text}"
+        self._thought_loop.inject_observation(
+            content=content,
+            topics=deduped_topics,
+            salience=salience,
+        )
+        return {"topics": deduped_topics, "salience": salience, "content": content}
+
+    def _record_sensory_preview_locked(
+        self,
+        *,
+        runtime: _SensorySourceRuntime,
+        episode: SensoryEpisode,
+        text: str,
+        topics: Sequence[str],
+        semantic_match: float,
+        item_semantic_match: float,
+        modality_need: float,
+        selection_score: float,
+        window_budget: int,
+    ) -> None:
+        if episode.visual_preview is None and episode.audio_preview is None:
+            return
+        metadata = {
+            key: deepcopy(value)
+            for key, value in (episode.metadata or {}).items()
+            if key not in {"bytes", "raw_bytes"}
+        }
+        entry = {
+            "preview_id": str(uuid4()),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "source_name": runtime.name,
+            "adapter": runtime.adapter,
+            "text": text[:480],
+            "semantic_match": float(max(0.0, min(1.0, semantic_match))),
+            "modality_need": float(max(0.0, min(1.0, modality_need))),
+            "item_semantic_match": float(max(0.0, min(1.0, item_semantic_match))),
+            "item_candidates_considered": int(max(0, runtime.last_item_candidates_considered)),
+            "item_retrieval_lookahead": int(max(1, runtime.last_item_retrieval_lookahead or 1)),
+            "selection_score": float(max(0.0, min(1.0, selection_score))),
+            "window_budget": int(max(0, window_budget)),
+            "topics": list(topics)[:8],
+            "focus_terms": list(self._last_sensory_focus_terms)[:8],
+            "metadata": metadata,
+            "visual": deepcopy(episode.visual_preview),
+            "audio": deepcopy(episode.audio_preview),
+        }
+        self._sensory_preview_history.appendleft(entry)
+
+    def _run_real_sensory_episode_locked(self) -> dict[str, Any] | None:
+        sensory = self._brain_config.get("sensory")
+        if (
+            not sensory
+            or not sensory.get("enabled")
+            or not getattr(self._trainer.config, "enable_cross_modal", False)
+            or not self._sensory_source_runtimes
+        ):
             return None
 
-        self._multimodal_tokens_since_episode = 0
+        current_tokens = int(self._trainer.token_count)
+        trigger_interval = int(sensory.get("episode_interval_tokens", 2048))
+        cooldown = float(sensory.get("cooldown_seconds", 10.0))
+        now = time.time()
+        if current_tokens - self._last_real_sensory_episode_token_count < trigger_interval:
+            return None
+        if (now - self._last_real_sensory_episode_time) < cooldown:
+            return None
+
+        items_per_episode = int(sensory.get("items_per_episode", 2))
+        repeat_sources = bool(sensory.get("repeat_sources", True))
+        source_count = len(self._sensory_source_runtimes)
+        if source_count <= 0:
+            return None
+
+        episodes_run = 0
         steps_trained = 0
-        last_metrics = None
+        last_metrics: dict[str, Any] | None = None
+        used_sources: list[dict[str, Any]] = []
+        self._real_sensory_last_error = None
 
-        try:
-            n_steps = int(mm.get("n_steps", 10))
-            for _ in range(n_steps):
-                try:
-                    step = next(self._multimodal_step_iter)
-                except StopIteration:
-                    # Re-create iterator (loop over dataset)
-                    if self._multimodal_dataset is not None:
-                        self._multimodal_step_iter = iter_episode_steps(
-                            self._multimodal_dataset.iter_episodes(),
-                            visual_encoder=self._multimodal_visual_encoder,
-                            audio_encoder=self._multimodal_audio_encoder,
-                        )
-                        try:
-                            step = next(self._multimodal_step_iter)
-                        except StopIteration:
-                            break
-                    else:
-                        break
+        selected_indices: set[int] = set()
+        max_items = min(items_per_episode, source_count)
+        for _ in range(max_items):
+            selection = self._select_sensory_runtime_locked(selected_indices)
+            if selection is None:
+                break
+            idx, runtime, semantic_match, modality_need, selection_score = selection
+            selected_indices.add(idx)
+            focus_terms = list(self._last_sensory_focus_terms)
+            episode = self._next_sensory_episode_locked(
+                runtime,
+                repeat_sources=repeat_sources,
+                focus_terms=focus_terms,
+            )
+            if episode is None:
+                continue
+            runtime.exhausted = False
+            self._sensory_source_index = (idx + 1) % source_count
+            text = " ".join(str(episode.text).split()).strip()
+            if not text:
+                continue
+            if episode.visual_spikes is None and episode.audio_spikes is None:
+                continue
 
-                # Encode text label using blended_feature_vector (same path
-                # as iter_char_patterns used by the regular brain loop).
-                codes = [ord(c) if 0 <= ord(c) < 128 else 0 for c in step.text]
-                pattern = self._encoder.blended_feature_vector(codes)
+            effective_semantic_match = max(float(semantic_match), float(runtime.last_item_semantic_match))
+            window_budget = self._sensory_window_budget_locked(
+                runtime,
+                semantic_match=effective_semantic_match,
+                modality_need=modality_need,
+            )
+            item_steps = 0
+            last_raw_window = text
+            for raw_window, pattern in self._encoder.iter_char_patterns(text, self._trainer.config.window_size):
+                last_raw_window = raw_window
                 last_metrics = self._trainer.train_step(
                     pattern,
-                    raw_window=step.text,
-                    visual_spikes=step.visual_spikes,
-                    audio_spikes=step.audio_spikes,
+                    raw_window=raw_window,
+                    visual_spikes=episode.visual_spikes,
+                    audio_spikes=episode.audio_spikes,
                 )
+                item_steps += 1
                 steps_trained += 1
                 if last_metrics:
                     if last_metrics.get("cross_modal_visual_accepted"):
-                        self._multimodal_visual_accepted += 1
+                        self._real_visual_accepted += 1
                     if last_metrics.get("cross_modal_audio_accepted"):
-                        self._multimodal_audio_accepted += 1
+                        self._real_audio_accepted += 1
+                if item_steps >= window_budget:
+                    break
 
-            self._multimodal_episodes_completed += 1
-            self._mark_mutated()
+            if item_steps <= 0:
+                continue
 
-            return {
-                "type": "multimodal_episode",
-                "steps_trained": steps_trained,
-                "episodes_completed": self._multimodal_episodes_completed,
-                "last_metrics": last_metrics,
-            }
-        except Exception as exc:
-            _cortex_logger.warning("Multimodal episode failed: %s", exc, exc_info=True)
+            runtime.episodes_processed += 1
+            runtime.last_activity_at = datetime.now(timezone.utc).isoformat()
+            runtime.last_text = text[:160]
+            self._observe_runtime_concepts_locked(raw_window=last_raw_window, metrics=last_metrics)
+            runtime.last_window_budget = int(window_budget)
+            observation = self._inject_sensory_observation_locked(
+                runtime=runtime,
+                episode=episode,
+                last_metrics=last_metrics,
+                semantic_match=semantic_match,
+            )
+            self._record_sensory_preview_locked(
+                runtime=runtime,
+                episode=episode,
+                text=text,
+                topics=list(observation.get("topics") or []),
+                semantic_match=semantic_match,
+                item_semantic_match=runtime.last_item_semantic_match,
+                modality_need=modality_need,
+                selection_score=selection_score,
+                window_budget=window_budget,
+            )
+            used_sources.append(
+                {
+                    "name": runtime.name,
+                    "adapter": runtime.adapter,
+                    "steps_trained": int(item_steps),
+                    "window_budget": int(window_budget),
+                    "semantic_match": float(semantic_match),
+                    "item_semantic_match": float(runtime.last_item_semantic_match),
+                    "item_candidates_considered": int(runtime.last_item_candidates_considered),
+                    "modality_need": float(modality_need),
+                    "selection_score": float(selection_score),
+                    "has_visual": bool(episode.visual_spikes is not None),
+                    "has_audio": bool(episode.audio_spikes is not None),
+                }
+            )
+            episodes_run += 1
+
+        if episodes_run <= 0:
             return None
+
+        self._real_sensory_episodes_completed += episodes_run
+        self._last_real_sensory_episode_time = now
+        self._last_real_sensory_episode_token_count = int(self._trainer.token_count)
+        self._mark_mutated()
+        return {
+            "type": "real_sensory_episode",
+            "episodes_completed": int(self._real_sensory_episodes_completed),
+            "episode_count": int(episodes_run),
+            "steps_trained": int(steps_trained),
+            "sources": used_sources,
+            "last_metrics": last_metrics,
+        }
 
     def _rebuild_brain_sources_locked(self) -> None:
         self._close_brain_sources_locked()
+        self._close_sensory_sources_locked()
         self._brain_source_runtimes = [
             _BrainSourceRuntime(spec=deepcopy(spec), stream=self._build_brain_source_stream_locked(spec))
             for spec in self._brain_config.get("source_bank", [])
         ]
+        sensory_config = self._brain_config.get("sensory") or {}
+        self._sensory_source_runtimes = [
+            _SensorySourceRuntime(spec=deepcopy(spec), stream=self._build_sensory_stream_locked(spec))
+            for spec in sensory_config.get("source_bank", [])
+        ]
         self._brain_source_index = 0
+        self._sensory_source_index = 0
         self._brain_tick_count = 0
         self._brain_background_tokens = 0
         self._brain_last_tick_completed_at = None
         self._brain_last_tick_duration_ms = None
         self._brain_last_tick_token_delta = 0
         self._brain_last_work_at = None
-        self._init_multimodal_locked()
+        self._hint_sensory_episodes_completed = 0
+        self._hint_visual_accepted = 0
+        self._hint_audio_accepted = 0
+        self._real_sensory_episodes_completed = 0
+        self._real_visual_accepted = 0
+        self._real_audio_accepted = 0
+        self._last_real_sensory_episode_time = 0.0
+        self._last_real_sensory_episode_token_count = int(self._trainer.token_count)
+        self._real_sensory_last_error = None
+        self._last_sensory_focus_terms = ()
+        self._sensory_preview_history.clear()
 
     def _request_brain_stop(self, *, reason: str | None = None) -> Thread | None:
         with self._lock:
@@ -2081,9 +2921,10 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         window_size: int,
     ) -> Iterator[tuple[str, "torch.Tensor"]]:
         """Build a pattern stream without needing self._lock."""
+        source_type = str(spec.get("source_type", "auto"))
         loader = StreamingCorpusLoader(
             source=str(spec.get("source", "")),
-            source_type=str(spec.get("source_type", "auto")),
+            source_type=source_type,
             text_field=str(spec.get("text_field", "text")),
             hf_config=spec.get("hf_config"),
         )
@@ -2118,7 +2959,6 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             self._brain_background_tokens += total_trained
             self._brain_tick_count += 1
             self._brain_source_index = (idx + 1) % source_count
-            self._multimodal_tokens_since_episode += total_trained
             self._mark_mutated()
             source_summary = {
                 "did_work": True,
@@ -2133,12 +2973,11 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         else:
             source_summary = {"did_work": False, "reason": "no_tokens"}
 
-        multimodal_summary = self._run_multimodal_episode_locked()
         autonomy_summary = self._run_brain_autonomy_locked()
-        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or multimodal_summary is not None
+        cortex_work = bool(source_summary.get("did_work")) or autonomy_summary is not None
 
         # Inject SNN neuromodulator state into cortex drives
-        if did_work and self._thought_loop is not None:
+        if cortex_work and self._thought_loop is not None:
             try:
                 surprise = self._trainer.model.surprise
                 self._thought_loop.inject_surprise(
@@ -2173,9 +3012,13 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 except Exception:
                     pass
 
-        # LLM-guided curriculum: inject gap-targeted training from cortex
-        curriculum_extra = self._run_curriculum_injection_locked(total_trained)
+        # LLM-guided curriculum + real sensory grounding
+        curriculum_extra = self._run_curriculum_injection_locked()
+        sensory_summary = self._run_real_sensory_episode_locked()
         total_trained += curriculum_extra
+        token_count_after = int(self._trainer.token_count)
+        multimodal_summary = self._multimodal_runtime_summary_locked() if (curriculum_extra > 0 or sensory_summary is not None) else None
+        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or curriculum_extra > 0 or sensory_summary is not None
 
         completed_at = datetime.now(timezone.utc).isoformat()
         token_delta = int(token_count_after - token_count_before)
@@ -2212,9 +3055,11 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             self._record_brain_event_locked(summary)
             return summary
 
-        multimodal_summary = self._run_multimodal_episode_locked()
         autonomy_summary = self._run_brain_autonomy_locked()
-        did_work = autonomy_summary is not None or multimodal_summary is not None
+        curriculum_extra = self._run_curriculum_injection_locked()
+        sensory_summary = self._run_real_sensory_episode_locked()
+        multimodal_summary = self._multimodal_runtime_summary_locked() if (curriculum_extra > 0 or sensory_summary is not None) else None
+        did_work = autonomy_summary is not None or curriculum_extra > 0 or sensory_summary is not None
         completed_at = datetime.now(timezone.utc).isoformat()
         summary = {
             "type": "tick",
@@ -2224,11 +3069,11 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             "multimodal": multimodal_summary,
             "autonomy": autonomy_summary,
             "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
-            "token_delta": 0,
+            "token_delta": int(curriculum_extra + (0 if sensory_summary is None else sensory_summary.get("steps_trained", 0))),
         }
         self._brain_last_tick_completed_at = completed_at
         self._brain_last_tick_duration_ms = float(summary["tick_duration_ms"])
-        self._brain_last_tick_token_delta = 0
+        self._brain_last_tick_token_delta = int(summary["token_delta"])
         if did_work:
             self._brain_last_work_at = completed_at
         self._record_brain_event_locked(summary)
@@ -2251,9 +3096,11 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             return summary
 
         source_summary = self._consume_next_source_locked()
-        multimodal_summary = self._run_multimodal_episode_locked()
         autonomy_summary = self._run_brain_autonomy_locked()
-        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or multimodal_summary is not None
+        curriculum_extra = self._run_curriculum_injection_locked()
+        sensory_summary = self._run_real_sensory_episode_locked()
+        multimodal_summary = self._multimodal_runtime_summary_locked() if (curriculum_extra > 0 or sensory_summary is not None) else None
+        did_work = bool(source_summary.get("did_work")) or autonomy_summary is not None or curriculum_extra > 0 or sensory_summary is not None
         token_count_after = int(self._trainer.token_count)
 
         # --- Inject SNN neuromodulator state into cortex drives ---
@@ -2350,7 +3197,6 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             self._brain_background_tokens += token_count
             self._brain_tick_count += 1
             self._brain_source_index = (idx + 1) % source_count
-            self._multimodal_tokens_since_episode += token_count
             self._mark_mutated()
             return {
                 "did_work": True,
@@ -2522,6 +3368,12 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         autonomy_candidate_names = None
         autonomy_focus_plan = None
         autonomy_provider_curriculum = None
+        curriculum = self._brain_config.get("curriculum")
+        sensory = self._brain_config.get("sensory")
+        curriculum_tokens_until_trigger = None
+        curriculum_trigger_ready = None
+        sensory_tokens_until_trigger = None
+        sensory_trigger_ready = None
         if autonomy is not None:
             trigger_interval = int(autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS))
             token_delta = int(self._trainer.token_count) - int(self._brain_last_acquisition_token_count)
@@ -2533,6 +3385,16 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             ]
             autonomy_focus_plan = self._autonomy_focus_plan_locked()
             autonomy_provider_curriculum = self._provider_curriculum_snapshot_locked(autonomy, autonomy_focus_plan)
+        if curriculum is not None:
+            curriculum_trigger_interval = int(curriculum.get("trigger_interval_tokens", 1024))
+            curriculum_token_delta = int(self._trainer.token_count) - int(self._last_curriculum_injection_token_count)
+            curriculum_tokens_until_trigger = int(max(0, curriculum_trigger_interval - curriculum_token_delta))
+            curriculum_trigger_ready = bool(curriculum_token_delta >= curriculum_trigger_interval)
+        if sensory is not None:
+            sensory_trigger_interval = int(sensory.get("episode_interval_tokens", 2048))
+            sensory_token_delta = int(self._trainer.token_count) - int(self._last_real_sensory_episode_token_count)
+            sensory_tokens_until_trigger = int(max(0, sensory_trigger_interval - sensory_token_delta))
+            sensory_trigger_ready = bool(sensory_token_delta >= sensory_trigger_interval)
         return {
             "configured": bool(self._brain_config.get("source_bank")),
             "running": bool(
@@ -2582,6 +3444,61 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 }
                 for runtime in self._brain_source_runtimes
             ],
+            "huggingface": self._huggingface_runtime_summary_locked(),
+            "curriculum": None
+            if curriculum is None
+            else {
+                "enabled": bool(curriculum.get("enabled", False)),
+                "topics_per_cycle": int(curriculum.get("topics_per_cycle", 3)),
+                "trigger_interval_tokens": int(curriculum.get("trigger_interval_tokens", 1024)),
+                "cooldown_seconds": float(curriculum.get("cooldown_seconds", 30.0)),
+                "tokens_until_trigger": curriculum_tokens_until_trigger,
+                "trigger_ready": curriculum_trigger_ready,
+                "last_injection_at": None if self._last_curriculum_injection_time <= 0 else self._last_curriculum_injection_time,
+                "last_injection_token_count": int(self._last_curriculum_injection_token_count),
+            },
+            "sensory": None
+            if sensory is None
+            else {
+                "enabled": bool(sensory.get("enabled", False)),
+                "episode_interval_tokens": int(sensory.get("episode_interval_tokens", 2048)),
+                "items_per_episode": int(sensory.get("items_per_episode", 1)),
+                "base_windows_per_item": int(sensory.get("base_windows_per_item", 4)),
+                "max_windows_per_item": int(sensory.get("max_windows_per_item", 10)),
+                "confidence_window_gain": float(sensory.get("confidence_window_gain", 3.0)),
+                "semantic_window_gain": float(sensory.get("semantic_window_gain", 3.0)),
+                "item_retrieval_lookahead": int(sensory.get("item_retrieval_lookahead", 1)),
+                "item_retrieval_semantic_weight": float(sensory.get("item_retrieval_semantic_weight", 0.72)),
+                "modality_target_confidence": float(sensory.get("modality_target_confidence", 0.70)),
+                "observation_salience": float(sensory.get("observation_salience", 0.82)),
+                "cooldown_seconds": float(sensory.get("cooldown_seconds", 10.0)),
+                "repeat_sources": bool(sensory.get("repeat_sources", True)),
+                "tokens_until_trigger": sensory_tokens_until_trigger,
+                "trigger_ready": sensory_trigger_ready,
+                "last_episode_at": None if self._last_real_sensory_episode_time <= 0 else self._last_real_sensory_episode_time,
+                "last_episode_token_count": int(self._last_real_sensory_episode_token_count),
+                "source_bank": deepcopy(list(sensory.get("source_bank", []))),
+                "focus_terms": list(self._last_sensory_focus_terms),
+                "source_progress": [
+                    {
+                        "name": runtime.name,
+                        "adapter": runtime.adapter,
+                        "episodes_processed": int(runtime.episodes_processed),
+                        "cycles_completed": int(runtime.cycles_completed),
+                        "exhausted": bool(runtime.exhausted),
+                        "last_activity_at": runtime.last_activity_at,
+                        "last_text": runtime.last_text,
+                        "last_semantic_match": float(runtime.last_semantic_match),
+                        "last_item_semantic_match": float(runtime.last_item_semantic_match),
+                        "last_item_candidates_considered": int(runtime.last_item_candidates_considered),
+                        "last_item_retrieval_lookahead": int(runtime.last_item_retrieval_lookahead),
+                        "last_modality_need": float(runtime.last_modality_need),
+                        "last_selection_score": float(runtime.last_selection_score),
+                        "last_window_budget": int(runtime.last_window_budget),
+                    }
+                    for runtime in self._sensory_source_runtimes
+                ],
+            },
             "autonomy": None
             if autonomy is None
             else {
@@ -2602,16 +3519,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "last_acquisition_summary": deepcopy(self._brain_last_acquisition_summary),
                 "geometric_curiosity": deepcopy(self._geometric_curiosity.summary()),
             },
-            "multimodal": {
-                "enabled": bool(self._multimodal_dataset is not None),
-                "episodes_completed": int(self._multimodal_episodes_completed),
-                "tokens_since_episode": int(self._multimodal_tokens_since_episode),
-                "episode_interval": int(
-                    (self._brain_config.get("multimodal") or {}).get("episode_interval_tokens", 256)
-                ),
-                "cross_modal_visual_accepted": int(self._multimodal_visual_accepted),
-                "cross_modal_audio_accepted": int(self._multimodal_audio_accepted),
-            },
+            "multimodal": self._multimodal_runtime_summary_locked(),
             "cortex": self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False},
         }
 
@@ -2624,6 +3532,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             ),
             "repeat_sources": bool(self._brain_config.get("repeat_sources", True)),
             "autonomy": deepcopy(self._brain_config.get("autonomy")),
+            "curriculum": deepcopy(self._brain_config.get("curriculum")),
+            "sensory": deepcopy(self._brain_config.get("sensory")),
             "recent_query_gaps": [deepcopy(item) for item in list(self._brain_recent_query_gaps)],
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
         }

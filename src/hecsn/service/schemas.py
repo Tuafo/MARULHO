@@ -31,6 +31,20 @@ class TerminusSourceSpec(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class TerminusSensorySourceSpec(BaseModel):
+    name: str = Field(..., min_length=1)
+    adapter: Literal["s1_mmalign", "audiocaps"]
+    source: str | None = None
+    split: str = Field("train", min_length=1)
+    year_prefixes: list[str] = Field(default_factory=list)
+    sample_rate: int | None = Field(None, ge=1000, le=192000)
+    n_fft: int | None = Field(None, ge=64, le=8192)
+    max_text_chars: int | None = Field(None, ge=32, le=4000)
+    audio_candidates_per_item: int | None = Field(None, ge=1, le=64)
+    topic_terms: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] | None = None
+
+
 class TerminusCatalogEntrySpec(BaseModel):
     name: str = Field(..., min_length=1)
     source: str = Field(..., min_length=1)
@@ -92,12 +106,31 @@ class TerminusAutonomyConfig(BaseModel):
     semantic_shortlist_affinity_weight: float = 0.5
 
 
+class TerminusSensoryConfig(BaseModel):
+    enabled: bool = True
+    source_bank: list[TerminusSensorySourceSpec] = Field(default_factory=list)
+    episode_interval_tokens: int = Field(1536, ge=1, le=200000)
+    items_per_episode: int = Field(2, ge=1, le=16)
+    base_windows_per_item: int = Field(4, ge=1, le=128)
+    max_windows_per_item: int = Field(10, ge=1, le=128)
+    confidence_window_gain: float = Field(3.0, ge=0.0, le=64.0)
+    semantic_window_gain: float = Field(3.0, ge=0.0, le=64.0)
+    item_retrieval_lookahead: int = Field(6, ge=1, le=32)
+    item_retrieval_semantic_weight: float = Field(0.72, ge=0.0, le=1.0)
+    modality_target_confidence: float = Field(0.70, ge=0.1, le=1.0)
+    observation_salience: float = Field(0.82, ge=0.1, le=1.0)
+    cooldown_seconds: float = Field(8.0, ge=0.1, le=600.0)
+    repeat_sources: bool = True
+
+
 class TerminusConfigureRequest(BaseModel):
     source_bank: list[TerminusSourceSpec] = Field(..., min_length=1)
     tick_tokens: int = Field(128, ge=1, le=20000)
     sleep_interval_seconds: float = Field(0.25, ge=0.01, le=60.0)
     repeat_sources: bool = True
     autonomy: TerminusAutonomyConfig | None = None
+    curriculum: dict[str, Any] | None = None
+    sensory: TerminusSensoryConfig | None = None
 
 
 class TerminusTickRequest(BaseModel):

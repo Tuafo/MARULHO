@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
+from unittest.mock import patch
 
 from hecsn.data.corpus_loader import StreamingCorpusLoader, extract_web_text
 
@@ -53,6 +55,31 @@ class CorpusLoaderTests(unittest.TestCase):
         self.assertNotIn("File:Hebb", text)
         self.assertNotIn("Category:Neuroscience", text)
         self.assertNotIn("https://example.com", text)
+
+    def test_hf_loader_passes_env_token_to_load_dataset(self) -> None:
+        calls: list[dict[str, object]] = []
+
+        def _fake_load_dataset(*args, **kwargs):
+            calls.append({"args": args, "kwargs": kwargs})
+            return [{"text": "abc"}]
+
+        with patch.dict(os.environ, {"HF_TOKEN": "test-token"}, clear=False):
+            with patch("datasets.load_dataset", side_effect=_fake_load_dataset):
+                loader = StreamingCorpusLoader(
+                    "HuggingFaceFW/fineweb-edu",
+                    source_type="hf",
+                    hf_config="sample-10BT",
+                    text_field="text",
+                )
+                chars = loader.char_stream()
+                observed = "".join(next(chars) for _ in range(3))
+
+        self.assertEqual(observed, "abc")
+        self.assertTrue(calls)
+        self.assertEqual(calls[0]["args"][:2], ("HuggingFaceFW/fineweb-edu", "sample-10BT"))
+        self.assertEqual(calls[0]["kwargs"]["token"], "test-token")
+        self.assertTrue(calls[0]["kwargs"]["streaming"])
+        self.assertEqual(calls[0]["kwargs"]["split"], "train")
 
     def test_extract_web_text_normalizes_openalex_work_json(self) -> None:
         payload = json.dumps(

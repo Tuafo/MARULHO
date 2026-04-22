@@ -292,6 +292,19 @@ Budgeting shapes:
 
 Budget is therefore not just an implementation detail. It is part of the architecture.
 
+### 9.4 Current runtime sources
+The current live runtime now uses:
+- **HuggingFaceFW/fineweb-edu (`sample-10BT`)** for broad educational background text
+- **wikimedia/wikipedia (`20231101.en`)** for encyclopedic grounding
+- **AlgorithmicResearchGroup/s2orc_arxiv (`abstract`)** for dense scientific vocabulary
+- **ScienceOne-AI/S1-MMAlign** for real scientific figure grounding
+- **OpenSound/AudioCaps** for real audio grounding
+- a **balanced confidence-aware, semantically routed sensory schedule** that increases real sensory exposure when grounding confidence is weak and when the active exploration target matches that modality, while keeping text curriculum dominant
+- **NIM-generated curriculum segments** for targeted topic injection
+- **synthetic visual/audio hint channels** derived from curriculum segments as an auxiliary lightweight support path
+
+This replaces both the earlier dependence on external news streams and the temporary local seed-bank workaround, while also removing narrow digit-only datasets from the current Terminus runtime path.
+
 ---
 
 ## 10. Current Functionality

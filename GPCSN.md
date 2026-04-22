@@ -306,23 +306,24 @@ The budget constrains:
 ### 9.1 Current recommended strategy
 The present system no longer treats raw Wikipedia-style text as the preferred path. The language cortex already brings broad text priors; the spiking system should focus on what the cortex lacks.
 
-### 9.2 Current recommended presets
+### 9.2 Current recommended preset
 
 | Preset | Function |
 |---|---|
-| `curriculum` | default text + NIM-guided curriculum |
-| `multimodal` | curriculum + N-MNIST + FSDD |
-| `multimodal_fast` | faster multimodal configuration |
-| `wikipedia` | legacy compatibility only |
+| `curriculum` | Hugging Face background mixture (`fineweb-edu`, `wikimedia/wikipedia`, `s2orc_arxiv` abstracts) + real multimodal HF grounding (`S1-MMAlign`, `AudioCaps`) + NIM-guided curriculum + synthetic visual/audio hint channels |
 
-### 9.3 Current data sources
-- **AG News** for broad topic seeding
-- **N-MNIST** for event-based visual grounding
-- **FSDD** for spoken-digit grounding
-- **NIM-generated curriculum segments** for targeted text episodes
+### 9.3 Current runtime data sources
+- **HuggingFaceFW/fineweb-edu (`sample-10BT`)** for broad educational background text
+- **wikimedia/wikipedia (`20231101.en`)** for structured encyclopedic grounding
+- **AlgorithmicResearchGroup/s2orc_arxiv (`abstract`)** for dense scientific vocabulary and concepts
+- **ScienceOne-AI/S1-MMAlign** for real scientific image grounding
+- **OpenSound/AudioCaps** for real audio grounding
+- a **balanced confidence-aware, semantically routed sensory schedule** that periodically injects both image and audio episodes without displacing the main text curriculum
+- **NIM-generated curriculum segments** for targeted text episodes aligned to current gaps and exploration pressure
+- **Synthetic visual/audio hint channels** derived from curriculum segments as an auxiliary lightweight cross-modal path
 
 ### 9.4 Remaining problem
-These datasets are still too narrow for broad grounded cognition. The current architecture is ready for richer episodes, but the data regime needs to grow.
+The runtime is cleaner and more aligned with the architecture, and it now includes real Hugging Face image/audio grounding in addition to curriculum-derived hints. But the multimodal regime is still only a first step: these sources are better than digit benchmarks, yet they are not the full richness of embodied real-world experience. The data regime still needs to grow.
 
 ---
 

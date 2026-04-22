@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -12,6 +13,12 @@ from urllib.request import Request, urlopen
 
 
 SourceType = Literal["auto", "file", "hf", "web"]
+_HF_TOKEN_ENV_NAMES: tuple[str, ...] = (
+    "HF_TOKEN",
+    "HUGGINGFACE_HUB_TOKEN",
+    "HUGGING_FACE_HUB_TOKEN",
+    "HUGGINGFACE_API_KEY",
+)
 
 _NOISE_LINE_PREFIXES = (
     "jump to content",
@@ -65,6 +72,14 @@ def _normalize_text(value: Any) -> str:
 def _looks_like_url(source: str) -> bool:
     parsed = urlparse(source)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def huggingface_token_from_env() -> str | None:
+    for env_name in _HF_TOKEN_ENV_NAMES:
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value
+    return None
 
 
 def _normalize_plain_text(text: str, *, max_chars: int | None = None) -> str:
@@ -432,6 +447,8 @@ class StreamingCorpusLoader:
         source_type: SourceType = "auto",
         text_field: str = "text",
         hf_config: Optional[str] = None,
+        hf_token: Optional[str] = None,
+        hf_split: str = "train",
         web_max_chars: int = 200000,
         web_timeout_seconds: float = 20.0,
     ) -> None:
@@ -439,6 +456,8 @@ class StreamingCorpusLoader:
         self.source_type = source_type
         self.text_field = text_field
         self.hf_config = hf_config
+        self.hf_token = None if hf_token in (None, "") else str(hf_token)
+        self.hf_split = str(hf_split or "train")
         self.web_max_chars = max(1000, int(web_max_chars))
         self.web_timeout_seconds = float(web_timeout_seconds)
 
@@ -472,10 +491,25 @@ class StreamingCorpusLoader:
                 "Install it with: pip install datasets"
             ) from exc
 
-        if self.hf_config:
-            ds = load_dataset(self.source, self.hf_config, split="train", streaming=True)
-        else:
-            ds = load_dataset(self.source, split="train", streaming=True)
+        split = self.hf_split or "train"
+        token = self.hf_token or huggingface_token_from_env()
+        load_kwargs: dict[str, Any] = {"split": split, "streaming": True}
+        if token:
+            load_kwargs["token"] = token
+        try:
+            if self.hf_config:
+                ds = load_dataset(self.source, self.hf_config, **load_kwargs)
+            else:
+                ds = load_dataset(self.source, **load_kwargs)
+        except TypeError:
+            legacy_kwargs = dict(load_kwargs)
+            if token:
+                legacy_kwargs.pop("token", None)
+                legacy_kwargs["use_auth_token"] = token
+            if self.hf_config:
+                ds = load_dataset(self.source, self.hf_config, **legacy_kwargs)
+            else:
+                ds = load_dataset(self.source, **legacy_kwargs)
         for row in ds:
             text = str(row.get(self.text_field, ""))
             for ch in text:

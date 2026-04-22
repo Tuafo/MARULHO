@@ -6,8 +6,11 @@ import time
 import unittest
 from unittest.mock import patch
 
+import torch
+
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.manager import HECSNServiceManager
+from hecsn.service.terminus_sensory import SensoryEpisode
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
@@ -139,6 +142,438 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     for term in concept.get("top_terms", [])
                 }
                 self.assertIn("plasticity", top_terms)
+            finally:
+                manager.close()
+
+    def test_terminus_tick_trains_from_hf_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_hf_source")
+            try:
+                fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+                fake_stream = iter(("adaptive memory plasticity", fake_pattern) for _ in range(64))
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=fake_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "fineweb_edu",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                                "hf_config": "sample-10BT",
+                            }
+                        ],
+                        tick_tokens=24,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=True,
+                    )
+                before_tokens = configured["token_count"]
+                ticked = manager.terminus_tick(steps=2)
+                runtime = ticked["terminus_runtime"]
+
+                self.assertGreater(ticked["token_count"], before_tokens)
+                self.assertEqual(runtime["source_count"], 1)
+                self.assertEqual(runtime["source_progress"][0]["name"], "fineweb_edu")
+                self.assertGreater(runtime["source_progress"][0]["tokens_processed"], 0)
+                self.assertEqual(runtime["last_event"]["source"]["source_name"], "fineweb_edu")
+                self.assertEqual(runtime["huggingface"]["source_count"], 1)
+            finally:
+                manager.close()
+
+    def test_curriculum_injection_uses_synthetic_sensory_hints(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_curriculum_injection")
+            calls: list[dict[str, object]] = []
+
+            class _DummyGate:
+                active_exploration_target = "plate tectonics"
+
+            class _DummyThoughtLoop:
+                gate = _DummyGate()
+                is_running = False
+
+            class _FakeSegment:
+                def __init__(self, text: str, visual_hint: str, audio_hint: str) -> None:
+                    self.text = text
+                    self.visual_hint = visual_hint
+                    self.audio_hint = audio_hint
+
+            class _FakeCurriculumGenerator:
+                def generate(self, gap_terms, max_segments=3):
+                    return [
+                        _FakeSegment(
+                            "Plate tectonics moves continents over geological time.",
+                            "Layered crust plates shifting over glowing mantle.",
+                            "Grinding rock and low seismic rumble.",
+                        )
+                    ]
+
+                def close(self) -> None:
+                    return None
+
+            def _fake_train_step(pattern, **kwargs):
+                calls.append(kwargs)
+                manager._trainer.token_count += 1
+                return {}
+
+            try:
+                manager._thought_loop = _DummyThoughtLoop()
+                manager._brain_config["curriculum"] = {
+                    "enabled": True,
+                    "topics_per_cycle": 1,
+                    "trigger_interval_tokens": 1,
+                    "cooldown_seconds": 5.0,
+                }
+                manager._trainer.token_count = 64
+                manager._last_curriculum_injection_token_count = 0
+                manager._last_curriculum_injection_time = 0.0
+                manager._geometric_curiosity.focus_plan = lambda top_n=1: {"geometric_gaps": []}
+                with patch("hecsn.cortex.curriculum.CurriculumGenerator", return_value=_FakeCurriculumGenerator()):
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        extra = manager._run_curriculum_injection_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                self.assertGreater(extra, 0)
+                self.assertTrue(calls)
+                self.assertIsNotNone(calls[0].get("visual_spikes"))
+                self.assertIsNotNone(calls[0].get("audio_spikes"))
+                self.assertGreater(manager._last_curriculum_injection_time, 0.0)
+            finally:
+                manager.close()
+
+    def test_real_sensory_episode_uses_hf_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_real_sensory")
+            calls: list[dict[str, object]] = []
+            observations: list[dict[str, object]] = []
+            episode = SensoryEpisode(
+                text="A scientific figure shows two sharply separated regions in a lattice.",
+                visual_spikes=torch.ones(64),
+                audio_spikes=None,
+                metadata={"adapter": "s1_mmalign"},
+                visual_preview={
+                    "mime_type": "image/png",
+                    "bytes": b"fakepng",
+                    "width": 16,
+                    "height": 16,
+                },
+            )
+
+            def _fake_train_step(pattern, **kwargs):
+                calls.append(kwargs)
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": True, "cross_modal_audio_accepted": False}
+
+            class _DummyThoughtLoop:
+                is_running = False
+
+                def inject_observation(self, content, topics=(), salience=0.7):
+                    observations.append({
+                        "content": content,
+                        "topics": list(topics),
+                        "salience": salience,
+                    })
+
+                def snapshot(self):
+                    return {"enabled": True}
+
+            try:
+                manager._thought_loop = _DummyThoughtLoop()
+                manager._trainer.config.enable_cross_modal = True
+                manager._brain_config["sensory"] = {
+                    "enabled": True,
+                    "source_bank": [
+                        {
+                            "name": "science_figures",
+                            "adapter": "s1_mmalign",
+                            "source": "ScienceOne-AI/S1-MMAlign",
+                            "split": "train",
+                            "year_prefixes": ["07"],
+                        }
+                    ],
+                    "episode_interval_tokens": 1,
+                    "items_per_episode": 1,
+                    "base_windows_per_item": 2,
+                    "max_windows_per_item": 4,
+                    "confidence_window_gain": 4.0,
+                    "modality_target_confidence": 0.70,
+                    "observation_salience": 0.80,
+                    "cooldown_seconds": 1.0,
+                    "repeat_sources": True,
+                }
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=iter([episode]),
+                ):
+                    manager._rebuild_brain_sources_locked()
+                manager._trainer.token_count = 64
+                manager._last_real_sensory_episode_token_count = 0
+                manager._last_real_sensory_episode_time = 0.0
+                original_train_step = manager._trainer.train_step
+                manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                try:
+                    summary = manager._run_real_sensory_episode_locked()
+                finally:
+                    manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                runtime = manager.terminus_status()["terminus_runtime"]
+                self.assertIsNotNone(summary)
+                self.assertTrue(calls)
+                self.assertEqual(len(calls), 4)
+                self.assertEqual(summary["sources"][0]["window_budget"], 4)
+                self.assertIsNotNone(calls[0].get("visual_spikes"))
+                self.assertIsNone(calls[0].get("audio_spikes"))
+                self.assertTrue(observations)
+                self.assertIn("image-grounded episode", str(observations[0]["content"]))
+                self.assertGreater(float(observations[0]["salience"]), 0.8)
+                self.assertEqual(runtime["sensory"]["source_progress"][0]["episodes_processed"], 1)
+                self.assertEqual(runtime["multimodal"]["real_episodes_completed"], 1)
+                self.assertEqual(runtime["multimodal"]["recent_preview_count"], 1)
+                self.assertIsNotNone(runtime["multimodal"]["latest_preview_id"])
+                self.assertGreater(runtime["multimodal"]["real_cross_modal_visual_accepted"], 0)
+                previews = manager.sensory_previews(limit=1)
+                self.assertEqual(previews["count"], 1)
+                self.assertEqual(len(previews["previews"]), 1)
+                self.assertTrue(previews["previews"][0]["visual"]["data_url"].startswith("data:image/png;base64,"))
+            finally:
+                manager.close()
+
+    def test_sensory_selection_tracks_exploration_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_sensory_semantics")
+
+            class _Gate:
+                active_exploration_target = "scientific diagram of lattice phases"
+
+            class _DummyThoughtLoop:
+                gate = _Gate()
+                is_running = False
+
+                def snapshot(self):
+                    return {"enabled": True}
+
+            figure_episode = SensoryEpisode(
+                text="A scientific figure showing a lattice phase transition.",
+                visual_spikes=torch.ones(64),
+                audio_spikes=None,
+                metadata={"title": "phase diagram", "categories": "physics"},
+            )
+            audio_episode = SensoryEpisode(
+                text="Water pours while footsteps and wind are audible.",
+                visual_spikes=None,
+                audio_spikes=torch.ones(64),
+                metadata={"caption": "water and footsteps"},
+            )
+
+            def _stream_for_spec(_self, spec):
+                if spec["adapter"] == "s1_mmalign":
+                    return iter([figure_episode])
+                return iter([audio_episode])
+
+            try:
+                manager._thought_loop = _DummyThoughtLoop()
+                manager._brain_config["sensory"] = {
+                    "enabled": True,
+                    "source_bank": [
+                        {
+                            "name": "science_figures",
+                            "adapter": "s1_mmalign",
+                            "topic_terms": ["scientific figure", "diagram graph lattice phase"],
+                        },
+                        {
+                            "name": "environmental_audio",
+                            "adapter": "audiocaps",
+                            "topic_terms": ["audio sound water wind footsteps environment"],
+                        },
+                    ],
+                    "episode_interval_tokens": 1,
+                    "items_per_episode": 2,
+                    "base_windows_per_item": 2,
+                    "max_windows_per_item": 5,
+                    "confidence_window_gain": 0.0,
+                    "semantic_window_gain": 3.0,
+                    "modality_target_confidence": 0.70,
+                    "observation_salience": 0.80,
+                    "cooldown_seconds": 1.0,
+                    "repeat_sources": True,
+                }
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    side_effect=_stream_for_spec,
+                ):
+                    manager._rebuild_brain_sources_locked()
+
+                selection = manager._select_sensory_runtime_locked(set())
+                self.assertIsNotNone(selection)
+                idx, runtime, semantic_match, modality_need, selection_score = selection  # type: ignore[misc]
+                self.assertEqual(runtime.name, "science_figures")
+                self.assertGreater(semantic_match, 0.5)
+                self.assertGreater(selection_score, 0.3)
+                figure_budget = manager._sensory_window_budget_locked(
+                    runtime,
+                    semantic_match=semantic_match,
+                    modality_need=modality_need,
+                )
+                self.assertEqual(figure_budget, 5)
+                runtime_snapshot = manager.terminus_status()["terminus_runtime"]
+                self.assertIn("scientific", runtime_snapshot["multimodal"]["focus_terms"])
+
+                manager._thought_loop.gate.active_exploration_target = "environmental sound of water and footsteps"
+                selection2 = manager._select_sensory_runtime_locked(set())
+                self.assertIsNotNone(selection2)
+                idx2, runtime2, semantic_match2, modality_need2, selection_score2 = selection2  # type: ignore[misc]
+                self.assertEqual(runtime2.name, "environmental_audio")
+                self.assertGreater(semantic_match2, 0.5)
+                self.assertGreater(selection_score2, 0.3)
+                audio_budget = manager._sensory_window_budget_locked(
+                    runtime2,
+                    semantic_match=semantic_match2,
+                    modality_need=modality_need2,
+                )
+                self.assertEqual(audio_budget, 5)
+                runtime_snapshot = manager.terminus_status()["terminus_runtime"]
+                self.assertIn("environmental", runtime_snapshot["multimodal"]["focus_terms"])
+            finally:
+                manager.close()
+
+    def test_real_sensory_item_retrieval_shortlists_within_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_sensory_item_retrieval")
+
+            class _Gate:
+                active_exploration_target = "environmental sound of water wind and footsteps"
+
+            class _DummyThoughtLoop:
+                gate = _Gate()
+                is_running = False
+
+                def inject_observation(self, content, topics=(), salience=0.7):
+                    return None
+
+                def snapshot(self):
+                    return {"enabled": True}
+
+            episodes = [
+                SensoryEpisode(
+                    text="Industrial machinery hums inside a factory hall.",
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "factory machinery"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"factory",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.1] * 8,
+                    },
+                ),
+                SensoryEpisode(
+                    text="Water splashes while wind and footsteps move through an outdoor path.",
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "water wind footsteps"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"waterwindsteps",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.4] * 8,
+                    },
+                ),
+                SensoryEpisode(
+                    text="Soft birdsong in a quiet forest.",
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "forest birdsong"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"birdsong",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.2] * 8,
+                    },
+                ),
+            ]
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._thought_loop = _DummyThoughtLoop()
+                manager._trainer.config.enable_cross_modal = True
+                manager._brain_config["sensory"] = {
+                    "enabled": True,
+                    "source_bank": [
+                        {
+                            "name": "environmental_audio",
+                            "adapter": "audiocaps",
+                            "source": "OpenSound/AudioCaps",
+                            "split": "train",
+                            "topic_terms": ["audio sound water wind footsteps environment"],
+                        }
+                    ],
+                    "episode_interval_tokens": 1,
+                    "items_per_episode": 1,
+                    "base_windows_per_item": 1,
+                    "max_windows_per_item": 2,
+                    "confidence_window_gain": 0.0,
+                    "semantic_window_gain": 0.0,
+                    "item_retrieval_lookahead": 3,
+                    "item_retrieval_semantic_weight": 0.9,
+                    "modality_target_confidence": 0.70,
+                    "observation_salience": 0.80,
+                    "cooldown_seconds": 1.0,
+                    "repeat_sources": True,
+                }
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=iter(episodes),
+                ):
+                    manager._rebuild_brain_sources_locked()
+                manager._trainer.token_count = 64
+                manager._last_real_sensory_episode_token_count = 0
+                manager._last_real_sensory_episode_time = 0.0
+                original_train_step = manager._trainer.train_step
+                manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                try:
+                    summary = manager._run_real_sensory_episode_locked()
+                finally:
+                    manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                self.assertIsNotNone(summary)
+                self.assertEqual(summary["sources"][0]["name"], "environmental_audio")
+                self.assertGreater(summary["sources"][0]["item_semantic_match"], 0.5)
+                self.assertEqual(summary["sources"][0]["item_candidates_considered"], 3)
+
+                previews = manager.sensory_previews(limit=1)
+                preview = previews["previews"][0]
+                self.assertIn("Water splashes", preview["text"])
+                self.assertGreater(preview["item_semantic_match"], 0.5)
+                self.assertEqual(preview["item_candidates_considered"], 3)
+
+                runtime = manager.terminus_status()["terminus_runtime"]
+                source_progress = runtime["sensory"]["source_progress"][0]
+                self.assertGreater(source_progress["last_item_semantic_match"], 0.5)
+                self.assertEqual(source_progress["last_item_candidates_considered"], 3)
+                self.assertEqual(source_progress["last_item_retrieval_lookahead"], 3)
             finally:
                 manager.close()
 

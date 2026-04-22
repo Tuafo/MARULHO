@@ -1293,15 +1293,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
-            self.assertEqual(data["model_name"], "HECSNModel")
-            self.assertEqual(data["version"], "v4")
+            self.assertEqual(data["model_name"], "Terminus")
+            self.assertEqual(data["core_name"], "GPCSN")
+            self.assertEqual(data["version"], "current")
             layers = data["layers"]
             self.assertIsInstance(layers, list)
             self.assertGreater(len(layers), 0)
             layer_ids = [l["id"] for l in layers]
             self.assertIn("input_encoding", layer_ids)
             self.assertIn("competitive_routing", layer_ids)
+            self.assertIn("predictive_columns", layer_ids)
             self.assertIn("memory_consolidation", layer_ids)
+            self.assertIn("nim_cortex", layer_ids)
             for layer in layers:
                 self.assertIn("id", layer)
                 self.assertIn("name", layer)
@@ -1361,8 +1364,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertIsInstance(data, list)
             self.assertGreater(len(data), 0)
             ids = [p["id"] for p in data]
-            self.assertIn("curriculum", ids)
-            self.assertIn("wikipedia", ids)
+            self.assertEqual(ids, ["curriculum"])
+            self.assertNotIn("multimodal", ids)
+            self.assertNotIn("multimodal_fast", ids)
             self.assertEqual(data[0]["id"], "curriculum")
             self.assertTrue(data[0].get("default"))
             for preset in data:
@@ -1380,15 +1384,81 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             source_path.write_text("The platypus is an egg-laying mammal found in eastern Australia. " * 5)
             ckpt = _build_checkpoint(root, test_case="service_api_quick_start")
             app = create_app(ckpt, trace_dir=root / "traces")
+
+            def _fake_start(self):
+                return {
+                    "terminus_runtime": self._brain_runtime_snapshot_locked(),
+                    "dirty_state": bool(self._dirty_state),
+                    "state_revision": int(self._state_revision),
+                    "token_count": int(self._trainer.token_count),
+                }
+
+            with patch("hecsn.service.manager.HECSNServiceManager.start_terminus", autospec=True, side_effect=_fake_start):
+                with TestClient(app) as client:
+                    resp = client.post("/terminus/quick-start")
+                    self.assertEqual(resp.status_code, 200)
+                    data = resp.json()
+                    self.assertTrue(data["terminus_runtime"]["configured"])
+                    self.assertFalse(data.get("already_running", False))
+                    self.assertEqual(data.get("preset_applied"), "curriculum")
+                    self.assertEqual(data["terminus_runtime"]["source_count"], 3)
+                    stop_resp = client.post("/terminus/stop")
+                    self.assertEqual(stop_resp.status_code, 200)
+
+    def test_datasets_endpoint_reports_current_runtime_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ckpt = _build_checkpoint(root, test_case="service_api_datasets")
+            app = create_app(ckpt, trace_dir=root / "traces")
             with TestClient(app) as client:
-                resp = client.post("/terminus/quick-start")
-                self.assertEqual(resp.status_code, 200)
-                data = resp.json()
-                self.assertTrue(data["terminus_runtime"]["configured"])
-                self.assertFalse(data.get("already_running", False))
-                self.assertEqual(data.get("preset_applied"), "curriculum")
-                stop_resp = client.post("/terminus/stop")
-                self.assertEqual(stop_resp.status_code, 200)
+                resp = client.get("/datasets")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            names = [entry["name"] for entry in data["datasets"]]
+            self.assertIn("fineweb_edu", names)
+            self.assertIn("wikipedia_en", names)
+            self.assertIn("s2orc_arxiv_abstracts", names)
+            self.assertIn("science_figures", names)
+            self.assertIn("environmental_audio", names)
+            self.assertIn("nim_curriculum", names)
+            self.assertNotIn("N-MNIST", names)
+            self.assertNotIn("FSDD", names)
+            self.assertIn("huggingface", data)
+            self.assertIn("token_configured", data["huggingface"])
+
+    def test_sensory_recent_endpoint_returns_media_previews(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ckpt = _build_checkpoint(root, test_case="service_api_sensory_recent")
+            app = create_app(ckpt, trace_dir=root / "traces")
+            manager = app.state.hecsn_manager
+            with manager._lock:
+                manager._sensory_preview_history.appendleft(
+                    {
+                        "preview_id": "preview-1",
+                        "captured_at": "2026-04-21T00:00:00+00:00",
+                        "source_name": "science_figures",
+                        "adapter": "s1_mmalign",
+                        "text": "example figure",
+                        "semantic_match": 0.8,
+                        "modality_need": 0.5,
+                        "selection_score": 0.9,
+                        "window_budget": 6,
+                        "topics": ["scientific", "diagram"],
+                        "focus_terms": ["scientific", "diagram"],
+                        "metadata": {"title": "phase diagram"},
+                        "visual": {"mime_type": "image/png", "bytes": b"fakepng", "width": 16, "height": 16},
+                        "audio": None,
+                    }
+                )
+            with TestClient(app) as client:
+                resp = client.get("/terminus/sensory/recent?limit=1")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.json()
+            self.assertEqual(data["count"], 1)
+            self.assertEqual(data["latest_preview_id"], "preview-1")
+            self.assertEqual(len(data["previews"]), 1)
+            self.assertTrue(data["previews"][0]["visual"]["data_url"].startswith("data:image/png;base64,"))
 
     def test_quick_start_rejects_unknown_preset(self) -> None:
         """POST /terminus/quick-start with bad preset returns 422."""

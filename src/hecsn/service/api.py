@@ -30,6 +30,7 @@ from .schemas import (
     TerminusTickRequest,
     TraceHistoryResponse,
 )
+from .terminus_hf_sources import current_runtime_datasets
 
 
 def _model_to_dict(model: object) -> dict:
@@ -168,6 +169,8 @@ def create_app(
                     sleep_interval_seconds=request.sleep_interval_seconds,
                     repeat_sources=request.repeat_sources,
                     autonomy=None if request.autonomy is None else _model_to_dict(request.autonomy),
+                    curriculum=None if request.curriculum is None else _model_to_dict(request.curriculum),
+                    sensory=None if request.sensory is None else _model_to_dict(request.sensory),
                 )
             )
         except ValueError as exc:
@@ -219,6 +222,11 @@ def create_app(
         """Full cortex snapshot (drives, memories, stats)."""
         return manager.cortex_snapshot()
 
+    @app.get("/terminus/sensory/recent")
+    def terminus_sensory_recent(limit: int = Query(6, ge=1, le=12)) -> dict[str, Any]:
+        """Recent real sensory previews (images/audio) for the UI."""
+        return manager.sensory_previews(limit=limit)
+
     @app.get("/traces", response_model=TraceHistoryResponse)
     def traces(limit: int = Query(20, ge=1, le=200)) -> TraceHistoryResponse:
         return TraceHistoryResponse(traces=manager.recent_traces(limit=limit))
@@ -261,51 +269,28 @@ def create_app(
 
     @app.get("/datasets")
     async def datasets():
-        """List available multimodal datasets and their health status."""
-        cwd = Path.cwd()
-        result = []
-
-        # N-MNIST
-        nmnist_base = cwd / "N-MNIST"
-        nmnist_train = nmnist_base / "Train"
-        nmnist_files = 0
-        if nmnist_train.exists():
-            for digit_dir in nmnist_train.iterdir():
-                if digit_dir.is_dir():
-                    nmnist_files += sum(1 for _ in digit_dir.glob("*.bin"))
-        result.append({
-            "name": "N-MNIST",
-            "type": "visual",
-            "path": str(nmnist_base),
-            "exists": nmnist_train.exists(),
-            "file_count": nmnist_files,
-            "description": "Neuromorphic MNIST (34x34 DVS events)",
-        })
-
-        # FSDD
-        fsdd_base = cwd / "free-spoken-digit-dataset-master" / "recordings"
-        fsdd_files = 0
-        if fsdd_base.exists():
-            fsdd_files = sum(1 for _ in fsdd_base.glob("*.wav"))
-        result.append({
-            "name": "FSDD",
-            "type": "audio",
-            "path": str(fsdd_base),
-            "exists": fsdd_base.exists(),
-            "file_count": fsdd_files,
-            "description": "Free Spoken Digit Dataset (8kHz WAV)",
-        })
-
-        # Wikitext-103 (HuggingFace streaming)
-        result.append({
-            "name": "wikitext-103",
-            "type": "text",
-            "path": "wikitext/wikitext-103-raw-v1 (HuggingFace)",
-            "exists": True,
-            "file_count": None,
-            "description": "Wikitext-103 via HuggingFace streaming",
-        })
-
-        return {"datasets": result}
+        """List the data sources used by the current Terminus runtime."""
+        result = current_runtime_datasets()
+        result.append(
+            {
+                "name": "nim_curriculum",
+                "type": "text+synthetic-multimodal",
+                "path": "nim://curriculum-generator",
+                "exists": True,
+                "file_count": None,
+                "description": "NIM-generated educational episodes with visual/audio hints used for targeted curriculum injection.",
+            }
+        )
+        return {
+            "datasets": result,
+            "huggingface": {
+                "token_configured": bool(
+                    os.environ.get("HF_TOKEN")
+                    or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+                    or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+                    or os.environ.get("HUGGINGFACE_API_KEY")
+                )
+            },
+        }
 
     return app
