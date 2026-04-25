@@ -22,11 +22,12 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Iterator, Optional, Sequence
+from typing import Any, Iterator, Mapping, Optional, Sequence
 
 import numpy as np
 
 from hecsn.cortex.rate_limit import DEFAULT_MAX_RPM, SharedRateLimiter
+from hecsn.semantics.grounding_text import match_terms, query_focused_text, salient_query_terms
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class Episode:
     access_count: int = 0
     replay_count: int = 0             # Times replayed during sleep
     embedding: Optional[np.ndarray] = field(default=None, repr=False)
+    metadata: dict[str, Any] = field(default_factory=dict, repr=False)
     source_thought_id: str = ""       # Link to generating thought
     dream_origin: bool = False        # True if this episode began as a dream hypothesis
 
@@ -124,6 +126,33 @@ def _make_episode_id(content: str) -> str:
     """Deterministic short ID from content hash."""
     h = hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
     return f"ep-{h}"
+
+
+@dataclass(frozen=True)
+class EvidenceEpisodeMatch:
+    """A ranked episode prepared for grounded cortex deliberation."""
+    episode: Episode = field(compare=False, repr=False)
+    focused_text: str
+    matched_terms: tuple[str, ...] = ()
+    score: float = 0.0
+    grounded: bool = False
+    lexical_coverage: float = 0.0
+    semantic_similarity: float = 0.0
+
+    @property
+    def episode_id(self) -> str:
+        return self.episode.episode_id
+
+
+@dataclass(frozen=True)
+class EvidenceRecallBundle:
+    """Structured evidence bundle for query and wakeful deliberation."""
+    target: str
+    target_terms: tuple[str, ...] = ()
+    grounded: tuple[EvidenceEpisodeMatch, ...] = ()
+    support: tuple[EvidenceEpisodeMatch, ...] = ()
+    grounded_coverage: float = 0.0
+    combined_coverage: float = 0.0
 
 
 class SimpleEmbedder:
@@ -468,6 +497,7 @@ class EpisodicMemory:
         salience: float = 0.5,
         source_thought_id: str = "",
         episode_id: str = "",
+        metadata: Mapping[str, Any] | None = None,
     ) -> Episode:
         """Store a new episode in memory."""
         if not episode_id:
@@ -477,6 +507,8 @@ class EpisodicMemory:
         if episode_id in self._episodes:
             existing = self._episodes[episode_id]
             existing.salience = max(existing.salience, salience)
+            if metadata:
+                existing.metadata.update({str(key): value for key, value in dict(metadata).items()})
             existing.access_count += 1
             existing.touch()
             return existing
@@ -492,6 +524,7 @@ class EpisodicMemory:
             confidence=confidence,
             salience=salience,
             embedding=embedding,
+            metadata={str(key): value for key, value in dict(metadata or {}).items()},
             source_thought_id=source_thought_id,
         )
 
@@ -532,106 +565,420 @@ class EpisodicMemory:
                     topic_set.discard(episode_id)
         return ep
 
+    def recent_action_episodes(
+        self,
+        *,
+        limit: int = 8,
+        statuses: Sequence[str] | None = None,
+    ) -> list[Episode]:
+        allowed = {
+            str(status).strip().lower()
+            for status in list(statuses or ())
+            if str(status).strip()
+        }
+        episodes = [
+            ep
+            for ep in self._episodes.values()
+            if str(ep.metadata.get("observation_kind", "")).strip().lower() == "action"
+        ]
+        if allowed:
+            episodes = [
+                ep
+                for ep in episodes
+                if str(ep.metadata.get("verification_status", "")).strip().lower() in allowed
+            ]
+        episodes.sort(key=lambda ep: ep.created_at, reverse=True)
+        return episodes[: max(1, int(limit))]
+
     # -- Retrieval --
 
-    def recall_by_similarity(
+    @staticmethod
+    def _is_grounded_episode(ep: Episode) -> bool:
+        observation_kind = str(ep.metadata.get("observation_kind", "")).strip().lower()
+        return bool(ep.metadata.get("grounded", False)) or observation_kind in {"source", "sensory"} or ep.provenance in (
+            Provenance.OBSERVED,
+            Provenance.VERIFIED,
+        )
+
+    @staticmethod
+    def _grounding_signal(ep: Episode) -> float:
+        explicit = ep.metadata.get("grounding_signal")
+        if explicit is not None:
+            try:
+                return max(0.0, min(1.0, float(explicit)))
+            except (TypeError, ValueError):
+                pass
+        semantic_match = ep.metadata.get("semantic_match")
+        try:
+            semantic = max(0.0, min(1.0, float(semantic_match))) if semantic_match is not None else 0.0
+        except (TypeError, ValueError):
+            semantic = 0.0
+        evidence_units = ep.metadata.get("evidence_unit_count", ep.metadata.get("evidence_window_count", 1))
+        try:
+            evidence_bonus = min(1.0, max(0.0, float(evidence_units)) / 8.0)
+        except (TypeError, ValueError):
+            evidence_bonus = 0.0
+        return max(
+            0.0,
+            min(
+                1.0,
+                0.45 * ep.salience
+                + 0.25 * ep.provenance.trust_weight
+                + 0.20 * semantic
+                + 0.10 * evidence_bonus,
+            ),
+        )
+
+    @staticmethod
+    def _metadata_focus_terms(ep: Episode) -> tuple[str, ...]:
+        raw = ep.metadata.get("focus_terms")
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+            return ()
+        terms: list[str] = []
+        seen: set[str] = set()
+        for item in list(raw)[:6]:
+            cleaned = " ".join(str(item).split()).strip()
+            lowered = cleaned.lower()
+            if not cleaned or lowered in seen:
+                continue
+            seen.add(lowered)
+            terms.append(cleaned)
+        return tuple(terms)
+
+    @staticmethod
+    def _episode_overlaps_avoidance(ep: Episode, avoid_topics: set[str] | None = None) -> bool:
+        avoid_words = {str(topic).strip().lower() for topic in (avoid_topics or set()) if str(topic).strip()}
+        if not avoid_words:
+            return False
+        for topic in ep.topics:
+            topic_words = {
+                word.strip(".,;:!?\"'()-").lower()
+                for word in str(topic).split()
+                if len(word) >= 3
+            }
+            if topic_words & avoid_words:
+                return True
+        return False
+
+    @staticmethod
+    def _target_term_coverage(target_terms: Sequence[str], matched_terms: Sequence[str]) -> float:
+        if not target_terms:
+            return 0.0
+        target_set = {str(term).strip().lower() for term in target_terms if str(term).strip()}
+        if not target_set:
+            return 0.0
+        matched_set = {str(term).strip().lower() for term in matched_terms if str(term).strip()}
+        return min(1.0, float(len(target_set & matched_set)) / float(len(target_set)))
+
+    @classmethod
+    def _bundle_coverage(cls, target_terms: Sequence[str], matches: Sequence[EvidenceEpisodeMatch]) -> float:
+        covered: set[str] = set()
+        for match in matches:
+            covered.update(str(term).strip().lower() for term in match.matched_terms if str(term).strip())
+        return cls._target_term_coverage(target_terms, tuple(covered))
+
+    def _score_target_episode(
         self,
-        query: str,
-        top_k: int = 5,
-        min_trust: float = 0.0,
-    ) -> list[Episode]:
-        """Retrieve most similar episodes to a query string."""
-        if not self._episodes:
+        ep: Episode,
+        *,
+        target_emb: np.ndarray | None,
+        target_terms: Sequence[str],
+        grounded_priority: float = 0.0,
+        skip_recent_inferred: bool = False,
+    ) -> EvidenceEpisodeMatch | None:
+        if ep.embedding is None or ep.provenance == Provenance.CONTRADICTED:
+            return None
+        if skip_recent_inferred and ep.provenance == Provenance.INFERRED and ep.age_seconds < 120.0:
+            return None
+
+        semantic_similarity = self.embedder.similarity(target_emb, ep.embedding) if target_emb is not None else 0.0
+        focused_text = query_focused_text(ep.content, target_terms) if target_terms else ep.content
+        focus_terms = self._metadata_focus_terms(ep)
+        match_text = " ".join([*(str(topic) for topic in ep.topics), *focus_terms, focused_text]).strip()
+        matched_terms = tuple(match_terms(target_terms, match_text)) if target_terms else ()
+        lexical_coverage = self._target_term_coverage(target_terms, matched_terms)
+
+        if target_terms and semantic_similarity <= 0.0 and lexical_coverage <= 0.0:
+            return None
+
+        grounded = self._is_grounded_episode(ep)
+        grounding_signal = self._grounding_signal(ep)
+        if target_terms:
+            score = (
+                0.44 * lexical_coverage
+                + 0.22 * max(0.0, semantic_similarity)
+                + 0.13 * max(0.0, min(1.0, ep.salience))
+                + 0.09 * max(0.0, min(1.0, ep.provenance.trust_weight))
+                + 0.04 * max(0.0, min(1.0, ep.confidence))
+            )
+        else:
+            score = (
+                0.34 * max(0.0, min(1.0, ep.recency_score))
+                + 0.20 * max(0.0, min(1.0, ep.salience))
+                + 0.16 * max(0.0, min(1.0, ep.provenance.trust_weight))
+                + 0.08 * max(0.0, min(1.0, ep.confidence))
+            )
+
+        if grounded:
+            score += grounded_priority + 0.10 * ep.recency_score + 0.14 * grounding_signal
+            if ep.metadata.get("grounded", False):
+                score += 0.08
+        else:
+            score += 0.02 * ep.recency_score
+            if ep.provenance == Provenance.INFERRED:
+                score -= 0.06
+            elif ep.provenance == Provenance.DREAMED:
+                score -= 0.10
+
+        return EvidenceEpisodeMatch(
+            episode=ep,
+            focused_text=focused_text,
+            matched_terms=matched_terms,
+            score=max(0.0, float(score)),
+            grounded=grounded,
+            lexical_coverage=max(0.0, min(1.0, float(lexical_coverage))),
+            semantic_similarity=max(0.0, float(semantic_similarity)),
+        )
+
+    @staticmethod
+    def _select_evidence_matches(
+        candidates: Sequence[EvidenceEpisodeMatch],
+        *,
+        top_k: int,
+        covered_terms: Sequence[str] = (),
+        prefer_new_terms: bool = True,
+        allow_redundant: bool = True,
+    ) -> list[EvidenceEpisodeMatch]:
+        limit = max(0, int(top_k))
+        if limit <= 0:
             return []
 
-        query_emb = self.embedder.embed(query)
-        scored: list[tuple[float, Episode]] = []
+        covered = {str(term).strip().lower() for term in covered_terms if str(term).strip()}
+        selected: list[EvidenceEpisodeMatch] = []
+        deferred: list[EvidenceEpisodeMatch] = []
+        seen_ids: set[str] = set()
 
-        for ep in self._episodes.values():
-            if ep.provenance.trust_weight < min_trust:
+        for match in candidates:
+            if match.episode_id in seen_ids:
                 continue
-            if ep.embedding is None:
+            match_terms_set = {str(term).strip().lower() for term in match.matched_terms if str(term).strip()}
+            adds_new_terms = bool(match_terms_set - covered)
+            if prefer_new_terms and covered and not adds_new_terms:
+                deferred.append(match)
                 continue
-            sim = self.embedder.similarity(query_emb, ep.embedding)
-            # Weight by trust and salience
-            score = sim * ep.provenance.trust_weight * (0.5 + 0.5 * ep.salience)
-            scored.append((score, ep))
+            selected.append(match)
+            seen_ids.add(match.episode_id)
+            covered.update(match_terms_set)
+            if len(selected) >= limit:
+                return selected
 
-        scored.sort(key=lambda x: x[0], reverse=True)
-        results = [ep for _, ep in scored[:top_k]]
-        for ep in results:
-            ep.touch()
-        return results
+        if allow_redundant and len(selected) < limit:
+            for match in deferred:
+                if match.episode_id in seen_ids:
+                    continue
+                selected.append(match)
+                seen_ids.add(match.episode_id)
+                if len(selected) >= limit:
+                    break
+        return selected
 
-    def recall_diverse(
+    def _build_evidence_bundle(
         self,
-        top_k: int = 5,
+        *,
+        target: str,
+        target_terms: Sequence[str],
+        ranked_matches: Sequence[EvidenceEpisodeMatch],
+        grounded_top_k: int,
+        support_top_k: int,
+    ) -> EvidenceRecallBundle:
+        grounded_candidates = [match for match in ranked_matches if match.grounded]
+        grounded = self._select_evidence_matches(
+            grounded_candidates,
+            top_k=max(0, int(grounded_top_k)),
+            prefer_new_terms=bool(target_terms),
+            allow_redundant=True,
+        )
+        grounded_ids = {match.episode_id for match in grounded}
+        grounded_terms = [term for match in grounded for term in match.matched_terms]
+        grounded_coverage = self._bundle_coverage(target_terms, grounded)
+
+        support_candidates = [match for match in ranked_matches if match.episode_id not in grounded_ids]
+        support = self._select_evidence_matches(
+            support_candidates,
+            top_k=max(0, int(support_top_k)),
+            covered_terms=grounded_terms,
+            prefer_new_terms=bool(target_terms),
+            allow_redundant=(grounded_coverage < 0.6) if target_terms else True,
+        )
+        combined_coverage = self._bundle_coverage(target_terms, [*grounded, *support])
+
+        for match in [*grounded, *support]:
+            match.episode.touch()
+
+        return EvidenceRecallBundle(
+            target=target,
+            target_terms=tuple(str(term) for term in target_terms if str(term).strip()),
+            grounded=tuple(grounded),
+            support=tuple(support),
+            grounded_coverage=float(grounded_coverage),
+            combined_coverage=float(combined_coverage),
+        )
+
+    def recent_grounded_episodes(
+        self,
+        *,
+        top_k: int = 4,
+        max_age_s: float = 1800.0,
         avoid_topics: set[str] | None = None,
     ) -> list[Episode]:
-        """Retrieve a diverse set of memories — prioritise OBSERVED over INFERRED.
+        candidates = [
+            ep
+            for ep in self._episodes.values()
+            if self._is_grounded_episode(ep)
+            and ep.provenance != Provenance.CONTRADICTED
+            and not self._episode_overlaps_avoidance(ep, avoid_topics)
+        ]
+        if max_age_s > 0.0:
+            recent = [ep for ep in candidates if ep.age_seconds <= float(max_age_s)]
+            if recent:
+                candidates = recent
+        candidates.sort(
+            key=lambda ep: (
+                bool(ep.metadata.get("grounded", False)),
+                self._grounding_signal(ep),
+                ep.recency_score,
+                ep.salience,
+                ep.created_at,
+            ),
+            reverse=True,
+        )
+        return candidates[: max(0, int(top_k))]
 
-        Uses word-level avoidance: if *avoid_topics* contains the word
-        "pottery", then an episode tagged "Neolithic pottery" is also
-        filtered out.  This catches semantic clusters that phrase-level
-        matching misses.
-        """
+    def recent_grounded_focus(
+        self,
+        *,
+        top_k: int = 3,
+        max_age_s: float = 1800.0,
+        avoid_topics: set[str] | None = None,
+    ) -> str:
+        episodes = self.recent_grounded_episodes(
+            top_k=max(1, int(top_k)),
+            max_age_s=max_age_s,
+            avoid_topics=avoid_topics,
+        )
+        if not episodes:
+            return ""
+        primary = episodes[0]
+        focus_terms = list(self._metadata_focus_terms(primary))
+        if focus_terms:
+            return " ".join(focus_terms[:3])[:120]
+        topic_terms = [
+            " ".join(str(topic).split()).strip()
+            for topic in primary.topics
+            if " ".join(str(topic).split()).strip()
+        ]
+        if topic_terms:
+            ordered = list(dict.fromkeys(topic_terms))[:3]
+            return " ".join(ordered)[:120]
+        tokens = salient_query_terms(primary.content)[:4]
+        return " ".join(tokens)[:120]
+
+    def recall_for_query(
+        self,
+        query: str,
+        *,
+        grounded_top_k: int = 4,
+        support_top_k: int = 4,
+    ) -> EvidenceRecallBundle:
+        """Retrieve a query bundle with grounded evidence first."""
         if not self._episodes:
-            return []
+            return EvidenceRecallBundle(target=query)
 
-        avoid_words = {t.lower() for t in (avoid_topics or set())}
+        target = " ".join(str(query).split()).strip()
+        target_terms = tuple(salient_query_terms(target)[:8])
+        target_emb = self.embedder.embed(target) if target else None
+        ranked_matches = [
+            match
+            for match in (
+                self._score_target_episode(
+                    ep,
+                    target_emb=target_emb,
+                    target_terms=target_terms,
+                    grounded_priority=0.20,
+                )
+                for ep in self._episodes.values()
+            )
+            if match is not None
+        ]
+        ranked_matches.sort(
+            key=lambda match: (
+                match.score,
+                match.grounded,
+                match.episode.recency_score,
+                match.episode.created_at,
+            ),
+            reverse=True,
+        )
+        return self._build_evidence_bundle(
+            target=target,
+            target_terms=target_terms,
+            ranked_matches=ranked_matches,
+            grounded_top_k=grounded_top_k,
+            support_top_k=support_top_k,
+        )
 
-        def _episode_overlaps_avoidance(ep: Episode) -> bool:
-            if not avoid_words:
-                return False
-            for topic in ep.topics:
-                topic_words = {w.strip(".,;:!?'\"()-").lower()
-                               for w in topic.split() if len(w) >= 3}
-                if topic_words & avoid_words:
-                    return True
-            return False
+    def recall_for_deliberation(
+        self,
+        target: str = "",
+        *,
+        grounded_top_k: int = 3,
+        support_top_k: int = 5,
+        avoid_topics: set[str] | None = None,
+        max_recent_grounded_age_s: float = 1800.0,
+    ) -> EvidenceRecallBundle:
+        """Retrieve a wakeful-thought bundle with recent grounded evidence first."""
+        if not self._episodes:
+            return EvidenceRecallBundle(target=" ".join(str(target).split()).strip())
 
-        # Separate observed/external from self-generated
-        # Skip very recent inferred memories (< 30s) to prevent echo loops
-        # where the LLM sees its own just-generated thoughts as context
-        import time as _time
-        now = _time.time()
-        observed: list[Episode] = []
-        other: list[Episode] = []
-        skipped: list[Episode] = []
-        for ep in self._episodes.values():
-            if _episode_overlaps_avoidance(ep):
-                skipped.append(ep)
-                continue
-            # Skip self-generated thoughts from last 120 seconds.
-            # This is critical: without this, the LLM sees its own just-generated
-            # thoughts as memories and produces identical output sequences.
-            if ep.provenance == Provenance.INFERRED and (now - ep.created_at) < 120.0:
-                continue
-            if ep.provenance in (Provenance.OBSERVED, Provenance.VERIFIED):
-                observed.append(ep)
-            else:
-                other.append(ep)
-
-        # Prefer observed (external) content, supplement with diverse inferred
-        observed.sort(key=lambda ep: ep.created_at, reverse=True)
-        other.sort(key=lambda ep: ep.composite_importance, reverse=True)
-
-        results = observed[:top_k]
-        remaining = top_k - len(results)
-        if remaining > 0:
-            results.extend(other[:remaining])
-
-        # If avoidance is too aggressive and we found nothing,
-        # fall back to recent observations (even if they match avoidance words)
-        if not results and skipped:
-            skipped.sort(key=lambda ep: ep.created_at, reverse=True)
-            obs_skipped = [ep for ep in skipped
-                          if ep.provenance in (Provenance.OBSERVED, Provenance.VERIFIED)]
-            results = (obs_skipped or skipped)[:top_k]
-
-        for ep in results:
-            ep.touch()
-        return results
+        normalized_target = " ".join(str(target).split()).strip()
+        derived_target = normalized_target or self.recent_grounded_focus(
+            top_k=max(1, int(grounded_top_k)),
+            max_age_s=max_recent_grounded_age_s,
+            avoid_topics=avoid_topics,
+        )
+        target_terms = tuple(salient_query_terms(derived_target)[:8]) if derived_target else ()
+        target_emb = self.embedder.embed(derived_target) if derived_target else None
+        ranked_matches = [
+            match
+            for match in (
+                self._score_target_episode(
+                    ep,
+                    target_emb=target_emb,
+                    target_terms=target_terms,
+                    grounded_priority=0.24 if not normalized_target else 0.18,
+                    skip_recent_inferred=True,
+                )
+                for ep in self._episodes.values()
+                if not self._episode_overlaps_avoidance(ep, avoid_topics)
+            )
+            if match is not None
+        ]
+        ranked_matches.sort(
+            key=lambda match: (
+                match.score,
+                match.grounded,
+                match.episode.recency_score,
+                match.episode.created_at,
+            ),
+            reverse=True,
+        )
+        return self._build_evidence_bundle(
+            target=derived_target,
+            target_terms=target_terms,
+            ranked_matches=ranked_matches,
+            grounded_top_k=grounded_top_k,
+            support_top_k=support_top_k,
+        )
 
     def recall_by_topic(self, topic: str, top_k: int = 10) -> list[Episode]:
         """Retrieve episodes tagged with a specific topic."""

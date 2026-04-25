@@ -400,6 +400,7 @@ class TestDeliberationChains:
              "valence": 0.1, "confidence": 0.7, "action": None},
         ]
         loop = self._make_loop(responses)
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
         result = loop.step(force=True)
         assert result is not None
         assert "gravity" in result.thought

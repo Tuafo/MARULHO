@@ -5,7 +5,7 @@ import random
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
 import torch
@@ -226,6 +226,25 @@ def next_candidate_round_robin(candidates: list[SourceBank], start_idx: int) -> 
     raise RuntimeError("No candidate source has remaining tokens")
 
 
+def _memory_metadata_for_bank(bank: SourceBank) -> dict[str, Any]:
+    metadata = deepcopy(bank.metadata) if bank.metadata else {}
+    memory_metadata: dict[str, Any] = {
+        "observation_kind": "source",
+        "source_name": str(bank.name),
+        "source_type": str(bank.source_type),
+        "source": str(bank.source),
+    }
+    if metadata:
+        for key in ("provider", "query_text", "catalog_title", "catalog_summary"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                memory_metadata[str(key)] = value.strip()
+        catalog_terms = metadata.get("catalog_terms")
+        if isinstance(catalog_terms, Sequence) and not isinstance(catalog_terms, (str, bytes)):
+            memory_metadata["catalog_terms"] = [str(term).strip() for term in list(catalog_terms) if str(term).strip()][:8]
+    return memory_metadata
+
+
 def train_source_chunk(
     trainer: HECSNTrainer,
     bank: SourceBank,
@@ -235,8 +254,9 @@ def train_source_chunk(
     on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> int:
     chunk = bank.next_chunk(n_tokens)
+    memory_metadata = _memory_metadata_for_bank(bank)
     for raw_window, pattern in chunk:
-        row = trainer.train_step(pattern, raw_window=raw_window)
+        row = trainer.train_step(pattern, raw_window=raw_window, memory_metadata=memory_metadata)
         row["source_name"] = bank.name
         row["phase"] = phase
         metrics_rows.append(row)
@@ -274,8 +294,9 @@ def replay_source_chunk(
     metrics_rows: list[dict[str, Any]] | None,
     on_train_step: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> int:
+    memory_metadata = _memory_metadata_for_bank(bank)
     for raw_window, pattern in chunk:
-        row = trainer.train_step(pattern, raw_window=raw_window)
+        row = trainer.train_step(pattern, raw_window=raw_window, memory_metadata=memory_metadata)
         if metrics_rows is not None:
             row["source_name"] = bank.name
             row["phase"] = phase

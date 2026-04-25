@@ -1,21 +1,77 @@
 from __future__ import annotations
 
+import json
+from functools import partial
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+import io
+import os
 from pathlib import Path
+import socket
 import tempfile
+from threading import Event
+import threading
 import time
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
+import numpy as np
+from PIL import Image
 import torch
 
 from hecsn.config.model_config import HECSNConfig
+from hecsn.data.corpus_loader import BackgroundPrefetchIterator
+from hecsn.service import manager as manager_module
+from hecsn.service import terminus_sensory as sensory_module
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.terminus_sensory import SensoryEpisode
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
-def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+class _SilentSimpleHTTPRequestHandler(SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args) -> None:  # pragma: no cover - suppress test noise
+        return None
+
+
+class _EchoJsonApiHandler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args) -> None:  # pragma: no cover - suppress test noise
+        return None
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        payload = self.rfile.read(content_length) if content_length > 0 else b""
+        parsed_body = json.loads(payload.decode("utf-8") or "null")
+        parsed_url = urlparse(self.path)
+        response = {
+            "method": "POST",
+            "path": parsed_url.path,
+            "query": {key: values[0] if len(values) == 1 else values for key, values in parse_qs(parsed_url.query).items()},
+            "payload": parsed_body,
+        }
+        encoded = json.dumps(response).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+
+def _png_bytes() -> bytes:
+    image = np.zeros((32, 32), dtype=np.uint8)
+    image[8:24, 8:24] = 255
+    buffer = io.BytesIO()
+    Image.fromarray(image, mode="L").save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) -> HECSNServiceManager:
     cfg = HECSNConfig(
         n_columns=4,
         column_latent_dim=8,
@@ -37,7 +93,119 @@ def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:
     return HECSNServiceManager(
         checkpoint_path,
         trace_dir=root / "traces",
+        env_root=env_root,
     )
+
+
+class ServiceManagerBootstrapTests(unittest.TestCase):
+    def test_manager_loads_runtime_env_from_checkpoint_ancestry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint_dir = root / "checkpoints"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            env_path = root / ".env"
+            env_path.write_text("NVIDIA_API_KEY=dotenv-checkpoint-key\n", encoding="utf-8")
+
+            cfg = HECSNConfig(
+                n_columns=4,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                memory_capacity=64,
+                eta_competitive=0.05,
+                eta_decay=0.0,
+                input_weight_blend=0.0,
+                enable_context_layer=True,
+                enable_binding_layer=True,
+            )
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                checkpoint_dir / "initial.pt",
+                trainer,
+                metadata={"test_case": "bootstrap_checkpoint_ancestry"},
+            )
+
+            old_key = os.environ.pop("NVIDIA_API_KEY", None)
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+                with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                    "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                    return_value=SimpleEmbedder(dim=128),
+                ):
+                    manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+                try:
+                    env_info = manager.status()["terminus_runtime"]["environment"]
+                    self.assertTrue(env_info["dotenv_available"])
+                    self.assertTrue(env_info["dotenv_loaded"])
+                    self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
+                    self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-checkpoint-key")
+                    self.assertTrue(manager._cortex_available)
+                finally:
+                    manager.close()
+            finally:
+                if old_key is None:
+                    os.environ.pop("NVIDIA_API_KEY", None)
+                else:
+                    os.environ["NVIDIA_API_KEY"] = old_key
+
+    def test_manager_loads_runtime_env_from_explicit_env_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            env_root = root / "project_root"
+            env_root.mkdir(parents=True, exist_ok=True)
+            env_path = env_root / ".env"
+            env_path.write_text("NVIDIA_API_KEY=dotenv-explicit-root\n", encoding="utf-8")
+            checkpoint_dir = root / "external_checkpoints"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+            cfg = HECSNConfig(
+                n_columns=4,
+                column_latent_dim=8,
+                bootstrap_tokens=0,
+                memory_capacity=64,
+                eta_competitive=0.05,
+                eta_decay=0.0,
+                input_weight_blend=0.0,
+                enable_context_layer=True,
+                enable_binding_layer=True,
+            )
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                checkpoint_dir / "initial.pt",
+                trainer,
+                metadata={"test_case": "bootstrap_env_root"},
+            )
+
+            old_key = os.environ.pop("NVIDIA_API_KEY", None)
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+                with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                    "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                    return_value=SimpleEmbedder(dim=128),
+                ):
+                    manager = HECSNServiceManager(
+                        checkpoint_path,
+                        trace_dir=root / "traces",
+                        env_root=env_root,
+                    )
+                try:
+                    env_info = manager.status()["terminus_runtime"]["environment"]
+                    self.assertTrue(env_info["dotenv_available"])
+                    self.assertTrue(env_info["dotenv_loaded"])
+                    self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
+                    self.assertEqual(Path(str(env_info["env_root"])).resolve(), env_root.resolve())
+                    self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-explicit-root")
+                    self.assertTrue(manager._cortex_available)
+                finally:
+                    manager.close()
+            finally:
+                if old_key is None:
+                    os.environ.pop("NVIDIA_API_KEY", None)
+                else:
+                    os.environ["NVIDIA_API_KEY"] = old_key
 
 
 class ServiceManagerCheckpointTests(unittest.TestCase):
@@ -184,70 +352,2418 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_curriculum_injection_uses_synthetic_sensory_hints(self) -> None:
+    def test_focus_aware_background_routing_prefers_aligned_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            manager = _build_manager(root, test_case="service_manager_curriculum_injection")
-            calls: list[dict[str, object]] = []
+            manager = _build_manager(root, test_case="service_manager_focus_aware_background_routing")
+            garden_path = root / "garden.txt"
+            tectonics_path = root / "tectonics.txt"
+            garden_path.write_text("tomatoes need watering and healthy soil " * 24, encoding="utf-8")
+            tectonics_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "garden_source",
+                            "source": str(garden_path),
+                            "source_type": "file",
+                            "metadata": {"label": "garden soil sunlight watering"},
+                        },
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        },
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                runtime = manager.terminus_tick()["terminus_runtime"]
+                garden_progress = next(item for item in runtime["source_progress"] if item["name"] == "garden_source")
+                tectonics_progress = next(item for item in runtime["source_progress"] if item["name"] == "tectonics_source")
 
-            class _DummyGate:
-                active_exploration_target = "plate tectonics"
+                self.assertEqual(runtime["last_event"]["source"]["source_name"], "tectonics_source")
+                self.assertEqual(runtime["background_source_routing"]["mode"], "focus_aware_allocation")
+                self.assertEqual(runtime["background_source_routing"]["selection_order"][0], "tectonics_source")
+                self.assertGreater(float(tectonics_progress["last_semantic_match"]), float(garden_progress["last_semantic_match"]))
+                self.assertGreater(float(tectonics_progress["last_selection_score"]), float(garden_progress["last_selection_score"]))
+                self.assertEqual(int(tectonics_progress["tick_visits"]), 1)
+                self.assertEqual(int(garden_progress["tick_visits"]), 0)
+            finally:
+                manager.close()
+
+    def test_background_source_utility_biases_repeated_focused_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_source_utility")
+            first_path = root / "first.txt"
+            second_path = root / "second.txt"
+            first_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
+            second_path.write_text("subduction faults reshape crust and mantle boundaries " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "first_source",
+                            "source": str(first_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        },
+                        {
+                            "name": "second_source",
+                            "source": str(second_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        },
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                first_tick = manager.terminus_tick()["terminus_runtime"]
+                second_tick = manager.terminus_tick()["terminus_runtime"]
+                first_progress = next(item for item in second_tick["source_progress"] if item["name"] == "first_source")
+                second_progress = next(item for item in second_tick["source_progress"] if item["name"] == "second_source")
+
+                self.assertEqual(first_tick["last_event"]["source"]["source_name"], "first_source")
+                self.assertGreater(float(first_progress["utility_ema"]), 0.0)
+                self.assertEqual(second_tick["last_event"]["source"]["source_name"], "first_source")
+                self.assertGreater(float(first_progress["utility_ema"]), float(second_progress["utility_ema"]))
+                self.assertGreater(float(first_progress["last_utility_score"]), float(second_progress["last_utility_score"]))
+            finally:
+                manager.close()
+
+    def test_respond_grounded_outcome_reinforces_background_source_utility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_outcome_calibration")
+            first_path = root / "first.txt"
+            second_path = root / "second.txt"
+            first_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
+            second_path.write_text("garden tomatoes need soil sunlight and watering " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(first_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        },
+                        {
+                            "name": "garden_source",
+                            "source": str(second_path),
+                            "source_type": "file",
+                            "metadata": {"label": "garden soil sunlight watering tomatoes"},
+                        },
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                manager.terminus_tick()
+                before_runtime = manager.status()["terminus_runtime"]
+                before_tectonics = next(item for item in before_runtime["source_progress"] if item["name"] == "tectonics_source")
+                before_garden = next(item for item in before_runtime["source_progress"] if item["name"] == "garden_source")
+
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates move over the mantle through tectonic motion.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [{"text": "Crust plates move over the mantle and form mountains."}],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ):
+                    manager.respond(
+                        query_text="How do crust plates move over the mantle?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                after_runtime = manager.status()["terminus_runtime"]
+                after_tectonics = next(item for item in after_runtime["source_progress"] if item["name"] == "tectonics_source")
+                after_garden = next(item for item in after_runtime["source_progress"] if item["name"] == "garden_source")
+
+                self.assertGreater(float(after_tectonics["grounded_outcome_ema"]), 0.0)
+                self.assertGreaterEqual(float(after_tectonics["utility_ema"]), float(before_tectonics["utility_ema"]))
+                self.assertEqual(float(after_garden["grounded_outcome_ema"]), float(before_garden["grounded_outcome_ema"]))
+                self.assertGreater(float(after_tectonics["utility_ema"]), float(after_garden["utility_ema"]))
+            finally:
+                manager.close()
+
+    def test_query_result_memory_episodes_expose_background_source_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_evidence_provenance")
+            tectonics_path = root / "tectonics.txt"
+            garden_path = root / "garden.txt"
+            tectonics_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
+            garden_path.write_text("garden tomatoes need soil sunlight and watering " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        },
+                        {
+                            "name": "garden_source",
+                            "source": str(garden_path),
+                            "source_type": "file",
+                            "metadata": {"label": "garden soil sunlight watering tomatoes"},
+                        },
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                manager.terminus_tick()
+                query_result = manager.query(
+                    query_text="How do crust plates move over the mantle?",
+                    top_k_memories=6,
+                )
+                episodes = query_result["query_summary"]["memory_episodes"]
+
+                self.assertTrue(episodes)
+                self.assertTrue(any((episode.get("source_name") == "tectonics_source") for episode in episodes))
+                tectonics_episode = next(episode for episode in episodes if episode.get("source_name") == "tectonics_source")
+                self.assertIn("tectonics_source", tectonics_episode.get("source_names") or [tectonics_episode.get("source_name")])
+            finally:
+                manager.close()
+
+    def test_follow_up_query_improvement_reinforces_background_source_delayed_consequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_delayed_consequence")
+            tectonics_path = root / "tectonics.txt"
+            tectonics_path.write_text(
+                (
+                    "Crust plates drift over the mantle and slowly move continents. " * 3
+                    + "Convergent plate collisions build mountain ranges and lift rock upward. " * 5
+                ),
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mountains mantle"},
+                        }
+                    ],
+                    tick_tokens=120,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                query_text = "How do crust plates build mountain ranges?"
+                manager.terminus_tick()
+                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    initial = manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                before_runtime = manager.status()["terminus_runtime"]
+                before_source = next(item for item in before_runtime["source_progress"] if item["name"] == "tectonics_source")
+
+                self.assertIn(
+                    "tectonics_source",
+                    initial["response"]["delayed_consequence_candidate"]["source_names"],
+                )
+                self.assertEqual(float(before_source["delayed_consequence_ema"]), 0.0)
+
+                for _ in range(3):
+                    manager.terminus_tick()
+                follow_up = manager.query(query_text=query_text, top_k_memories=8)
+                after_runtime = manager.status()["terminus_runtime"]
+                after_source = next(item for item in after_runtime["source_progress"] if item["name"] == "tectonics_source")
+
+                self.assertGreater(
+                    float(follow_up["gap_plan"]["grounded_fraction"]),
+                    float(initial["query_result"]["gap_plan"]["grounded_fraction"]),
+                )
+                self.assertGreater(int(follow_up["delayed_consequence"]["credited_records"]), 0)
+                self.assertIn("tectonics_source", follow_up["delayed_consequence"]["credited_source_names"])
+                self.assertGreater(float(after_source["delayed_consequence_ema"]), float(before_source["delayed_consequence_ema"]))
+                self.assertGreater(
+                    int(after_runtime["background_source_routing"]["delayed_consequence_tracking"]["credited_record_count"]),
+                    0,
+                )
+            finally:
+                manager.close()
+
+    def test_follow_up_query_regression_penalizes_background_source_long_horizon_utility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_long_horizon_penalty")
+            source_path = root / "tectonics.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                query_text = "How do crust plates move over the mantle?"
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates move over the mantle through tectonic motion.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates move over the mantle.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                runtime = manager._brain_source_runtimes[0]
+                before_score, *_ = manager._brain_source_selection_score_locked(
+                    runtime,
+                    focus_terms=["tectonics", "crust", "plates", "mantle"],
+                    focus_pressure=1.0,
+                    tick_tokens=8,
+                )
+
+                follow_up = manager.query(query_text=query_text, top_k_memories=6)
+                after_score, *_ = manager._brain_source_selection_score_locked(
+                    runtime,
+                    focus_terms=["tectonics", "crust", "plates", "mantle"],
+                    focus_pressure=1.0,
+                    tick_tokens=8,
+                )
+                source_progress = manager.status()["terminus_runtime"]["source_progress"][0]
+
+                self.assertGreater(int(follow_up["delayed_consequence"]["penalized_records"]), 0)
+                self.assertIn("tectonics_source", follow_up["delayed_consequence"]["penalized_source_names"])
+                self.assertGreater(float(source_progress["contradiction_decay_ema"]), 0.0)
+                self.assertLess(float(after_score), float(before_score))
+            finally:
+                manager.close()
+
+    def test_later_grounded_improvement_forgives_background_source_long_horizon_penalty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_long_horizon_forgiveness")
+            tectonics_path = root / "tectonics.txt"
+            tectonics_path.write_text(
+                (
+                    "Crust plates drift over the mantle and slowly move continents. " * 3
+                    + "Convergent plate collisions build mountain ranges and lift rock upward. " * 5
+                ),
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mountains mantle"},
+                        }
+                    ],
+                    tick_tokens=120,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                query_text = "How do crust plates build mountain ranges?"
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates build mountain ranges through convergent plate collisions.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates build mountain ranges.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                penalized = manager.query(query_text=query_text, top_k_memories=8)
+                penalty_runtime = manager.status()["terminus_runtime"]
+                penalty_source = next(item for item in penalty_runtime["source_progress"] if item["name"] == "tectonics_source")
+                runtime = manager._brain_source_runtimes[0]
+                penalty_score, *_ = manager._brain_source_selection_score_locked(
+                    runtime,
+                    focus_terms=["tectonics", "crust", "plates", "mountain", "ranges"],
+                    focus_pressure=1.0,
+                    tick_tokens=120,
+                )
+                penalty_record = penalty_runtime["background_source_routing"]["delayed_consequence_tracking"]["recent_records"][0]
+
+                self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
+                self.assertIn("tectonics_source", penalized["delayed_consequence"]["penalized_source_names"])
+                self.assertGreater(float(penalty_source["contradiction_decay_ema"]), 0.0)
+
+                for _ in range(3):
+                    manager.terminus_tick()
+                forgiven = manager.query(query_text=query_text, top_k_memories=8)
+                forgiven_runtime = manager.status()["terminus_runtime"]
+                forgiven_source = next(item for item in forgiven_runtime["source_progress"] if item["name"] == "tectonics_source")
+                forgiven_score, *_ = manager._brain_source_selection_score_locked(
+                    runtime,
+                    focus_terms=["tectonics", "crust", "plates", "mountain", "ranges"],
+                    focus_pressure=1.0,
+                    tick_tokens=120,
+                )
+                forgiven_record = forgiven_runtime["background_source_routing"]["delayed_consequence_tracking"]["recent_records"][0]
+
+                self.assertGreater(
+                    float(forgiven["gap_plan"]["grounded_fraction"]),
+                    float(penalized["gap_plan"]["grounded_fraction"]),
+                )
+                self.assertGreater(int(forgiven["delayed_consequence"]["credited_records"]), 0)
+                self.assertGreater(int(forgiven["delayed_consequence"]["forgiven_records"]), 0)
+                self.assertIn("tectonics_source", forgiven["delayed_consequence"]["forgiven_source_names"])
+                self.assertLess(
+                    float(forgiven_source["contradiction_decay_ema"]),
+                    float(penalty_source["contradiction_decay_ema"]),
+                )
+                self.assertLess(
+                    float(forgiven_record["unresolved_penalty_balance"]),
+                    float(penalty_record["unresolved_penalty_balance"]),
+                )
+                self.assertGreater(int(forgiven_record["forgiveness_events"]), 0)
+                self.assertGreater(float(forgiven_record["last_forgiveness_score"]), 0.0)
+                self.assertGreaterEqual(float(forgiven_score), 0.0)
+                self.assertGreaterEqual(float(penalty_score), 0.0)
+                self.assertGreater(
+                    int(forgiven_runtime["background_source_routing"]["delayed_consequence_tracking"]["forgiven_record_count"]),
+                    0,
+                )
+            finally:
+                manager.close()
+
+    def test_stale_background_consequence_state_cools_and_retires(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_consequence_cooling")
+            source_path = root / "tectonics.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle subduction"},
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                query_text = "How do crust plates move over the mantle?"
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates move over the mantle through tectonic motion.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates move over the mantle.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                manager.query(query_text=query_text, top_k_memories=6)
+                penalty_runtime = manager.status()["terminus_runtime"]
+                penalty_tracking = penalty_runtime["background_source_routing"]["delayed_consequence_tracking"]
+                penalty_record = penalty_tracking["recent_records"][0]
+
+                self.assertGreater(int(penalty_tracking["penalized_record_count"]), 0)
+                self.assertGreater(float(penalty_record["unresolved_penalty_balance"]), 0.0)
+
+                manager._trainer.token_count += (
+                    manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
+                    + manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
+                )
+                cooled_runtime = manager.status()["terminus_runtime"]
+                cooled_tracking = cooled_runtime["background_source_routing"]["delayed_consequence_tracking"]
+                cooled_record = cooled_tracking["recent_records"][0]
+
+                self.assertLess(
+                    float(cooled_record["unresolved_penalty_balance"]),
+                    float(penalty_record["unresolved_penalty_balance"]),
+                )
+                self.assertGreater(int(cooled_record["cooling_events"]), 0)
+                self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
+
+                manager._trainer.token_count += manager_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
+                retired_runtime = manager.status()["terminus_runtime"]
+                retired_tracking = retired_runtime["background_source_routing"]["delayed_consequence_tracking"]
+
+                self.assertEqual(int(retired_tracking["record_count"]), 0)
+                self.assertGreater(int(retired_tracking["retired_record_count_total"]), 0)
+            finally:
+                manager.close()
+
+    def test_repeated_background_consequence_records_compact_query_family(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_consequence_compaction")
+            source_path = root / "tectonics.txt"
+            source_path.write_text("tectonic plates mountain ranges crust mantle " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mountain ranges mantle"},
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates build mountain ranges through tectonic motion.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates build mountain ranges through tectonic motion.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    first = manager.respond(
+                        query_text="How do crust plates build mountain ranges?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    second = manager.respond(
+                        query_text="How do crust plates form mountain ranges?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                record = tracking["recent_records"][0]
+
+                self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
+                self.assertEqual(int(tracking["record_count"]), 1)
+                self.assertGreater(int(tracking["aggregated_record_count"]), 0)
+                self.assertGreaterEqual(int(tracking["aggregate_occurrence_count"]), 2)
+                self.assertGreater(int(tracking["compacted_record_count_total"]), 0)
+                self.assertEqual(int(record["aggregate_count"]), 2)
+                self.assertGreater(float(record["aggregate_support_multiplier"]), 1.0)
+                self.assertIn("How do crust plates build mountain ranges?", record["query_examples"])
+                self.assertIn("How do crust plates form mountain ranges?", record["query_examples"])
+            finally:
+                manager.close()
+
+    def test_background_consequence_family_trajectory_summary_tracks_penalty_then_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_consequence_trajectory")
+            tectonics_path = root / "tectonics.txt"
+            tectonics_path.write_text(
+                (
+                    "Crust plates drift over the mantle and slowly move continents. " * 3
+                    + "Convergent plate collisions build mountain ranges and lift rock upward. " * 5
+                ),
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mountains mantle"},
+                        }
+                    ],
+                    tick_tokens=120,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates build mountain ranges through convergent plate collisions.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates build mountain ranges through convergent plate collisions.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How do crust plates build mountain ranges?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    manager.respond(
+                        query_text="How do crust plates form mountain ranges?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                query_text = "How do crust plates build mountain ranges?"
+                penalized = manager.query(query_text=query_text, top_k_memories=8)
+                penalty_runtime = manager.status()["terminus_runtime"]
+                penalty_record = penalty_runtime["background_source_routing"]["delayed_consequence_tracking"]["recent_records"][0]
+
+                self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
+                self.assertEqual(int(penalty_record["aggregate_count"]), 2)
+                self.assertEqual(str(penalty_record["trajectory_state"]), "negative")
+                self.assertGreater(float(penalty_record["trajectory_penalty_total"]), 0.0)
+                self.assertLess(float(penalty_record["trajectory_support_multiplier"]), 1.0)
+                self.assertGreater(float(penalty_record["trajectory_penalty_multiplier"]), 1.0)
+
+                for _ in range(3):
+                    manager.terminus_tick()
+                recovered = manager.query(query_text=query_text, top_k_memories=8)
+                recovered_runtime = manager.status()["terminus_runtime"]
+                recovered_record = recovered_runtime["background_source_routing"]["delayed_consequence_tracking"]["recent_records"][0]
+
+                self.assertGreater(int(recovered["delayed_consequence"]["credited_records"]), 0)
+                self.assertGreater(int(recovered["delayed_consequence"]["forgiven_records"]), 0)
+                self.assertGreater(float(recovered_record["trajectory_credit_total"]), 0.0)
+                self.assertGreater(float(recovered_record["trajectory_forgiveness_total"]), 0.0)
+                self.assertGreater(
+                    float(recovered_record["trajectory_net_score"]),
+                    float(penalty_record["trajectory_net_score"]),
+                )
+                self.assertGreater(
+                    float(recovered_record["trajectory_recent_delta_ema"]),
+                    float(penalty_record["trajectory_recent_delta_ema"]),
+                )
+                self.assertGreater(
+                    float(recovered_record["trajectory_support_multiplier"]),
+                    float(penalty_record["trajectory_support_multiplier"]),
+                )
+                self.assertLess(
+                    float(recovered_record["trajectory_penalty_multiplier"]),
+                    float(penalty_record["trajectory_penalty_multiplier"]),
+                )
+                self.assertEqual(str(recovered_record["trajectory_state"]), "recovering")
+            finally:
+                manager.close()
+
+    def test_background_consequence_family_divergence_split_separates_mixed_query_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_consequence_split")
+            tectonics_path = root / "tectonics.txt"
+            tectonics_path.write_text(
+                (
+                    "Crust plates drift over the mantle and slowly move continents. " * 4
+                    + "Convergent plate collisions build mountain ranges and lift rock upward. " * 4
+                ),
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mountains continents mantle"},
+                        }
+                    ],
+                    tick_tokens=120,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates move continents and build mountain ranges through tectonic motion.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates move continents and build mountain ranges through tectonic motion.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How do crust plates build mountain ranges over the mantle?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    second = manager.respond(
+                        query_text="How do crust plates move continents over the mantle?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
+
+                penalized = manager.query(
+                    query_text="How do crust plates build mountain ranges over the mantle?",
+                    top_k_memories=8,
+                )
+                self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
+
+                for _ in range(3):
+                    manager.terminus_tick()
+                recovered = manager.query(
+                    query_text="How do crust plates move continents over the mantle?",
+                    top_k_memories=8,
+                )
+                tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                records = {
+                    str(record.get("split_branch", "")): record
+                    for record in tracking["recent_records"]
+                    if str(record.get("split_branch", ""))
+                }
+
+                self.assertGreater(int(recovered["delayed_consequence"]["credited_records"]), 0)
+                self.assertGreater(int(recovered["delayed_consequence"]["forgiven_records"]), 0)
+                self.assertEqual(int(tracking["record_count"]), 2)
+                self.assertGreater(int(tracking["split_record_count_total"]), 0)
+                self.assertEqual(int(tracking["aggregate_occurrence_count"]), 2)
+                self.assertIn("supportive", records)
+                self.assertIn("adverse", records)
+                supportive = records["supportive"]
+                adverse = records["adverse"]
+                self.assertIn("How do crust plates move continents over the mantle?", supportive["query_examples"])
+                self.assertIn("How do crust plates build mountain ranges over the mantle?", adverse["query_examples"])
+                self.assertEqual(str(adverse["trajectory_state"]), "negative")
+                self.assertGreater(
+                    float(supportive["trajectory_net_score"]),
+                    float(adverse["trajectory_net_score"]),
+                )
+                self.assertEqual(str(supportive["split_group_id"]), str(adverse["split_group_id"]))
+            finally:
+                manager.close()
+
+    def test_background_split_lineage_remerges_after_aligned_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_consequence_remerge")
+            tectonics_path = root / "tectonics.txt"
+            tectonics_path.write_text(
+                (
+                    "Crust plates drift over the mantle and slowly move continents. " * 4
+                    + "Convergent plate collisions build mountain ranges and lift rock upward. " * 4
+                ),
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "tectonics_source",
+                            "source": str(tectonics_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mountains continents mantle"},
+                        }
+                    ],
+                    tick_tokens=120,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Crust plates move continents and build mountain ranges through tectonic motion.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Crust plates move continents and build mountain ranges through tectonic motion.",
+                                "source_name": "tectonics_source",
+                                "source_names": ["tectonics_source"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How do crust plates build mountain ranges over the mantle?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    manager.respond(
+                        query_text="How do crust plates move continents over the mantle?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                manager.query(
+                    query_text="How do crust plates build mountain ranges over the mantle?",
+                    top_k_memories=8,
+                )
+                for _ in range(3):
+                    manager.terminus_tick()
+                split_result = manager.query(
+                    query_text="How do crust plates move continents over the mantle?",
+                    top_k_memories=8,
+                )
+                split_tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+
+                self.assertGreater(int(split_result["delayed_consequence"]["split_records"]), 0)
+                self.assertEqual(int(split_tracking["record_count"]), 2)
+
+                remerged = manager.query(
+                    query_text="How do crust plates move continents over the mantle?",
+                    top_k_memories=8,
+                )
+                tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                record = tracking["recent_records"][0]
+
+                self.assertGreater(int(remerged["delayed_consequence"]["remerged_records"]), 0)
+                self.assertEqual(int(tracking["record_count"]), 1)
+                self.assertGreater(int(tracking["remerged_record_count_total"]), 0)
+                self.assertEqual(str(record["split_branch"]), "")
+                self.assertGreater(int(record["remerge_events"]), 0)
+                self.assertTrue(str(record["last_remerged_at"]))
+                self.assertIn("How do crust plates move continents over the mantle?", record["query_examples"])
+                self.assertIn("How do crust plates build mountain ranges over the mantle?", record["query_examples"])
+            finally:
+                manager.close()
+
+    def test_grounded_family_summary_biases_equal_focus_background_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_family_summary")
+            first_path = root / "first.txt"
+            second_path = root / "second.txt"
+            first_path.write_text(
+                "crust plates drift over the mantle and build mountain ranges " * 24,
+                encoding="utf-8",
+            )
+            second_path.write_text(
+                "crust plates drift over the mantle and build mountain ranges " * 24,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "first_source",
+                            "source": str(first_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle mountains"},
+                        },
+                        {
+                            "name": "second_source",
+                            "source": str(second_path),
+                            "source_type": "file",
+                            "metadata": {"label": "tectonics crust plates mantle mountains"},
+                        },
+                    ],
+                    tick_tokens=120,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                record = manager._normalize_delayed_consequence_record(
+                    {
+                        "query_text": "How do crust plates build mountain ranges?",
+                        "query_examples": ["How do crust plates build mountain ranges?"],
+                        "baseline_query_score": 0.42,
+                        "best_query_score": 0.96,
+                        "baseline_grounded_fraction": 0.30,
+                        "best_grounded_fraction": 1.0,
+                        "outcome_score": 0.92,
+                        "source_weights": {"first_source": 1.0},
+                        "provider_weights": {},
+                        "credit_events": 1,
+                        "forgiveness_events": 1,
+                        "trajectory_credit_total": 0.72,
+                        "trajectory_forgiveness_total": 0.20,
+                        "trajectory_penalty_total": 0.0,
+                        "trajectory_event_count": 2,
+                        "trajectory_net_score": 0.92,
+                        "trajectory_recent_delta_ema": 0.48,
+                        "resolved_improvement": 0.54,
+                    }
+                )
+                self.assertIsNotNone(record)
+                family_summary_score = manager._grounded_family_summary_score(record)
+                self.assertGreater(float(family_summary_score), 0.0)
+                manager._apply_background_source_family_summary_locked(
+                    source_weights=record["source_weights"],
+                    family_summary_score=family_summary_score,
+                )
+                runtime = manager.status()["terminus_runtime"]
+                first_progress = next(item for item in runtime["source_progress"] if item["name"] == "first_source")
+                second_progress = next(item for item in runtime["source_progress"] if item["name"] == "second_source")
+
+                self.assertGreater(float(first_progress["grounded_family_summary_ema"]), 0.0)
+                self.assertEqual(float(second_progress["grounded_family_summary_ema"]), 0.0)
+
+                first_runtime = next(runtime for runtime in manager._brain_source_runtimes if runtime.name == "first_source")
+                second_runtime = next(runtime for runtime in manager._brain_source_runtimes if runtime.name == "second_source")
+                first_runtime.tick_visits = 0
+                second_runtime.tick_visits = 0
+                first_runtime.last_activity_at = None
+                second_runtime.last_activity_at = None
+                first_runtime.buffered_patterns.clear()
+                second_runtime.buffered_patterns.clear()
+                first_entry = manager._background_source_utility_entry_locked(first_runtime)
+                second_entry = manager._background_source_utility_entry_locked(second_runtime)
+                for entry in (first_entry, second_entry):
+                    entry["utility_ema"] = 0.10
+                    entry["semantic_alignment_ema"] = 0.30
+                    entry["grounding_signal_ema"] = 0.20
+                    entry["focus_overlap_ema"] = 0.30
+                    entry["grounded_outcome_ema"] = 0.10
+                    entry["delayed_consequence_ema"] = 0.10
+                    entry["contradiction_decay_ema"] = 0.0
+                first_entry["grounded_family_summary_ema"] = max(0.55, float(first_progress["grounded_family_summary_ema"]))
+                second_entry["grounded_family_summary_ema"] = 0.0
+
+                first_score, *_ = manager._brain_source_selection_score_locked(
+                    first_runtime,
+                    focus_terms=["tectonics", "crust", "plates", "mantle", "mountains"],
+                    focus_pressure=1.0,
+                    tick_tokens=120,
+                )
+                second_score, *_ = manager._brain_source_selection_score_locked(
+                    second_runtime,
+                    focus_terms=["tectonics", "crust", "plates", "mantle", "mountains"],
+                    focus_pressure=1.0,
+                    tick_tokens=120,
+                )
+
+                self.assertGreater(float(first_score), float(second_score))
+            finally:
+                manager.close()
+
+    def test_focus_aware_background_routing_preserves_rotation_when_focus_is_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_rotation_fairness")
+            first_path = root / "first.txt"
+            second_path = root / "second.txt"
+            first_path.write_text("general background signal alpha " * 24, encoding="utf-8")
+            second_path.write_text("general background signal beta " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "first_source",
+                            "source": str(first_path),
+                            "source_type": "file",
+                            "metadata": {"label": "general background alpha"},
+                        },
+                        {
+                            "name": "second_source",
+                            "source": str(second_path),
+                            "source_type": "file",
+                            "metadata": {"label": "general background beta"},
+                        },
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+                manager.terminus_tick()
+                runtime = manager.terminus_tick()["terminus_runtime"]
+                first_progress = next(item for item in runtime["source_progress"] if item["name"] == "first_source")
+                second_progress = next(item for item in runtime["source_progress"] if item["name"] == "second_source")
+
+                self.assertEqual(int(first_progress["tick_visits"]), 1)
+                self.assertEqual(int(second_progress["tick_visits"]), 1)
+                self.assertEqual(runtime["last_event"]["source"]["source_name"], "second_source")
+            finally:
+                manager.close()
+
+    def test_terminus_tick_prefetches_into_ingestion_queue_and_reports_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_ingestion_queue")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("adaptive memory plasticity signal " * 64, encoding="utf-8")
+            try:
+                ticked = manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "queued_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    ingestion={"queue_target_tokens": 16, "prewarm_on_startup": False},
+                )
+                self.assertEqual(ticked["terminus_runtime"]["ingestion"]["queue_target_tokens"], 16)
+
+                runtime = manager.terminus_tick(steps=1)["terminus_runtime"]
+                source_progress = runtime["source_progress"][0]
+
+                self.assertEqual(runtime["ingestion"]["queue_target_tokens"], 16)
+                self.assertGreater(runtime["ingestion"]["total_buffered_tokens"], 0)
+                self.assertGreater(runtime["ingestion"]["prefetch_events"], 0)
+                self.assertGreater(source_progress["buffered_tokens"], 0)
+                self.assertGreater(source_progress["prefetched_tokens"], source_progress["last_tokens_trained"])
+                self.assertEqual(source_progress["last_prefetch_token_count"], 16)
+                self.assertIsNotNone(source_progress["last_prefetch_at"])
+                self.assertGreater(float(source_progress["last_prefetch_duration_ms"]), 0.0)
+            finally:
+                manager.close()
+
+    def test_terminus_warm_queue_serves_second_tick_without_fetching_source_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_warm_queue")
+
+            class _DelayedPatternStream:
+                def __init__(self, items, *, delay_after: int, delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._delay_after = int(delay_after)
+                    self._delay_seconds = float(delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= self._delay_after:
+                        time.sleep(self._delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            delayed_stream = _DelayedPatternStream(
+                [(f"window-{idx}", fake_pattern) for idx in range(12)],
+                delay_after=8,
+                delay_seconds=0.12,
+            )
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=delayed_stream,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "buffered_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )
+
+                manager.terminus_tick(steps=1)
+                calls_after_first = delayed_stream.next_calls
+                second = manager.terminus_tick(steps=1)["terminus_runtime"]
+
+                self.assertEqual(calls_after_first, 8)
+                self.assertEqual(delayed_stream.next_calls, calls_after_first)
+                self.assertGreaterEqual(second["source_progress"][0]["queue_hits"], 1)
+                self.assertEqual(second["source_progress"][0]["last_buffer_tokens_served"], 4)
+                self.assertEqual(second["ingestion"]["queue_hits"], 1)
+                self.assertEqual(second["huggingface"]["prefetch_events"], 1)
+            finally:
+                manager.close()
+
+    def test_terminus_background_prewarm_warms_queue_before_first_tick(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_background_prewarm")
+
+            class _DelayedPatternStream:
+                def __init__(self, items, *, delay_after: int, delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._delay_after = int(delay_after)
+                    self._delay_seconds = float(delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= self._delay_after:
+                        time.sleep(self._delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            active_stream = _DelayedPatternStream(
+                [(f"window-{idx}", fake_pattern) for idx in range(12)],
+                delay_after=8,
+                delay_seconds=0.12,
+            )
+            prewarm_stream = _DelayedPatternStream(
+                [(f"window-{idx}", fake_pattern) for idx in range(12)],
+                delay_after=8,
+                delay_seconds=0.12,
+            )
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=active_stream,
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_build_source_stream_from_spec",
+                    autospec=True,
+                    return_value=prewarm_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "prewarmed_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": True},
+                    )
+                    self.assertIn(
+                        configured["terminus_runtime"]["ingestion"]["startup_state"],
+                        {"warming", "warm"},
+                    )
+
+                    deadline = time.time() + 1.5
+                    warm_runtime = configured["terminus_runtime"]
+                    while time.time() < deadline:
+                        warm_runtime = manager.terminus_status()["terminus_runtime"]
+                        if warm_runtime["ingestion"]["startup_state"] == "warm":
+                            break
+                        time.sleep(0.02)
+
+                    self.assertEqual(warm_runtime["ingestion"]["startup_state"], "warm")
+                    self.assertTrue(warm_runtime["ingestion"]["warm_ready"])
+                    self.assertFalse(warm_runtime["ingestion"]["prewarm_running"])
+                    self.assertIsNotNone(warm_runtime["ingestion"]["prewarm_started_at"])
+                    self.assertIsNotNone(warm_runtime["ingestion"]["prewarm_completed_at"])
+                    self.assertGreater(float(warm_runtime["ingestion"]["startup_warm_latency_ms"]), 0.0)
+                    self.assertEqual(prewarm_stream.next_calls, 8)
+                    self.assertEqual(active_stream.next_calls, 0)
+
+                    first_tick = manager.terminus_tick(steps=1)["terminus_runtime"]
+                    self.assertEqual(prewarm_stream.next_calls, 8)
+                    self.assertEqual(active_stream.next_calls, 0)
+                    self.assertGreaterEqual(first_tick["source_progress"][0]["queue_hits"], 1)
+            finally:
+                manager.close()
+
+    def test_terminus_startup_state_reports_cold_until_first_fill_without_background_prewarm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_cold_start_instrumentation")
+
+            class _DelayedPatternStream:
+                def __init__(self, items) -> None:
+                    self._items = list(items)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            delayed_stream = _DelayedPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=delayed_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "cold_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )
+
+                self.assertEqual(configured["terminus_runtime"]["ingestion"]["startup_state"], "cold")
+                self.assertFalse(configured["terminus_runtime"]["ingestion"]["warm_ready"])
+                self.assertFalse(configured["terminus_runtime"]["ingestion"]["prewarm_running"])
+                self.assertIsNone(configured["terminus_runtime"]["ingestion"]["startup_warm_latency_ms"])
+                self.assertEqual(delayed_stream.next_calls, 0)
+
+                warmed = manager.terminus_tick(steps=1)["terminus_runtime"]
+                self.assertEqual(warmed["ingestion"]["startup_state"], "warm")
+                self.assertTrue(warmed["ingestion"]["warm_ready"])
+                self.assertGreater(float(warmed["ingestion"]["startup_warm_latency_ms"]), 0.0)
+                self.assertEqual(delayed_stream.next_calls, 8)
+            finally:
+                manager.close()
+
+    def test_remote_active_tick_returns_quickly_while_source_warms_in_background(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_active_tick_budget")
+
+            class _SlowPatternStream:
+                def __init__(self, items, *, first_delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)], first_delay_seconds=0.3),
+                max_buffer=2,
+                name="slow-remote-active-text",
+            )
+            try:
+                with patch.object(manager_module, "DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", 0.05), patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "slow_remote_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )
+
+                    started = time.perf_counter()
+                    first = manager.terminus_tick(steps=1)
+                    first_ms = (time.perf_counter() - started) * 1000.0
+                    self.assertLess(first_ms, 200.0)
+                    self.assertEqual(first["tick_summaries"][0]["source"]["reason"], "warming_remote_source")
+                    self.assertFalse(first["tick_summaries"][0]["did_work"])
+
+                    time.sleep(0.35)
+                    second = manager.terminus_tick(steps=1)
+                    self.assertTrue(second["tick_summaries"][0]["source"]["did_work"])
+                    self.assertEqual(second["tick_summaries"][0]["source"]["source_name"], "slow_remote_hf_source")
+            finally:
+                manager.close()
+
+    def test_remote_source_first_rows_bootstrap_warms_runtime_quickly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_text_first_rows_bootstrap")
+
+            class _SlowPatternStream:
+                def __init__(self, items, *, first_delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)], first_delay_seconds=1.0),
+                max_buffer=4,
+                name="slow-remote-first-rows-bootstrap",
+            )
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ), patch.object(
+                    manager_module,
+                    "load_hf_first_rows",
+                    return_value=[{"text": "Bootstrap cats rest indoors and chase mice at night."}],
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "bootstrap_remote_hf_source",
+                                "source": "wikimedia/wikipedia",
+                                "source_type": "hf",
+                                "hf_config": "20231101.en",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["ingestion"]["startup_state"], "cold")
+
+                    deadline = time.time() + 1.0
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if runtime["ingestion"]["warm_ready"]:
+                            break
+                        time.sleep(0.02)
+
+                    self.assertTrue(runtime["ingestion"]["warm_ready"])
+                    event_types = [event.get("type") for event in runtime["recent_events"]]
+                    self.assertIn("remote_text_bootstrap_applied", event_types)
+                    self.assertIn("remote_warm_promotion_started", event_types)
+
+                    ticked = manager.terminus_tick(steps=1)
+                    self.assertTrue(ticked["tick_summaries"][0]["source"]["did_work"])
+                    self.assertEqual(ticked["tick_summaries"][0]["source"]["source_name"], "bootstrap_remote_hf_source")
+            finally:
+                manager.close()
+
+    def test_remote_text_bootstrap_timeout_does_not_block_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_text_bootstrap_timeout_close")
+
+            class _SlowPatternStream:
+                def __init__(self, items, *, first_delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowPatternStream([(f"window-{idx}", fake_pattern) for idx in range(8)], first_delay_seconds=1.0),
+                max_buffer=4,
+                name="slow-remote-text-bootstrap-timeout",
+            )
+            bootstrap_started = Event()
+            closed = False
+
+            def _slow_first_rows(*_args, **_kwargs):
+                bootstrap_started.set()
+                time.sleep(0.3)
+                return [{"text": "slow bootstrap row"}]
+
+            try:
+                with patch.object(manager_module, "DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", 0.05), patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ), patch.object(
+                    manager_module,
+                    "load_hf_first_rows",
+                    side_effect=_slow_first_rows,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "timeout_remote_hf_source",
+                                "source": "wikimedia/wikipedia",
+                                "source_type": "hf",
+                                "hf_config": "20231101.en",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )
+                    self.assertTrue(bootstrap_started.wait(0.2))
+
+                    deadline = time.time() + 0.4
+                    event_types: list[str | None] = []
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        event_types = [event.get("type") for event in runtime["recent_events"]]
+                        if "remote_text_bootstrap_timed_out" in event_types:
+                            break
+                        time.sleep(0.02)
+                    self.assertIn("remote_text_bootstrap_timed_out", event_types)
+
+                    started = time.perf_counter()
+                    manager.close()
+                    closed = True
+                    close_ms = (time.perf_counter() - started) * 1000.0
+                    self.assertLess(close_ms, 200.0)
+            finally:
+                if not closed:
+                    manager.close()
+
+    def test_remote_source_promotion_warms_runtime_without_repeated_ticks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_text_promotion")
+
+            class _SlowPatternStream:
+                def __init__(self, items, *, first_delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)], first_delay_seconds=0.3),
+                max_buffer=4,
+                name="slow-remote-promotion-text",
+            )
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "promoted_remote_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["ingestion"]["startup_state"], "cold")
+
+                    deadline = time.time() + 1.5
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if runtime["ingestion"]["warm_ready"]:
+                            break
+                        time.sleep(0.02)
+
+                    self.assertTrue(runtime["ingestion"]["warm_ready"])
+                    self.assertGreaterEqual(runtime["ingestion"]["total_buffered_tokens"], 1)
+                    event_types = [event.get("type") for event in runtime["recent_events"]]
+                    self.assertIn("remote_warm_promotion_started", event_types)
+                    self.assertIn("remote_warm_promotion_completed", event_types)
+
+                    ticked = manager.terminus_tick(steps=1)
+                    self.assertTrue(ticked["tick_summaries"][0]["source"]["did_work"])
+                    self.assertEqual(ticked["tick_summaries"][0]["source"]["source_name"], "promoted_remote_hf_source")
+            finally:
+                manager.close()
+
+    def test_remote_source_cache_restore_makes_runtime_warm_and_usable_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            manager = _build_manager(root, test_case="service_manager_remote_text_cache_seed")
+
+            class _FastPatternStream:
+                def __init__(self, items) -> None:
+                    self._items = list(items)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            seed_stream = _FastPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=seed_stream,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "cached_remote_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )
+                    manager.terminus_tick(steps=1)
+            finally:
+                manager.close()
+
+            manager = _build_manager(root, test_case="service_manager_remote_text_cache_restore")
+
+            class _UnusedPatternStream(_FastPatternStream):
+                def __next__(self):
+                    self.next_calls += 1
+                    raise AssertionError("remote stream should not be touched before cached work is consumed")
+
+            restored_stream = _UnusedPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=restored_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "cached_remote_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["ingestion"]["startup_state"], "warm")
+                    self.assertTrue(configured["ingestion"]["warm_ready"])
+                    self.assertGreaterEqual(configured["ingestion"]["total_buffered_tokens"], 4)
+                    event_types = [event.get("type") for event in configured["recent_events"]]
+                    self.assertIn("ingestion_cache_restored", event_types)
+
+                    ticked = manager.terminus_tick(steps=1)
+                    self.assertTrue(ticked["tick_summaries"][0]["source"]["did_work"])
+                    self.assertEqual(restored_stream.next_calls, 0)
+            finally:
+                manager.close()
+
+    def test_terminus_prewarm_budget_exhaustion_surfaces_partial_warm_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_prewarm_budget")
+
+            class _DelayedPatternStream:
+                def __init__(self, items, *, delay_after: int, delay_seconds: float) -> None:
+                    self._items = list(items)
+                    self._delay_after = int(delay_after)
+                    self._delay_seconds = float(delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= self._delay_after:
+                        time.sleep(self._delay_seconds)
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            active_stream = _DelayedPatternStream(
+                [(f"window-{idx}", fake_pattern) for idx in range(12)],
+                delay_after=4,
+                delay_seconds=0.12,
+            )
+            prewarm_stream = _DelayedPatternStream(
+                [(f"window-{idx}", fake_pattern) for idx in range(12)],
+                delay_after=4,
+                delay_seconds=0.12,
+            )
+            try:
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=active_stream,
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_build_source_stream_from_spec",
+                    autospec=True,
+                    return_value=prewarm_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "budgeted_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={
+                            "queue_target_tokens": 8,
+                            "prewarm_on_startup": True,
+                            "prewarm_max_seconds": 0.05,
+                        },
+                    )["terminus_runtime"]
+
+                    self.assertIn(configured["ingestion"]["startup_state"], {"warming", "warm"})
+                    deadline = time.time() + 1.5
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if not runtime["ingestion"]["prewarm_running"]:
+                            break
+                        time.sleep(0.02)
+
+                    self.assertTrue(runtime["ingestion"]["prewarm_budget_exhausted"])
+                    self.assertTrue(runtime["ingestion"]["warm_ready"])
+                    self.assertFalse(runtime["ingestion"]["full_warm_ready"])
+                    self.assertGreater(runtime["ingestion"]["ready_source_count"], 0)
+                    self.assertEqual(runtime["ingestion"]["full_queue_source_count"], 0)
+                    self.assertAlmostEqual(float(runtime["ingestion"]["prewarm_max_seconds"]), 0.05, places=6)
+                    self.assertGreater(prewarm_stream.next_calls, 0)
+                    self.assertLess(prewarm_stream.next_calls, 8)
+                    self.assertEqual(active_stream.next_calls, 0)
+
+                    calls_before_tick = prewarm_stream.next_calls
+                    first_tick = manager.terminus_tick(steps=1)["terminus_runtime"]
+                    self.assertEqual(prewarm_stream.next_calls, calls_before_tick)
+                    self.assertEqual(active_stream.next_calls, 0)
+                    self.assertGreaterEqual(first_tick["source_progress"][0]["queue_hits"], 1)
+            finally:
+                manager.close()
+
+    def test_immediate_tick_does_not_wait_behind_blocking_startup_prewarm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_isolated_prewarm_tick")
+
+            class _FastPatternStream:
+                def __init__(self, items) -> None:
+                    self._items = list(items)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= len(self._items):
+                        raise StopIteration
+                    item = self._items[self._index]
+                    self._index += 1
+                    return item
+
+            class _BlockingPatternStream(_FastPatternStream):
+                def __init__(self, items, started: Event, delay_seconds: float) -> None:
+                    super().__init__(items)
+                    self._started = started
+                    self._delay_seconds = float(delay_seconds)
+
+                def __next__(self):
+                    self._started.set()
+                    time.sleep(self._delay_seconds)
+                    return super().__next__()
+
+            fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
+            active_stream = _FastPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
+            prewarm_started = Event()
+            prewarm_stream = _BlockingPatternStream(
+                [(f"window-{idx}", fake_pattern) for idx in range(12)],
+                started=prewarm_started,
+                delay_seconds=0.45,
+            )
+            try:
+                with patch.object(manager_module, "DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", 0.05), patch.object(
+                    HECSNServiceManager,
+                    "_build_brain_source_stream_locked",
+                    autospec=True,
+                    return_value=active_stream,
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_build_source_stream_from_spec",
+                    autospec=True,
+                    return_value=prewarm_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "isolated_hf_source",
+                                "source": "HuggingFaceFW/fineweb-edu",
+                                "source_type": "hf",
+                            }
+                        ],
+                        tick_tokens=4,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        ingestion={
+                            "queue_target_tokens": 8,
+                            "prewarm_on_startup": True,
+                            "prewarm_max_seconds": 5.0,
+                        },
+                    )["terminus_runtime"]
+
+                    self.assertIn(configured["ingestion"]["startup_state"], {"warming", "warm"})
+                    self.assertFalse(prewarm_started.is_set())
+
+                    started = time.perf_counter()
+                    ticked = manager.terminus_tick(steps=1)["terminus_runtime"]
+                    tick_ms = (time.perf_counter() - started) * 1000.0
+
+                    self.assertLess(tick_ms, 300.0)
+                    self.assertEqual(active_stream.next_calls, 8)
+                    self.assertEqual(ticked["source_progress"][0]["last_buffer_tokens_served"], 4)
+                    self.assertFalse(prewarm_started.wait(0.2))
+                    event_types = [event.get("type") for event in manager.terminus_status()["terminus_runtime"]["recent_events"]]
+                    self.assertIn("ingestion_prewarm_skipped_after_active_execution", event_types)
+            finally:
+                manager.close()
+
+    def test_terminus_tick_injects_grounded_source_evidence_into_cortex(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_grounded_source_observation")
+            source_path = root / "terminus_grounded_source.txt"
+            source_path.write_text(
+                "Cats rest indoors and chase mice at night. " * 80,
+                encoding="utf-8",
+            )
+            observations: list[dict[str, object]] = []
 
             class _DummyThoughtLoop:
-                gate = _DummyGate()
                 is_running = False
 
-            class _FakeSegment:
-                def __init__(self, text: str, visual_hint: str, audio_hint: str) -> None:
-                    self.text = text
-                    self.visual_hint = visual_hint
-                    self.audio_hint = audio_hint
-
-            class _FakeCurriculumGenerator:
-                def generate(self, gap_terms, max_segments=3):
-                    return [
-                        _FakeSegment(
-                            "Plate tectonics moves continents over geological time.",
-                            "Layered crust plates shifting over glowing mantle.",
-                            "Grinding rock and low seismic rumble.",
-                        )
-                    ]
-
-                def close(self) -> None:
+                def inject_surprise(self, **kwargs):
                     return None
 
-            def _fake_train_step(pattern, **kwargs):
-                calls.append(kwargs)
-                manager._trainer.token_count += 1
-                return {}
+                def inject_observation(self, content, topics=(), salience=0.7, metadata=None):
+                    observations.append(
+                        {
+                            "content": content,
+                            "topics": list(topics),
+                            "salience": salience,
+                            "metadata": dict(metadata or {}),
+                        }
+                    )
+
+                def snapshot(self):
+                    return {"enabled": True}
 
             try:
                 manager._thought_loop = _DummyThoughtLoop()
-                manager._brain_config["curriculum"] = {
-                    "enabled": True,
-                    "topics_per_cycle": 1,
-                    "trigger_interval_tokens": 1,
-                    "cooldown_seconds": 5.0,
-                }
-                manager._trainer.token_count = 64
-                manager._last_curriculum_injection_token_count = 0
-                manager._last_curriculum_injection_time = 0.0
-                manager._geometric_curiosity.focus_plan = lambda top_n=1: {"geometric_gaps": []}
-                with patch("hecsn.cortex.curriculum.CurriculumGenerator", return_value=_FakeCurriculumGenerator()):
-                    original_train_step = manager._trainer.train_step
-                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
-                    try:
-                        extra = manager._run_curriculum_injection_locked()
-                    finally:
-                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
-
-                self.assertGreater(extra, 0)
-                self.assertTrue(calls)
-                self.assertIsNotNone(calls[0].get("visual_spikes"))
-                self.assertIsNotNone(calls[0].get("audio_spikes"))
-                self.assertGreater(manager._last_curriculum_injection_time, 0.0)
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "cats_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=48,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                ticked = manager.terminus_tick(steps=2)
+                self.assertGreater(len(observations), 0)
+                observation = observations[-1]
+                content = str(observation["content"]).lower()
+                self.assertIn("cats", content)
+                self.assertIn("indoors", content)
+                self.assertIn("mice", content)
+                self.assertNotIn("snn processed", content)
+                self.assertNotIn("recent concepts", content)
+                self.assertIn("grounded_observation", ticked["tick_summaries"][0]["source"])
+                grounded = ticked["tick_summaries"][0]["source"]["grounded_observation"]
+                self.assertIn("cats", grounded["content"].lower())
+                self.assertGreater(len(grounded["topics"]), 0)
             finally:
                 manager.close()
+
+    def test_grounded_source_observation_supports_cortex_query_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_grounded_query_context")
+            source_path = root / "terminus_grounded_answer_source.txt"
+            source_path.write_text(
+                "Cats rest indoors and chase mice at night. " * 80,
+                encoding="utf-8",
+            )
+            try:
+                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                class _GroundedAnswerCortex(CorticalCore):
+                    model = "grounded-answer-cortex"
+                    temperature = 0.7
+
+                    def __init__(self) -> None:
+                        self.last_context = None
+
+                    def generate(self, context: ContextPacket) -> ThoughtResult:
+                        self.last_context = context
+                        evidence_text = " ".join(item.text for item in context.grounded_evidence)
+                        return ThoughtResult(
+                            raw_text="",
+                            thought=evidence_text or context.external_query,
+                            topics=("cats", "mice"),
+                            confidence=0.9,
+                            latency_ms=1.0,
+                            parse_success=True,
+                        )
+
+                    def is_available(self) -> bool:
+                        return True
+
+                cortex = _GroundedAnswerCortex()
+                thought_loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=60.0)
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "cats_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=48,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                manager.terminus_tick(steps=2)
+                result = manager.cortex_ask("Where do cats rest and what do they chase at night?")
+                self.assertTrue(result["accepted"])
+
+                answer = thought_loop.step()
+                self.assertIsNotNone(answer)
+                self.assertIsNotNone(cortex.last_context)
+                self.assertGreater(len(cortex.last_context.grounded_evidence), 0)
+                evidence_text = " ".join(item.text for item in cortex.last_context.grounded_evidence).lower()
+                self.assertIn("cats", evidence_text)
+                self.assertIn("indoors", evidence_text)
+                self.assertIn("mice", evidence_text)
+                self.assertIn("indoors", answer.thought.lower())
+                self.assertIn("mice", answer.thought.lower())
+            finally:
+                manager.close()
+
+    def test_repeated_queries_stay_grounded_to_recent_source_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_repeated_grounded_queries")
+            source_path = root / "terminus_repeated_grounded_answer_source.txt"
+            source_path.write_text(
+                "Cats rest indoors and chase mice at night. " * 80,
+                encoding="utf-8",
+            )
+            try:
+                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                class _DriftCortex(CorticalCore):
+                    model = "drift-cortex"
+                    temperature = 0.7
+
+                    def generate(self, context: ContextPacket) -> ThoughtResult:
+                        return ThoughtResult(
+                            raw_text="",
+                            thought="Cats are common household animals with varied personalities.",
+                            topics=("cats",),
+                            confidence=0.5,
+                            latency_ms=1.0,
+                            parse_success=True,
+                        )
+
+                    def is_available(self) -> bool:
+                        return True
+
+                thought_loop = ThoughtLoop(cortex=_DriftCortex(), min_thought_interval_s=60.0)
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "cats_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=48,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                manager.terminus_tick(steps=2)
+
+                queries = [
+                    "Where do cats rest and what do they chase at night?",
+                    "What do the grounded observations say cats chase at night and where do they rest?",
+                ]
+                answers: list[str] = []
+                for query in queries:
+                    accepted = manager.cortex_ask(query)
+                    self.assertTrue(accepted["accepted"])
+                    answer = thought_loop.step()
+                    self.assertIsNotNone(answer)
+                    answers.append(str(answer.thought).lower())
+
+                self.assertEqual(len(answers), 2)
+                self.assertTrue(all("indoors" in answer for answer in answers))
+                self.assertTrue(all("mice" in answer for answer in answers))
+
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["grounding"]["query_answers_evaluated"], 2)
+                self.assertGreaterEqual(float(snap["grounding"]["mean_query_alignment"]), 0.4)
+                self.assertEqual(snap["grounding"]["query_recovery_rate"], 1.0)
+                latest = snap["recent_thoughts"][-1]["grounding"]
+                self.assertTrue(latest["fallback_used"])
+                self.assertGreater(latest["grounded_evidence_count"], 0)
+            finally:
+                manager.close()
+
+    def test_source_grounded_observation_supports_wakeful_cortex_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_grounded_wakeful_context")
+            source_path = root / "terminus_grounded_wakeful_source.txt"
+            source_path.write_text(
+                "Cats rest indoors and chase mice at night. " * 80,
+                encoding="utf-8",
+            )
+            try:
+                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                class _WakefulDriftCortex(CorticalCore):
+                    model = "wakeful-drift-cortex"
+                    temperature = 0.7
+
+                    def __init__(self) -> None:
+                        self.last_context = None
+
+                    def generate(self, context: ContextPacket) -> ThoughtResult:
+                        self.last_context = context
+                        return ThoughtResult(
+                            raw_text="",
+                            thought="Cats are common household pets with flexible behavior.",
+                            topics=("cats",),
+                            confidence=0.5,
+                            latency_ms=1.0,
+                            parse_success=True,
+                        )
+
+                    def is_available(self) -> bool:
+                        return True
+
+                cortex = _WakefulDriftCortex()
+                thought_loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "cats_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=48,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                manager.terminus_tick(steps=2)
+
+                result = thought_loop.step()
+                self.assertIsNotNone(result)
+                self.assertIsNotNone(cortex.last_context)
+                self.assertGreater(len(cortex.last_context.grounded_evidence), 0)
+                self.assertIn("cats", cortex.last_context.forced_topic.lower())
+                self.assertIn("indoors", result.thought.lower())
+                self.assertIn("mice", result.thought.lower())
+
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["grounding"]["wakeful_thoughts_evaluated"], 1)
+                self.assertEqual(snap["grounding"]["wakeful_recovery_rate"], 1.0)
+                self.assertEqual(snap["recent_thoughts"][-1]["grounding"]["kind"], "wakeful")
+            finally:
+                manager.close()
+
+    def test_mixed_source_and_sensory_grounding_prefers_relevant_sensory_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_mixed_modal_grounding")
+            source_path = root / "terminus_background_source.txt"
+            source_path.write_text(
+                "Cats rest indoors and chase mice at night. " * 80,
+                encoding="utf-8",
+            )
+            sensory_episode = SensoryEpisode(
+                text="Water splashes while wind and footsteps move through an outdoor path.",
+                visual_spikes=None,
+                audio_spikes=torch.ones(64),
+                metadata={"caption": "water wind footsteps", "summary": "environmental sound of water and footsteps"},
+                audio_preview={
+                    "mime_type": "audio/wav",
+                    "bytes": b"waterwindsteps",
+                    "sample_rate": 16000,
+                    "duration_s": 1.0,
+                    "waveform": [0.4] * 8,
+                },
+            )
+            try:
+                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                class _SensoryPriorityCortex(CorticalCore):
+                    model = "sensory-priority-cortex"
+                    temperature = 0.7
+
+                    def __init__(self) -> None:
+                        self.last_context = None
+
+                    def generate(self, context: ContextPacket) -> ThoughtResult:
+                        self.last_context = context
+                        return ThoughtResult(
+                            raw_text="",
+                            thought="Natural environments contain many changing sensory signals.",
+                            topics=("environment",),
+                            confidence=0.45,
+                            latency_ms=1.0,
+                            parse_success=True,
+                        )
+
+                    def is_available(self) -> bool:
+                        return True
+
+                thought_loop = ThoughtLoop(cortex=_SensoryPriorityCortex(), min_thought_interval_s=0.0)
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+                manager._trainer.config.enable_cross_modal = True
+
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=iter([sensory_episode]),
+                ):
+                    manager.configure_terminus(
+                        source_bank=[
+                            {
+                                "name": "cats_source",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        tick_tokens=48,
+                        sleep_interval_seconds=0.01,
+                        repeat_sources=False,
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 1,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 0.0,
+                            "repeat_sources": True,
+                        },
+                    )
+
+                manager.terminus_tick(steps=2)
+                manager._brain_config["sensory"]["episode_interval_tokens"] = 1
+                manager._brain_config["sensory"]["cooldown_seconds"] = 0.0
+                original_train_step = manager._trainer.train_step
+                manager._last_real_sensory_episode_token_count = 0
+                manager._last_real_sensory_episode_time = 0.0
+                manager._thought_loop.gate.set_active_exploration_target(
+                    "environmental sound of water and footsteps",
+                    reason="mixed_modality_test",
+                    source="test",
+                    score=0.9,
+                )
+
+                def _fake_train_step(pattern, **kwargs):
+                    manager._trainer.token_count += 1
+                    return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+                manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                try:
+                    sensory_summary = manager._run_real_sensory_episode_locked()
+                finally:
+                    manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                self.assertIsNotNone(sensory_summary)
+                self.assertIn("grounded_observation", sensory_summary["sources"][0])
+                grounded = sensory_summary["sources"][0]["grounded_observation"]
+                self.assertEqual(grounded["observation_kind"], "sensory")
+                self.assertIn("water", grounded["content"].lower())
+                self.assertIn("footsteps", grounded["content"].lower())
+
+                result = thought_loop.step()
+                self.assertIsNotNone(result)
+                last_context = thought_loop.cortex.last_context  # type: ignore[attr-defined]
+                self.assertIsNotNone(last_context)
+                self.assertIn("water", last_context.forced_topic.lower())
+                evidence_text = " ".join(item.text for item in last_context.grounded_evidence).lower()
+                self.assertIn("water", evidence_text)
+                self.assertIn("footsteps", evidence_text)
+                self.assertIn("water", result.thought.lower())
+                self.assertIn("footsteps", result.thought.lower())
+
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["grounding"]["wakeful_thoughts_evaluated"], 1)
+                self.assertGreaterEqual(float(snap["grounding"]["mean_wakeful_alignment"]), 0.4)
+                self.assertEqual(snap["recent_thoughts"][-1]["grounding"]["kind"], "wakeful")
+            finally:
+                manager.close()
+
+    def test_autonomy_semantic_registry_acquires_local_real_source_without_curriculum_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "background.txt").write_text("neutral background signal " * 40, encoding="utf-8")
+            (root / "tectonics.html").write_text(
+                "<html><body><main><p>Plate tectonics describes rigid crust plates moving over the mantle.</p>"
+                "<p>Subduction, faults, and mountain building are key processes.</p></main></body></html>",
+                encoding="utf-8",
+            )
+            (root / "gardening.html").write_text(
+                "<html><body><main><p>Tomatoes need sunlight and watering.</p></main></body></html>",
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            manager = _build_manager(root, test_case="service_manager_real_source_autonomy_registry")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "background",
+                            "source": str(root / "background.txt"),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "runtime_registry",
+                                "catalog_mode": "semantic_registry",
+                                "catalog_limit": 2,
+                                "catalog_entries": [
+                                    {
+                                        "name": "tectonics_source",
+                                        "source": f"http://127.0.0.1:{port}/tectonics.html",
+                                        "source_type": "web",
+                                        "summary": "plate tectonics crust mantle subduction faults mountains",
+                                    },
+                                    {
+                                        "name": "garden_source",
+                                        "source": f"http://127.0.0.1:{port}/gardening.html",
+                                        "source_type": "web",
+                                        "summary": "garden tomato soil sunlight watering",
+                                    },
+                                ],
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 96,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 96,
+                        "acquisition_slots": 1,
+                    },
+                )
+                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                tick = manager.terminus_tick()
+                runtime = tick["terminus_runtime"]
+                autonomy = runtime["autonomy"]
+
+                self.assertIsNotNone(autonomy)
+                self.assertIsNotNone(autonomy["last_acquisition_summary"])
+                self.assertEqual(autonomy["last_acquisition_summary"]["acquired_sources"], ["tectonics_source"])
+                self.assertGreaterEqual(int(autonomy["last_acquisition_summary"]["tokens_trained_total"]), 1)
+                self.assertGreaterEqual(
+                    int(runtime["text_learning_balance"]["autonomy_tokens_processed"]),
+                    int(autonomy["last_acquisition_summary"]["tokens_trained_total"]),
+                )
+                self.assertGreater(float(runtime["text_learning_balance"]["autonomy_share_of_text_learning"]), 0.0)
+                self.assertNotIn("curriculum", runtime)
+                self.assertEqual(runtime["multimodal"]["mode"], "disabled")
+                self.assertEqual(runtime["multimodal"]["episodes_completed"], 0)
+                self.assertGreaterEqual(int(runtime["last_tick_token_delta"]), int(autonomy["last_acquisition_summary"]["tokens_trained_total"]))
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
 
     def test_real_sensory_episode_uses_hf_stream(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -276,11 +2792,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             class _DummyThoughtLoop:
                 is_running = False
 
-                def inject_observation(self, content, topics=(), salience=0.7):
+                def inject_observation(self, content, topics=(), salience=0.7, metadata=None):
                     observations.append({
                         "content": content,
                         "topics": list(topics),
                         "salience": salience,
+                        "metadata": dict(metadata or {}),
                     })
 
                 def snapshot(self):
@@ -335,8 +2852,17 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertIsNotNone(calls[0].get("visual_spikes"))
                 self.assertIsNone(calls[0].get("audio_spikes"))
                 self.assertTrue(observations)
-                self.assertIn("image-grounded episode", str(observations[0]["content"]))
+                self.assertIn("scientific figure", str(observations[0]["content"]).lower())
+                self.assertNotIn("image-grounded episode", str(observations[0]["content"]).lower())
                 self.assertGreater(float(observations[0]["salience"]), 0.8)
+                self.assertEqual(observations[0]["metadata"]["observation_kind"], "sensory")
+                self.assertEqual(observations[0]["metadata"]["source_type"], "sensory")
+                self.assertEqual(observations[0]["metadata"]["modality"], "image")
+                self.assertGreater(float(observations[0]["metadata"]["grounding_signal"]), 0.3)
+                grounded = summary["sources"][0]["grounded_observation"]
+                self.assertEqual(grounded["observation_kind"], "sensory")
+                self.assertEqual(grounded["modality"], "image")
+                self.assertIn("lattice", grounded["content"].lower())
                 self.assertEqual(runtime["sensory"]["source_progress"][0]["episodes_processed"], 1)
                 self.assertEqual(runtime["multimodal"]["real_episodes_completed"], 1)
                 self.assertEqual(runtime["multimodal"]["recent_preview_count"], 1)
@@ -346,6 +2872,1349 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(previews["count"], 1)
                 self.assertEqual(len(previews["previews"]), 1)
                 self.assertTrue(previews["previews"][0]["visual"]["data_url"].startswith("data:image/png;base64,"))
+            finally:
+                manager.close()
+
+    def test_sensory_background_prewarm_warms_queue_before_first_episode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_sensory_prewarm")
+
+            class _DelayedSensoryStream:
+                def __init__(self, episodes, *, delay_after: int = 999, delay_seconds: float = 0.0) -> None:
+                    self._episodes = list(episodes)
+                    self._delay_after = int(delay_after)
+                    self._delay_seconds = float(delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= self._delay_after:
+                        time.sleep(self._delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episodes = [
+                SensoryEpisode(
+                    text=(
+                        "Water splashes while wind and footsteps move through an outdoor path. "
+                        "Water splashes while wind and footsteps move through an outdoor path. "
+                        "Water splashes while wind and footsteps move through an outdoor path. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "water wind footsteps"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"waterwindsteps-1",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.4] * 8,
+                    },
+                ),
+                SensoryEpisode(
+                    text=(
+                        "Rain taps against leaves while distant birds call in a damp garden. "
+                        "Rain taps against leaves while distant birds call in a damp garden. "
+                        "Rain taps against leaves while distant birds call in a damp garden. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "rain leaves birds"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"rainbirds-2",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.3] * 8,
+                    },
+                ),
+            ]
+            active_stream = _DelayedSensoryStream(episodes)
+            prewarm_stream = _DelayedSensoryStream(list(episodes))
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=active_stream,
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_from_spec",
+                    autospec=True,
+                    return_value=prewarm_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 1,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 2,
+                            "prewarm_on_startup": True,
+                        },
+                    )["terminus_runtime"]
+
+                    self.assertIn(configured["sensory"]["startup_state"], {"warming", "warm"})
+                    deadline = time.time() + 1.5
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if runtime["sensory"]["startup_state"] == "warm":
+                            break
+                        time.sleep(0.02)
+
+                    self.assertEqual(runtime["sensory"]["startup_state"], "warm")
+                    self.assertTrue(runtime["sensory"]["warm_ready"])
+                    self.assertEqual(runtime["sensory"]["total_buffered_items"], 2)
+                    self.assertEqual(runtime["sensory"]["ready_source_count"], 1)
+                    self.assertGreater(float(runtime["sensory"]["startup_warm_latency_ms"]), 0.0)
+                    self.assertEqual(prewarm_stream.next_calls, 2)
+                    self.assertEqual(active_stream.next_calls, 0)
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(prewarm_stream.next_calls, 2)
+                    self.assertEqual(active_stream.next_calls, 0)
+                    sensory_runtime = manager.terminus_status()["terminus_runtime"]["sensory"]
+                    self.assertGreaterEqual(sensory_runtime["source_progress"][0]["queue_hits"], 1)
+                    self.assertEqual(sensory_runtime["source_progress"][0]["buffered_items"], 1)
+            finally:
+                manager.close()
+
+    def test_remote_active_sensory_episode_returns_quickly_while_source_warms_in_background(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_active_sensory_budget")
+
+            class _SlowSensoryStream:
+                def __init__(self, episodes, *, first_delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episodes = [
+                SensoryEpisode(
+                    text=(
+                        "Environmental sound sample with water and footsteps moving across a path. "
+                        "Environmental sound sample with water and footsteps moving across a path. "
+                        "Environmental sound sample with water and footsteps moving across a path. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "water footsteps sample"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"slow-remote-sensory",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.25] * 8,
+                    },
+                )
+            ]
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowSensoryStream(episodes, first_delay_seconds=0.3),
+                max_buffer=2,
+                name="slow-remote-active-sensory",
+            )
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(manager_module, "DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", 0.05), patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        started = time.perf_counter()
+                        first = manager._run_real_sensory_episode_locked()
+                        first_ms = (time.perf_counter() - started) * 1000.0
+                        self.assertIsNone(first)
+                        self.assertLess(first_ms, 200.0)
+
+                        time.sleep(0.35)
+                        second = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(second)
+                    self.assertEqual(second["sources"][0]["name"], "environmental_audio")
+            finally:
+                manager.close()
+
+    def test_remote_sensory_promotion_warms_runtime_without_repeated_episodes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_sensory_promotion")
+
+            class _SlowSensoryStream:
+                def __init__(self, episodes, *, first_delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episode = SensoryEpisode(
+                text=(
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                ),
+                visual_spikes=None,
+                audio_spikes=torch.ones(64),
+                metadata={"caption": "water footsteps sample"},
+                audio_preview={
+                    "mime_type": "audio/wav",
+                    "bytes": b"promoted-remote-sensory",
+                    "sample_rate": 16000,
+                    "duration_s": 1.0,
+                    "waveform": [0.25] * 8,
+                },
+            )
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowSensoryStream([episode], first_delay_seconds=0.3),
+                max_buffer=2,
+                name="slow-remote-promotion-sensory",
+            )
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["sensory"]["startup_state"], "cold")
+
+                    deadline = time.time() + 1.5
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if runtime["sensory"]["warm_ready"]:
+                            break
+                        time.sleep(0.02)
+
+                    self.assertTrue(runtime["sensory"]["warm_ready"])
+                    self.assertGreaterEqual(runtime["sensory"]["total_buffered_items"], 1)
+                    event_types = [event.get("type") for event in runtime["recent_events"]]
+                    self.assertIn("remote_warm_promotion_started", event_types)
+                    self.assertIn("remote_warm_promotion_completed", event_types)
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(summary["sources"][0]["name"], "environmental_audio")
+            finally:
+                manager.close()
+
+    def test_remote_sensory_first_rows_bootstrap_warms_runtime_quickly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_sensory_first_rows_bootstrap")
+
+            class _SlowSensoryStream:
+                def __init__(self, episodes, *, first_delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episode = SensoryEpisode(
+                text=(
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                ),
+                visual_spikes=None,
+                audio_spikes=torch.ones(64),
+                metadata={"caption": "water footsteps sample"},
+                audio_preview={
+                    "mime_type": "audio/wav",
+                    "bytes": b"bootstrap-remote-sensory",
+                    "sample_rate": 16000,
+                    "duration_s": 1.0,
+                    "waveform": [0.25] * 8,
+                },
+            )
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowSensoryStream([episode], first_delay_seconds=1.0),
+                max_buffer=2,
+                name="slow-remote-first-rows-bootstrap-sensory",
+            )
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ), patch.object(
+                    manager_module,
+                    "load_hf_first_rows",
+                    return_value=[{"caption": "Water pours while a woman talks nearby", "audio": [{"src": "https://example.com/audio.wav"}], "youtube_id": "abc123xyz99", "audiocap_id": 7, "start_time": 130}],
+                ), patch.object(
+                    manager_module,
+                    "bootstrap_sensory_episode_from_row",
+                    return_value=episode,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["sensory"]["startup_state"], "cold")
+
+                    deadline = time.time() + 1.0
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if runtime["sensory"]["warm_ready"]:
+                            break
+                        time.sleep(0.02)
+
+                    self.assertTrue(runtime["sensory"]["warm_ready"])
+                    event_types = [event.get("type") for event in runtime["recent_events"]]
+                    self.assertIn("remote_sensory_bootstrap_applied", event_types)
+                    self.assertIn("remote_warm_promotion_started", event_types)
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(summary["sources"][0]["name"], "environmental_audio")
+            finally:
+                manager.close()
+
+    def test_remote_sensory_bootstrap_timeout_does_not_block_close(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_remote_sensory_bootstrap_timeout_close")
+
+            class _SlowSensoryStream:
+                def __init__(self, episodes, *, first_delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episode = SensoryEpisode(
+                text=(
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                ),
+                visual_spikes=None,
+                audio_spikes=torch.ones(64),
+                metadata={"caption": "water footsteps sample"},
+                audio_preview={
+                    "mime_type": "audio/wav",
+                    "bytes": b"slow-bootstrap-close",
+                    "sample_rate": 16000,
+                    "duration_s": 1.0,
+                    "waveform": [0.25] * 8,
+                },
+            )
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowSensoryStream([episode], first_delay_seconds=1.0),
+                max_buffer=2,
+                name="slow-remote-sensory-bootstrap-timeout",
+            )
+            bootstrap_started = Event()
+            closed = False
+
+            def _slow_first_rows(*_args, **_kwargs):
+                bootstrap_started.set()
+                time.sleep(0.3)
+                return [{"caption": "slow sensory bootstrap row", "audio": [{"src": "https://example.com/audio.wav"}]}]
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(manager_module, "DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", 0.05), patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ), patch.object(
+                    manager_module,
+                    "load_hf_first_rows",
+                    side_effect=_slow_first_rows,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )
+                    self.assertTrue(bootstrap_started.wait(0.2))
+
+                    deadline = time.time() + 0.4
+                    event_types: list[str | None] = []
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        event_types = [event.get("type") for event in runtime["recent_events"]]
+                        if "remote_sensory_bootstrap_timed_out" in event_types:
+                            break
+                        time.sleep(0.02)
+                    self.assertIn("remote_sensory_bootstrap_timed_out", event_types)
+
+                    started = time.perf_counter()
+                    manager.close()
+                    closed = True
+                    close_ms = (time.perf_counter() - started) * 1000.0
+                    self.assertLess(close_ms, 200.0)
+            finally:
+                if not closed:
+                    manager.close()
+
+    def test_remote_s1_bootstrap_does_not_wait_for_slow_recaption_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            sensory_module._reset_s1_recaption_index_runtime()
+            manager = _build_manager(root, test_case="service_manager_remote_s1_bootstrap_fast_fallback")
+
+            class _SlowSensoryStream:
+                def __init__(self, episodes, *, first_delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._first_delay_seconds = float(first_delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index == 0:
+                        time.sleep(self._first_delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            delayed_episode = SensoryEpisode(
+                text="Scientific figure fig004 from paper 0501163 in archive bucket 0705.",
+                visual_spikes=torch.ones(64),
+                audio_spikes=None,
+                metadata={"figure_id": "fig004", "text_source": "image_path_fallback"},
+                visual_preview={
+                    "mime_type": "image/png",
+                    "bytes": b"slow-visual-preview",
+                    "width": 8,
+                    "height": 8,
+                },
+            )
+            wrapped_stream = BackgroundPrefetchIterator(
+                _SlowSensoryStream([delayed_episode], first_delay_seconds=1.0),
+                max_buffer=2,
+                name="slow-remote-s1-bootstrap-sensory",
+            )
+            loaded = Event()
+            recaption_index = {
+                "images/0705/0501163.tar.gz/fig004.png": {
+                    "title": "Why do we live in 3+1 dimensions?",
+                    "recaption": "A contour plot of a potential function with curved contours.",
+                    "categories": "hep-th astro-ph gr-qc hep-ph",
+                }
+            }
+
+            def _slow_index_loader(*_args, **_kwargs):
+                time.sleep(0.75)
+                loaded.set()
+                return recaption_index
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": True, "cross_modal_audio_accepted": False}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=wrapped_stream,
+                ), patch.object(
+                    manager_module,
+                    "load_hf_first_rows",
+                    return_value=[{"png": {"src": "https://example.com/image.jpg"}, "__key__": "0705/0501163.tar.gz/fig004"}],
+                ), patch(
+                    "hecsn.service.terminus_sensory._download_binary_asset",
+                    return_value=_png_bytes(),
+                ), patch(
+                    "hecsn.service.terminus_sensory._load_s1_recaption_index",
+                    side_effect=_slow_index_loader,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "science_figures",
+                                    "adapter": "s1_mmalign",
+                                    "source": "ScienceOne-AI/S1-MMAlign",
+                                    "split": "train",
+                                    "year_prefixes": ["07"],
+                                    "topic_terms": ["scientific figure diagram plot graph chart"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["sensory"]["startup_state"], "cold")
+
+                    start = time.perf_counter()
+                    deadline = start + 0.6
+                    runtime = configured
+                    while time.perf_counter() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if runtime["sensory"]["warm_ready"]:
+                            break
+                        time.sleep(0.02)
+                    warm_elapsed = time.perf_counter() - start
+
+                    self.assertTrue(runtime["sensory"]["warm_ready"])
+                    self.assertLess(warm_elapsed, 0.7)
+                    self.assertGreaterEqual(runtime["sensory"]["total_buffered_items"], 1)
+                    event_types = [event.get("type") for event in runtime["recent_events"]]
+                    self.assertIn("remote_sensory_bootstrap_applied", event_types)
+                    self.assertIn("remote_warm_promotion_started", event_types)
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(summary["sources"][0]["name"], "science_figures")
+                    self.assertTrue(loaded.wait(2.0))
+            finally:
+                manager.close()
+                sensory_module._reset_s1_recaption_index_runtime()
+
+    def test_remote_sensory_cache_restore_makes_runtime_warm_and_usable_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            manager = _build_manager(root, test_case="service_manager_remote_sensory_cache_seed")
+
+            class _FastSensoryStream:
+                def __init__(self, episodes) -> None:
+                    self._episodes = list(episodes)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episode = SensoryEpisode(
+                text=(
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                    "Environmental sound sample with water and footsteps moving across a path. "
+                ),
+                visual_spikes=None,
+                audio_spikes=torch.ones(64),
+                metadata={"caption": "water footsteps sample"},
+                audio_preview={
+                    "mime_type": "audio/wav",
+                    "bytes": b"cached-remote-sensory",
+                    "sample_rate": 16000,
+                    "duration_s": 1.0,
+                    "waveform": [0.25] * 8,
+                },
+            )
+            seed_stream = _FastSensoryStream([episode])
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=seed_stream,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+                    self.assertIsNotNone(summary)
+            finally:
+                manager.close()
+
+            manager = _build_manager(root, test_case="service_manager_remote_sensory_cache_restore")
+
+            class _UnusedSensoryStream(_FastSensoryStream):
+                def __next__(self):
+                    self.next_calls += 1
+                    raise AssertionError("remote sensory stream should not be touched before cached work is consumed")
+
+            restored_stream = _UnusedSensoryStream([episode])
+
+            def _restored_fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=restored_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": False,
+                        },
+                    )["terminus_runtime"]
+                    self.assertEqual(configured["sensory"]["startup_state"], "warm")
+                    self.assertTrue(configured["sensory"]["warm_ready"])
+                    self.assertGreaterEqual(configured["sensory"]["total_buffered_items"], 1)
+                    event_types = [event.get("type") for event in configured["recent_events"]]
+                    self.assertIn("sensory_cache_restored", event_types)
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _restored_fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(restored_stream.next_calls, 0)
+            finally:
+                manager.close()
+
+    def test_sensory_warm_queue_tolerates_follow_up_stall_until_buffer_depletes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_sensory_stall_tolerance")
+
+            class _DelayedSensoryStream:
+                def __init__(self, episodes, *, delay_after: int, delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._delay_after = int(delay_after)
+                    self._delay_seconds = float(delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= self._delay_after:
+                        time.sleep(self._delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episodes = [
+                SensoryEpisode(
+                    text=(
+                        f"Environmental sound sample {idx} with water and footsteps moving across a path. "
+                        f"Environmental sound sample {idx} with water and footsteps moving across a path. "
+                        f"Environmental sound sample {idx} with water and footsteps moving across a path. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": f"water footsteps sample {idx}"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": f"episode-{idx}".encode("utf-8"),
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.25] * 8,
+                    },
+                )
+                for idx in range(4)
+            ]
+            delayed_stream = _DelayedSensoryStream(episodes, delay_after=2, delay_seconds=0.12)
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=delayed_stream,
+                ):
+                    manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 1,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 2,
+                            "prewarm_on_startup": False,
+                        },
+                    )
+
+                original_train_step = manager._trainer.train_step
+                manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                try:
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    first = manager._run_real_sensory_episode_locked()
+                    calls_after_first = delayed_stream.next_calls
+
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    second = manager._run_real_sensory_episode_locked()
+                    calls_after_second = delayed_stream.next_calls
+
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    third = manager._run_real_sensory_episode_locked()
+                    calls_after_third = delayed_stream.next_calls
+                finally:
+                    manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                self.assertIsNotNone(first)
+                self.assertIsNotNone(second)
+                self.assertIsNotNone(third)
+                self.assertEqual(calls_after_first, 2)
+                self.assertEqual(calls_after_second, calls_after_first)
+                self.assertGreater(calls_after_third, calls_after_second)
+
+                sensory_runtime = manager.terminus_status()["terminus_runtime"]["sensory"]
+                self.assertGreaterEqual(sensory_runtime["queue_hits"], 1)
+                self.assertEqual(sensory_runtime["source_progress"][0]["last_buffer_items_served"], 1)
+                self.assertEqual(sensory_runtime["source_progress"][0]["prefetch_events"], 2)
+            finally:
+                manager.close()
+
+    def test_sensory_prewarm_budget_exhaustion_surfaces_partial_warm_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_sensory_prewarm_budget")
+
+            class _DelayedSensoryStream:
+                def __init__(self, episodes, *, delay_after: int, delay_seconds: float) -> None:
+                    self._episodes = list(episodes)
+                    self._delay_after = int(delay_after)
+                    self._delay_seconds = float(delay_seconds)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= self._delay_after:
+                        time.sleep(self._delay_seconds)
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            episodes = [
+                SensoryEpisode(
+                    text=(
+                        f"Environmental sound sample {idx} with water and footsteps moving across a path. "
+                        f"Environmental sound sample {idx} with water and footsteps moving across a path. "
+                        f"Environmental sound sample {idx} with water and footsteps moving across a path. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": f"water footsteps sample {idx}"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": f"budget-episode-{idx}".encode("utf-8"),
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.25] * 8,
+                    },
+                )
+                for idx in range(4)
+            ]
+            active_stream = _DelayedSensoryStream(episodes, delay_after=1, delay_seconds=0.12)
+            prewarm_stream = _DelayedSensoryStream(list(episodes), delay_after=1, delay_seconds=0.12)
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=active_stream,
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_from_spec",
+                    autospec=True,
+                    return_value=prewarm_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 3,
+                            "prewarm_on_startup": True,
+                            "prewarm_max_seconds": 0.05,
+                        },
+                    )["terminus_runtime"]
+
+                    self.assertIn(configured["sensory"]["startup_state"], {"warming", "warm"})
+                    deadline = time.time() + 1.5
+                    runtime = configured
+                    while time.time() < deadline:
+                        runtime = manager.terminus_status()["terminus_runtime"]
+                        if not runtime["sensory"]["prewarm_running"]:
+                            break
+                        time.sleep(0.02)
+
+                    self.assertTrue(runtime["sensory"]["prewarm_budget_exhausted"])
+                    self.assertTrue(runtime["sensory"]["warm_ready"])
+                    self.assertFalse(runtime["sensory"]["full_warm_ready"])
+                    self.assertGreater(runtime["sensory"]["ready_source_count"], 0)
+                    self.assertEqual(runtime["sensory"]["full_queue_source_count"], 0)
+                    self.assertAlmostEqual(float(runtime["sensory"]["prewarm_max_seconds"]), 0.05, places=6)
+                    self.assertGreater(prewarm_stream.next_calls, 0)
+                    self.assertLess(prewarm_stream.next_calls, 3)
+                    self.assertEqual(active_stream.next_calls, 0)
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        summary = manager._run_real_sensory_episode_locked()
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(prewarm_stream.next_calls, 2)
+                    self.assertEqual(active_stream.next_calls, 0)
+                    sensory_runtime = manager.terminus_status()["terminus_runtime"]["sensory"]
+                    self.assertGreaterEqual(sensory_runtime["source_progress"][0]["queue_hits"], 1)
+            finally:
+                manager.close()
+
+    def test_immediate_sensory_episode_does_not_wait_behind_blocking_startup_prewarm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_isolated_sensory_prewarm")
+
+            class _FastSensoryStream:
+                def __init__(self, episodes) -> None:
+                    self._episodes = list(episodes)
+                    self._index = 0
+                    self.next_calls = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.next_calls += 1
+                    if self._index >= len(self._episodes):
+                        raise StopIteration
+                    item = self._episodes[self._index]
+                    self._index += 1
+                    return item
+
+            class _BlockingSensoryStream(_FastSensoryStream):
+                def __init__(self, episodes, started: Event, delay_seconds: float) -> None:
+                    super().__init__(episodes)
+                    self._started = started
+                    self._delay_seconds = float(delay_seconds)
+
+                def __next__(self):
+                    self._started.set()
+                    time.sleep(self._delay_seconds)
+                    return super().__next__()
+
+            active_episodes = [
+                SensoryEpisode(
+                    text=(
+                        "Fast sensory sample with water and footsteps near a path. "
+                        "Fast sensory sample with water and footsteps near a path. "
+                        "Fast sensory sample with water and footsteps near a path. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "fast water footsteps"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"fast-episode",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.3] * 8,
+                    },
+                )
+            ]
+            prewarm_episodes = [
+                SensoryEpisode(
+                    text=(
+                        "Slow prewarm sensory sample with rain and distant birds. "
+                        "Slow prewarm sensory sample with rain and distant birds. "
+                        "Slow prewarm sensory sample with rain and distant birds. "
+                    ),
+                    visual_spikes=None,
+                    audio_spikes=torch.ones(64),
+                    metadata={"caption": "slow rain birds"},
+                    audio_preview={
+                        "mime_type": "audio/wav",
+                        "bytes": b"slow-episode",
+                        "sample_rate": 16000,
+                        "duration_s": 1.0,
+                        "waveform": [0.2] * 8,
+                    },
+                )
+            ]
+            active_stream = _FastSensoryStream(active_episodes)
+            prewarm_started = Event()
+            prewarm_stream = _BlockingSensoryStream(prewarm_episodes, started=prewarm_started, delay_seconds=0.45)
+
+            def _fake_train_step(pattern, **kwargs):
+                manager._trainer.token_count += 1
+                return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
+
+            try:
+                manager._trainer.config.enable_cross_modal = True
+                with patch.object(manager_module, "DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", 0.05), patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_locked",
+                    autospec=True,
+                    return_value=active_stream,
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_build_sensory_stream_from_spec",
+                    autospec=True,
+                    return_value=prewarm_stream,
+                ):
+                    configured = manager.configure_terminus(
+                        source_bank=[],
+                        sensory={
+                            "enabled": True,
+                            "source_bank": [
+                                {
+                                    "name": "environmental_audio",
+                                    "adapter": "audiocaps",
+                                    "source": "OpenSound/AudioCaps",
+                                    "split": "train",
+                                    "topic_terms": ["audio sound water wind footsteps environment"],
+                                }
+                            ],
+                            "episode_interval_tokens": 256,
+                            "items_per_episode": 1,
+                            "base_windows_per_item": 1,
+                            "max_windows_per_item": 2,
+                            "confidence_window_gain": 0.0,
+                            "semantic_window_gain": 0.0,
+                            "item_retrieval_lookahead": 1,
+                            "item_retrieval_semantic_weight": 1.0,
+                            "modality_target_confidence": 0.70,
+                            "observation_salience": 0.82,
+                            "cooldown_seconds": 1.0,
+                            "repeat_sources": False,
+                            "queue_target_items": 1,
+                            "prewarm_on_startup": True,
+                            "prewarm_max_seconds": 5.0,
+                        },
+                    )["terminus_runtime"]
+
+                    self.assertIn(configured["sensory"]["startup_state"], {"warming", "warm"})
+                    self.assertFalse(prewarm_started.is_set())
+
+                    manager._trainer.token_count = 512
+                    manager._last_real_sensory_episode_token_count = 0
+                    manager._last_real_sensory_episode_time = 0.0
+                    original_train_step = manager._trainer.train_step
+                    manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
+                    try:
+                        started = time.perf_counter()
+                        summary = manager._run_real_sensory_episode_locked()
+                        run_ms = (time.perf_counter() - started) * 1000.0
+                    finally:
+                        manager._trainer.train_step = original_train_step  # type: ignore[assignment]
+
+                    self.assertIsNotNone(summary)
+                    self.assertLess(run_ms, 300.0)
+                    self.assertEqual(active_stream.next_calls, 1)
+                    self.assertEqual(summary["sources"][0]["name"], "environmental_audio")
+                    self.assertFalse(prewarm_started.wait(0.2))
+                    event_types = [event.get("type") for event in manager.terminus_status()["terminus_runtime"]["recent_events"]]
+                    self.assertIn("sensory_prewarm_skipped_after_active_execution", event_types)
             finally:
                 manager.close()
 
@@ -462,7 +4331,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 gate = _Gate()
                 is_running = False
 
-                def inject_observation(self, content, topics=(), salience=0.7):
+                def inject_observation(self, content, topics=(), salience=0.7, metadata=None):
                     return None
 
                 def snapshot(self):
@@ -847,6 +4716,127 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 runtime = manager.terminus_status()["terminus_runtime"]
                 mocked_acquire.assert_not_called()
                 self.assertIsNone(runtime["autonomy"]["last_acquisition_summary"])
+            finally:
+                manager.close()
+
+    def test_focus_pressure_accelerates_autonomy_trigger_and_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_adaptive_autonomy_balance")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["arxiv", "wikipedia"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "provider_curriculum": {
+                            "wikipedia": {
+                                "attempts": 2,
+                                "commits": 2,
+                                "successes": 2,
+                                "diagnostic_gain_ema": 0.22,
+                                "semantic_relevance_ema": 0.85,
+                                "answerability_gain_ema": 0.42,
+                                "uncertainty_reduction_ema": 0.31,
+                                "weak_concept_stabilization_ema": 0.24,
+                                "topic_terms": {"submarine": 1.0, "ballast": 0.9, "trim": 0.7},
+                                "topic_families": {
+                                    "submarine": {
+                                        "commits": 2,
+                                        "successes": 2,
+                                        "semantic_relevance_ema": 0.85,
+                                        "answerability_gain_ema": 0.42,
+                                        "uncertainty_reduction_ema": 0.31,
+                                        "weak_concept_stabilization_ema": 0.24,
+                                    }
+                                },
+                            },
+                            "arxiv": {
+                                "attempts": 2,
+                                "commits": 2,
+                                "successes": 2,
+                                "diagnostic_gain_ema": 0.26,
+                                "semantic_relevance_ema": 0.88,
+                                "answerability_gain_ema": 0.39,
+                                "uncertainty_reduction_ema": 0.28,
+                                "weak_concept_stabilization_ema": 0.18,
+                                "topic_terms": {"protein": 1.0, "enzyme": 0.8},
+                                "topic_families": {
+                                    "protein": {
+                                        "commits": 2,
+                                        "successes": 2,
+                                        "semantic_relevance_ema": 0.88,
+                                        "answerability_gain_ema": 0.39,
+                                        "uncertainty_reduction_ema": 0.28,
+                                        "weak_concept_stabilization_ema": 0.18,
+                                    }
+                                },
+                            },
+                        },
+                        "trigger_interval_tokens": 24,
+                        "candidate_train_tokens": 96,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 48,
+                        "acquisition_slots": 1,
+                    },
+                )
+                manager.query(query_text="What corrects submarine ballast trim?", top_k_memories=6)
+                manager._brain_recent_query_gaps[0]["weak_concepts"] = [
+                    {
+                        "label": "buoyancy control",
+                        "weakness": 0.92,
+                        "uncertainty": 0.84,
+                        "drift": 0.22,
+                        "top_terms": ["submarine", "ballast", "trim"],
+                        "match_count": 1,
+                    }
+                ]
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": {"unsupported_terms": ["submarine", "ballast", "trim"]},
+                        "acquisition_history": [],
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                runtime = manager.terminus_status()["terminus_runtime"]
+                adaptive = runtime["autonomy"]["adaptive_learning"]
+                kwargs = mocked_acquire.call_args.kwargs
+
+                mocked_acquire.assert_called_once()
+                self.assertLess(int(adaptive["effective_trigger_interval_tokens"]), 24)
+                self.assertGreater(int(adaptive["effective_acquisition_tokens"]), 48)
+                self.assertEqual(int(adaptive["effective_acquisition_slots"]), 2)
+                self.assertGreater(float(adaptive["focus_pressure"]), 0.5)
+                self.assertEqual(adaptive["provider_priority_details"]["provider"], "wikipedia")
+                self.assertEqual(int(kwargs["acquisition_tokens"]), int(adaptive["effective_acquisition_tokens"]))
+                self.assertEqual(int(kwargs["acquisition_slots"]), int(adaptive["effective_acquisition_slots"]))
+                self.assertGreater(float(runtime["autonomy"]["adaptive_learning"]["targeted_learning_share_target"]), 0.5)
             finally:
                 manager.close()
 
@@ -1779,6 +5769,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     0.0,
                 )
                 self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["utility_ema"]),
+                    0.0,
+                )
+                self.assertGreater(
+                    float(provider_curriculum["ranked_providers"][0]["focus_alignment_ema"]),
+                    0.0,
+                )
+                self.assertGreater(
                     float(provider_curriculum["ranked_providers"][0]["topic_family_strength"]),
                     0.0,
                 )
@@ -1905,6 +5903,1510 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
                 self.assertEqual(spec["catalog_providers"][0], "openalex")
                 self.assertNotIn("catalog_provider_topic_terms", spec)
+            finally:
+                manager.close()
+
+    def test_terminus_live_remote_search_penalizes_off_topic_history_under_strong_focus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_focus_penalty")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["openalex", "wikipedia"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "openalex": {
+                        "attempts": 5,
+                        "commits": 5,
+                        "successes": 5,
+                        "diagnostic_gain_ema": 0.42,
+                        "semantic_relevance_ema": 0.95,
+                        "answerability_gain_ema": 0.58,
+                        "uncertainty_reduction_ema": 0.47,
+                        "weak_concept_stabilization_ema": 0.34,
+                        "topic_terms": {"octopus": 1.0, "jars": 0.8, "puzzles": 0.6},
+                        "topic_families": {
+                            "octopus": {
+                                "commits": 5,
+                                "successes": 5,
+                                "semantic_relevance_ema": 0.95,
+                                "answerability_gain_ema": 0.58,
+                                "uncertainty_reduction_ema": 0.47,
+                                "weak_concept_stabilization_ema": 0.34,
+                            }
+                        },
+                    },
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 1,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.18,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.16,
+                        "uncertainty_reduction_ema": 0.14,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.9, "buoyancy": 0.7},
+                        "topic_families": {
+                            "submarine": {
+                                "commits": 1,
+                                "successes": 1,
+                                "semantic_relevance_ema": 0.72,
+                                "answerability_gain_ema": 0.16,
+                                "uncertainty_reduction_ema": 0.14,
+                                "weak_concept_stabilization_ema": 0.10,
+                            }
+                        },
+                    },
+                }
+                manager.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
+                manager._brain_recent_query_gaps[0]["weak_concepts"] = [
+                    {
+                        "label": "buoyancy control",
+                        "weakness": 0.88,
+                        "uncertainty": 0.82,
+                        "drift": 0.16,
+                        "top_terms": ["submarine", "ballast", "buoyancy"],
+                        "match_count": 1,
+                    }
+                ]
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": {"unsupported_terms": ["submarine", "ballast", "buoyancy"]},
+                        "acquisition_history": [],
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
+                runtime = manager.terminus_status()["terminus_runtime"]
+                ranked = runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
+                wikipedia = next(item for item in ranked if item["provider"] == "wikipedia")
+                openalex = next(item for item in ranked if item["provider"] == "openalex")
+
+                self.assertEqual(spec["catalog_providers"][0], "wikipedia")
+                self.assertGreater(
+                    float(spec["catalog_provider_priority_map"]["wikipedia"]),
+                    float(spec["catalog_provider_priority_map"]["openalex"]),
+                )
+                self.assertEqual(ranked[0]["provider"], "wikipedia")
+                self.assertGreater(float(wikipedia["focus_alignment"]), float(openalex["focus_alignment"]))
+                self.assertGreater(float(openalex["off_topic_penalty"]), 0.0)
+            finally:
+                manager.close()
+
+    def test_verified_action_outcome_reinforces_provider_grounded_outcome(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_action_outcome")
+            source_path = root / "terminus_source.txt"
+            notes_path = root / "notes.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            notes_path.write_text("Submarine ballast tanks fill with water to reduce buoyancy.\n", encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["openalex", "wikipedia"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "openalex": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.18,
+                        "semantic_relevance_ema": 0.64,
+                        "answerability_gain_ema": 0.14,
+                        "uncertainty_reduction_ema": 0.12,
+                        "weak_concept_stabilization_ema": 0.08,
+                        "utility_ema": 0.22,
+                        "focus_alignment_ema": 0.30,
+                        "grounded_outcome_ema": 0.0,
+                        "last_query_text": "octopus jar puzzles",
+                        "topic_terms": {"octopus": 1.0, "jars": 0.8},
+                    },
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.18,
+                        "semantic_relevance_ema": 0.64,
+                        "answerability_gain_ema": 0.14,
+                        "uncertainty_reduction_ema": 0.12,
+                        "weak_concept_stabilization_ema": 0.08,
+                        "utility_ema": 0.22,
+                        "focus_alignment_ema": 0.30,
+                        "grounded_outcome_ema": 0.0,
+                        "last_query_text": "submarine ballast buoyancy",
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.8},
+                    },
+                }
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "workspace_search",
+                        "query_text": "ballast tanks",
+                        "predicted_outcome": "I expect workspace search to find grounded submarine ballast evidence.",
+                    },
+                    trigger_reason="query_gap_auto_search",
+                    trigger_query_text="How do submarine ballast tanks control buoyancy?",
+                )
+                runtime = result["terminus_runtime"]
+                ranked = runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
+                wikipedia = next(item for item in ranked if item["provider"] == "wikipedia")
+                openalex = next(item for item in ranked if item["provider"] == "openalex")
+
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertGreater(float(wikipedia["grounded_outcome_ema"]), 0.0)
+                self.assertEqual(float(openalex["grounded_outcome_ema"]), 0.0)
+                self.assertGreater(float(wikipedia["utility_ema"]), float(openalex["utility_ema"]))
+            finally:
+                manager.close()
+
+    def test_response_selected_evidence_exposes_provider_provenance_and_reinforces_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_evidence_provenance")
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text(
+                "Submarine ballast tanks fill with water to reduce buoyancy and surface by pumping air. " * 24,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "submarine ballast buoyancy",
+                                    "catalog_terms": ["submarine", "ballast", "buoyancy"],
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 48,
+                        "probe_tokens": 24,
+                        "acquisition_tokens": 48,
+                        "acquisition_slots": 1,
+                    },
+                )
+                manager.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
+                manager.terminus_tick()
+                before_runtime = manager.status()["terminus_runtime"]
+                before_provider = before_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
+
+                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    response = manager.respond(
+                        query_text="How do submarine ballast tanks control buoyancy?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                selected = response["response"]["selected_evidence"]
+                after_runtime = manager.status()["terminus_runtime"]
+                after_provider = after_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
+
+                self.assertTrue(selected)
+                self.assertIn("wikipedia", selected[0].get("providers") or [selected[0].get("provider")])
+                self.assertEqual(selected[0]["provider"], "wikipedia")
+                self.assertGreater(float(after_provider["grounded_outcome_ema"]), float(before_provider["grounded_outcome_ema"]))
+            finally:
+                manager.close()
+
+    def test_follow_up_query_improvement_reinforces_provider_delayed_consequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_delayed_consequence")
+            source_path = root / "terminus_source.txt"
+            first_candidate_path = root / "candidate_first.txt"
+            second_candidate_path = root / "candidate_second.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            first_candidate_path.write_text(
+                "Submarine ballast tanks fill with water to reduce buoyancy. " * 4,
+                encoding="utf-8",
+            )
+            second_candidate_path.write_text(
+                "Compressed air expels water from ballast tanks so the submarine rises to the surface. " * 5,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory_first",
+                                "source": str(first_candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "submarine ballast buoyancy",
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 120,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 120,
+                        "acquisition_slots": 1,
+                    },
+                )
+                query_text = "How does compressed air raise the submarine to the surface?"
+                manager.query(query_text=query_text, top_k_memories=8)
+                manager.terminus_tick()
+                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    initial = manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                before_runtime = manager.status()["terminus_runtime"]
+                before_provider = before_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
+
+                self.assertIn("wikipedia", initial["response"]["delayed_consequence_candidate"]["providers"])
+                self.assertEqual(float(before_provider["delayed_consequence_ema"]), 0.0)
+
+                manager._brain_config["autonomy"]["candidate_bank"] = [
+                    {
+                        "name": "candidate_memory_second",
+                        "source": str(second_candidate_path),
+                        "source_type": "file",
+                        "metadata": {
+                            "provider": "wikipedia",
+                            "query_text": "compressed air surface submarine",
+                        },
+                    }
+                ]
+                manager.query(query_text=query_text, top_k_memories=8)
+                manager.terminus_tick()
+                follow_up = manager.query(query_text=query_text, top_k_memories=8)
+                after_runtime = manager.status()["terminus_runtime"]
+                after_provider = after_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
+
+                self.assertGreater(
+                    float(follow_up["gap_plan"]["grounded_fraction"]),
+                    float(initial["query_result"]["gap_plan"]["grounded_fraction"]),
+                )
+                self.assertGreater(int(follow_up["delayed_consequence"]["credited_records"]), 0)
+                self.assertIn("wikipedia", follow_up["delayed_consequence"]["credited_providers"])
+                self.assertGreater(float(after_provider["delayed_consequence_ema"]), float(before_provider["delayed_consequence_ema"]))
+                self.assertGreater(
+                    int(after_runtime["autonomy"]["delayed_consequence_tracking"]["credited_record_count"]),
+                    0,
+                )
+            finally:
+                manager.close()
+
+    def test_follow_up_query_regression_penalizes_provider_long_horizon_utility(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_long_horizon_penalty")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "trigger_interval_tokens": 100,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.20,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.46,
+                        "focus_alignment_ema": 0.72,
+                        "grounded_outcome_ema": 0.0,
+                        "delayed_consequence_ema": 0.0,
+                        "last_query_text": "submarine ballast buoyancy",
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.8, "buoyancy": 0.6},
+                    }
+                }
+                query_text = "How do submarine ballast tanks control buoyancy?"
+                focus_plan = {
+                    "query_terms": ["submarine", "ballast", "buoyancy"],
+                    "unsupported_terms": ["submarine", "ballast"],
+                    "gap_terms": [{"term": "submarine", "weight": 1.0}],
+                    "retrieval_queries": [query_text],
+                    "follow_up_questions": [],
+                    "weak_concepts": [],
+                }
+
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Submarine ballast tanks regulate buoyancy.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Submarine ballast tanks regulate buoyancy.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                before_priority, _before_details = manager._provider_curriculum_priority_locked(
+                    "wikipedia",
+                    focus_plan,
+                    autonomy=manager._brain_config["autonomy"],
+                )
+                follow_up = manager.query(query_text=query_text, top_k_memories=6)
+                after_priority, after_details = manager._provider_curriculum_priority_locked(
+                    "wikipedia",
+                    focus_plan,
+                    autonomy=manager._brain_config["autonomy"],
+                )
+
+                self.assertGreater(int(follow_up["delayed_consequence"]["penalized_records"]), 0)
+                self.assertIn("wikipedia", follow_up["delayed_consequence"]["penalized_providers"])
+                self.assertGreater(float(after_details["contradiction_decay_ema"]), 0.0)
+                self.assertLess(float(after_priority), float(before_priority))
+            finally:
+                manager.close()
+
+    def test_later_grounded_improvement_forgives_provider_long_horizon_penalty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_long_horizon_forgiveness")
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text(
+                "Compressed air expels water from ballast tanks so the submarine rises to the surface. " * 5,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "compressed air submarine surface ballast",
+                                    "catalog_terms": ["compressed", "air", "submarine", "surface"],
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 120,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 120,
+                        "acquisition_slots": 1,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.20,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.46,
+                        "focus_alignment_ema": 0.72,
+                        "grounded_outcome_ema": 0.0,
+                        "delayed_consequence_ema": 0.0,
+                        "contradiction_decay_ema": 0.0,
+                        "last_query_text": "compressed air submarine surface",
+                        "topic_terms": {"compressed": 1.0, "air": 0.8, "submarine": 0.6, "surface": 0.4},
+                    }
+                }
+                query_text = "How does compressed air raise the submarine to the surface?"
+                focus_plan = {
+                    "query_terms": ["compressed", "air", "submarine", "surface"],
+                    "unsupported_terms": ["compressed", "air"],
+                    "gap_terms": [{"term": "compressed", "weight": 1.0}],
+                    "retrieval_queries": [query_text],
+                    "follow_up_questions": [],
+                    "weak_concepts": [],
+                }
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Compressed air raises the submarine to the surface.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Compressed air raises the submarine to the surface.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                penalized = manager.query(query_text=query_text, top_k_memories=8)
+                penalty_priority, penalty_details = manager._provider_curriculum_priority_locked(
+                    "wikipedia",
+                    focus_plan,
+                    autonomy=manager._brain_config["autonomy"],
+                )
+
+                self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
+                self.assertIn("wikipedia", penalized["delayed_consequence"]["penalized_providers"])
+                self.assertGreater(float(penalty_details["contradiction_decay_ema"]), 0.0)
+
+                manager.query(query_text=query_text, top_k_memories=8)
+                manager.terminus_tick()
+                forgiven = manager.query(query_text=query_text, top_k_memories=8)
+                forgiven_priority, forgiven_details = manager._provider_curriculum_priority_locked(
+                    "wikipedia",
+                    focus_plan,
+                    autonomy=manager._brain_config["autonomy"],
+                )
+                forgiven_runtime = manager.status()["terminus_runtime"]
+
+                self.assertGreater(
+                    float(forgiven["gap_plan"]["grounded_fraction"]),
+                    float(penalized["gap_plan"]["grounded_fraction"]),
+                )
+                self.assertGreater(int(forgiven["delayed_consequence"]["credited_records"]), 0)
+                self.assertGreater(int(forgiven["delayed_consequence"]["forgiven_records"]), 0)
+                self.assertIn("wikipedia", forgiven["delayed_consequence"]["forgiven_providers"])
+                self.assertLess(
+                    float(forgiven_details["contradiction_decay_ema"]),
+                    float(penalty_details["contradiction_decay_ema"]),
+                )
+                self.assertGreater(float(forgiven_priority), float(penalty_priority))
+                self.assertGreater(
+                    int(forgiven_runtime["autonomy"]["delayed_consequence_tracking"]["forgiven_record_count"]),
+                    0,
+                )
+            finally:
+                manager.close()
+
+    def test_stale_provider_consequence_state_cools_and_retires(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_consequence_cooling")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "trigger_interval_tokens": 100,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.20,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.46,
+                        "focus_alignment_ema": 0.72,
+                        "grounded_outcome_ema": 0.0,
+                        "delayed_consequence_ema": 0.0,
+                        "contradiction_decay_ema": 0.0,
+                        "last_query_text": "submarine ballast buoyancy",
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.8, "buoyancy": 0.6},
+                    }
+                }
+                query_text = "How do submarine ballast tanks control buoyancy?"
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Submarine ballast tanks regulate buoyancy.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Submarine ballast tanks regulate buoyancy.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                manager.query(query_text=query_text, top_k_memories=6)
+                penalty_runtime = manager.status()["terminus_runtime"]
+                penalty_tracking = penalty_runtime["autonomy"]["delayed_consequence_tracking"]
+                penalty_record = penalty_tracking["recent_records"][0]
+
+                self.assertGreater(int(penalty_tracking["penalized_record_count"]), 0)
+                self.assertGreater(float(penalty_record["unresolved_penalty_balance"]), 0.0)
+
+                manager._trainer.token_count += (
+                    manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
+                    + manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
+                )
+                cooled_runtime = manager.status()["terminus_runtime"]
+                cooled_tracking = cooled_runtime["autonomy"]["delayed_consequence_tracking"]
+                cooled_record = cooled_tracking["recent_records"][0]
+
+                self.assertLess(
+                    float(cooled_record["unresolved_penalty_balance"]),
+                    float(penalty_record["unresolved_penalty_balance"]),
+                )
+                self.assertGreater(int(cooled_record["cooling_events"]), 0)
+                self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
+
+                manager._trainer.token_count += manager_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
+                retired_runtime = manager.status()["terminus_runtime"]
+                retired_tracking = retired_runtime["autonomy"]["delayed_consequence_tracking"]
+
+                self.assertEqual(int(retired_tracking["record_count"]), 0)
+                self.assertGreater(int(retired_tracking["retired_record_count_total"]), 0)
+            finally:
+                manager.close()
+
+    def test_repeated_provider_consequence_records_compact_query_family(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_consequence_compaction")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "trigger_interval_tokens": 100,
+                    },
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Submarine ballast tanks control buoyancy.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Submarine ballast tanks control buoyancy.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    first = manager.respond(
+                        query_text="How do submarine ballast tanks control buoyancy?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    second = manager.respond(
+                        query_text="How do submarine ballast tanks change buoyancy?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                record = tracking["recent_records"][0]
+
+                self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
+                self.assertEqual(int(tracking["record_count"]), 1)
+                self.assertGreater(int(tracking["aggregated_record_count"]), 0)
+                self.assertGreaterEqual(int(tracking["aggregate_occurrence_count"]), 2)
+                self.assertGreater(int(tracking["compacted_record_count_total"]), 0)
+                self.assertEqual(int(record["aggregate_count"]), 2)
+                self.assertGreater(float(record["aggregate_support_multiplier"]), 1.0)
+                self.assertIn("How do submarine ballast tanks control buoyancy?", record["query_examples"])
+                self.assertIn("How do submarine ballast tanks change buoyancy?", record["query_examples"])
+            finally:
+                manager.close()
+
+    def test_provider_consequence_family_trajectory_summary_tracks_penalty_then_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_consequence_trajectory")
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text(
+                "Compressed air expels water from ballast tanks so the submarine rises to the surface. " * 5,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "compressed air submarine surface ballast",
+                                    "catalog_terms": ["compressed", "air", "submarine", "surface"],
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 120,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 120,
+                        "acquisition_slots": 1,
+                    },
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Compressed air raises the submarine to the surface.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Compressed air raises the submarine to the surface.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How does compressed air raise the submarine to the surface?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    manager.respond(
+                        query_text="How does compressed air lift the submarine to the surface?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.20,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.46,
+                        "focus_alignment_ema": 0.72,
+                        "grounded_outcome_ema": 0.0,
+                        "delayed_consequence_ema": 0.0,
+                        "contradiction_decay_ema": 0.0,
+                        "last_query_text": "compressed air submarine surface",
+                        "topic_terms": {"compressed": 1.0, "air": 0.8, "submarine": 0.6, "surface": 0.4},
+                    }
+                }
+                query_text = "How does compressed air raise the submarine to the surface?"
+                penalized = manager.query(query_text=query_text, top_k_memories=8)
+                penalty_runtime = manager.status()["terminus_runtime"]
+                penalty_record = penalty_runtime["autonomy"]["delayed_consequence_tracking"]["recent_records"][0]
+
+                self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
+                self.assertEqual(int(penalty_record["aggregate_count"]), 2)
+                self.assertEqual(str(penalty_record["trajectory_state"]), "negative")
+                self.assertGreater(float(penalty_record["trajectory_penalty_total"]), 0.0)
+                self.assertLess(float(penalty_record["trajectory_support_multiplier"]), 1.0)
+                self.assertGreater(float(penalty_record["trajectory_penalty_multiplier"]), 1.0)
+
+                manager.terminus_tick()
+                recovered = manager.query(query_text=query_text, top_k_memories=8)
+                recovered_runtime = manager.status()["terminus_runtime"]
+                recovered_record = recovered_runtime["autonomy"]["delayed_consequence_tracking"]["recent_records"][0]
+
+                self.assertGreater(int(recovered["delayed_consequence"]["credited_records"]), 0)
+                self.assertGreater(int(recovered["delayed_consequence"]["forgiven_records"]), 0)
+                self.assertGreater(float(recovered_record["trajectory_credit_total"]), 0.0)
+                self.assertGreater(float(recovered_record["trajectory_forgiveness_total"]), 0.0)
+                self.assertGreater(
+                    float(recovered_record["trajectory_net_score"]),
+                    float(penalty_record["trajectory_net_score"]),
+                )
+                self.assertGreater(
+                    float(recovered_record["trajectory_recent_delta_ema"]),
+                    float(penalty_record["trajectory_recent_delta_ema"]),
+                )
+                self.assertGreater(
+                    float(recovered_record["trajectory_support_multiplier"]),
+                    float(penalty_record["trajectory_support_multiplier"]),
+                )
+                self.assertLess(
+                    float(recovered_record["trajectory_penalty_multiplier"]),
+                    float(penalty_record["trajectory_penalty_multiplier"]),
+                )
+                self.assertEqual(str(recovered_record["trajectory_state"]), "recovering")
+            finally:
+                manager.close()
+
+    def test_provider_consequence_family_divergence_split_separates_mixed_query_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_consequence_split")
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text(
+                "Compressed air expels water from ballast tanks so the submarine rises to the surface. " * 5,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "compressed air submarine surface ballast",
+                                    "catalog_terms": ["compressed", "air", "submarine", "surface"],
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 120,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 120,
+                        "acquisition_slots": 1,
+                    },
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Submarine buoyancy depends on ballast tanks and compressed air.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Submarine buoyancy depends on ballast tanks and compressed air.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How do submarine ballast tanks control buoyancy underwater?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    second = manager.respond(
+                        query_text="How do submarine ballast tanks use compressed air to rise?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.20,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.46,
+                        "focus_alignment_ema": 0.72,
+                        "grounded_outcome_ema": 0.0,
+                        "delayed_consequence_ema": 0.0,
+                        "contradiction_decay_ema": 0.0,
+                        "last_query_text": "compressed air submarine surface",
+                        "topic_terms": {"compressed": 1.0, "air": 0.8, "submarine": 0.6, "surface": 0.4},
+                    }
+                }
+
+                penalized = manager.query(
+                    query_text="How do submarine ballast tanks control buoyancy underwater?",
+                    top_k_memories=8,
+                )
+                self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
+
+                manager.terminus_tick()
+                manager.terminus_tick()
+                manager.terminus_tick()
+                recovered = manager.query(
+                    query_text="How do submarine ballast tanks use compressed air to rise?",
+                    top_k_memories=8,
+                )
+                tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                records = {
+                    str(record.get("split_branch", "")): record
+                    for record in tracking["recent_records"]
+                    if str(record.get("split_branch", ""))
+                }
+
+                self.assertGreater(int(recovered["delayed_consequence"]["credited_records"]), 0)
+                self.assertGreater(int(recovered["delayed_consequence"]["forgiven_records"]), 0)
+                self.assertEqual(int(tracking["record_count"]), 2)
+                self.assertGreater(int(tracking["split_record_count_total"]), 0)
+                self.assertEqual(int(tracking["aggregate_occurrence_count"]), 2)
+                self.assertIn("supportive", records)
+                self.assertIn("adverse", records)
+                supportive = records["supportive"]
+                adverse = records["adverse"]
+                self.assertIn("How do submarine ballast tanks use compressed air to rise?", supportive["query_examples"])
+                self.assertIn("How do submarine ballast tanks control buoyancy underwater?", adverse["query_examples"])
+                self.assertEqual(str(adverse["trajectory_state"]), "negative")
+                self.assertGreater(
+                    float(supportive["trajectory_net_score"]),
+                    float(adverse["trajectory_net_score"]),
+                )
+                self.assertEqual(str(supportive["split_group_id"]), str(adverse["split_group_id"]))
+            finally:
+                manager.close()
+
+    def test_provider_split_lineage_remerges_after_aligned_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_consequence_remerge")
+            source_path = root / "terminus_source.txt"
+            candidate_path = root / "candidate.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            candidate_path.write_text(
+                "Compressed air expels water from ballast tanks so the submarine rises to the surface. " * 5,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory",
+                                "source": str(candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "compressed air submarine surface ballast",
+                                    "catalog_terms": ["compressed", "air", "submarine", "surface"],
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 120,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 120,
+                        "acquisition_slots": 1,
+                    },
+                )
+                with patch.object(
+                    manager._responder,
+                    "build_response",
+                    return_value={
+                        "response_text": "Submarine buoyancy depends on ballast tanks and compressed air.",
+                        "response_mode": "grounded_synthesis",
+                        "selected_evidence": [
+                            {
+                                "text": "Submarine buoyancy depends on ballast tanks and compressed air.",
+                                "provider": "wikipedia",
+                                "providers": ["wikipedia"],
+                                "term_coverage": 1.0,
+                                "score": 0.9,
+                            }
+                        ],
+                        "evidence_coverage": 1.0,
+                        "unsupported_terms": [],
+                    },
+                ), patch.object(
+                    manager,
+                    "_plan_gaps_locked",
+                    return_value={
+                        "grounded_fraction": 1.0,
+                        "unsupported_terms": [],
+                        "gap_terms": [],
+                        "retrieval_queries": [],
+                        "follow_up_questions": [],
+                        "weak_concepts": [],
+                    },
+                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How do submarine ballast tanks control buoyancy underwater?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                    manager.respond(
+                        query_text="How do submarine ballast tanks use compressed air to rise?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "wikipedia": {
+                        "attempts": 2,
+                        "commits": 2,
+                        "successes": 1,
+                        "diagnostic_gain_ema": 0.20,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.46,
+                        "focus_alignment_ema": 0.72,
+                        "grounded_outcome_ema": 0.0,
+                        "delayed_consequence_ema": 0.0,
+                        "contradiction_decay_ema": 0.0,
+                        "last_query_text": "compressed air submarine surface",
+                        "topic_terms": {"compressed": 1.0, "air": 0.8, "submarine": 0.6, "surface": 0.4},
+                    }
+                }
+
+                manager.query(
+                    query_text="How do submarine ballast tanks control buoyancy underwater?",
+                    top_k_memories=8,
+                )
+                manager.terminus_tick()
+                manager.terminus_tick()
+                split_result = manager.query(
+                    query_text="How do submarine ballast tanks use compressed air to rise?",
+                    top_k_memories=8,
+                )
+                split_tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+
+                self.assertGreater(int(split_result["delayed_consequence"]["split_records"]), 0)
+                self.assertEqual(int(split_tracking["record_count"]), 2)
+
+                remerged = manager.query(
+                    query_text="How do submarine ballast tanks use compressed air to rise?",
+                    top_k_memories=8,
+                )
+                tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                record = tracking["recent_records"][0]
+
+                self.assertGreater(int(remerged["delayed_consequence"]["remerged_records"]), 0)
+                self.assertEqual(int(tracking["record_count"]), 1)
+                self.assertGreater(int(tracking["remerged_record_count_total"]), 0)
+                self.assertEqual(str(record["split_branch"]), "")
+                self.assertGreater(int(record["remerge_events"]), 0)
+                self.assertTrue(str(record["last_remerged_at"]))
+                self.assertIn("How do submarine ballast tanks use compressed air to rise?", record["query_examples"])
+                self.assertIn("How do submarine ballast tanks control buoyancy underwater?", record["query_examples"])
+            finally:
+                manager.close()
+
+    def test_grounded_family_summary_biases_equal_focus_provider_ranking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_family_summary")
+            source_path = root / "terminus_source.txt"
+            first_candidate_path = root / "candidate_first.txt"
+            second_candidate_path = root / "candidate_second.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            first_candidate_path.write_text(
+                "Submarine ballast tanks fill with water to reduce buoyancy. " * 4,
+                encoding="utf-8",
+            )
+            second_candidate_path.write_text(
+                "Compressed air expels water from ballast tanks so the submarine rises to the surface. " * 5,
+                encoding="utf-8",
+            )
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "candidate_memory_first",
+                                "source": str(first_candidate_path),
+                                "source_type": "file",
+                                "metadata": {
+                                    "provider": "wikipedia",
+                                    "query_text": "submarine ballast buoyancy",
+                                },
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                        "candidate_train_tokens": 120,
+                        "probe_tokens": 48,
+                        "acquisition_tokens": 120,
+                        "acquisition_slots": 1,
+                    },
+                )
+                query_text = "How does compressed air raise the submarine to the surface?"
+                manager.query(query_text=query_text, top_k_memories=8)
+                manager.terminus_tick()
+                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text=query_text,
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
+                manager._brain_config["autonomy"]["candidate_bank"] = [
+                    {
+                        "name": "candidate_memory_second",
+                        "source": str(second_candidate_path),
+                        "source_type": "file",
+                        "metadata": {
+                            "provider": "wikipedia",
+                            "query_text": "compressed air surface submarine",
+                        },
+                    }
+                ]
+                manager.query(query_text=query_text, top_k_memories=8)
+                manager.terminus_tick()
+                manager.query(query_text=query_text, top_k_memories=8)
+                runtime = manager.status()["terminus_runtime"]
+                wikipedia_details = next(
+                    item
+                    for item in runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
+                    if item["provider"] == "wikipedia"
+                )
+
+                self.assertGreater(float(wikipedia_details["grounded_family_summary_ema"]), 0.0)
+
+                focus_plan = {
+                    "query_terms": ["submarine", "ballast", "compressed", "air", "surface"],
+                    "unsupported_terms": ["compressed", "air"],
+                    "gap_terms": [{"term": "compressed", "weight": 1.0}],
+                    "retrieval_queries": [query_text],
+                    "follow_up_questions": [],
+                    "weak_concepts": [],
+                }
+                shared_provider_entry = {
+                    "attempts": 3,
+                    "commits": 3,
+                    "successes": 2,
+                    "diagnostic_gain_ema": 0.22,
+                    "semantic_relevance_ema": 0.72,
+                    "answerability_gain_ema": 0.18,
+                    "uncertainty_reduction_ema": 0.16,
+                    "weak_concept_stabilization_ema": 0.10,
+                    "utility_ema": 0.18,
+                    "focus_alignment_ema": 0.65,
+                    "grounded_outcome_ema": 0.10,
+                    "delayed_consequence_ema": 0.10,
+                    "contradiction_decay_ema": 0.0,
+                    "topic_terms": {"submarine": 1.0, "ballast": 0.8, "compressed": 0.6},
+                }
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "openalex": {**shared_provider_entry, "grounded_family_summary_ema": 0.0},
+                    "wikipedia": {
+                        **shared_provider_entry,
+                        "grounded_family_summary_ema": float(wikipedia_details["grounded_family_summary_ema"]),
+                    },
+                }
+                wikipedia_priority, wikipedia_details = manager._provider_curriculum_priority_locked(
+                    "wikipedia",
+                    focus_plan,
+                    autonomy=manager._brain_config["autonomy"],
+                )
+                openalex_priority, openalex_details = manager._provider_curriculum_priority_locked(
+                    "openalex",
+                    focus_plan,
+                    autonomy=manager._brain_config["autonomy"],
+                )
+
+                self.assertGreater(float(wikipedia_details["grounded_family_summary_ema"]), float(openalex_details["grounded_family_summary_ema"]))
+                self.assertGreater(float(wikipedia_priority), float(openalex_priority))
+            finally:
+                manager.close()
+
+    def test_provider_utility_ema_biases_equal_focus_ranking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_provider_utility_ema")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("neutral background signal " * 24, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "observed_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=12,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                    autonomy={
+                        "enabled": True,
+                        "policy": "active",
+                        "candidate_bank": [
+                            {
+                                "name": "live_remote_pool",
+                                "catalog_mode": "live_remote_search",
+                                "catalog_providers": ["openalex", "wikipedia"],
+                                "catalog_queries_per_provider": 2,
+                                "catalog_provider_result_limit": 4,
+                                "catalog_limit": 4,
+                            }
+                        ],
+                        "trigger_interval_tokens": 1,
+                    },
+                )
+                manager._brain_config["autonomy"]["provider_curriculum"] = {
+                    "openalex": {
+                        "attempts": 3,
+                        "commits": 3,
+                        "successes": 2,
+                        "diagnostic_gain_ema": 0.22,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.18,
+                        "focus_alignment_ema": 0.65,
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.8},
+                        "topic_families": {
+                            "submarine": {
+                                "commits": 2,
+                                "successes": 1,
+                                "semantic_relevance_ema": 0.72,
+                                "answerability_gain_ema": 0.18,
+                                "uncertainty_reduction_ema": 0.16,
+                                "weak_concept_stabilization_ema": 0.10,
+                            }
+                        },
+                    },
+                    "wikipedia": {
+                        "attempts": 3,
+                        "commits": 3,
+                        "successes": 2,
+                        "diagnostic_gain_ema": 0.22,
+                        "semantic_relevance_ema": 0.72,
+                        "answerability_gain_ema": 0.18,
+                        "uncertainty_reduction_ema": 0.16,
+                        "weak_concept_stabilization_ema": 0.10,
+                        "utility_ema": 0.74,
+                        "focus_alignment_ema": 0.65,
+                        "topic_terms": {"submarine": 1.0, "ballast": 0.8},
+                        "topic_families": {
+                            "submarine": {
+                                "commits": 2,
+                                "successes": 1,
+                                "semantic_relevance_ema": 0.72,
+                                "answerability_gain_ema": 0.18,
+                                "uncertainty_reduction_ema": 0.16,
+                                "weak_concept_stabilization_ema": 0.10,
+                            }
+                        },
+                    },
+                }
+                manager.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
+                with patch(
+                    "hecsn.service.manager.run_live_acquisition",
+                    return_value={
+                        "policy": "active",
+                        "tokens_trained_total": 0,
+                        "acquired_sources": [],
+                        "semantic_plan": {"unsupported_terms": ["submarine", "ballast", "buoyancy"]},
+                        "acquisition_history": [],
+                    },
+                ) as mocked_acquire:
+                    manager.terminus_tick()
+
+                spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
+                runtime = manager.terminus_status()["terminus_runtime"]
+                ranked = runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
+
+                self.assertEqual(spec["catalog_providers"][0], "wikipedia")
+                self.assertEqual(ranked[0]["provider"], "wikipedia")
+                self.assertGreater(float(ranked[0]["utility_ema"]), float(ranked[1]["utility_ema"]))
             finally:
                 manager.close()
 
@@ -2063,6 +7565,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                             "name": "checkpoint_source",
                             "source": str(source_path),
                             "source_type": "file",
+                            "metadata": {"label": "memory consolidation hebbian signal"},
                         }
                     ],
                     tick_tokens=12,
@@ -2080,7 +7583,16 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         ],
                         "trigger_interval_tokens": 100,
                     },
+                    ingestion={"queue_target_tokens": 24, "prewarm_on_startup": False},
                 )
+                manager.query(query_text="How does hebbian memory consolidation work?", top_k_memories=6)
+                before_runtime = manager.terminus_tick()["terminus_runtime"]
+                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                    manager.respond(
+                        query_text="How does hebbian memory consolidation work?",
+                        max_evidence_items=3,
+                        learn_mode="none",
+                    )
                 saved = manager.save_checkpoint(str(root / "terminus_service.pt"))
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
@@ -2089,6 +7601,21 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertTrue(terminus_runtime["configured"])
                     self.assertEqual(terminus_runtime["source_bank"][0]["name"], "checkpoint_source")
                     self.assertEqual(terminus_runtime["autonomy"]["candidate_count"], 1)
+                    self.assertEqual(terminus_runtime["ingestion"]["queue_target_tokens"], 24)
+                    self.assertFalse(terminus_runtime["ingestion"]["prewarm_on_startup"])
+                    self.assertGreater(float(before_runtime["source_progress"][0]["utility_ema"]), 0.0)
+                    self.assertGreater(
+                        int(terminus_runtime["background_source_routing"]["delayed_consequence_tracking"]["record_count"]),
+                        0,
+                    )
+                    self.assertGreater(
+                        int(terminus_runtime["autonomy"]["delayed_consequence_tracking"]["record_count"]),
+                        0,
+                    )
+                    self.assertGreaterEqual(
+                        float(terminus_runtime["source_progress"][0]["utility_ema"]),
+                        float(before_runtime["source_progress"][0]["utility_ema"]),
+                    )
                 finally:
                     restored.close()
             finally:
@@ -2186,6 +7713,129 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_terminus_tick_rejected_while_runtime_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_terminus_tick_running")
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("runtime ownership safety signal " * 64, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "loop_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=16,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=True,
+                )
+
+                started = manager.start_terminus()
+                self.assertTrue(started["terminus_runtime"]["running"])
+                with self.assertRaisesRegex(ValueError, "background runtime is active"):
+                    manager.terminus_tick()
+            finally:
+                try:
+                    manager.stop_terminus()
+                except Exception:
+                    pass
+                manager.close()
+
+    def test_stop_timeout_records_shutdown_state_and_interrupts_streams(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_stop_timeout")
+
+            class _ClosableIterator:
+                def __init__(self) -> None:
+                    self.closed = False
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    raise StopIteration
+
+                def close(self) -> None:
+                    self.closed = True
+
+            class _StuckThread:
+                def __init__(self) -> None:
+                    self._alive = True
+                    self.join_calls: list[float | None] = []
+
+                def is_alive(self) -> bool:
+                    return self._alive
+
+                def join(self, timeout: float | None = None) -> None:
+                    self.join_calls.append(timeout)
+
+            brain_stream = _ClosableIterator()
+            sensory_stream = _ClosableIterator()
+            stuck_thread = _StuckThread()
+
+            manager._brain_source_runtimes = [
+                manager_module._BrainSourceRuntime(
+                    spec={"name": "stuck_source", "source_type": "file"},
+                    stream=brain_stream,
+                )
+            ]
+            manager._sensory_source_runtimes = [
+                manager_module._SensorySourceRuntime(
+                    spec={"name": "stuck_sensory", "adapter": "audiocaps"},
+                    stream=sensory_stream,
+                )
+            ]
+            manager._brain_thread = stuck_thread  # type: ignore[assignment]
+            manager._brain_stop_event = Event()
+            manager._brain_running = True
+            manager._brain_running_since = "2026-04-22T00:00:00+00:00"
+
+            try:
+                with self.assertRaisesRegex(RuntimeError, "did not stop within"):
+                    manager.stop_terminus()
+
+                runtime = manager.status()["terminus_runtime"]
+                self.assertTrue(runtime["running"])
+                self.assertTrue(runtime["shutdown"]["stop_requested"])
+                self.assertTrue(runtime["shutdown"]["stop_timed_out"])
+                self.assertTrue(runtime["shutdown"]["thread_alive"])
+                self.assertIn("did not stop within", runtime["last_error"])
+                self.assertTrue(brain_stream.closed)
+                self.assertTrue(sensory_stream.closed)
+                self.assertEqual(runtime["recent_events"][0]["type"], "stop_timeout")
+            finally:
+                stuck_thread._alive = False
+                with manager._lock:
+                    manager._finalize_brain_stop_locked(stuck_thread)  # type: ignore[arg-type]
+                manager.close()
+
+    def test_close_suppresses_stop_timeout_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_close_timeout")
+
+            class _StuckThread:
+                def __init__(self) -> None:
+                    self._alive = True
+
+                def is_alive(self) -> bool:
+                    return self._alive
+
+                def join(self, timeout: float | None = None) -> None:
+                    return None
+
+            manager._brain_thread = _StuckThread()  # type: ignore[assignment]
+            manager._brain_stop_event = Event()
+            manager._brain_running = True
+            manager._brain_running_since = "2026-04-22T00:00:00+00:00"
+
+            manager.close()
+            self.assertIn("did not stop within", manager._brain_last_error or "")
+
 
 class CortexIntegrationTests(unittest.TestCase):
     """Test cortex/ThoughtLoop integration with service manager."""
@@ -2220,6 +7870,56 @@ class CortexIntegrationTests(unittest.TestCase):
                 runtime = status["terminus_runtime"]
                 self.assertIn("cortex", runtime)
                 self.assertIn("enabled", runtime["cortex"])
+            finally:
+                manager.close()
+
+    def test_status_fresh_wait_ignores_stale_cached_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "stream.txt"
+            source_path.write_text("character stream learning " * 24, encoding="utf-8")
+            manager = _build_manager(root, test_case="status_fresh_wait")
+            try:
+                stale = manager.status()
+                self.assertFalse(stale["terminus_runtime"]["configured"])
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "local_stream",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=20,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                    ingestion={
+                        "enabled": True,
+                        "queue_target_tokens": 40,
+                        "prewarm_on_startup": False,
+                        "prewarm_max_seconds": 0.2,
+                    },
+                )
+
+                ready = Event()
+                release = Event()
+
+                def _hold_lock() -> None:
+                    with manager._lock:
+                        ready.set()
+                        release.wait(timeout=1.0)
+
+                thread = threading.Thread(target=_hold_lock, daemon=True)
+                thread.start()
+                self.assertTrue(ready.wait(timeout=1.0))
+                try:
+                    fresh = manager.status(fresh_wait_seconds=0.05)
+                finally:
+                    release.set()
+                    thread.join(timeout=1.0)
+
+                self.assertTrue(fresh["terminus_runtime"]["configured"])
+                self.assertEqual(fresh["terminus_runtime"]["source_bank"][0]["name"], "local_stream")
             finally:
                 manager.close()
 
@@ -2266,6 +7966,166 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_background_mock_thought_loop_stays_quiet_without_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_background_idle_quiet")
+            thought_loop = None
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                thought_loop = ThoughtLoop(
+                    cortex=MockCortex(),
+                    tick_interval_ms=50.0,
+                    min_thought_interval_s=0.0,
+                )
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                thought_loop.start()
+                time.sleep(0.25)
+                thought_loop.stop(timeout=1.0)
+
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["thoughts_generated"], 0)
+                self.assertTrue(snap["gating"]["startup_quiet"])
+                self.assertIn(snap["gating"]["last_gate_reason"], {"startup_quiet", "idle_no_trigger"})
+            finally:
+                try:
+                    if thought_loop is not None:
+                        thought_loop.stop(timeout=1.0)
+                except Exception:
+                    pass
+                manager.close()
+
+    def test_mock_thought_loop_requires_prediction_error_renewal_for_repeat_thoughts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_prediction_error_renewal")
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                thought_loop = ThoughtLoop(
+                    cortex=MockCortex(responses=[
+                        {"thought": "A quick fact about gravity", "topics": ["physics"], "valence": 0.1, "confidence": 0.7, "action": None},
+                        {"thought": "A second fact about magnetism", "topics": ["physics"], "valence": 0.1, "confidence": 0.7, "action": None},
+                    ]),
+                    min_thought_interval_s=0.0,
+                )
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                thought_loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
+                first = thought_loop.step(force=True)
+                second = thought_loop.step(force=True)
+                self.assertIsNotNone(first)
+                self.assertIsNone(second)
+
+                thought_loop.drives.update_from_prediction_error(0.85, 0.95, 0.15, 0.05)
+                third = thought_loop.step(force=True)
+                self.assertIsNotNone(third)
+
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["thoughts_generated"], 2)
+                self.assertEqual(snap["gating"]["pending_substrate_wakes"], 0)
+            finally:
+                manager.close()
+
+    def test_background_mock_thought_loop_rearms_under_strong_sustained_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_sustained_pressure_hysteresis")
+            thought_loop = None
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.drives import DriveSystem
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                signal = {
+                    "prediction_error_mean": 0.72,
+                    "prediction_error_max": 0.90,
+                    "predictive_confidence_mean": 0.18,
+                    "predictive_confidence_min": 0.08,
+                    "recent_concepts": ["aurora borealis"],
+                }
+                thought_loop = ThoughtLoop(
+                    cortex=MockCortex(),
+                    tick_interval_ms=50.0,
+                    min_thought_interval_s=0.0,
+                    signal_provider=lambda: signal,
+                    drives=DriveSystem(
+                        substrate_rearm_cooldown_s=0.18,
+                        substrate_sustain_min_updates=2,
+                        substrate_sustain_margin=0.22,
+                    ),
+                )
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                thought_loop.start()
+                deadline = time.time() + 2.0
+                snap = manager.cortex_snapshot()
+                while time.time() < deadline:
+                    snap = manager.cortex_snapshot()
+                    if int(snap.get("thoughts_generated", 0)) >= 2:
+                        break
+                    time.sleep(0.05)
+                thought_loop.stop(timeout=1.0)
+
+                snap = manager.cortex_snapshot()
+                self.assertGreaterEqual(snap["thoughts_generated"], 2)
+                self.assertTrue(snap["gating"]["substrate_hysteresis_active"])
+                self.assertEqual(snap["gating"]["substrate_hysteresis_reason"], "prediction_error")
+                self.assertGreaterEqual(snap["gating"]["substrate_hysteresis_updates"], 2)
+            finally:
+                try:
+                    if thought_loop is not None:
+                        thought_loop.stop(timeout=1.0)
+                except Exception:
+                    pass
+                manager.close()
+
+    def test_cortex_ask_wakes_background_mock_thought_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cortex_background_query_wake")
+            thought_loop = None
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                thought_loop = ThoughtLoop(
+                    cortex=MockCortex(),
+                    tick_interval_ms=50.0,
+                    min_thought_interval_s=60.0,
+                )
+                thought_loop.drives.state.curiosity = 0.0
+                thought_loop.drives.state.social = 0.0
+                manager._thought_loop = thought_loop
+                manager._cortex_available = True
+
+                thought_loop.start()
+                result = manager.cortex_ask("What is the meaning of life?")
+                self.assertTrue(result["accepted"])
+
+                deadline = time.time() + 1.5
+                thoughts_generated = 0
+                while time.time() < deadline:
+                    thoughts_generated = manager.cortex_thoughts()["thoughts_generated"]
+                    if thoughts_generated > 0:
+                        break
+                    time.sleep(0.05)
+
+                self.assertGreater(thoughts_generated, 0)
+            finally:
+                try:
+                    thought_loop.stop(timeout=1.0)
+                except Exception:
+                    pass
+                manager.close()
+
     def test_telemetry_includes_cortex(self) -> None:
         """Telemetry snapshot includes cortex key from runtime."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2275,6 +8135,1489 @@ class CortexIntegrationTests(unittest.TestCase):
                 telemetry = manager.telemetry_snapshot()
                 runtime = telemetry["terminus_runtime"]
                 self.assertIn("cortex", runtime)
+            finally:
+                manager.close()
+
+
+class ServiceManagerActionLoopTests(unittest.TestCase):
+    def test_execute_digital_action_persists_verified_workspace_search_and_replays_to_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_workspace_search",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "workspace_search",
+                        "query_text": "cats chase mice",
+                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                runtime = result["terminus_runtime"]
+                self.assertEqual(runtime["action_loop"]["verified_actions"], 1)
+                self.assertEqual(runtime["action_loop"]["contradicted_actions"], 0)
+                self.assertEqual(runtime["recent_events"][0]["type"], "digital_action_executed")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_type"], "workspace_search")
+                self.assertIn("cats chase mice", episodes[0].content.lower())
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["verification_status"], "verified")
+                self.assertIn("workspace_search", restored_episodes[0].content)
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_parameterized_api_request_and_replays_to_memory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            port = _free_port()
+            server = ThreadingHTTPServer(("127.0.0.1", port), _EchoJsonApiHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_parameterized_api_request",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/api/echo",
+                        "method": "POST",
+                        "params": {"kind": "feline"},
+                        "json_body": {"topic": "cats", "fact": "mice at night"},
+                        "query_text": "cats mice night feline",
+                        "predicted_outcome": "I expect the API request to return structured JSON about cats and mice at night.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["inputs"]["method"], "POST")
+                self.assertEqual(result["result"]["inputs"]["params"]["kind"], "feline")
+                self.assertEqual(result["result"]["inputs"]["json_body"]["topic"], "cats")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_type"], "api_request")
+                self.assertEqual(episodes[0].metadata["action_inputs"]["method"], "POST")
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["action_type"], "api_request")
+                self.assertEqual(history["actions"][0]["inputs"]["method"], "POST")
+                self.assertEqual(history["actions"][0]["inputs"]["params"]["kind"], "feline")
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["method"], "POST")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_structured_api_verification_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "animals.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice", "active_time": "night"},
+                            {"name": "cow", "diet": "grass", "active_time": "day"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_structured_api_verification",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/animals.json",
+                        "query_text": "cat mice night",
+                        "predicted_outcome": "I expect the JSON endpoint to identify the animal that hunts mice at night.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertEqual(result["result"]["verification"]["evidence"][0]["json_path"], "$.animals[0]")
+                self.assertEqual(result["result"]["verification"]["evidence"][0]["structure_kind"], "object")
+                self.assertGreaterEqual(result["result"]["verification"]["evidence"][0]["field_count"], 3)
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_type"], "api_request")
+                self.assertEqual(episodes[0].metadata["evidence"][0]["structure_kind"], "object")
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["action_type"], "api_request")
+                self.assertEqual(history["actions"][0]["verification"]["evidence"][0]["json_path"], "$.animals[0]")
+                self.assertEqual(history["actions"][0]["verification"]["evidence"][0]["structure_kind"], "object")
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["evidence"][0]["structure_kind"], "object")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_explicit_api_assertion_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "animals.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice", "active_time": "night"},
+                            {"name": "cow", "diet": "grass", "active_time": "day"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_api_assertions",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/animals.json",
+                        "expected_json_paths": ["$.animals[0]", "$.animals[0].diet"],
+                        "expected_response_shape": "object",
+                        "query_text": "cat mice night",
+                        "predicted_outcome": "I expect the JSON endpoint to expose the first animal entry and its diet.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertEqual(result["result"]["inputs"]["expected_json_paths"], ["$.animals[0]", "$.animals[0].diet"])
+                self.assertEqual(result["result"]["inputs"]["expected_response_shape"], "object")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_path" for item in result["result"]["verification"]["evidence"]))
+                self.assertTrue(any(item.get("assertion_kind") == "expected_response_shape" for item in result["result"]["verification"]["evidence"]))
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_response_shape"], "object")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_path" for item in episodes[0].metadata["evidence"]))
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["inputs"]["expected_response_shape"], "object")
+                self.assertEqual(history["actions"][0]["inputs"]["expected_json_paths"], ["$.animals[0]", "$.animals[0].diet"])
+                self.assertTrue(any(item.get("assertion_kind") == "expected_response_shape" for item in history["actions"][0]["verification"]["evidence"]))
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_response_shape"], "object")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_explicit_api_value_assertion_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "animals.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice", "active_time": "night"},
+                            {"name": "cow", "diet": "grass", "active_time": "day"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_api_value_assertions",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/animals.json",
+                        "expected_json_values": {
+                            "$.animals[0].diet": "mice",
+                            "$.animals[0].active_time": "night",
+                        },
+                        "query_text": "cat mice night",
+                        "predicted_outcome": "I expect the JSON endpoint to confirm the first animal diet and active time.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertEqual(result["result"]["inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in result["result"]["verification"]["evidence"]))
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in episodes[0].metadata["evidence"]))
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in history["actions"][0]["verification"]["evidence"]))
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_explicit_api_predicate_assertion_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "metrics.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {"score": 0.91, "count": 7},
+                        "animals": [{"name": "cat", "diet": "mice at night"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_api_predicate_assertions",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/metrics.json",
+                        "expected_json_predicates": [
+                            {"path": "$.animals[0].diet", "op": "contains", "value": "night"},
+                            {"path": "$.metrics.score", "op": "gte", "value": 0.9},
+                        ],
+                        "query_text": "cat metrics night",
+                        "predicted_outcome": "I expect the JSON endpoint to satisfy text and score predicates.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertEqual(result["result"]["inputs"]["expected_json_predicates"][0]["op"], "contains")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in result["result"]["verification"]["evidence"]))
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "contains")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in episodes[0].metadata["evidence"]))
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicates"][0]["op"], "contains")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in history["actions"][0]["verification"]["evidence"]))
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "contains")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_composite_api_predicate_assertion_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "metrics.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {"score": 0.91, "count": 7},
+                        "animals": [{"name": "cat", "diet": "mice at night"}],
+                        "tags": ["night-hunter", "feline-companion"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_api_composite_predicate_assertions",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/metrics.json",
+                        "expected_json_predicates": [
+                            {"path": "$.metrics.score", "op": "between", "value": {"min": 0.9, "max": 1.0}},
+                            {"path": "$.animals[0].diet", "op": "startswith", "value": "mice"},
+                            {"path": "$.tags", "op": "any_contains", "value": "hunter"},
+                        ],
+                        "query_text": "cat metrics night",
+                        "predicted_outcome": "I expect the JSON endpoint to satisfy composite predicate checks.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertEqual(result["result"]["inputs"]["expected_json_predicates"][0]["op"], "between")
+                self.assertTrue(any(item.get("predicate_op") == "between" for item in result["result"]["verification"]["evidence"]))
+                self.assertTrue(any(item.get("predicate_op") == "any_contains" for item in result["result"]["verification"]["evidence"]))
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "between")
+                self.assertTrue(any(item.get("predicate_op") == "between" for item in episodes[0].metadata["evidence"]))
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicates"][0]["op"], "between")
+                self.assertTrue(any(item.get("predicate_op") == "between" for item in history["actions"][0]["verification"]["evidence"]))
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "between")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_logical_api_group_assertion_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "logic.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {"score": 0.91},
+                        "animals": [{"diet": "mice at night"}],
+                        "traits": {"primary": "night-hunter", "secondary": "feline-companion"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_api_logical_group_assertions",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/logic.json",
+                        "expected_json_predicates": [
+                            {"path": "$.traits", "op": "all_regex", "value": "^[a-z-]+$"},
+                        ],
+                        "expected_json_predicate_groups": [
+                            {
+                                "logic": "any",
+                                "predicates": [
+                                    {"path": "$.metrics.score", "op": "lt", "value": 0.5},
+                                    {"path": "$.animals[0].diet", "op": "contains", "value": "night"},
+                                ],
+                            }
+                        ],
+                        "query_text": "logic",
+                        "predicted_outcome": "I expect the JSON endpoint to satisfy logical predicate groups and object quantifiers.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertEqual(result["result"]["inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in result["result"]["verification"]["evidence"]))
+                self.assertTrue(any(item.get("predicate_op") == "all_regex" for item in result["result"]["verification"]["evidence"]))
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in episodes[0].metadata["evidence"]))
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in history["actions"][0]["verification"]["evidence"]))
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
+            finally:
+                restored.close()
+
+    def test_execute_digital_action_persists_wildcard_and_nested_group_api_assertions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "wild.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice at night", "traits": ["hunter", "feline"]},
+                            {"name": "owl", "diet": "mice at dawn", "traits": ["bird", "night"]},
+                        ],
+                        "groups": {"predators": [{"name": "cat"}, {"name": "owl"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_action_loop_api_wildcard_nested_groups",
+                    env_root=root,
+                )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": f"http://127.0.0.1:{port}/wild.json",
+                        "expected_json_paths": ["$.animals[*].diet"],
+                        "expected_json_values": {"$.animals[*].name": "owl"},
+                        "expected_json_predicate_groups": [
+                            {
+                                "logic": "all",
+                                "groups": [
+                                    {
+                                        "logic": "any",
+                                        "predicates": [
+                                            {"path": "$.animals[*].diet", "op": "contains", "value": "night"},
+                                            {"path": "$.animals[*].diet", "op": "contains", "value": "reptile"},
+                                        ],
+                                    },
+                                    {
+                                        "logic": "none",
+                                        "predicates": [
+                                            {"path": "$.animals[*].traits[*]", "op": "contains", "value": "reptile"},
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                        "query_text": "wild json nested",
+                        "predicted_outcome": "I expect wildcard JSON checks and nested groups to persist on the maintained path.",
+                    }
+                )
+                self.assertTrue(result["accepted"])
+                self.assertEqual(result["result"]["action_type"], "api_request")
+                self.assertEqual(result["result"]["verification"]["status"], "verified")
+                self.assertTrue(any(item.get("asserted_json_path") == "$.animals[*].diet" for item in result["result"]["verification"]["evidence"]))
+                self.assertEqual(result["result"]["inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
+                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in result["result"]["verification"]["evidence"]))
+
+                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(episodes), 1)
+                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
+                self.assertTrue(any(item.get("asserted_json_path") == "$.animals[*].diet" for item in episodes[0].metadata["evidence"]))
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                restored = HECSNServiceManager(
+                    saved["path"],
+                    trace_dir=root / "restored_traces",
+                    env_root=root,
+                )
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
+                self.assertTrue(any(item.get("asserted_json_path") == "$.animals[*].diet" for item in history["actions"][0]["verification"]["evidence"]))
+
+                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
+                self.assertEqual(len(restored_episodes), 1)
+                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
+                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
+            finally:
+                restored.close()
+
+    def test_respond_auto_executes_and_reuses_workspace_action_for_gap_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_auto_query_gap",
+                env_root=root,
+            )
+            try:
+                first = manager.respond(
+                    query_text="What do cats chase at night?",
+                    max_evidence_items=3,
+                    learn_mode="none",
+                )
+                self.assertEqual(first["query_result"]["action_assist"]["reason"], "query_gap_auto_search")
+                self.assertTrue(first["query_result"]["action_assist"]["executed"])
+                self.assertTrue(first["query_result"]["action_assist"]["used_in_response"])
+                self.assertEqual(first["query_result"]["action_assist"]["result"]["trigger_reason"], "query_gap_auto_search")
+                self.assertIn("cats chase mice at night", first["response"]["response_text"].lower())
+                self.assertEqual(manager.action_history(limit=4)["count"], 1)
+
+                second = manager.respond(
+                    query_text="What do cats chase at night?",
+                    max_evidence_items=3,
+                    learn_mode="none",
+                )
+                self.assertEqual(second["query_result"]["action_assist"]["reason"], "recent_verified_action")
+                self.assertFalse(second["query_result"]["action_assist"]["executed"])
+                self.assertTrue(second["query_result"]["action_assist"]["reused_recent_action"])
+                self.assertIn("cats chase mice at night", second["response"]["response_text"].lower())
+                self.assertEqual(manager.action_history(limit=4)["count"], 1)
+            finally:
+                manager.close()
+
+    def test_respond_auto_reads_named_workspace_file_for_gap_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_auto_query_read",
+                env_root=root,
+            )
+            try:
+                response = manager.respond(
+                    query_text="What does notes.md say cats chase at night?",
+                    max_evidence_items=3,
+                    learn_mode="none",
+                )
+                assist = response["query_result"]["action_assist"]
+                self.assertEqual(assist["reason"], "query_gap_auto_read")
+                self.assertTrue(assist["executed"])
+                self.assertEqual(assist["result"]["action_type"], "workspace_read")
+                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_read")
+                self.assertEqual(assist["result"]["inputs"]["path"], "notes.md")
+                self.assertIn("cats chase mice at night", response["response"]["response_text"].lower())
+                history = manager.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["action_type"], "workspace_read")
+            finally:
+                manager.close()
+
+    def test_respond_auto_fetches_explicit_url_for_gap_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "page.html").write_text(
+                "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_auto_query_fetch",
+                env_root=root,
+            )
+            try:
+                response = manager.respond(
+                    query_text=f"What does http://127.0.0.1:{port}/page.html say cats chase at night?",
+                    max_evidence_items=3,
+                    learn_mode="none",
+                )
+                assist = response["query_result"]["action_assist"]
+                self.assertEqual(assist["reason"], "query_gap_auto_fetch")
+                self.assertTrue(assist["executed"])
+                self.assertEqual(assist["result"]["action_type"], "web_fetch")
+                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_fetch")
+                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
+                self.assertIn("cats chase mice at night", response["response"]["response_text"].lower())
+                history = manager.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["action_type"], "web_fetch")
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+    def test_respond_auto_requests_explicit_json_api_for_gap_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "data.json").write_text(
+                '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_auto_query_api",
+                env_root=root,
+            )
+            try:
+                response = manager.respond(
+                    query_text=f"What does http://127.0.0.1:{port}/data.json say cats chase at night?",
+                    max_evidence_items=3,
+                    learn_mode="none",
+                )
+                assist = response["query_result"]["action_assist"]
+                self.assertEqual(assist["reason"], "query_gap_auto_api_request")
+                self.assertTrue(assist["executed"])
+                self.assertEqual(assist["result"]["action_type"], "api_request")
+                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_api_request")
+                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
+                self.assertIn("mice at night", response["response"]["response_text"].lower())
+                history = manager.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["action_type"], "api_request")
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+    def test_respond_does_not_reuse_parameterized_api_request_for_explicit_url_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            port = _free_port()
+            server = ThreadingHTTPServer(("127.0.0.1", port), _EchoJsonApiHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            manager = _build_manager(
+                root,
+                test_case="service_manager_parameterized_api_request_reuse_guard",
+                env_root=root,
+            )
+            url = f"http://127.0.0.1:{port}/api/echo"
+            try:
+                operator_result = manager.execute_digital_action(
+                    {
+                        "action_type": "api_request",
+                        "url": url,
+                        "method": "POST",
+                        "params": {"kind": "feline"},
+                        "json_body": {"topic": "cats", "fact": "mice at night"},
+                        "query_text": "cats mice night feline",
+                        "predicted_outcome": "I expect the API request to return structured JSON about cats and mice at night.",
+                    }
+                )
+                self.assertTrue(operator_result["accepted"])
+                self.assertEqual(operator_result["result"]["inputs"]["method"], "POST")
+
+                response = manager.respond(
+                    query_text=f"What does {url} say cats mice at night?",
+                    max_evidence_items=3,
+                    learn_mode="none",
+                )
+                assist = response["query_result"]["action_assist"]
+                self.assertEqual(assist["reason"], "query_gap_auto_api_request")
+                self.assertTrue(assist["executed"])
+                self.assertFalse(assist["reused_recent_action"])
+                self.assertEqual(assist["result"]["action_type"], "api_request")
+                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_api_request")
+                self.assertEqual(assist["result"]["verification"]["status"], "contradicted")
+                history = manager.action_history(limit=8)
+                self.assertEqual(history["count"], 2)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "query_gap_auto_api_request")
+                self.assertEqual(history["actions"][0]["inputs"]["method"], "GET")
+                self.assertEqual(history["actions"][1]["inputs"]["method"], "POST")
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+    def test_cortex_ask_action_intent_executes_workspace_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": "I should ask for more grounded evidence about what cats chase at night.",
+                        "topics": ["cats", "chase", "night"],
+                        "valence": 0.1,
+                        "confidence": 0.62,
+                        "action": "ask",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_ask_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.start()
+                ask = manager.cortex_ask("What do cats chase at night?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                history = {"count": 0, "actions": []}
+                runtime = {}
+                while time.time() < deadline:
+                    history = manager.action_history(limit=4)
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    if history["count"] >= 1:
+                        break
+                    time.sleep(0.02)
+
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_ask")
+                self.assertEqual(history["actions"][0]["trigger_query_text"], "What do cats chase at night?")
+                self.assertEqual(history["actions"][0]["action_type"], "workspace_search")
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                request_events = [event for event in runtime.get("recent_events", []) if event.get("type") == "cortex_action_requested"]
+                self.assertTrue(any(event.get("action_intent") == "ask" for event in request_events))
+                self.assertIn("digital_action_executed", [event.get("type") for event in runtime.get("recent_events", [])])
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "ask")
+            finally:
+                manager.close()
+
+    def test_cortex_remember_action_intent_reuses_recent_action_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": "I should remember the grounded evidence about what cats chase at night.",
+                        "topics": ["cats", "chase", "night"],
+                        "valence": 0.1,
+                        "confidence": 0.62,
+                        "action": "remember",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_remember_action_intent",
+                    env_root=root,
+                )
+            try:
+                operator_result = manager.execute_digital_action(
+                    {
+                        "action_type": "workspace_search",
+                        "query_text": "cats chase mice",
+                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
+                    }
+                )
+                self.assertTrue(operator_result["accepted"])
+                self.assertEqual(manager.action_history(limit=4)["count"], 1)
+
+                manager._thought_loop.start()
+                ask = manager.cortex_ask("What do cats chase at night?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                runtime = {}
+                while time.time() < deadline:
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    recent_events = runtime.get("recent_events", [])
+                    if recent_events and recent_events[0].get("type") == "cortex_action_reused":
+                        break
+                    time.sleep(0.02)
+
+                history = manager.action_history(limit=4)
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(runtime["recent_events"][0]["type"], "cortex_action_reused")
+                self.assertEqual(runtime["recent_events"][0]["action_intent"], "remember")
+                self.assertEqual(runtime["recent_events"][0]["query_text"], "What do cats chase at night?")
+                self.assertEqual(history["actions"][0]["trigger_reason"], "operator")
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "remember")
+            finally:
+                manager.close()
+
+    def test_cortex_explore_action_intent_executes_workspace_action_without_query_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            from hecsn.cortex.core import MockCortex, ThoughtResult
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_explore_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._on_cortex_thought(
+                    ThoughtResult(
+                        raw_text='{"thought":"I should explore cats hunting at night.","topics":["cats","night","mice"],"valence":0.1,"confidence":0.62,"action":"explore"}',
+                        thought="I should explore cats hunting at night.",
+                        topics=("cats", "night", "mice"),
+                        emotional_valence=0.1,
+                        confidence=0.62,
+                        action_intent="explore",
+                        latency_ms=0.0,
+                        parse_success=True,
+                    )
+                )
+                history = manager.action_history(limit=4)
+                runtime = manager.terminus_status()["terminus_runtime"]
+
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_explore")
+                self.assertEqual(history["actions"][0]["action_type"], "workspace_search")
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
+                self.assertIn("cortex_action_requested", event_types)
+                self.assertIn("digital_action_executed", event_types)
+                request_events = [event for event in runtime.get("recent_events", []) if event.get("type") == "cortex_action_requested"]
+                self.assertTrue(any(event.get("action_intent") == "explore" for event in request_events))
+            finally:
+                manager.close()
+
+    def test_cortex_search_action_intent_executes_workspace_action(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": "I should search the workspace for evidence about what cats chase at night.",
+                        "topics": ["cats", "chase", "night"],
+                        "valence": 0.1,
+                        "confidence": 0.62,
+                        "action": "search",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_search_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.start()
+                ask = manager.cortex_ask("What do cats chase at night?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                history = {"count": 0, "actions": []}
+                runtime = {}
+                while time.time() < deadline:
+                    history = manager.action_history(limit=4)
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    if history["count"] >= 1:
+                        break
+                    time.sleep(0.02)
+
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_search")
+                self.assertEqual(history["actions"][0]["trigger_query_text"], "What do cats chase at night?")
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
+                self.assertIn("cortex_action_requested", event_types)
+                self.assertIn("digital_action_executed", event_types)
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "search")
+            finally:
+                manager.close()
+
+    def test_cortex_search_action_intent_reads_named_workspace_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": "I should search the workspace for evidence in notes.md about what cats chase at night.",
+                        "topics": ["notes", "cats", "night"],
+                        "valence": 0.1,
+                        "confidence": 0.62,
+                        "action": "search",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_read_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.start()
+                ask = manager.cortex_ask("What does notes.md say cats chase at night?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                history = {"count": 0, "actions": []}
+                runtime = {}
+                while time.time() < deadline:
+                    history = manager.action_history(limit=4)
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    if history["count"] >= 1:
+                        break
+                    time.sleep(0.02)
+
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_read")
+                self.assertEqual(history["actions"][0]["action_type"], "workspace_read")
+                self.assertEqual(history["actions"][0]["inputs"]["path"], "notes.md")
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
+                self.assertIn("cortex_action_requested", event_types)
+                self.assertIn("digital_action_executed", event_types)
+            finally:
+                manager.close()
+
+    def test_cortex_search_action_intent_fetches_explicit_url(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "page.html").write_text(
+                "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": f"I should search the web page at http://127.0.0.1:{port}/page.html for evidence about what cats chase at night.",
+                        "topics": ["cats", "chase", "night"],
+                        "valence": 0.1,
+                        "confidence": 0.62,
+                        "action": "search",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_fetch_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.start()
+                ask = manager.cortex_ask(f"What does http://127.0.0.1:{port}/page.html say cats chase at night?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                history = {"count": 0, "actions": []}
+                runtime = {}
+                while time.time() < deadline:
+                    history = manager.action_history(limit=4)
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    if history["count"] >= 1:
+                        break
+                    time.sleep(0.02)
+
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_fetch")
+                self.assertEqual(history["actions"][0]["action_type"], "web_fetch")
+                self.assertIn(f"http://127.0.0.1:{port}/page.html", history["actions"][0]["inputs"]["url"])
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
+                self.assertIn("cortex_action_requested", event_types)
+                self.assertIn("digital_action_executed", event_types)
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+    def test_cortex_search_action_intent_requests_explicit_json_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "data.json").write_text(
+                '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": f"I should search the JSON endpoint at http://127.0.0.1:{port}/data.json for evidence about what cats chase at night.",
+                        "topics": ["cats", "chase", "night"],
+                        "valence": 0.1,
+                        "confidence": 0.62,
+                        "action": "search",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_api_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.start()
+                ask = manager.cortex_ask(f"What does http://127.0.0.1:{port}/data.json say cats chase at night?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                history = {"count": 0, "actions": []}
+                runtime = {}
+                while time.time() < deadline:
+                    history = manager.action_history(limit=4)
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    if history["count"] >= 1:
+                        break
+                    time.sleep(0.02)
+
+                self.assertEqual(history["count"], 1)
+                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_api_request")
+                self.assertEqual(history["actions"][0]["action_type"], "api_request")
+                self.assertIn(f"http://127.0.0.1:{port}/data.json", history["actions"][0]["inputs"]["url"])
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
+                self.assertIn("cortex_action_requested", event_types)
+                self.assertIn("digital_action_executed", event_types)
+            finally:
+                manager.close()
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+    def test_operator_cortex_sleep_request_records_and_completes_control_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_operator_cortex_sleep",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.sleep_dream_count = 1
+                manager._thought_loop.start()
+                response = manager.cortex_sleep("Operator requested a consolidation cycle.")
+                self.assertTrue(response["accepted"])
+                self.assertEqual(response["request"]["source"], "operator")
+
+                deadline = time.time() + 2.0
+                runtime = {}
+                while time.time() < deadline:
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    recent_events = runtime.get("recent_events", [])
+                    sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
+                    if (
+                        sleep_control.get("requested_cycles_completed", 0) >= 1
+                        and any(event.get("type") == "cortex_sleep_completed" for event in recent_events)
+                    ):
+                        break
+                    time.sleep(0.02)
+
+                recent_events = runtime.get("recent_events", [])
+                sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
+                self.assertEqual(manager.action_history(limit=4)["count"], 0)
+                self.assertEqual(sleep_control.get("last_request", {}).get("source"), "operator")
+                self.assertEqual(sleep_control.get("last_cycle", {}).get("trigger"), "requested")
+                self.assertEqual(sleep_control.get("last_cycle", {}).get("request", {}).get("source"), "operator")
+                self.assertTrue(any(event.get("type") == "cortex_sleep_requested" and event.get("source") == "operator" for event in recent_events))
+                self.assertTrue(any(event.get("type") == "cortex_sleep_completed" and event.get("source") == "operator" for event in recent_events))
+            finally:
+                manager.close()
+
+    def test_cortex_sleep_action_intent_requests_and_completes_control_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            cortex = MockCortex(
+                responses=[
+                    {
+                        "thought": "I should sleep and consolidate before continuing.",
+                        "topics": ["sleep", "consolidation"],
+                        "valence": 0.0,
+                        "confidence": 0.64,
+                        "action": "sleep",
+                    }
+                ]
+            )
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                manager = _build_manager(
+                    root,
+                    test_case="service_manager_cortex_sleep_action_intent",
+                    env_root=root,
+                )
+            try:
+                manager._thought_loop.sleep_dream_count = 1
+                manager._thought_loop.start()
+                ask = manager.cortex_ask("Should you consolidate now?")
+                self.assertTrue(ask["accepted"])
+
+                deadline = time.time() + 2.0
+                runtime = {}
+                while time.time() < deadline:
+                    runtime = manager.terminus_status()["terminus_runtime"]
+                    recent_events = runtime.get("recent_events", [])
+                    sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
+                    if (
+                        sleep_control.get("requested_cycles_completed", 0) >= 1
+                        and any(
+                            event.get("type") == "cortex_sleep_completed"
+                            and event.get("source") == "cortex_intent"
+                            for event in recent_events
+                        )
+                    ):
+                        break
+                    time.sleep(0.02)
+
+                recent_events = runtime.get("recent_events", [])
+                sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
+                self.assertEqual(manager.action_history(limit=4)["count"], 0)
+                self.assertEqual(sleep_control.get("last_request", {}).get("source"), "cortex_intent")
+                self.assertEqual(sleep_control.get("last_cycle", {}).get("trigger"), "requested")
+                self.assertEqual(
+                    sleep_control.get("last_cycle", {}).get("request", {}).get("metadata", {}).get("query_text"),
+                    "Should you consolidate now?",
+                )
+                self.assertTrue(any(event.get("type") == "cortex_sleep_requested" and event.get("action_intent") == "sleep" for event in recent_events))
+                self.assertTrue(any(event.get("type") == "cortex_sleep_completed" and event.get("action_intent") == "sleep" for event in recent_events))
+                snap = manager.cortex_snapshot()
+                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "sleep")
             finally:
                 manager.close()
 

@@ -6,7 +6,7 @@ import time
 import json
 import pytest
 
-from hecsn.cortex.core import MockCortex, ContextPacket, ThinkingMode, ThoughtDepth, ThoughtResult
+from hecsn.cortex.core import CorticalCore, MockCortex, ContextPacket, ThinkingMode, ThoughtDepth, ThoughtResult
 from hecsn.cortex.episodic_memory import (
     EpisodicMemory,
     Episode,
@@ -131,16 +131,80 @@ class TestEpisodicMemory:
         assert mem.size == 1
         assert ep2.access_count >= 1
 
-    def test_recall_by_similarity(self):
+    def test_recall_for_deliberation_prefers_recent_relevant_sensory_evidence(self):
         mem = EpisodicMemory(capacity=100)
-        mem.store("cats love to sleep in warm places", topics=["cats"])
-        mem.store("quantum mechanics describes particle behavior", topics=["physics"])
-        mem.store("kittens are young cats", topics=["cats"])
+        mem.store(
+            "Cats rest indoors and chase mice at night.",
+            provenance=Provenance.OBSERVED,
+            topics=["cats", "mice"],
+            salience=0.8,
+            metadata={
+                "grounded": True,
+                "observation_kind": "source",
+                "grounding_signal": 0.58,
+                "evidence_unit_count": 16,
+                "focus_terms": ["cats", "indoors", "mice"],
+            },
+            episode_id="ep-source",
+        )
+        sensory = mem.store(
+            "Water splashes while wind and footsteps move through an outdoor path.",
+            provenance=Provenance.OBSERVED,
+            topics=["water", "wind", "footsteps"],
+            salience=0.9,
+            metadata={
+                "grounded": True,
+                "observation_kind": "sensory",
+                "modality": "audio",
+                "semantic_match": 0.92,
+                "grounding_signal": 0.90,
+                "evidence_unit_count": 2,
+                "focus_terms": ["water", "wind", "footsteps"],
+            },
+            episode_id="ep-sensory",
+        )
 
-        results = mem.recall_by_similarity("cats and kittens", top_k=2)
-        assert len(results) == 2
-        contents = [r.content for r in results]
-        assert any("cats" in c.lower() or "kitten" in c.lower() for c in contents)
+        bundle = mem.recall_for_deliberation(
+            "environmental sound of water and footsteps",
+            grounded_top_k=2,
+            support_top_k=2,
+        )
+        assert len(bundle.grounded) > 0
+        assert bundle.grounded[0].episode_id == sensory.episode_id
+        assert "water" in bundle.grounded[0].focused_text.lower()
+        assert "footsteps" in bundle.grounded[0].focused_text.lower()
+        assert "water" in bundle.target.lower()
+
+    def test_recall_for_query_prefers_recent_grounded_evidence(self):
+        mem = EpisodicMemory(capacity=100)
+        older = mem.store(
+            "Cats rest on rooftops and chase birds at dawn.",
+            provenance=Provenance.OBSERVED,
+            topics=["cats", "birds"],
+            salience=0.9,
+            episode_id="ep-older",
+        )
+        older.created_at = time.time() - (8 * 3600)
+        grounded = mem.store(
+            "Cats rest indoors and chase mice at night.",
+            provenance=Provenance.OBSERVED,
+            topics=["cats", "mice"],
+            salience=0.8,
+            metadata={"grounded": True, "observation_kind": "source"},
+            episode_id="ep-grounded",
+        )
+        bundle = mem.recall_for_query(
+            "Where do cats rest and what do they chase at night?",
+            grounded_top_k=2,
+            support_top_k=2,
+        )
+
+        assert len(bundle.grounded) > 0
+        assert bundle.grounded[0].episode_id == grounded.episode_id
+        assert "indoors" in bundle.grounded[0].focused_text.lower()
+        assert "mice" in bundle.grounded[0].focused_text.lower()
+        assert bundle.grounded_coverage > 0.3
+        assert all(match.episode_id != grounded.episode_id for match in bundle.support)
 
     def test_recall_by_topic(self):
         mem = EpisodicMemory(capacity=100)
@@ -243,12 +307,25 @@ class TestEpisodicMemory:
         assert stats["provenance_distribution"]["dreamed"] == 1
         assert stats["embedder"]["kind"] == "SimpleEmbedder"
 
-    def test_min_trust_filter(self):
+    def test_recent_grounded_focus_prefers_metadata_focus_terms(self):
         mem = EpisodicMemory(capacity=100)
-        mem.store("dream", provenance=Provenance.DREAMED, episode_id="ep-d")
-        mem.store("fact", provenance=Provenance.VERIFIED, episode_id="ep-v")
-        results = mem.recall_by_similarity("anything", top_k=10, min_trust=0.5)
-        assert all(r.provenance.trust_weight >= 0.5 for r in results)
+        mem.store(
+            "Water splashes while wind and footsteps move through an outdoor path.",
+            provenance=Provenance.OBSERVED,
+            topics=["audio"],
+            salience=0.9,
+            metadata={
+                "grounded": True,
+                "observation_kind": "sensory",
+                "modality": "audio",
+                "grounding_signal": 0.9,
+                "focus_terms": ["water", "wind", "footsteps"],
+            },
+            episode_id="ep-sensory-focus",
+        )
+        focus = mem.recent_grounded_focus()
+        assert "water" in focus.lower()
+        assert "footsteps" in focus.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -294,19 +371,25 @@ class TestAntiRumination:
 class TestDriveSystem:
     def test_initial_state(self):
         ds = DriveSystem()
-        assert ds.state.curiosity == 0.5
+        assert ds.state.curiosity == 0.0
+        assert ds.state.uncertainty == 0.0
         assert ds.state.fatigue == 0.0
+        assert ds.startup_quiet is True
+        assert ds.pending_grounded_observations == 0
+        assert ds.substrate_hysteresis_active is False
+        assert ds.substrate_hysteresis_updates == 0
         assert ds.thought_count == 0
 
     def test_surprise_update(self):
         ds = DriveSystem()
+        initial_curiosity = ds.state.curiosity
         # Apply multiple updates to overcome EMA smoothing
         for _ in range(10):
             ds.update_from_surprise(
                 dopamine=0.9, serotonin=0.1,
                 norepinephrine=0.3, acetylcholine=0.8,
             )
-        assert ds.state.curiosity > 0.5  # High ACh + DA
+        assert ds.state.curiosity > initial_curiosity
         assert ds.state.satisfaction > 0.3  # High DA after convergence
 
     def test_thought_increases_fatigue(self):
@@ -319,11 +402,79 @@ class TestDriveSystem:
         ds.update_from_thought(result)
         assert ds.state.fatigue > initial_fatigue
 
-    def test_external_input_reduces_boredom(self):
+    def test_grounded_observation_reduces_boredom_and_queues_wake(self):
         ds = DriveSystem()
         ds.state.boredom = 0.8
-        ds.update_from_external_input()
+        ds.update_from_grounded_observation()
         assert ds.state.boredom < 0.8
+        assert ds.pending_grounded_observations == 1
+        assert ds.startup_quiet is False
+
+    def test_should_think_requires_concrete_wake_trigger(self):
+        ds = DriveSystem()
+        ds.state.curiosity = 0.9
+        ds.state.anxiety = 0.8
+        assert ds.should_think() is False
+        assert ds.last_gate_reason == "startup_quiet"
+
+    def test_prediction_error_breaks_startup_quiet(self):
+        ds = DriveSystem()
+        ds.update_from_prediction_error(0.6, 0.8, 0.2, 0.1)
+        assert ds.startup_quiet is False
+        assert ds.pending_substrate_wakes == 1
+        assert ds.should_think() is True
+        assert ds.last_gate_reason in {"prediction_error", "uncertainty", "exploration_urgency", "ne_alerting", "ach_attention"}
+
+    def test_substrate_wake_is_one_shot_without_renewal(self):
+        ds = DriveSystem()
+        ds.update_from_prediction_error(0.6, 0.8, 0.2, 0.1)
+        assert ds.pending_substrate_wakes == 1
+        assert ds.should_think() is True
+        assert ds.consume_substrate_wake() is True
+        assert ds.pending_substrate_wakes == 0
+        assert ds.should_think() is False
+        assert ds.last_gate_reason == "idle_no_trigger"
+
+    def test_prediction_error_renewal_rearms_substrate_wake(self):
+        ds = DriveSystem()
+        ds.update_from_prediction_error(0.6, 0.8, 0.2, 0.1)
+        assert ds.consume_substrate_wake() is True
+        ds.update_from_prediction_error(0.62, 0.82, 0.22, 0.12)
+        assert ds.pending_substrate_wakes == 0
+        ds.update_from_prediction_error(0.8, 0.95, 0.15, 0.05)
+        assert ds.pending_substrate_wakes == 1
+        assert ds.should_think() is True
+
+    def test_moderate_pressure_does_not_rearm_without_strong_sustain(self):
+        ds = DriveSystem(
+            substrate_rearm_cooldown_s=0.12,
+            substrate_sustain_min_updates=2,
+            substrate_sustain_margin=0.22,
+        )
+        ds.update_from_prediction_error(0.35, 0.40, 0.86, 0.82)
+        assert ds.consume_substrate_wake() is True
+        time.sleep(0.13)
+        ds.update_from_prediction_error(0.35, 0.40, 0.86, 0.82)
+        assert ds.pending_substrate_wakes == 0
+        assert ds.substrate_hysteresis_active is False
+        assert ds.last_gate_reason in {"prediction_error", "startup_quiet"}
+
+    def test_strong_sustained_pressure_rearms_after_hysteresis_window(self):
+        ds = DriveSystem(
+            substrate_rearm_cooldown_s=0.12,
+            substrate_sustain_min_updates=2,
+            substrate_sustain_margin=0.22,
+        )
+        ds.update_from_prediction_error(0.7, 0.85, 0.2, 0.1)
+        assert ds.consume_substrate_wake() is True
+        time.sleep(0.13)
+        ds.update_from_prediction_error(0.7, 0.85, 0.2, 0.1)
+        assert ds.pending_substrate_wakes == 1
+        assert ds.substrate_hysteresis_active is True
+        assert ds.substrate_hysteresis_reason == "prediction_error"
+        assert ds.substrate_hysteresis_updates >= 2
+        assert ds.should_think() is True
+        assert ds.last_gate_reason == "prediction_error_sustained"
 
     def test_should_sleep_when_fatigued(self):
         ds = DriveSystem()
@@ -337,10 +488,10 @@ class TestDriveSystem:
         ds.state.social = 0.5
         assert not ds.should_sleep()
 
-    def test_choose_mode_answer_when_social(self):
+    def test_choose_mode_think_when_social_without_query(self):
         ds = DriveSystem()
         ds.state.social = 0.5
-        assert ds.choose_mode() == ThinkingMode.ANSWER
+        assert ds.choose_mode() == ThinkingMode.THINK
 
     def test_choose_mode_reflect_when_bored(self):
         ds = DriveSystem()
@@ -401,9 +552,6 @@ class TestThalamicGate:
         gate = ThalamicGate(mem, drives)
 
         gate.submit_query("What is consciousness?")
-        # submit_query calls update_from_external_input which boosts social to 0.3
-        # Make sure social is above the 0.3 threshold for ANSWER mode
-        drives.state.social = 0.5
         packet = gate.assemble()
         assert packet.external_query == "What is consciousness?"
         assert packet.mode == ThinkingMode.ANSWER
@@ -418,6 +566,43 @@ class TestThalamicGate:
         # Second assembly should not have the query
         packet2 = gate.assemble()
         assert packet2.external_query == ""
+
+    def test_query_assembles_grounded_evidence(self):
+        mem = EpisodicMemory(capacity=100)
+        mem.store(
+            "Cats rest indoors and chase mice at night.",
+            provenance=Provenance.OBSERVED,
+            topics=["cats", "mice"],
+            salience=0.9,
+            metadata={"grounded": True, "observation_kind": "source"},
+        )
+        drives = DriveSystem()
+        gate = ThalamicGate(mem, drives)
+
+        gate.submit_query("Where do cats rest and what do they chase at night?")
+        packet = gate.assemble()
+        assert packet.mode == ThinkingMode.ANSWER
+        assert packet.external_query
+        assert len(packet.grounded_evidence) > 0
+        assert any("indoors" in item.text.lower() for item in packet.grounded_evidence)
+
+    def test_non_query_assembly_reuses_recent_grounded_evidence(self):
+        mem = EpisodicMemory(capacity=100)
+        mem.store(
+            "Cats rest indoors and chase mice at night.",
+            provenance=Provenance.OBSERVED,
+            topics=["cats", "rest", "indoors", "mice"],
+            salience=0.9,
+            metadata={"grounded": True, "observation_kind": "source"},
+        )
+        drives = DriveSystem()
+        gate = ThalamicGate(mem, drives)
+
+        packet = gate.assemble()
+        assert packet.mode == ThinkingMode.THINK
+        assert len(packet.grounded_evidence) > 0
+        assert any("indoors" in item.text.lower() for item in packet.grounded_evidence)
+        assert "cats" in packet.forced_topic.lower()
 
     def test_working_memory_replaces_thread_replay(self):
         """Wakeful assembly should not include raw thought-thread replay.
@@ -475,21 +660,77 @@ class TestThoughtLoop:
     def test_step_with_fake_cortex(self):
         cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
-        # Boost curiosity to trigger thinking
-        loop.drives.state.curiosity = 0.8
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
         result = loop.step()
         assert result is not None
         assert result.parse_success
         assert loop.stats.thoughts_generated == 1
 
-    def test_step_no_think_when_low_drives(self):
+    def test_step_idle_startup_stays_quiet_without_input(self):
         cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
-        loop.drives.state.curiosity = 0.1
-        loop.drives.state.anxiety = 0.1
-        loop.drives.state.social = 0.0
         result = loop.step()
         assert result is None
+        snap = loop.snapshot()
+        assert snap["thoughts_generated"] == 0
+        assert snap["gating"]["startup_quiet"] is True
+        assert snap["gating"]["last_gate_reason"] == "startup_quiet"
+
+    def test_step_no_think_when_only_affective_drives_are_high(self):
+        cortex = MockCortex()
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
+        loop.drives.state.curiosity = 0.9
+        loop.drives.state.anxiety = 0.8
+        loop.drives.state.social = 0.6
+        result = loop.step()
+        assert result is None
+
+    def test_prediction_error_wake_does_not_free_run_without_renewal(self):
+        cortex = MockCortex()
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
+        first = loop.step(force=True)
+        second = loop.step(force=True)
+        assert first is not None
+        assert second is None
+        assert loop.snapshot()["gating"]["pending_substrate_wakes"] == 0
+        assert loop.snapshot()["gating"]["last_gate_reason"] == "idle_no_trigger"
+
+    def test_prediction_error_renewal_can_rearm_thinking(self):
+        cortex = MockCortex(responses=[
+            {"thought": "A quick fact about gravity", "topics": ["physics"], "valence": 0.1, "confidence": 0.7, "action": None},
+            {"thought": "A second fact about magnetism", "topics": ["physics"], "valence": 0.1, "confidence": 0.7, "action": None},
+        ])
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
+        first = loop.step(force=True)
+        loop.drives.update_from_prediction_error(0.8, 0.95, 0.15, 0.05)
+        second = loop.step(force=True)
+        assert first is not None
+        assert second is not None
+        assert first.thought != second.thought
+        assert loop.stats.thoughts_generated == 2
+
+    def test_unresolved_tension_can_continue_for_bounded_cycles(self):
+        loop = ThoughtLoop(cortex=MockCortex(responses=[
+            {"thought": "A contradiction remains in coral growth evidence.", "topics": ["coral"], "valence": -0.1, "confidence": 0.4, "action": None},
+            {"thought": "The contradiction still needs explanation.", "topics": ["coral"], "valence": -0.1, "confidence": 0.4, "action": None},
+        ]), min_thought_interval_s=0.0)
+        loop._queue_wake_tension(
+            "Dream contradiction: coral growth does not match the inferred mechanism.",
+            topics=["coral growth", "mechanism"],
+            salience=0.9,
+            continuation_cycles=2,
+        )
+        first = loop.step(force=True)
+        second = loop.step(force=True)
+        third = loop.step(force=True)
+        assert first is not None
+        assert second is not None
+        assert third is None
+        snap = loop.snapshot()
+        assert snap["gating"]["active_tension_count"] == 0
+        assert snap["gating"]["last_gate_reason"] == "idle_no_trigger"
 
     def test_uses_provided_memory_instance_even_when_empty(self):
         cortex = MockCortex()
@@ -500,7 +741,7 @@ class TestThoughtLoop:
     def test_memory_stored_after_thought(self):
         cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
-        loop.drives.state.curiosity = 0.8
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
         loop.step()
         assert loop.memory.size >= 1
 
@@ -518,6 +759,32 @@ class TestThoughtLoop:
         loop.step()  # Should trigger sleep
         assert loop.stats.sleep_cycles == 1
         assert loop.stats.dreams_generated == 2
+
+    def test_explicit_sleep_request_runs_without_fatigue_gate(self):
+        cortex = MockCortex()
+        loop = ThoughtLoop(
+            cortex=cortex,
+            min_thought_interval_s=0.0,
+            sleep_cooldown_s=30.0,
+            sleep_dream_count=1,
+        )
+
+        request = loop.request_sleep(source="operator", reason="Need a consolidation pass.")
+        assert request["accepted"]
+        assert request["request"]["source"] == "operator"
+        assert loop.stats.sleep_cycles == 0
+
+        loop.step(force=True)
+        snap = loop.snapshot()
+
+        assert loop.stats.sleep_cycles == 1
+        assert loop.stats.dreams_generated == 1
+        assert snap["sleep_control"]["requests_submitted"] == 1
+        assert snap["sleep_control"]["requested_cycles_completed"] == 1
+        assert snap["sleep_control"]["pending_request"] is None
+        assert snap["sleep_control"]["last_request"]["source"] == "operator"
+        assert snap["sleep_control"]["last_cycle"]["trigger"] == "requested"
+        assert snap["sleep_control"]["last_cycle"]["request"]["source"] == "operator"
 
     def test_fatigue_reduces_after_sleep(self):
         cortex = MockCortex()
@@ -646,15 +913,272 @@ class TestThoughtLoop:
         cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex)
         loop.inject_surprise(dopamine=0.9, acetylcholine=0.9)
-        assert loop.drives.state.curiosity > 0.5
+        assert loop.drives.state.curiosity > 0.0
 
     def test_submit_query(self):
         cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
         loop.submit_query("What is life?")
-        loop.drives.state.social = 0.5  # Ensure thinking is triggered
         result = loop.step()
         assert result is not None
+
+    def test_submit_query_bypasses_thought_interval(self):
+        cortex = MockCortex()
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=60.0)
+        loop._last_thought_time = time.time()
+        loop.submit_query("What is life?")
+        result = loop.step()
+        assert result is not None
+
+    def test_external_query_uses_grounded_evidence_context(self):
+        class RecordingCortex(CorticalCore):
+            model = "recording-cortex"
+            temperature = 0.7
+
+            def __init__(self) -> None:
+                self.last_context = None
+
+            def generate(self, context: ContextPacket) -> ThoughtResult:
+                self.last_context = context
+                evidence_text = " ".join(item.text for item in context.grounded_evidence)
+                return ThoughtResult(
+                    raw_text="",
+                    thought=evidence_text or context.external_query,
+                    topics=("cats", "mice"),
+                    confidence=0.9,
+                    latency_ms=1.0,
+                    parse_success=True,
+                )
+
+            def is_available(self) -> bool:
+                return True
+
+        cortex = RecordingCortex()
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=60.0)
+        loop.inject_observation(
+            "Cats rest indoors and chase mice at night.",
+            topics=["cats", "mice"],
+            salience=0.9,
+            metadata={"grounded": True, "observation_kind": "source"},
+        )
+        loop.submit_query("Where do cats rest and what do they chase at night?")
+        result = loop.step()
+        assert result is not None
+        assert cortex.last_context is not None
+        assert cortex.last_context.external_query
+        assert len(cortex.last_context.grounded_evidence) > 0
+        assert any("indoors" in item.text.lower() for item in cortex.last_context.grounded_evidence)
+
+    def test_external_query_recovers_from_generic_answer_drift(self):
+        class DriftCortex(CorticalCore):
+            model = "drift-cortex"
+            temperature = 0.7
+
+            def generate(self, context: ContextPacket) -> ThoughtResult:
+                return ThoughtResult(
+                    raw_text="",
+                    thought="Cats are curious animals with distinct personalities.",
+                    topics=("cats",),
+                    confidence=0.5,
+                    latency_ms=1.0,
+                    parse_success=True,
+                )
+
+            def is_available(self) -> bool:
+                return True
+
+        loop = ThoughtLoop(cortex=DriftCortex(), min_thought_interval_s=60.0)
+        loop.inject_observation(
+            "Cats rest indoors and chase mice at night.",
+            topics=["cats", "mice"],
+            salience=0.9,
+            metadata={"grounded": True, "observation_kind": "source"},
+        )
+        loop.submit_query("Where do cats rest and what do they chase at night?")
+        result = loop.step()
+        assert result is not None
+        assert "indoors" in result.thought.lower()
+        assert "mice" in result.thought.lower()
+
+        snap = loop.snapshot()
+        assert snap["grounding"]["query_answers_evaluated"] == 1
+        assert snap["grounding"]["query_recovery_rate"] == 1.0
+        assert snap["recent_thoughts"][-1]["grounding"]["fallback_used"] is True
+        assert snap["recent_thoughts"][-1]["grounding"]["alignment_score"] >= 0.4
+
+    def test_wakeful_thought_uses_grounded_evidence_context(self):
+        class RecordingCortex(CorticalCore):
+            model = "recording-cortex"
+            temperature = 0.7
+
+            def __init__(self) -> None:
+                self.last_context = None
+
+            def generate(self, context: ContextPacket) -> ThoughtResult:
+                self.last_context = context
+                evidence_text = " ".join(item.text for item in context.grounded_evidence)
+                return ThoughtResult(
+                    raw_text="",
+                    thought=evidence_text or context.forced_topic,
+                    topics=("cats", "mice"),
+                    confidence=0.9,
+                    latency_ms=1.0,
+                    parse_success=True,
+                )
+
+            def is_available(self) -> bool:
+                return True
+
+        cortex = RecordingCortex()
+        loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
+        loop.inject_observation(
+            "Cats rest indoors and chase mice at night.",
+            topics=["cats", "mice"],
+            salience=0.9,
+            metadata={"grounded": True, "observation_kind": "source"},
+        )
+        result = loop.step()
+        assert result is not None
+        assert cortex.last_context is not None
+        assert len(cortex.last_context.grounded_evidence) > 0
+        assert "cats" in cortex.last_context.forced_topic.lower()
+        assert "indoors" in result.thought.lower()
+        assert "mice" in result.thought.lower()
+
+        snap = loop.snapshot()
+        assert snap["grounding"]["wakeful_thoughts_evaluated"] == 1
+        assert snap["grounding"]["mean_wakeful_alignment"] >= 0.4
+
+    def test_wakeful_thought_recovers_from_generic_drift(self):
+        class DriftCortex(CorticalCore):
+            model = "drift-cortex"
+            temperature = 0.7
+
+            def generate(self, context: ContextPacket) -> ThoughtResult:
+                return ThoughtResult(
+                    raw_text="",
+                    thought="Cats are familiar domestic animals with individual temperaments.",
+                    topics=("cats",),
+                    confidence=0.5,
+                    latency_ms=1.0,
+                    parse_success=True,
+                )
+
+            def is_available(self) -> bool:
+                return True
+
+        loop = ThoughtLoop(cortex=DriftCortex(), min_thought_interval_s=0.0)
+        loop.inject_observation(
+            "Cats rest indoors and chase mice at night.",
+            topics=["cats", "mice"],
+            salience=0.9,
+            metadata={"grounded": True, "observation_kind": "source"},
+        )
+        result = loop.step()
+        assert result is not None
+        assert "indoors" in result.thought.lower()
+        assert "mice" in result.thought.lower()
+
+        snap = loop.snapshot()
+        assert snap["grounding"]["wakeful_thoughts_evaluated"] == 1
+        assert snap["grounding"]["wakeful_recovery_rate"] == 1.0
+        assert snap["recent_thoughts"][-1]["grounding"]["kind"] == "wakeful"
+        assert snap["recent_thoughts"][-1]["grounding"]["fallback_used"] is True
+
+    def test_background_loop_stays_quiet_without_input(self):
+        cortex = MockCortex()
+        loop = ThoughtLoop(
+            cortex=cortex,
+            tick_interval_ms=50.0,
+            min_thought_interval_s=0.0,
+        )
+        loop.start()
+        time.sleep(0.25)
+        loop.stop()
+        assert loop.stats.thoughts_generated == 0
+        assert loop.snapshot()["gating"]["last_gate_reason"] in {"startup_quiet", "idle_no_trigger"}
+
+    def test_background_loop_constant_moderate_pressure_fires_once_then_quiets(self):
+        thoughts_at: list[float] = []
+        signal = {
+            "prediction_error_mean": 0.35,
+            "prediction_error_max": 0.40,
+            "predictive_confidence_mean": 0.86,
+            "predictive_confidence_min": 0.82,
+            "recent_concepts": ["reef current"],
+        }
+        loop = ThoughtLoop(
+            cortex=MockCortex(),
+            tick_interval_ms=50.0,
+            min_thought_interval_s=0.0,
+            signal_provider=lambda: signal,
+            drives=DriveSystem(
+                substrate_rearm_cooldown_s=0.18,
+                substrate_sustain_min_updates=2,
+                substrate_sustain_margin=0.22,
+            ),
+            on_thought=lambda _: thoughts_at.append(time.monotonic()),
+        )
+        loop.start()
+        time.sleep(0.6)
+        loop.stop()
+
+        snap = loop.snapshot()
+        assert len(thoughts_at) == 1
+        assert snap["thoughts_generated"] == 1
+        assert snap["gating"]["pending_substrate_wakes"] == 0
+        assert snap["gating"]["substrate_hysteresis_active"] is False
+
+    def test_background_loop_strong_sustained_pressure_rearms_with_hysteresis(self):
+        thoughts_at: list[float] = []
+        signal = {
+            "prediction_error_mean": 0.72,
+            "prediction_error_max": 0.90,
+            "predictive_confidence_mean": 0.18,
+            "predictive_confidence_min": 0.08,
+            "recent_concepts": ["aurora borealis"],
+        }
+        loop = ThoughtLoop(
+            cortex=MockCortex(),
+            tick_interval_ms=50.0,
+            min_thought_interval_s=0.0,
+            signal_provider=lambda: signal,
+            drives=DriveSystem(
+                substrate_rearm_cooldown_s=0.18,
+                substrate_sustain_min_updates=2,
+                substrate_sustain_margin=0.22,
+            ),
+            on_thought=lambda _: thoughts_at.append(time.monotonic()),
+        )
+        loop.start()
+        time.sleep(0.7)
+        loop.stop()
+
+        snap = loop.snapshot()
+        assert len(thoughts_at) >= 2
+        assert all((b - a) >= 0.14 for a, b in zip(thoughts_at, thoughts_at[1:]))
+        assert snap["gating"]["substrate_hysteresis_active"] is True
+        assert snap["gating"]["substrate_hysteresis_reason"] == "prediction_error"
+        assert snap["gating"]["substrate_hysteresis_updates"] >= 2
+
+    def test_background_loop_answers_pending_query(self):
+        thoughts: list[ThoughtResult] = []
+        cortex = MockCortex()
+        loop = ThoughtLoop(
+            cortex=cortex,
+            tick_interval_ms=50.0,
+            min_thought_interval_s=60.0,
+            on_thought=lambda t: thoughts.append(t),
+        )
+        loop.drives.state.curiosity = 0.0
+        loop.drives.state.social = 0.0
+
+        loop.start()
+        loop.submit_query("How do volcanoes trigger lightning?")
+        time.sleep(0.4)
+        loop.stop()
+
+        assert len(thoughts) > 0
 
     def test_background_loop_start_stop(self):
         cortex = MockCortex()
@@ -663,7 +1187,7 @@ class TestThoughtLoop:
             tick_interval_ms=50.0,
             min_thought_interval_s=0.1,
         )
-        loop.drives.state.curiosity = 0.8
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
 
         loop.start()
         assert loop.is_running
@@ -680,7 +1204,7 @@ class TestThoughtLoop:
             min_thought_interval_s=0.0,
             on_thought=lambda t: thoughts.append(t),
         )
-        loop.drives.state.curiosity = 0.8
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
         loop.start()
         time.sleep(0.5)
         loop.stop()
@@ -689,7 +1213,7 @@ class TestThoughtLoop:
     def test_stats_tracking(self):
         cortex = MockCortex()
         loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
-        loop.drives.state.curiosity = 0.8
+        loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
         loop.step()
         assert loop.stats.thoughts_generated == 1
         assert loop.stats.last_thought != ""

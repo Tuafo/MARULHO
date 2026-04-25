@@ -21,6 +21,26 @@ import torch
 from hecsn.core.hypercube import HypercubeTopology, HypercubeBindingLayer
 
 
+def _average_shortest_path_length(topo: HypercubeTopology) -> float:
+    adjacency = [set(int(n) for n in topo.neighbors(i)[0].tolist() if int(n) >= 0) for i in range(topo.n_columns)]
+    total_distance = 0
+    pair_count = 0
+    for start in range(topo.n_columns):
+        visited = {start: 0}
+        queue = [start]
+        while queue:
+            current = queue.pop(0)
+            for neighbor in adjacency[current]:
+                if neighbor in visited:
+                    continue
+                visited[neighbor] = visited[current] + 1
+                queue.append(neighbor)
+        for end in range(start + 1, topo.n_columns):
+            total_distance += int(visited[end])
+            pair_count += 1
+    return float(total_distance) / max(1, pair_count)
+
+
 # ── Topology construction ──────────────────────────────────────────
 
 class TestHypercubeTopology:
@@ -62,12 +82,52 @@ class TestHypercubeTopology:
         assert len(ids_9) >= 2  # at least 8 and 1
 
     def test_small_world_shortcuts(self):
-        """Shortcuts add fixed edges per node."""
+        """Shortcuts add deterministic long-range edges per node."""
         topo = HypercubeTopology(n_columns=16, shortcuts_per_node=2)
         stats = topo.topology_stats()
-        # Base degree is 4, + up to 2 shortcuts
+        # Base degree is 4, target degree is 6 on a full 4D cube.
         assert stats["avg_degree"] > 4.0
         assert stats["max_degree"] <= 6
+        assert stats["shortcut_strategy"] == "deterministic_long_range"
+        assert stats["shortcut_budget_policy"] == "target_degree_compensated"
+        assert stats["long_range_weight_policy"] == "bounded_relative_mass"
+        assert stats["long_range_mass_ratio"] == pytest.approx(0.5)
+        assert stats["target_degree"] == 6
+        assert stats["avg_effective_shortcuts_per_node"] == pytest.approx(2.0)
+        assert stats["avg_long_range_raw_weight"] == pytest.approx(0.5)
+        assert stats["avg_shortcut_hamming_distance"] > 1.0
+
+    def test_shortcut_budget_compensates_masked_boundary_degree_loss(self):
+        topo = HypercubeTopology(n_columns=10, shortcuts_per_node=2)
+        stats = topo.topology_stats()
+
+        assert stats["target_degree"] == 6
+        assert stats["min_degree"] == 6
+        assert stats["max_degree"] == 6
+        assert stats["degree_std"] == pytest.approx(0.0)
+
+        ids_9, weights_9 = topo.neighbors(9)
+        assert len(ids_9) == 6
+        assert int(topo._direct_degree[9].item()) == 2
+        assert int(topo._shortcut_degree[9].item()) == 4
+
+        direct_share = 0.0
+        long_range_share = 0.0
+        for target, weight in zip(ids_9.tolist(), weights_9.tolist()):
+            if topo.hamming_distance(9, int(target)) == 1:
+                direct_share += float(weight)
+            else:
+                long_range_share += float(weight)
+        assert direct_share > long_range_share
+        assert long_range_share == pytest.approx(1.0 / 3.0, rel=1e-5)
+        assert stats["avg_long_range_raw_weight"] < 0.5
+        assert stats["max_long_range_weight_share"] <= (1.0 / 3.0) + 1e-6
+
+    def test_shortcuts_are_deterministic(self):
+        topo_a = HypercubeTopology(n_columns=32, shortcuts_per_node=2)
+        topo_b = HypercubeTopology(n_columns=32, shortcuts_per_node=2)
+        assert torch.equal(topo_a._neighbor_ids, topo_b._neighbor_ids)
+        assert torch.allclose(topo_a._neighbor_weights, topo_b._neighbor_weights)
 
     def test_no_self_loops(self):
         """No node is its own neighbor."""
@@ -112,6 +172,12 @@ class TestHypercubeTopology:
         topo2.load_state_dict(state)
         assert torch.equal(topo._neighbor_ids, topo2._neighbor_ids)
         assert torch.allclose(topo._neighbor_weights, topo2._neighbor_weights)
+        assert torch.equal(topo._direct_degree, topo2._direct_degree)
+        assert torch.equal(topo._shortcut_degree, topo2._shortcut_degree)
+        assert topo2.target_degree == topo.target_degree
+        assert topo2.shortcut_budget_policy == topo.shortcut_budget_policy
+        assert topo2.long_range_weight_policy == topo.long_range_weight_policy
+        assert topo2.long_range_mass_ratio == topo.long_range_mass_ratio
 
     def test_small_column_counts(self):
         """Edge cases: 2, 3, 4 columns."""
@@ -137,6 +203,11 @@ class TestHypercubeTopology:
         for i in range(32):
             _, weights = topo.neighbors(i)
             assert abs(weights.sum().item() - 1.0) < 1e-5
+
+    def test_shortcuts_reduce_average_shortest_path(self):
+        topo_no_short = HypercubeTopology(n_columns=32, shortcuts_per_node=0)
+        topo_with_short = HypercubeTopology(n_columns=32, shortcuts_per_node=2)
+        assert _average_shortest_path_length(topo_with_short) < _average_shortest_path_length(topo_no_short)
 
 
 # ── HypercubeBindingLayer ──────────────────────────────────────────
@@ -245,6 +316,12 @@ class TestHypercubeBindingLayer:
         layer2.load_state_dict(state)
         assert torch.allclose(layer_32.binding_state, layer2.binding_state)
         assert torch.allclose(layer_32.learned_weights, layer2.learned_weights)
+        assert torch.allclose(layer_32.neighbor_weights, layer2.neighbor_weights)
+        assert torch.allclose(layer_32._hub_activation_ema, layer2._hub_activation_ema)
+        assert torch.allclose(layer_32._hub_connection_multiplier, layer2._hub_connection_multiplier)
+        assert torch.equal(layer_32._hub_extra_connections, layer2._hub_extra_connections)
+        assert torch.equal(layer_32.neighbor_ids, layer2.neighbor_ids)
+        assert torch.equal(layer_32.degree, layer2.degree)
 
     def test_state_dict_has_compatibility_keys(self, layer_32):
         """state_dict includes BindingLayer-compatible keys."""

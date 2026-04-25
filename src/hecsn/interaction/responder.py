@@ -27,6 +27,11 @@ class _EvidenceCandidate:
     complete_sentence: int
     clipped_overlap: int
     score: float
+    source_name: str = ""
+    source_type: str = ""
+    provider: str = ""
+    source_names: tuple[str, ...] = ()
+    providers: tuple[str, ...] = ()
 
 
 class EvidenceResponder:
@@ -263,6 +268,19 @@ class EvidenceResponder:
                     complete_sentence=complete_sentence,
                     clipped_overlap=clipped_overlap,
                     score=score,
+                    source_name=" ".join(str(match.get("source_name", "")).split()).strip(),
+                    source_type=" ".join(str(match.get("source_type", "")).split()).strip(),
+                    provider=" ".join(str(match.get("provider", "")).split()).strip().lower(),
+                    source_names=tuple(
+                        str(item).strip()
+                        for item in list(match.get("source_names") or [])
+                        if str(item).strip()
+                    ),
+                    providers=tuple(
+                        " ".join(str(item).split()).strip().lower()
+                        for item in list(match.get("providers") or [])
+                        if " ".join(str(item).split()).strip()
+                    ),
                 )
             )
 
@@ -296,6 +314,11 @@ class EvidenceResponder:
                     "complete_sentence": int(item.complete_sentence),
                     "clipped_overlap": int(item.clipped_overlap),
                     "score": item.score,
+                    "source_name": item.source_name,
+                    "source_type": item.source_type,
+                    "provider": item.provider,
+                    "source_names": list(item.source_names),
+                    "providers": list(item.providers),
                 }
             )
             supported_terms.update(item.matching_terms)

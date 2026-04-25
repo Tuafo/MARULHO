@@ -41,7 +41,6 @@ from hecsn.cortex.multi_cortex import (
     create_cortex_from_env,
     create_embedder_from_env,
 )
-from hecsn.cortex.curriculum import CurriculumGenerator, CurriculumSegment
 
 __all__ = [
     "CorticalCore",
@@ -70,6 +69,4 @@ __all__ = [
     "MultiCortex",
     "create_cortex_from_env",
     "create_embedder_from_env",
-    "CurriculumGenerator",
-    "CurriculumSegment",
 ]

@@ -3,7 +3,7 @@
 
 **Author:** Thiago Maceno Rocha Goulart · Brasil · [github.com/Tuafo](https://github.com/Tuafo)
 
-**Updated:** 2026-04-21
+**Updated:** 2026-04-24
 
 ---
 
@@ -11,7 +11,7 @@
 
 Terminus is a hybrid cognitive architecture that combines a predictive spiking substrate with a cloud-hosted language cortex. The underlying spiking system — described here as a **Grounded Predictive Concept Spiking Network (GPCSN)** — is responsible for sparse routing, multimodal grounding, predictive error, neuromodulation, memory replay, and curiosity-driven pressure over future cognition. The cortical layer is responsible for language, reasoning, question formation, narrative continuity, answer generation, and dream-style hypothesis composition. The central claim of the architecture is not that spikes should replace large language models, but that a grounded predictive spiking system can provide the functions that large language models lack in isolation: continuous multimodal grounding, local online adaptation, replay-driven stabilization, and persistent uncertainty pressure.
 
-The current runtime is strictly NVIDIA NIM-only. Local LLM backends are no longer part of the production path. The cortex now includes working memory, narrative self, compositional dreams, active exploration, prediction-error-aware depth selection, richer neuromodulation channels, and shared request-budget control across both chat and embedding endpoints. The GPCSN side includes predictive columns, awake ripple tagging, hub-aware binding, multimodal grounding, and curriculum-oriented concept pressure. Current validation confirms that the architecture is executable and coherent: the developmental spiking pipeline remains strong, the hybrid cortex stack is stable under real NIM calls, and recent real-runtime validations show meaningful topic diversity under a constrained API budget. The system remains incomplete: dream verification is weak in short runs, output quality still drifts, and broader multimodal training sources are still needed. Even so, the present implementation is now best described as a functioning cortex–subcortex architecture rather than a collection of disconnected mechanisms.
+The current runtime is strictly NVIDIA NIM-only. Local LLM backends are no longer part of the production path. The cortex now includes working memory, narrative self, compositional dreams, active exploration, prediction-error-aware depth selection, richer neuromodulation channels, maintained digital-action verification loops, explicit sleep-control routing, and shared request-budget control across both chat and embedding endpoints. The GPCSN side includes predictive columns, awake ripple tagging, hub-aware structural binding, multimodal grounding, and curriculum-oriented concept pressure. Current validation confirms that the architecture is executable and coherent: the developmental spiking pipeline remains strong, the hybrid cortex stack is stable under real NIM calls, the maintained action/verification surface is live, and recent acceptance-harness plus smoke-run validations can now classify the system as alive/degraded/dead instead of treating empty runs as success. The system remains incomplete: dream verification is weak in short runs, output quality still drifts, and broader multimodal training sources are still needed. Even so, the present implementation is now best described as a functioning cortex–subcortex architecture rather than a collection of disconnected mechanisms.
 
 **Keywords:** hybrid cognitive architectures, spiking neural networks, grounded cognition, predictive processing, multimodal learning, memory consolidation, autonomous agents
 
@@ -116,7 +116,7 @@ The spiking core is best described as a **Grounded Predictive Concept Spiking Ne
 |---|---|
 | **CompetitiveColumnLayer** | sparse competitive routing and representation separation |
 | **AdaptiveContextLayer** | temporal context with learnable timescale behavior |
-| **HypercubeBindingLayer** | sparse structural binding with hub tracking and hub boost |
+| **HypercubeBindingLayer** | sparse structural binding with deterministic shortcuts, calibrated long-range weighting, and structural hub outreach |
 | **AbstractionLayer** | slow-feature abstraction and concept support |
 | **CrossModalGroundingLayer** | text–vision and text–audio alignment via local plasticity |
 | **SurpriseMonitor** | dopamine / serotonin / norepinephrine / acetylcholine mirrors |
@@ -129,7 +129,7 @@ The spiking core is best described as a **Grounded Predictive Concept Spiking Ne
 | Upgrade | Function |
 |---|---|
 | **Awake ripple tagging** | tags recent salient memories for replay priority [6] |
-| **Hub-aware hypercube binding** | increases influence of structurally important high-usage nodes |
+| **Hub-aware hypercube binding** | structurally expands outgoing connectivity for high-usage nodes while keeping long-range edge influence bounded relative to direct edges |
 | **Predictive columns** | adds local prediction state and consensus signals inspired by reference-frame theories [5] |
 | **Prediction-error-aware modulation** | adjusts STDP and context behavior using predictive mismatch |
 | **Multimodal default embedding alignment** | makes memory indexing consistent with the NIM multimodal embedding model |
@@ -278,12 +278,13 @@ This is one of the strongest pieces of the present architecture because it gives
 
 ## 8. Runtime Constraints
 
-### 8.1 Strict NIM-only startup
-The runtime now fails clearly if NIM is unavailable.
+### 8.1 Strict NIM-only cortex path
+The production cortex path is now NIM-only.
 
 - no production local-LLM path
 - no silent runtime mock cortex
 - no silent embedder downgrade by default
+- if NIM is unavailable, the service can still run, but cortex-dependent features are explicitly disabled rather than silently redirected to a local fallback
 
 ### 8.2 Shared request budget
 NVIDIA NIM free tier allows **40 requests/minute** per key. Terminus now uses a **shared 20 RPM limiter** across:
@@ -310,7 +311,7 @@ The present system no longer treats raw Wikipedia-style text as the preferred pa
 
 | Preset | Function |
 |---|---|
-| `curriculum` | Hugging Face background mixture (`fineweb-edu`, `wikimedia/wikipedia`, `s2orc_arxiv` abstracts) + real multimodal HF grounding (`S1-MMAlign`, `AudioCaps`) + NIM-guided curriculum + synthetic visual/audio hint channels |
+| `curriculum` | Hugging Face background mixture (`fineweb-edu`, `wikimedia/wikipedia`, `s2orc_arxiv` abstracts) with focus-aware background source allocation + real multimodal HF grounding (`S1-MMAlign`, `AudioCaps`) + autonomy-guided real-source acquisition with adaptive focus-pressure/provider-alignment budgeting, persistent source/provider utility calibration, grounded answer/action-outcome utility calibration, response-evidence provenance credit, delayed multi-turn consequence tracking, contradiction/decay-aware long-horizon utility penalties, explicit recovery/forgiveness scheduling for mixed long-horizon evidence, and age-sensitive retirement/cooling, compaction/aggregation of repeated long-horizon consequence records, trajectory-sensitive summaries for aggregated long-horizon consequence families, divergence-sensitive splitting of mixed long-horizon consequence families, lineage-aware remerge of split long-horizon consequence families, and grounded family-summary calibration of long-horizon consequence utility + bounded quick-start tick budget for faster live smoke visibility |
 
 ### 9.3 Current runtime data sources
 - **HuggingFaceFW/fineweb-edu (`sample-10BT`)** for broad educational background text
@@ -319,11 +320,12 @@ The present system no longer treats raw Wikipedia-style text as the preferred pa
 - **ScienceOne-AI/S1-MMAlign** for real scientific image grounding
 - **OpenSound/AudioCaps** for real audio grounding
 - a **balanced confidence-aware, semantically routed sensory schedule** that periodically injects both image and audio episodes without displacing the main text curriculum
-- **NIM-generated curriculum segments** for targeted text episodes aligned to current gaps and exploration pressure
-- **Synthetic visual/audio hint channels** derived from curriculum segments as an auxiliary lightweight cross-modal path
+- focus-aware allocation across maintained background sources so current gaps can bias passive text exposure without spawning a second background path
+- autonomy-guided acquisition over maintained real-source catalogs for targeted text learning aligned to current gaps and exploration pressure, with adaptive cadence/budget retuning under strong focus pressure, persistent source/provider utility calibration, grounded answer/action-outcome utility calibration, response-evidence provenance credit, delayed multi-turn consequence tracking, contradiction/decay-aware long-horizon utility penalties, explicit recovery/forgiveness scheduling for mixed long-horizon evidence, and age-sensitive retirement/cooling, compaction/aggregation of repeated long-horizon consequence records, trajectory-sensitive summaries for aggregated long-horizon consequence families, divergence-sensitive splitting of mixed long-horizon consequence families, lineage-aware remerge of split long-horizon consequence families, and grounded family-summary calibration of long-horizon consequence utility
+- real multimodal grounding remains on the Hugging Face sensory streams
 
 ### 9.4 Remaining problem
-The runtime is cleaner and more aligned with the architecture, and it now includes real Hugging Face image/audio grounding in addition to curriculum-derived hints. But the multimodal regime is still only a first step: these sources are better than digit benchmarks, yet they are not the full richness of embodied real-world experience. The data regime still needs to grow.
+The runtime is cleaner and more aligned with the architecture, and it now keeps real Hugging Face image/audio grounding on the maintained sensory path while using focus-aware background source allocation plus autonomy-guided real-source acquisition with adaptive focus-pressure/provider-alignment budgeting, persistent source/provider utility calibration, grounded answer/action-outcome utility calibration, response-evidence provenance credit, delayed multi-turn consequence tracking, contradiction/decay-aware long-horizon utility penalties, explicit recovery/forgiveness scheduling for mixed long-horizon evidence, and age-sensitive retirement/cooling, compaction/aggregation of repeated long-horizon consequence records, trajectory-sensitive summaries for aggregated long-horizon consequence families, divergence-sensitive splitting of mixed long-horizon consequence families, lineage-aware remerge of split long-horizon consequence families, and grounded family-summary calibration of long-horizon consequence utility for targeted text learning. But the multimodal regime is still only a first step: these sources are better than digit benchmarks, yet they are not the full richness of embodied real-world experience. The data regime still needs to grow.
 
 ---
 
@@ -344,33 +346,35 @@ These findings support the claim that the spiking core is not merely decorative.
 
 ### 10.2 Current hybrid validation surface
 
-| Metric | Current value |
+| Validation surface | Current status |
 |---|---|
-| Passed tests | **911** |
-| Skipped | **3** |
-| Deselected | **1** |
-| Warnings | **1** |
-| Subtests passed | **7** |
+| Core targeted backend regression suites | passing |
+| Maintained action / verification loop | validated across workspace search/read, web fetch, API request, and explicit sleep control routing |
+| Long-test acceptance harness | passing on deterministic local checks |
+| Real short live smoke run on the canonical `curriculum` preset | now classifies as **alive** |
 
-The single deselected item is the known stochastic learned-chunking flake.
+The known stochastic issue remains the learned-chunking flake on the spiking side.
 
 ### 10.3 Recent hybrid-system confirmations
 Recent validation confirms:
-- strict NIM startup
+- strict NIM-only cortex routing with explicit disablement when unavailable
 - shared chat+embedding limiting
 - working-memory chain continuity
 - persistent narrative self
 - explicit dream verdict parsing
 - exploration-target filtering by lexical quality and memory grounding
-- UTF-8-safe report generation
-- corrected final-sample timing in long-test validation
+- maintained action / verification routing for workspace search/read, web fetch, and API request
+- explicit manager-visible sleep control routing
+- acceptance-harness classification of `alive` / `degraded` / `dead`
+- fresh runtime sampling plus corrected final-sample timing in long-test validation
 
 ### 10.4 Recent real-runtime behavior
 Recent short real-NIM runs show:
-- topic diversity typically in the range of roughly **3.0–4.7 topics per thought**
-- average latency in short smoke tests typically around **5–7 seconds**
+- the maintained `curriculum` quick-start path can now reach an **alive** short smoke classification instead of reading as dead or degraded-by-stale-status
+- topic diversity in short live runs can still be narrow because only a few thoughts may land inside the smoke window
+- average latency in short smoke tests is still often on the order of **5–7 seconds**
 - healthy embedder telemetry with no fallback and no observed rate-limit hits in the latest smoke runs
-- exploration targets such as **origami mathematics** and **biotechnology** appearing where earlier fragmentary targets frequently dominated
+- exploration targets such as **origami mathematics**, **biotechnology**, and **constellation navigation** appearing where earlier fragmentary targets frequently dominated
 
 ---
 
@@ -419,6 +423,16 @@ The richer neuromodulation channels are useful, but they are not yet a fully dif
 
 ### 12.5 One stochastic surface failure remains
 The learned-chunking flake remains a known issue on the spiking side.
+
+### 12.6 The maintained external-action surface is intentionally narrow
+The current maintained external action surface is deliberately limited to:
+- `workspace_search`
+- `workspace_read`
+- `web_fetch`
+- `api_request`
+- explicit sleep control
+
+This is a strength for runtime auditability, but it also means broader tool use is not yet part of the maintained production path.
 
 ---
 

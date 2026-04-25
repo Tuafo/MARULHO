@@ -29,14 +29,14 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DriveState:
     """Current drive intensities — computed from SNN signals."""
-    curiosity: float = 0.5       # Want to explore / learn
+    curiosity: float = 0.0       # Quiet startup: no free-running curiosity by default
     anxiety: float = 0.0         # Persistent unresolved surprise
     satisfaction: float = 0.3    # Recent positive outcomes
     boredom: float = 0.0         # Repeated topics / lack of novelty
     social: float = 0.0          # Want to interact / answer questions
     fatigue: float = 0.0         # Accumulated processing → need sleep
     prediction_error: float = 0.0  # Core predictive-processing surprise signal
-    uncertainty: float = 0.5       # Low-confidence / unresolved state
+    uncertainty: float = 0.0       # Quiet startup: no assumed unresolved state
     exploration_urgency: float = 0.0  # How strongly the system wants targeted exploration
 
     # Neuromodulator mirrors (from SurpriseMonitor)
@@ -212,15 +212,68 @@ class DriveSystem:
     - Predictive-processing error / uncertainty
     - Anti-rumination boredom circuit
     - Fatigue accumulation
-    - External input presence
+    - Grounded observations and explicit operator queries
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        substrate_rearm_cooldown_s: float = 8.0,
+        substrate_sustain_min_updates: int = 3,
+        substrate_sustain_margin: float = 0.22,
+        substrate_release_margin: float = 0.08,
+    ) -> None:
         self.state = DriveState()
         self.anti_rumination = AntiRuminationCircuit()
         self._thought_count = 0
         self._last_external_input_time = 0.0
         self._last_thought_time = 0.0
+        self._startup_quiet = True
+        self._pending_grounded_observations = 0
+        self._pending_substrate_wakes = 0
+        self._last_gate_reason = "startup_quiet"
+        self._last_prediction_pressure = 0.0
+        self._last_uncertainty_signal = 0.0
+        self._substrate_trigger_latched = False
+        self._last_substrate_trigger_strength = 0.0
+        self._last_substrate_trigger_reason = ""
+        self._last_substrate_wake_reason = ""
+        self._last_substrate_wake_at = 0.0
+        self._substrate_rearm_cooldown_s = max(0.1, float(substrate_rearm_cooldown_s))
+        self._substrate_sustain_min_updates = max(2, int(substrate_sustain_min_updates))
+        self._substrate_sustain_margin = max(0.02, float(substrate_sustain_margin))
+        self._substrate_release_margin = max(0.02, float(substrate_release_margin))
+        self._substrate_hysteresis_reason = ""
+        self._substrate_hysteresis_updates = 0
+        self._substrate_hysteresis_since = 0.0
+
+    @property
+    def startup_quiet(self) -> bool:
+        return self._startup_quiet
+
+    @property
+    def pending_grounded_observations(self) -> int:
+        return int(self._pending_grounded_observations)
+
+    @property
+    def pending_substrate_wakes(self) -> int:
+        return int(self._pending_substrate_wakes)
+
+    @property
+    def last_gate_reason(self) -> str:
+        return self._last_gate_reason
+
+    @property
+    def substrate_hysteresis_active(self) -> bool:
+        return bool(self._substrate_hysteresis_reason) and self._substrate_hysteresis_updates > 0
+
+    @property
+    def substrate_hysteresis_reason(self) -> str:
+        return self._substrate_hysteresis_reason
+
+    @property
+    def substrate_hysteresis_updates(self) -> int:
+        return int(self._substrate_hysteresis_updates)
 
     def update_from_surprise(
         self,
@@ -265,12 +318,11 @@ class DriveSystem:
             (1 - beta) * self.state.serotonin_patience + beta * self.state.serotonin
         )
 
-        # Neuromodulators are secondary modulators now; predictive error is the
-        # primary signal and further shapes these drives in
-        # update_from_prediction_error().
+        # Surprise can modulate readiness, but it is not sufficient on its own
+        # to fire the cortex during startup quiet.
         self.state.curiosity = _clamp01(
-            0.65 * self.state.curiosity
-            + 0.35 * (
+            0.70 * self.state.curiosity
+            + 0.30 * (
                 0.35 * self.state.ach_learning
                 + 0.35 * self.state.da_novelty
                 + 0.15 * self.state.da_reward
@@ -278,8 +330,8 @@ class DriveSystem:
             )
         )
         self.state.anxiety = _clamp01(
-            0.65 * self.state.anxiety
-            + 0.35 * (
+            0.70 * self.state.anxiety
+            + 0.30 * (
                 0.45 * self.state.ne_alerting
                 + 0.25 * self.state.da_salience
                 + 0.20 * self.state.serotonin
@@ -298,13 +350,7 @@ class DriveSystem:
         predictive_confidence_mean: float,
         predictive_confidence_min: float,
     ) -> None:
-        """Use predictive-processing error as the core drive signal.
-
-        High prediction error means the current internal model is failing and
-        should drive curiosity/anxiety. Low error with high confidence means
-        the system is overfamiliar with its current regime and boredom should
-        rise. This is a lightweight free-energy-inspired control rule.
-        """
+        """Use predictive-processing error as the core drive signal."""
         alpha = 0.22
         err_mean = _clamp01(prediction_error_mean)
         err_max = _clamp01(prediction_error_max)
@@ -313,9 +359,17 @@ class DriveSystem:
         uncertainty = _clamp01(1.0 - (0.7 * conf_mean + 0.3 * conf_min))
         prediction_pressure = _clamp01(0.6 * err_mean + 0.4 * err_max)
         stability = _clamp01(conf_mean - err_mean)
+        self._last_prediction_pressure = prediction_pressure
+        self._last_uncertainty_signal = uncertainty
 
-        self.state.prediction_error = alpha * prediction_pressure + (1 - alpha) * self.state.prediction_error
-        self.state.uncertainty = alpha * uncertainty + (1 - alpha) * self.state.uncertainty
+        blended_prediction = alpha * prediction_pressure + (1 - alpha) * self.state.prediction_error
+        blended_uncertainty = alpha * uncertainty + (1 - alpha) * self.state.uncertainty
+        if self._startup_quiet:
+            self.state.prediction_error = max(blended_prediction, 0.65 * prediction_pressure)
+            self.state.uncertainty = max(blended_uncertainty, 0.65 * uncertainty)
+        else:
+            self.state.prediction_error = blended_prediction
+            self.state.uncertainty = blended_uncertainty
         self.state.exploration_urgency = _clamp01(
             0.6 * self.state.prediction_error + 0.4 * self.state.uncertainty
         )
@@ -372,6 +426,130 @@ class DriveSystem:
         self.state.boredom = _clamp01(0.7 * self.state.boredom + 0.3 * boredom_target)
         self.state.satisfaction = _clamp01((1 - alpha) * self.state.satisfaction + alpha * satisfaction_target)
 
+        self._update_substrate_wake_budget(
+            prediction_pressure=prediction_pressure,
+            uncertainty=uncertainty,
+        )
+        if prediction_pressure >= 0.32 or uncertainty >= 0.60 or self._substrate_trigger_active():
+            self._startup_quiet = False
+
+    def _substrate_trigger_candidates(self, *, prediction_pressure: float, uncertainty: float) -> list[tuple[str, float, float]]:
+        return [
+            ("prediction_error", max(self.state.prediction_error, prediction_pressure), 0.32),
+            ("uncertainty", max(self.state.uncertainty, uncertainty), 0.60),
+            ("exploration_urgency", self.state.exploration_urgency, 0.44),
+            ("ne_alerting", self.state.ne_alerting, 0.72),
+            ("ach_attention", self.state.ach_attention, 0.72),
+        ]
+
+    def _reset_substrate_wake_state(self) -> None:
+        self._substrate_trigger_latched = False
+        self._last_substrate_trigger_strength = 0.0
+        self._last_substrate_trigger_reason = ""
+        self._last_substrate_wake_reason = ""
+        self._substrate_hysteresis_reason = ""
+        self._substrate_hysteresis_updates = 0
+        self._substrate_hysteresis_since = 0.0
+
+    def _substrate_release_threshold(self, threshold: float) -> float:
+        return max(0.0, threshold - self._substrate_release_margin)
+
+    def _substrate_sustain_threshold(self, threshold: float) -> float:
+        return min(1.0, threshold + self._substrate_sustain_margin)
+
+    def _current_substrate_candidate(self, reason: str) -> tuple[float, float] | None:
+        for candidate_reason, value, threshold in self._substrate_trigger_candidates(
+            prediction_pressure=self._last_prediction_pressure,
+            uncertainty=self._last_uncertainty_signal,
+        ):
+            if candidate_reason == reason:
+                return value, threshold
+        return None
+
+    def _substrate_latch_active(self) -> bool:
+        if self._last_substrate_trigger_reason:
+            current = self._current_substrate_candidate(self._last_substrate_trigger_reason)
+            if current is not None:
+                value, threshold = current
+                if value >= self._substrate_release_threshold(threshold):
+                    return True
+        return self._substrate_trigger_active()
+
+    def _update_substrate_hysteresis(
+        self,
+        *,
+        reason: str,
+        strength: float,
+        threshold: float,
+        now: float,
+    ) -> bool:
+        sustain_threshold = self._substrate_sustain_threshold(threshold)
+        if strength >= sustain_threshold:
+            if reason == self._substrate_hysteresis_reason:
+                self._substrate_hysteresis_updates += 1
+            else:
+                self._substrate_hysteresis_reason = reason
+                self._substrate_hysteresis_updates = 1
+                self._substrate_hysteresis_since = now
+        else:
+            self._substrate_hysteresis_reason = ""
+            self._substrate_hysteresis_updates = 0
+            self._substrate_hysteresis_since = 0.0
+            return False
+
+        return (
+            self._substrate_hysteresis_reason == reason
+            and self._substrate_hysteresis_updates >= self._substrate_sustain_min_updates
+            and (now - self._last_substrate_wake_at) >= self._substrate_rearm_cooldown_s
+        )
+
+    def _update_substrate_wake_budget(
+        self,
+        *,
+        prediction_pressure: float,
+        uncertainty: float,
+    ) -> None:
+        now = time.time()
+        active = [
+            (reason, value, threshold)
+            for reason, value, threshold in self._substrate_trigger_candidates(
+                prediction_pressure=prediction_pressure,
+                uncertainty=uncertainty,
+            )
+            if value >= threshold
+        ]
+        if not active:
+            self._reset_substrate_wake_state()
+            return
+
+        reason, strength, threshold = max(active, key=lambda item: (item[1] - item[2], item[1]))
+        previous_reason = self._last_substrate_trigger_reason
+        previous_strength = self._last_substrate_trigger_strength
+        sustained_ready = self._update_substrate_hysteresis(
+            reason=reason,
+            strength=strength,
+            threshold=threshold,
+            now=now,
+        )
+        wake_reason = f"{reason}_sustained" if sustained_ready else reason
+        renewed = (
+            not self._substrate_trigger_latched
+            or strength >= (previous_strength + 0.08)
+            or (
+                reason != previous_reason
+                and strength >= threshold + 0.03
+            )
+            or sustained_ready
+        )
+        self._substrate_trigger_latched = True
+        self._last_substrate_trigger_strength = strength
+        self._last_substrate_trigger_reason = reason
+        if renewed:
+            self._pending_substrate_wakes = min(4, self._pending_substrate_wakes + 1)
+            self._last_substrate_wake_at = now
+            self._last_substrate_wake_reason = wake_reason
+            self._last_gate_reason = wake_reason
+
     def update_from_thought(self, result: ThoughtResult) -> None:
         """Update drives after a thought is generated."""
         self._thought_count += 1
@@ -382,62 +560,130 @@ class DriveSystem:
         self.state.boredom = self.anti_rumination.boredom_signal()
 
         # Fatigue accumulates with thoughts, decays with time
-        # Increased from 0.02 → 0.04 so sleep triggers sooner (25 vs 50 thoughts)
         self.state.fatigue = min(1.0, self.state.fatigue + 0.04)
 
-    def update_from_external_input(self) -> None:
-        """External input arrived — reduce boredom, increase social drive."""
+    def update_from_grounded_observation(self) -> None:
+        """Grounded evidence arrived — queue a wake event for the cortex."""
         self._last_external_input_time = time.time()
-        self.state.social = min(1.0, self.state.social + 0.3)
-        self.state.boredom = max(0.0, self.state.boredom - 0.3)
+        self._startup_quiet = False
+        self._pending_grounded_observations = min(8, self._pending_grounded_observations + 1)
+        self.state.curiosity = min(1.0, max(self.state.curiosity, 0.18))
+        self.state.social = min(1.0, max(self.state.social, 0.12))
+        self.state.boredom = max(0.0, self.state.boredom - 0.35)
+
+    def has_pending_grounded_observation(self) -> bool:
+        return self._pending_grounded_observations > 0
+
+    def consume_grounded_observation(self) -> bool:
+        if self._pending_grounded_observations <= 0:
+            return False
+        self._pending_grounded_observations -= 1
+        return True
+
+    def has_pending_substrate_wake(self) -> bool:
+        return self._pending_substrate_wakes > 0
+
+    def consume_substrate_wake(self) -> bool:
+        if self._pending_substrate_wakes <= 0:
+            return False
+        self._pending_substrate_wakes -= 1
+        return True
+
+    def update_from_external_query(self) -> None:
+        """External query arrived — wake the answer pathway decisively."""
+        self._last_external_input_time = time.time()
+        self._startup_quiet = False
+        self.state.social = min(1.0, max(self.state.social, 0.55))
+        self.state.curiosity = min(1.0, max(self.state.curiosity, 0.30))
+        self.state.boredom = max(0.0, self.state.boredom - 0.4)
+
+    def update_from_unresolved_tension(self) -> None:
+        """A still-unresolved contradiction or tension requires attention."""
+        self._startup_quiet = False
+        self.state.anxiety = min(1.0, max(self.state.anxiety, 0.22))
+        self.state.ne_alerting = min(1.0, max(self.state.ne_alerting, 0.24))
 
     def tick(self) -> None:
         """Periodic drive decay/update (call on SNN fast loop)."""
-        # Fatigue decays very slowly — reduced from 0.001 to 0.0005
-        # so sleep actually triggers during sustained operation
         self.state.fatigue = max(0.0, self.state.fatigue - 0.0005)
-        # Social drive decays without input
         self.state.social = max(0.0, self.state.social * 0.995)
-        # Boredom decays moderately so the system recovers from rumination
-        # pauses (half-life ~70 ticks at 100ms tick = ~7s)
         self.state.boredom = max(0.0, self.state.boredom * 0.990)
+        self._last_prediction_pressure = max(0.0, self._last_prediction_pressure * 0.96)
+        self._last_uncertainty_signal = max(0.0, self._last_uncertainty_signal * 0.98)
+        if not self._substrate_latch_active():
+            self._reset_substrate_wake_state()
 
-    def should_think(self) -> bool:
-        """Should the cortex fire a deliberation cycle?
-
-        Boredom above 0.8 forces a cooldown — the system must wait for
-        external input or drive decay before thinking again, preventing
-        runaway rumination loops.
-        """
+    def _inhibition_reason(self) -> str:
         if self.state.fatigue > 0.9:
-            return False  # Too tired, need sleep
+            return "fatigue_inhibit"
         if self.state.boredom > 0.8:
-            return False  # Ruminating — wait for novelty
-        # Prediction error is now a first-class trigger for cognition.
+            return "boredom_inhibit"
+        return ""
+
+    def can_think(self) -> bool:
+        reason = self._inhibition_reason()
+        if reason:
+            self._last_gate_reason = reason
+            return False
+        return True
+
+    def should_answer_now(self, *, query_pending: bool) -> bool:
+        if not query_pending:
+            return False
+        self._last_gate_reason = "query_pending"
+        return True
+
+    def _substrate_trigger_active(self) -> bool:
         return (
-            self.state.curiosity > 0.4
-            or self.state.anxiety > 0.5
-            or self.state.social > 0.3
-            or self.state.prediction_error > 0.35
-            or self.state.uncertainty > 0.55
-            or self.state.exploration_urgency > 0.45
-            or self.state.ne_alerting > 0.7
-            or self.state.ach_attention > 0.7
+            max(self.state.prediction_error, self._last_prediction_pressure) >= 0.32
+            or max(self.state.uncertainty, self._last_uncertainty_signal) >= 0.60
+            or self.state.exploration_urgency >= 0.44
+            or self.state.ne_alerting >= 0.72
+            or self.state.ach_attention >= 0.72
         )
 
-    def should_sleep(self) -> bool:
-        """Should we enter sleep/consolidation mode?
+    def should_think(
+        self,
+        *,
+        grounded_observation_pending: bool = False,
+        has_tension: bool = False,
+    ) -> bool:
+        """Should the cortex fire a non-query deliberation cycle?
 
-        Lowered threshold from 0.7 → 0.5 so dream cycles actually trigger
-        during sustained operation. Fatigue at 0.02/thought needs ~25 thoughts
-        to reach 0.5, which is realistic for a ~4-minute active session.
+        True SNN gating means spontaneous thought requires a concrete wake
+        trigger from the substrate or a freshly grounded observation. Curiosity,
+        anxiety, and social tone can modulate later behavior, but they do not
+        by themselves justify cortex firing anymore.
         """
+        if not self.can_think():
+            return False
+
+        substrate_trigger = self.has_pending_substrate_wake()
+        if self._startup_quiet and not (grounded_observation_pending or has_tension or substrate_trigger):
+            self._last_gate_reason = "startup_quiet"
+            return False
+        if grounded_observation_pending:
+            self._last_gate_reason = "grounded_observation_pending"
+            return True
+        if has_tension:
+            self._last_gate_reason = "working_memory_tension"
+            return True
+        if substrate_trigger:
+            self._last_gate_reason = (
+                self._last_substrate_wake_reason
+                or self._last_substrate_trigger_reason
+                or "prediction_error"
+            )
+            return True
+        self._last_gate_reason = "idle_no_trigger"
+        return False
+
+    def should_sleep(self) -> bool:
+        """Should we enter sleep/consolidation mode?"""
         return self.state.fatigue > 0.5 and self.state.social < 0.2
 
     def choose_mode(self) -> ThinkingMode:
-        """Choose thinking mode based on current drives."""
-        if self.state.social > 0.3:
-            return ThinkingMode.ANSWER
+        """Choose thinking mode for non-query deliberation."""
         if self.state.boredom > 0.5:
             return ThinkingMode.REFLECT
         if self.state.anxiety > 0.6:
@@ -478,6 +724,12 @@ class ThalamicGate:
         from collections import deque
         self._query_queue: deque[str] = deque(maxlen=max_query_queue)
 
+    def has_pending_query(self) -> bool:
+        return bool(self._query_queue)
+
+    def pop_query(self) -> str:
+        return self._query_queue.popleft() if self._query_queue else ""
+
     def update_snn_concepts(self, labels: list[str]) -> None:
         """Receive recent SNN concept labels for alignment/quality tracking."""
         self._snn_concept_labels = labels[-20:]  # keep recent 20
@@ -509,79 +761,97 @@ class ThalamicGate:
         self.active_exploration_score = 0.0
         self.active_exploration_updated_at = 0.0
 
-    def assemble(self, phase: str = "") -> ContextPacket:
+    @staticmethod
+    def _memory_item_from_episode(ep: Any, *, text: str | None = None) -> MemoryItem:
+        return MemoryItem(
+            text=(text if text is not None else ep.content),
+            salience=ep.salience,
+            age_seconds=ep.age_seconds,
+            source=ep.provenance.value if ep.provenance.value in (
+                "observed", "inferred", "dreamed", "verified", "external"
+            ) else "observed",
+            memory_id=ep.episode_id,
+        )
+
+    def assemble(self, phase: str = "", *, external_query: str = "") -> ContextPacket:
         """Build a context packet from current SNN state.
 
         Args:
             phase: Deliberation phase ("observe", "question", "reason",
                    "synthesize"). Empty string = standard single-shot.
+            external_query: Optional explicit query to inject into the packet.
 
-        Uses diverse memory recall when boredom is high — avoids the
-        echo-chamber effect where the LLM only sees its own rumination.
-        Wakeful thoughts also receive a rotating seed topic so the cortex
-        keeps exploring new domains instead of replaying its own outputs.
+        Uses a dedicated evidence-bundle retrieval path for both external
+        queries and wakeful deliberation. Recent grounded evidence is
+        preferred over generic prior context, while wakeful thoughts still
+        receive a rotating seed topic when no grounded focus is available.
         """
         import random
 
         drive_state = self.drives.state
-        mode = self.drives.choose_mode()
-        external_query = self._query_queue.popleft() if (self._query_queue and not phase) else ""
+        queued_query = self.pop_query() if (self._query_queue and not phase and not external_query) else ""
+        final_query = external_query or queued_query
+        mode = ThinkingMode.ANSWER if final_query else self.drives.choose_mode()
 
         # Determine topics to avoid
         avoid_topics = self.drives.anti_rumination.suggest_topic_avoidance()
         avoid_words = {w.lower() for w in avoid_topics}
 
         exploration_target = ""
-        if not phase and not external_query and self.active_exploration_target:
+        if not phase and not final_query and self.active_exploration_target:
             target_words = {w.lower() for w in self.active_exploration_target.split() if len(w) >= 3}
             if not (target_words & avoid_words):
                 exploration_target = self.active_exploration_target
 
-        # Select memories: active exploration targets get first-class retrieval,
-        # otherwise use diverse recall when bored or similarity recall when stable.
-        if exploration_target:
-            memories = self.memory.recall_by_similarity(exploration_target, top_k=self.max_memories)
-        elif drive_state.boredom > 0.4 or len(avoid_topics) > 0:
-            memories = self.memory.recall_diverse(
-                top_k=self.max_memories,
-                avoid_topics=avoid_topics,
+        grounded_evidence_items: list[MemoryItem] = []
+        grounded_focus = ""
+
+        # Both query answering and spontaneous wakeful thinking now use
+        # dedicated evidence-bundle retrieval instead of the older generic
+        # similarity/diverse hot path. Queries retrieve against the operator
+        # question; non-query deliberation retrieves against the active
+        # exploration target or the freshest grounded evidence focus.
+        if final_query:
+            evidence_bundle = self.memory.recall_for_query(
+                final_query,
+                grounded_top_k=min(4, self.max_memories),
+                support_top_k=self.max_memories,
             )
         else:
-            query = drive_state.to_summary()
-            memories = self.memory.recall_by_similarity(query, top_k=self.max_memories)
-
-        # Convert to MemoryItems
-        mem_items = [
-            MemoryItem(
-                text=ep.content,
-                salience=ep.salience,
-                age_seconds=ep.age_seconds,
-                source=ep.provenance.value if ep.provenance.value in (
-                    "observed", "inferred", "dreamed", "verified", "external"
-                ) else "observed",
-                memory_id=ep.episode_id,
+            evidence_bundle = self.memory.recall_for_deliberation(
+                exploration_target,
+                grounded_top_k=min(3, self.max_memories),
+                support_top_k=self.max_memories,
+                avoid_topics=avoid_topics,
             )
-            for ep in memories
+            if not exploration_target:
+                grounded_focus = evidence_bundle.target
+
+        mem_items = [
+            self._memory_item_from_episode(match.episode, text=match.focused_text)
+            for match in evidence_bundle.support
+        ]
+        grounded_evidence_items = [
+            self._memory_item_from_episode(match.episode, text=match.focused_text)
+            for match in evidence_bundle.grounded
         ]
 
-        # Self state — stripped when bored or curious to prevent ANY self-reference
-        # The LLM will invent drive states from even minimal hints; give it nothing
-        # Self-state is always empty — prevents the LLM from fixating on
-        # drive names ("curiosity", "boredom") and producing meta-thoughts
         self_state = ""
 
-        # Temperature modulation based on arousal
-        # Reduced from 256→160 tokens for faster inference while leaving room for JSON
         max_tokens = 160
         if mode == ThinkingMode.DREAM:
             max_tokens = 224
+        elif final_query:
+            max_tokens = 220
 
-        # Choose wakeful direction: first honor an active exploration target,
-        # otherwise rotate through broad seed domains to keep the system moving.
         forced_topic = ""
-        if exploration_target:
+        if final_query:
+            forced_topic = ""
+        elif exploration_target:
             forced_topic = exploration_target
             self.clear_active_exploration_target()
+        elif grounded_focus:
+            forced_topic = grounded_focus
         else:
             _SEED_DOMAINS = [
                 "coral reef ecosystems", "volcanic eruptions", "jazz improvisation",
@@ -599,64 +869,49 @@ class ThalamicGate:
             ]
             if not hasattr(self, '_seed_idx'):
                 self._seed_idx = random.randint(0, len(_SEED_DOMAINS) - 1)
-                self._used_seeds: set[int] = set()  # Track used indices
-            # Filter out seeds that overlap with avoidance words OR already used
+                self._used_seeds: set[int] = set()
             for _ in range(len(_SEED_DOMAINS)):
                 idx = self._seed_idx % len(_SEED_DOMAINS)
                 self._seed_idx += 1
                 if idx in self._used_seeds:
-                    continue  # Already used this seed — skip
+                    continue
                 candidate = _SEED_DOMAINS[idx]
                 candidate_words = {w.lower() for w in candidate.split() if len(w) >= 3}
                 if not (candidate_words & avoid_words):
                     forced_topic = candidate
                     self._used_seeds.add(idx)
-                    # Reset used seeds when all have been used (full cycle)
                     if len(self._used_seeds) >= len(_SEED_DOMAINS):
                         self._used_seeds.clear()
                     break
             else:
-                # All seeds avoided — reset and pick any
                 self._used_seeds.clear()
                 forced_topic = _SEED_DOMAINS[self._seed_idx % len(_SEED_DOMAINS)]
                 self._seed_idx += 1
 
-        # Strip drive details almost always — prevent self-referential loops.
-        # The LLM fixates on drive names ("curiosity", "anxiety") and produces
-        # meta-thoughts about those drives instead of thinking about the world.
-        # Only show drive state when anxiety is high (something needs attention).
         drive_summary = drive_state.to_summary() if drive_state.anxiety > 0.5 else ""
 
-        # Narrative self: persistent identity/context, useful for answering,
-        # reflection, and dreaming. Keep it out of ordinary wakeful chains so it
-        # does not dominate fresh topic exploration; working memory already carries
-        # within-chain continuity.
         narrative = ""
         if self.narrative_self is not None and (
-            external_query
+            final_query
             or mode in (ThinkingMode.ANSWER, ThinkingMode.REFLECT, ThinkingMode.DREAM)
         ):
             narrative = self.narrative_self.to_prompt()
 
-        # Working memory narrative (global workspace broadcast)
-        # Only include for chain continuation phases (question/reason/synthesize)
-        # where continuity matters. For observe/quick (no phase), working memory
-        # would override the new Direction seed — causing topic repetition.
         wm_narrative = ""
         if self.working_memory is not None and phase in ("question", "reason", "synthesize"):
             wm_narrative = self.working_memory.broadcast()
 
-        # For chain phases after observe, skip memories (working memory has context)
         if phase in ("question", "reason", "synthesize"):
-            mem_items = []  # Working memory IS the context
-            forced_topic = ""  # Don't inject new topic mid-chain
+            mem_items = []
+            forced_topic = ""
 
         packet = ContextPacket(
             drive_summary=drive_summary,
             top_memories=mem_items,
+            grounded_evidence=grounded_evidence_items,
             self_state=self_state,
             mode=mode,
-            external_query=external_query,
+            external_query=final_query,
             avoid_topics=sorted(avoid_topics)[:6],
             forced_topic=forced_topic,
             narrative_self=narrative,
@@ -713,7 +968,7 @@ class ThalamicGate:
         Uses a bounded queue so multiple queries can be pending.
         """
         self._query_queue.append(query)
-        self.drives.update_from_external_input()
+        self.drives.update_from_external_query()
 
     def assemble_for_sleep(
         self,

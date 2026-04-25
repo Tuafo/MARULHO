@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from hecsn.data.corpus_loader import StreamingCorpusLoader, extract_web_text
+from hecsn.data.corpus_loader import StreamingCorpusLoader, extract_web_text, load_hf_first_rows
 
 
 class CorpusLoaderTests(unittest.TestCase):
@@ -80,6 +80,55 @@ class CorpusLoaderTests(unittest.TestCase):
         self.assertEqual(calls[0]["kwargs"]["token"], "test-token")
         self.assertTrue(calls[0]["kwargs"]["streaming"])
         self.assertEqual(calls[0]["kwargs"]["split"], "train")
+
+    def test_load_hf_first_rows_filters_requested_columns(self) -> None:
+        payload = {
+            "rows": [
+                {"row": {"id": "1", "title": "One", "text": "hello world"}},
+                {"row": {"id": "2", "title": "Two", "text": "goodbye"}},
+            ]
+        }
+
+        class _Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return json.dumps(payload)
+
+        with patch("hecsn.data.corpus_loader.urlopen", return_value=_Response()):
+            rows = load_hf_first_rows(
+                "wikimedia/wikipedia",
+                hf_config="20231101.en",
+                columns=["text"],
+                max_rows=1,
+            )
+
+        self.assertEqual(rows, [{"text": "hello world"}])
+
+    def test_hf_loader_projects_requested_text_column_when_supported(self) -> None:
+        calls: list[list[str]] = []
+
+        class _FakeDataset:
+            def select_columns(self, columns):
+                calls.append(list(columns))
+                return [{"text": "abc"}]
+
+        with patch("datasets.load_dataset", return_value=_FakeDataset()):
+            loader = StreamingCorpusLoader(
+                "wikimedia/wikipedia",
+                source_type="hf",
+                hf_config="20231101.en",
+                text_field="text",
+            )
+            chars = loader.char_stream()
+            observed = "".join(next(chars) for _ in range(3))
+
+        self.assertEqual(observed, "abc")
+        self.assertEqual(calls, [["text"]])
 
     def test_extract_web_text_normalizes_openalex_work_json(self) -> None:
         payload = json.dumps(

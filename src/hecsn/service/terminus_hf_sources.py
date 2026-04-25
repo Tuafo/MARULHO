@@ -8,14 +8,34 @@ real multimodal grounding:
 - S1-MMAlign for real scientific image grounding
 - AudioCaps for real audio grounding
 
-NIM curriculum generation remains the targeted, gap-driven source of active
-learning episodes. Curriculum-derived sensory hints still exist, but they are
-now complemented by real Hugging Face visual/audio streams.
+Targeted learning should now prefer maintained real-source autonomy acquisition
+over synthetic curriculum text generation. The maintained runtime now retunes
+that acquisition cadence and budget under strong focus pressure/provider
+alignment, routes passive background sources through the same focus-aware
+selection discipline, persists source/provider utility on that maintained
+path, calibrates that utility against grounded answer/action outcomes, credits
+selected response evidence back to the source/provider provenance that
+produced it, tracks delayed multi-turn consequences tied to later query
+improvement on that same maintained path, applies contradiction/decay-aware
+long-horizon utility penalties when later evidence regresses or is
+contradicted, explicitly schedules recovery/forgiveness when later mixed
+evidence repairs those earlier penalties, now cools/ages long-horizon
+consequence state explicitly instead of relying only on bounded record limits,
+and compactly aggregates repeated long-horizon consequence families instead of
+keeping them only as separate near-duplicate records, now tracks
+trajectory-sensitive family summaries instead of relying only on bounded
+maxima, can split mixed long-horizon consequence families when their query
+branches diverge, can remerge those split lineages when later evidence
+re-aligns them, and now calibrates long-horizon consequence utility against
+that grounded family summary instead of relying only on bounded family-state
+scalars. Multimodal grounding lives on the maintained real Hugging Face
+visual/audio streams.
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 
@@ -26,6 +46,11 @@ CURRENT_TERMINUS_HF_SOURCE_BANK: tuple[dict[str, Any], ...] = (
         "source_type": "hf",
         "hf_config": "20231101.en",
         "text_field": "text",
+        "topic_terms": [
+            "encyclopedia reference factual grounding",
+            "history geography biology physics",
+            "definitions concepts explanations",
+        ],
         "metadata": {
             "role": "encyclopedic_grounding",
             "label": "Wikipedia English 20231101",
@@ -41,6 +66,11 @@ CURRENT_TERMINUS_HF_SOURCE_BANK: tuple[dict[str, Any], ...] = (
         "source": "AlgorithmicResearchGroup/s2orc_arxiv",
         "source_type": "hf",
         "text_field": "abstract",
+        "topic_terms": [
+            "science research paper abstract",
+            "technical engineering mathematics",
+            "methods results analysis hypothesis",
+        ],
         "metadata": {
             "role": "scientific_technical_depth",
             "label": "S2ORC ArXiv abstracts",
@@ -57,6 +87,11 @@ CURRENT_TERMINUS_HF_SOURCE_BANK: tuple[dict[str, Any], ...] = (
         "source_type": "hf",
         "hf_config": "sample-10BT",
         "text_field": "text",
+        "topic_terms": [
+            "education tutorial lesson explanation",
+            "broad curriculum learning study",
+            "general knowledge practice examples",
+        ],
         "metadata": {
             "role": "broad_educational_background",
             "label": "FineWeb-Edu sample-10BT",
@@ -158,6 +193,65 @@ CURRENT_TERMINUS_RUNTIME_DATASETS: tuple[dict[str, Any], ...] = tuple(
 
 def current_runtime_source_bank() -> list[dict[str, Any]]:
     return [deepcopy(item) for item in CURRENT_TERMINUS_HF_SOURCE_BANK]
+
+
+def _runtime_autonomy_terms(*values: str) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = str(value).replace("_", " ").lower()
+        for term in re.findall(r"[a-zA-Z][a-zA-Z'-]+", cleaned):
+            token = term.strip().lower()
+            if len(token) < 4 or token in seen:
+                continue
+            seen.add(token)
+            ordered.append(token)
+    return ordered
+
+
+def current_runtime_autonomy_config() -> dict[str, Any]:
+    catalog_entries: list[dict[str, Any]] = []
+    for item in CURRENT_TERMINUS_HF_SOURCE_BANK:
+        metadata = deepcopy(item.get("metadata", {}))
+        summary_parts = [
+            str(metadata.get("role", "")).replace("_", " ").strip(),
+            str(metadata.get("label", "")).strip(),
+            str(metadata.get("why", "")).strip(),
+        ]
+        summary = " ".join(part for part in summary_parts if part).strip()
+        catalog_entries.append(
+            {
+                "name": str(item["name"]),
+                "source": str(item["source"]),
+                "source_type": "hf",
+                "hf_config": item.get("hf_config"),
+                "text_field": str(item.get("text_field", "text")),
+                "summary": summary,
+                "terms": _runtime_autonomy_terms(
+                    str(item.get("name", "")),
+                    str(metadata.get("role", "")),
+                    str(metadata.get("label", "")),
+                    *[str(term) for term in list(item.get("topic_terms") or [])],
+                ),
+            }
+        )
+    return {
+        "enabled": True,
+        "policy": "active",
+        "candidate_bank": [
+            {
+                "name": "runtime_hf_registry",
+                "catalog_mode": "semantic_registry",
+                "catalog_limit": len(catalog_entries),
+                "catalog_probe_pool_limit": len(catalog_entries),
+                "catalog_entries": catalog_entries,
+            }
+        ],
+        "trigger_interval_tokens": 1024,
+        "candidate_train_tokens": 768,
+        "probe_tokens": 96,
+        "acquisition_tokens": 512,
+    }
 
 
 def current_runtime_sensory_config() -> dict[str, Any]:

@@ -5,6 +5,24 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
+class JsonPathPredicateAssertion(BaseModel):
+    path: str = Field(..., min_length=1)
+    op: Literal["contains", "regex", "gt", "gte", "lt", "lte", "between", "startswith", "endswith", "any_contains", "any_regex", "all_contains", "all_regex", "none_contains", "none_regex"]
+    value: Any
+
+
+class JsonPathPredicateGroupAssertion(BaseModel):
+    logic: Literal["all", "any", "none"]
+    predicates: list[JsonPathPredicateAssertion] = Field(default_factory=list)
+    groups: list["JsonPathPredicateGroupAssertion"] = Field(default_factory=list)
+
+
+try:
+    JsonPathPredicateGroupAssertion.model_rebuild()
+except AttributeError:  # pragma: no cover - pydantic v1 fallback
+    JsonPathPredicateGroupAssertion.update_forward_refs()
+
+
 class FeedRequest(BaseModel):
     text: str = Field(..., min_length=1)
 
@@ -22,12 +40,17 @@ class RespondRequest(QueryRequest):
     max_evidence_items: int = Field(3, ge=1, le=8)
 
 
+class CortexSleepRequest(BaseModel):
+    reason: str | None = None
+
+
 class TerminusSourceSpec(BaseModel):
     name: str = Field(..., min_length=1)
     source: str = Field(..., min_length=1)
     source_type: Literal["auto", "file", "hf", "web"] = "auto"
     text_field: str = Field("text", min_length=1)
     hf_config: str | None = None
+    topic_terms: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
 
 
@@ -121,6 +144,16 @@ class TerminusSensoryConfig(BaseModel):
     observation_salience: float = Field(0.82, ge=0.1, le=1.0)
     cooldown_seconds: float = Field(8.0, ge=0.1, le=600.0)
     repeat_sources: bool = True
+    queue_target_items: int = Field(6, ge=1, le=128)
+    prewarm_on_startup: bool = False
+    prewarm_max_seconds: float = Field(5.0, ge=0.01, le=600.0)
+
+
+class TerminusIngestionConfig(BaseModel):
+    enabled: bool = True
+    queue_target_tokens: int = Field(256, ge=1, le=200000)
+    prewarm_on_startup: bool = False
+    prewarm_max_seconds: float = Field(5.0, ge=0.01, le=600.0)
 
 
 class TerminusConfigureRequest(BaseModel):
@@ -129,12 +162,34 @@ class TerminusConfigureRequest(BaseModel):
     sleep_interval_seconds: float = Field(0.25, ge=0.01, le=60.0)
     repeat_sources: bool = True
     autonomy: TerminusAutonomyConfig | None = None
-    curriculum: dict[str, Any] | None = None
     sensory: TerminusSensoryConfig | None = None
+    ingestion: TerminusIngestionConfig | None = None
 
 
 class TerminusTickRequest(BaseModel):
     steps: int = Field(1, ge=1, le=128)
+
+
+class DigitalActionRequest(BaseModel):
+    action_type: Literal["workspace_search", "workspace_read", "web_fetch", "api_request"]
+    query_text: str | None = Field(None, min_length=1)
+    path: str | None = None
+    url: str | None = None
+    method: Literal["GET", "POST"] = "GET"
+    params: dict[str, Any] | None = None
+    json_body: Any | None = None
+    expected_json_paths: list[str] = Field(default_factory=list)
+    expected_json_values: dict[str, Any] | None = None
+    expected_json_predicates: list[JsonPathPredicateAssertion] = Field(default_factory=list)
+    expected_json_predicate_groups: list[JsonPathPredicateGroupAssertion] = Field(default_factory=list)
+    expected_response_shape: Literal["object", "array", "scalar", "null"] | None = None
+    predicted_outcome: str | None = None
+    root_path: str | None = None
+    max_hits: int = Field(6, ge=1, le=32)
+    max_files: int = Field(256, ge=1, le=5000)
+    max_file_bytes: int = Field(200000, ge=1000, le=5000000)
+    max_response_bytes: int = Field(200000, ge=1000, le=5000000)
+    timeout_seconds: float = Field(10.0, ge=0.1, le=120.0)
 
 
 class CheckpointSaveRequest(BaseModel):
@@ -203,6 +258,24 @@ class TerminusRuntimeResponse(BaseModel):
     state_revision: int
     token_count: int
     multimodal: dict[str, Any] | None = None
+
+
+class DigitalActionResponse(BaseModel):
+    accepted: bool
+    reason: str | None = None
+    action_type: str | None = None
+    message: str | None = None
+    workspace_root: str | None = None
+    result: dict[str, Any] | None = None
+    terminus_runtime: dict[str, Any] | None = None
+    state_revision: int | None = None
+
+
+class ActionHistoryResponse(BaseModel):
+    count: int
+    root_path: str
+    supported_actions: list[str]
+    actions: list[dict[str, Any]]
 
 
 class ResponseBundle(BaseModel):

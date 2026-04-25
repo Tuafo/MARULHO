@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Mapping, Optional, Sequence
 
 import numpy as np
 import torch
@@ -59,6 +59,7 @@ class DualMemoryStore:
         self.slow_routing_keys: List[Optional[torch.Tensor]] = []
         self.slow_raw_windows: List[Optional[str]] = []
         self.slow_texts: List[Optional[str]] = []
+        self.slow_metadata: List[Optional[dict[str, Any]]] = []
         self.slow_bucket_ids: List[Optional[int]] = []
         self.slow_importance: List[float] = []
         self.slow_capture_tag: List[float] = []
@@ -70,8 +71,7 @@ class DualMemoryStore:
         self.slow_entry_timestamps: List[int] = []
         self.slow_last_replay_token: List[int] = []
         self.slow_replay_count: List[int] = []
-        self.slow_ripple_tagged: List[bool] = []
-        self.slow_ripple_tagged: List[bool] = []  # Awake ripple tag (Yang & Buzsaki 2024)
+        self.slow_ripple_strength: List[float] = []  # Awake ripple priority strength (0=no tag, 0.5-1.0=3-5x replay boost)
         self.fast_ema: Optional[torch.Tensor] = None
         self.local_fast_ema: dict[int, torch.Tensor] = {}
         self.local_slow_mean: dict[int, torch.Tensor] = {}
@@ -93,6 +93,7 @@ class DualMemoryStore:
         self.slow_routing_keys = []
         self.slow_raw_windows = []
         self.slow_texts = []
+        self.slow_metadata = []
         self.slow_bucket_ids = []
         self.slow_importance = []
         self.slow_capture_tag = []
@@ -104,6 +105,7 @@ class DualMemoryStore:
         self.slow_entry_timestamps = []
         self.slow_last_replay_token = []
         self.slow_replay_count = []
+        self.slow_ripple_strength = []
         self.fast_ema = None
         self.local_fast_ema = {}
         self.local_slow_mean = {}
@@ -423,6 +425,7 @@ class DualMemoryStore:
         stored_routing: Optional[torch.Tensor],
         stored_window: Optional[str],
         stored_text: Optional[str],
+        stored_metadata: Optional[dict[str, Any]],
         bucket_id: Optional[int],
         importance: float,
         capture_value: float,
@@ -438,6 +441,7 @@ class DualMemoryStore:
         self.slow_routing_keys[index] = stored_routing
         self.slow_raw_windows[index] = stored_window
         self.slow_texts[index] = stored_text
+        self.slow_metadata[index] = None if stored_metadata is None else {str(key): value for key, value in dict(stored_metadata).items()}
         self.slow_bucket_ids[index] = int(bucket_id) if bucket_id is not None else None
         self.slow_importance[index] = float(max(1e-6, importance))
         self.slow_capture_tag[index] = tag_value
@@ -449,7 +453,7 @@ class DualMemoryStore:
         self.slow_entry_timestamps[index] = int(token_marker)
         self.slow_last_replay_token[index] = int(token_marker)
         self.slow_replay_count[index] = 0
-        self.slow_ripple_tagged[index] = False
+        self.slow_ripple_strength[index] = 0.0
 
     def update(
         self,
@@ -461,6 +465,7 @@ class DualMemoryStore:
         routing_key: Optional[torch.Tensor] = None,
         raw_window: Optional[str] = None,
         text: Optional[str] = None,
+        metadata: Mapping[str, Any] | None = None,
         tag_strength: float = 0.0,
         capture_tag: float | None = None,
     ) -> int | None:
@@ -470,6 +475,7 @@ class DualMemoryStore:
         stored_routing = (routing_key.detach().clone() if _on_cpu else routing_key.detach().clone().cpu()) if routing_key is not None else None
         stored_window = None if raw_window is None else str(raw_window)
         stored_text = None if text is None else str(text)
+        stored_metadata = None if metadata is None else {str(key): value for key, value in dict(metadata).items()}
         token_marker = int(self.n_seen if token_count is None else token_count)
         capture_value = float(max(0.0, tag_strength if capture_tag is None else capture_tag))
 
@@ -491,6 +497,7 @@ class DualMemoryStore:
             self.slow_routing_keys.append(stored_routing)
             self.slow_raw_windows.append(stored_window)
             self.slow_texts.append(stored_text)
+            self.slow_metadata.append(None if stored_metadata is None else {str(key): value for key, value in dict(stored_metadata).items()})
             self.slow_bucket_ids.append(int(bucket_id) if bucket_id is not None else None)
             self.slow_importance.append(float(max(1e-6, importance)))
             self.slow_capture_tag.append(0.0)
@@ -502,7 +509,7 @@ class DualMemoryStore:
             self.slow_entry_timestamps.append(token_marker)
             self.slow_last_replay_token.append(token_marker)
             self.slow_replay_count.append(0)
-            self.slow_ripple_tagged.append(False)
+            self.slow_ripple_strength.append(0.0)
             self._store_slot(
                 len(self.slow_buffer) - 1,
                 assembly=x,
@@ -510,6 +517,7 @@ class DualMemoryStore:
                 stored_routing=stored_routing,
                 stored_window=stored_window,
                 stored_text=stored_text,
+                stored_metadata=stored_metadata,
                 bucket_id=bucket_id,
                 importance=importance,
                 capture_value=capture_value,
@@ -529,6 +537,7 @@ class DualMemoryStore:
                 stored_routing=stored_routing,
                 stored_window=stored_window,
                 stored_text=stored_text,
+                stored_metadata=stored_metadata,
                 bucket_id=bucket_id,
                 importance=importance,
                 capture_value=capture_value,
@@ -537,6 +546,19 @@ class DualMemoryStore:
             self._replace_in_slow_mean(old, old_timestamp, x, token_marker)
             return j
         return None
+
+    @staticmethod
+    def _clip_ripple_strength(value: float) -> float:
+        return float(max(0.0, min(1.0, value)))
+
+    @classmethod
+    def _ripple_priority_multiplier(cls, strength: float) -> float:
+        clipped = cls._clip_ripple_strength(strength)
+        if clipped <= 0.0:
+            return 1.0
+        # Research-facing retune: ripple tags now map onto a 3-5x replay boost
+        # instead of a flat 3x multiplier.
+        return float(3.0 + 2.0 * max(0.0, clipped - 0.5) / 0.5)
 
     def replay_scores(self, current_token: int) -> torch.Tensor:
         if not self.slow_buffer:
@@ -561,9 +583,8 @@ class DualMemoryStore:
                 + 0.50 * max(0.0, 1.0 - consolidation)
             )
             score = importance * (1.0 + spacing) * (1.0 + frontier) / (1.0 + 0.35 * float(replay_count))
-            # Awake ripple boost: tagged memories get 3x replay priority
-            if idx < len(self.slow_ripple_tagged) and self.slow_ripple_tagged[idx]:
-                score *= 3.0
+            ripple_strength = 0.0 if idx >= len(self.slow_ripple_strength) else float(self.slow_ripple_strength[idx])
+            score *= self._ripple_priority_multiplier(ripple_strength)
             scores.append(float(score))
         return torch.tensor(scores, dtype=torch.float32)
 
@@ -596,23 +617,27 @@ class DualMemoryStore:
         self._advance_state(current_token)
         floor_token = max(0, int(current_token) - int(window_tokens))
         tagged = 0
+        window_span = max(1.0, float(window_tokens))
+        da_scale = max(0.0, min(1.0, (float(da_level) - float(da_threshold)) / max(1e-6, 1.0 - float(da_threshold))))
         for idx, ts in enumerate(self.slow_entry_timestamps):
-            if int(ts) < floor_token:
+            entry_token = int(ts)
+            if entry_token < floor_token:
                 continue
-            if not self.slow_ripple_tagged[idx]:
-                self.slow_ripple_tagged[idx] = True
-                # Also boost the capture tag strength
-                boost = min(1.0, 0.3 * da_level)
-                self.slow_capture_tag[idx] = float(
-                    min(1.0, self.slow_capture_tag[idx] + boost)
-                )
+            recency_scale = max(0.0, min(1.0, (float(entry_token) - float(floor_token)) / window_span))
+            ripple_strength = self._clip_ripple_strength(0.5 + 0.30 * da_scale + 0.20 * recency_scale)
+            was_untagged = idx >= len(self.slow_ripple_strength) or float(self.slow_ripple_strength[idx]) <= 0.0
+            if idx < len(self.slow_ripple_strength):
+                self.slow_ripple_strength[idx] = float(max(self.slow_ripple_strength[idx], ripple_strength))
+            boost = 0.10 + 0.25 * ripple_strength
+            self.slow_capture_tag[idx] = float(min(1.0, self.slow_capture_tag[idx] + boost))
+            if was_untagged:
                 tagged += 1
         return tagged
 
     @property
     def ripple_tagged_count(self) -> int:
         """Number of currently ripple-tagged memories."""
-        return sum(1 for v in self.slow_ripple_tagged if v)
+        return sum(1 for value in self.slow_ripple_strength if float(value) > 0.0)
 
     def tag_recent_entries(
         self,
@@ -667,6 +692,7 @@ class DualMemoryStore:
             "routing_key": routing_key.detach().clone() if isinstance(routing_key, torch.Tensor) else None,
             "raw_window": self.slow_raw_windows[idx],
             "text": self.slow_texts[idx],
+            "metadata": None if self.slow_metadata[idx] is None else dict(self.slow_metadata[idx]),
             "bucket_id": self.slow_bucket_ids[idx],
             "importance": float(self.slow_importance[idx]),
             "tag_strength": tag_strength,
@@ -683,6 +709,12 @@ class DualMemoryStore:
             "age_tokens": int(max(0, token_marker - int(self.slow_entry_timestamps[idx]))),
             "last_replay_token": int(self.slow_last_replay_token[idx]),
             "tag_is_strong": bool(self.slow_tag_is_strong[idx]),
+            "ripple_strength": float(self.slow_ripple_strength[idx]) if idx < len(self.slow_ripple_strength) else 0.0,
+            "ripple_priority_multiplier": float(
+                self._ripple_priority_multiplier(self.slow_ripple_strength[idx])
+                if idx < len(self.slow_ripple_strength)
+                else 1.0
+            ),
         }
 
     def sample_replay_indices(
@@ -911,6 +943,7 @@ class DualMemoryStore:
                 "max_capture_strength": 0.0, "mean_consolidation_level": 0.0,
                 "mean_fragility": 0.0, "max_fragility": 0.0,
                 "mean_replay_count": 0.0, "strong_tag_fraction": 0.0,
+                "mean_ripple_strength": 0.0, "max_ripple_strength": 0.0,
                 "global_prp_pool": float(self.global_prp_pool),
                 "active_prp_buckets": int(len(self.bucket_prp_pool)),
                 "fast_ema_norm": 0.0, "slow_mean_norm": 0.0,
@@ -937,6 +970,7 @@ class DualMemoryStore:
         )
         replay_count_t = torch.tensor(self.slow_replay_count[:size], dtype=torch.float32).clamp(min=0)
         tag_t = torch.tensor(self.slow_capture_tag[:size], dtype=torch.float32).clamp(min=0.0)
+        ripple_t = torch.tensor(self.slow_ripple_strength[:size], dtype=torch.float32).clamp(0.0, 1.0)
         capture_levels = tag_t * prp_levels
 
         fm = max(1.0, float(self.functional_minute))
@@ -963,6 +997,8 @@ class DualMemoryStore:
             "max_fragility": float(fragility_levels.max().item()),
             "mean_replay_count": float(replay_count_t.mean().item()),
             "strong_tag_fraction": float(n_strong / max(1, size)),
+            "mean_ripple_strength": float(ripple_t.mean().item()),
+            "max_ripple_strength": float(ripple_t.max().item()),
             "global_prp_pool": float(self.global_prp_pool),
             "active_prp_buckets": int(len(self.bucket_prp_pool)),
             "fast_ema_norm": float(torch.norm(self.fast_ema).item()) if isinstance(self.fast_ema, torch.Tensor) else 0.0,
@@ -1001,6 +1037,7 @@ class DualMemoryStore:
             ],
             "slow_raw_windows": list(self.slow_raw_windows),
             "slow_texts": list(self.slow_texts),
+            "slow_metadata": [None if item is None else dict(item) for item in self.slow_metadata],
             "slow_bucket_ids": list(self.slow_bucket_ids),
             "slow_importance": list(self.slow_importance),
             "slow_capture_tag": list(self.slow_capture_tag),
@@ -1012,7 +1049,7 @@ class DualMemoryStore:
             "slow_entry_timestamps": list(self.slow_entry_timestamps),
             "slow_last_replay_token": list(self.slow_last_replay_token),
             "slow_replay_count": list(self.slow_replay_count),
-            "slow_ripple_tagged": list(self.slow_ripple_tagged),
+            "slow_ripple_strength": list(self.slow_ripple_strength),
             "fast_ema": None if self.fast_ema is None else self.fast_ema.detach().clone().cpu(),
             "local_fast_ema": {
                 int(key): value.detach().clone().cpu()
@@ -1076,6 +1113,11 @@ class DualMemoryStore:
         self.slow_routing_keys = self.slow_routing_keys[:size]
         self.slow_raw_windows = _pad(snapshot.get("slow_raw_windows"), None, size)
         self.slow_texts = _pad(snapshot.get("slow_texts"), None, size)
+        raw_metadata = _pad(snapshot.get("slow_metadata"), None, size)
+        self.slow_metadata = [
+            None if not isinstance(item, Mapping) else {str(key): value for key, value in dict(item).items()}
+            for item in raw_metadata
+        ]
         self.slow_bucket_ids = [None if value is None else int(value) for value in _pad(snapshot.get("slow_bucket_ids"), None, size)]
         self.slow_importance = [float(value) for value in _pad(snapshot.get("slow_importance"), 1.0, size)]
 
@@ -1101,7 +1143,7 @@ class DualMemoryStore:
             for idx, value in enumerate(self.slow_last_replay_token)
         ]
         self.slow_replay_count = [int(value) for value in _pad(snapshot.get("slow_replay_count"), 0, size)]
-        self.slow_ripple_tagged = [bool(value) for value in _pad(snapshot.get("slow_ripple_tagged"), False, size)]
+        self.slow_ripple_strength = [float(value) for value in _pad(snapshot.get("slow_ripple_strength"), 0.0, size)]
 
         fast_ema = snapshot.get("fast_ema")
         self.fast_ema = fast_ema.detach().clone().cpu() if isinstance(fast_ema, torch.Tensor) else None

@@ -34,6 +34,9 @@ AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT = 4
 AUTO_FOCUS_SHORTLIST_MAX_SIZE = 3
 AUTO_FOCUS_SHORTLIST_GAP_WEIGHT = 0.2
 AUTO_FOCUS_SHORTLIST_AFFINITY_WEIGHT = 0.8
+AUTO_FOCUS_TRIGGER_INTERVAL_FLOOR = 0.5
+AUTO_FOCUS_ACQUISITION_TOKEN_SCALE_MAX = 1.75
+AUTO_FOCUS_SLOT_PRESSURE_THRESHOLD = 0.72
 
 # Irregular plural → singular mappings for topic normalization
 _IRREGULAR_TOPIC_SINGULARS = {
@@ -563,6 +566,73 @@ class TerminusAutonomyMixin:
                 break
         return ordered[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
 
+    def _autonomy_focus_pressure_locked(self, focus_plan: Mapping[str, Any] | None) -> tuple[float, dict[str, Any]]:
+        if focus_plan is None:
+            return 0.0, {
+                "unsupported_term_count": 0,
+                "retrieval_query_count": 0,
+                "follow_up_question_count": 0,
+                "gap_term_weight": 0.0,
+                "weak_concept_pressure": 0.0,
+                "geometric_gap_count": 0,
+                "score": 0.0,
+            }
+
+        unsupported_term_count = int(len(list(focus_plan.get("unsupported_terms") or [])))
+        retrieval_query_count = int(len(list(focus_plan.get("retrieval_queries") or [])))
+        follow_up_question_count = int(len(list(focus_plan.get("follow_up_questions") or [])))
+        gap_term_weight = float(
+            sum(
+                max(0.0, float(item.get("weight", 0.0)))
+                for item in list(focus_plan.get("gap_terms") or [])
+                if isinstance(item, Mapping)
+            )
+        )
+        weak_concept_pressures = [
+            max(
+                0.0,
+                min(
+                    1.0,
+                    0.55 * float(raw_concept.get("weakness", 0.0))
+                    + 0.35 * float(raw_concept.get("uncertainty", 0.0))
+                    + 0.10 * float(raw_concept.get("drift", 0.0)),
+                ),
+            )
+            for raw_concept in list(focus_plan.get("weak_concepts") or [])
+            if isinstance(raw_concept, Mapping)
+        ]
+        weak_concept_pressure = float(
+            sum(weak_concept_pressures) / float(len(weak_concept_pressures))
+        ) if weak_concept_pressures else 0.0
+        geometric_gap_count = int(len(list(focus_plan.get("geometric_gaps") or [])))
+
+        unsupported_pressure = min(1.0, float(unsupported_term_count) / 3.0)
+        retrieval_pressure = min(1.0, float(retrieval_query_count) / 2.0)
+        follow_up_pressure = min(1.0, float(follow_up_question_count) / 2.0)
+        gap_pressure = min(1.0, gap_term_weight / 4.0)
+        geometric_pressure = min(1.0, float(geometric_gap_count) / 2.0)
+
+        pressure = float(
+            min(
+                1.0,
+                0.24 * unsupported_pressure
+                + 0.20 * retrieval_pressure
+                + 0.10 * follow_up_pressure
+                + 0.22 * gap_pressure
+                + 0.18 * weak_concept_pressure
+                + 0.06 * geometric_pressure,
+            )
+        )
+        return pressure, {
+            "unsupported_term_count": unsupported_term_count,
+            "retrieval_query_count": retrieval_query_count,
+            "follow_up_question_count": follow_up_question_count,
+            "gap_term_weight": float(gap_term_weight),
+            "weak_concept_pressure": float(weak_concept_pressure),
+            "geometric_gap_count": geometric_gap_count,
+            "score": float(pressure),
+        }
+
     def _provider_topic_family_priority_locked(self, family_entry: Mapping[str, Any]) -> float:
         commits = max(0, int(family_entry.get("commits", 0)))
         successes = max(0, int(family_entry.get("successes", 0)))
@@ -796,7 +866,12 @@ class TerminusAutonomyMixin:
             0.0,
             min(1.0, float(entry.get("weak_concept_stabilization_ema", 0.0))),
         )
+        grounded_outcome = max(0.0, min(1.0, float(entry.get("grounded_outcome_ema", 0.0))))
+        grounded_family_summary = max(0.0, min(1.0, float(entry.get("grounded_family_summary_ema", 0.0))))
+        delayed_consequence = max(0.0, min(1.0, float(entry.get("delayed_consequence_ema", 0.0))))
+        contradiction_decay = max(0.0, min(1.0, float(entry.get("contradiction_decay_ema", 0.0))))
         focus_terms = self._provider_curriculum_focus_terms_locked(focus_plan)
+        focus_pressure, _focus_pressure_details = self._autonomy_focus_pressure_locked(focus_plan)
         topic_terms = {
             str(term).strip().lower(): float(weight)
             for term, weight in dict(entry.get("topic_terms") or {}).items()
@@ -827,9 +902,25 @@ class TerminusAutonomyMixin:
                         sum(float(topic_terms.get(term, 0.0)) for term in focus_terms) / float(denominator),
                     ),
                 )
+        focus_alignment = max(topic_overlap, topic_family_focus_score, query_family_focus_score)
+        focus_alignment_ema = max(0.0, min(1.0, float(entry.get("focus_alignment_ema", 0.0))))
+        utility_ema = max(0.0, min(1.0, float(entry.get("utility_ema", 0.0))))
+        effective_family_summary = max(0.0, grounded_family_summary - 0.35 * contradiction_decay)
+        effective_utility_ema = max(0.0, max(utility_ema, effective_family_summary) - 0.65 * contradiction_decay)
+        provider_effectiveness = max(
+            diagnostic_gain,
+            answerability_gain,
+            uncertainty_reduction,
+            weak_concept_stabilization,
+            grounded_outcome,
+            effective_family_summary,
+            effective_utility_ema,
+        )
         exploration_bonus = 0.0 if attempts > 0 else 0.15
         exploration_bonus += 0.10 / math.sqrt(float(attempts) + 1.0)
-        priority = float(
+        if focus_terms:
+            exploration_bonus *= max(0.35, 1.0 - 0.65 * focus_pressure)
+        base_priority = float(
             0.20 * success_rate
             + 0.13 * commit_rate
             + 0.15 * diagnostic_gain
@@ -842,8 +933,18 @@ class TerminusAutonomyMixin:
             + 0.20 * topic_family_focus_score
             + 0.06 * query_family_strength
             + 0.14 * query_family_focus_score
+            + 0.10 * effective_utility_ema
+            + 0.08 * grounded_outcome
+            + 0.08 * effective_family_summary
+            + 0.07 * focus_alignment_ema
+            - 0.10 * contradiction_decay
             + exploration_bonus
         )
+        focus_alignment_bonus = float(0.18 * focus_pressure * max(focus_alignment, focus_alignment_ema))
+        off_topic_penalty = 0.0
+        if focus_terms and focus_alignment < 0.20:
+            off_topic_penalty = float(0.16 * focus_pressure * ((0.20 - focus_alignment) / 0.20))
+        priority = max(0.0, float(base_priority + focus_alignment_bonus - off_topic_penalty))
         return priority, {
             "attempts": attempts,
             "commits": commits,
@@ -855,6 +956,20 @@ class TerminusAutonomyMixin:
             "answerability_gain_ema": float(entry.get("answerability_gain_ema", 0.0)),
             "uncertainty_reduction_ema": float(entry.get("uncertainty_reduction_ema", 0.0)),
             "weak_concept_stabilization_ema": float(entry.get("weak_concept_stabilization_ema", 0.0)),
+            "utility_ema": float(utility_ema),
+            "effective_utility_ema": float(effective_utility_ema),
+            "focus_alignment_ema": float(focus_alignment_ema),
+            "grounded_outcome_ema": float(grounded_outcome),
+            "grounded_family_summary_ema": float(grounded_family_summary),
+            "effective_family_summary_ema": float(effective_family_summary),
+            "delayed_consequence_ema": float(delayed_consequence),
+            "contradiction_decay_ema": float(contradiction_decay),
+            "focus_pressure": float(focus_pressure),
+            "focus_alignment": float(focus_alignment),
+            "provider_effectiveness": float(provider_effectiveness),
+            "exploration_bonus": float(exploration_bonus),
+            "focus_alignment_bonus": float(focus_alignment_bonus),
+            "off_topic_penalty": float(off_topic_penalty),
             "topic_overlap": float(topic_overlap),
             "topic_family_strength": float(topic_family_strength),
             "topic_family_focus_score": float(topic_family_focus_score),
@@ -906,6 +1021,227 @@ class TerminusAutonomyMixin:
             "focus_terms": self._provider_curriculum_focus_terms_locked(focus_plan),
             "ranked_providers": ranked[: max(1, len(ranked))],
         }
+
+    def _provider_curriculum_signal_locked(
+        self,
+        autonomy: Mapping[str, Any],
+        focus_plan: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+        if not curriculum:
+            return {
+                "provider": None,
+                "priority": 0.0,
+                "signal": 0.0,
+                "alignment": 0.0,
+                "effectiveness": 0.0,
+            }
+        ranked: list[dict[str, Any]] = []
+        for provider in curriculum:
+            priority, details = self._provider_curriculum_priority_locked(
+                provider,
+                focus_plan,
+                autonomy=autonomy,
+            )
+            alignment = max(
+                float(details.get("topic_overlap", 0.0)),
+                float(details.get("topic_family_focus_score", 0.0)),
+                float(details.get("query_family_focus_score", 0.0)),
+            )
+            effectiveness = max(
+                float(details.get("diagnostic_gain_ema", 0.0)),
+                float(details.get("answerability_gain_ema", 0.0)),
+                float(details.get("uncertainty_reduction_ema", 0.0)),
+                float(details.get("weak_concept_stabilization_ema", 0.0)),
+                float(details.get("effective_utility_ema", details.get("utility_ema", 0.0))),
+                float(details.get("grounded_outcome_ema", 0.0)),
+            )
+            signal = min(1.0, 0.60 * alignment + 0.40 * effectiveness)
+            ranked.append(
+                {
+                    "provider": provider,
+                    "priority": float(priority),
+                    "signal": float(signal),
+                    "alignment": float(alignment),
+                    "effectiveness": float(effectiveness),
+                }
+            )
+        ranked.sort(
+            key=lambda item: (
+                -float(item["priority"]),
+                -float(item["signal"]),
+                str(item["provider"]),
+            )
+        )
+        return ranked[0]
+
+    def _adaptive_autonomy_settings_locked(
+        self,
+        autonomy: Mapping[str, Any],
+        focus_plan: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        base_trigger_interval = max(1, int(autonomy.get("trigger_interval_tokens", 1)))
+        base_acquisition_tokens = max(1, int(autonomy.get("acquisition_tokens", 1)))
+        base_acquisition_slots = max(1, int(autonomy.get("acquisition_slots", 1)))
+        focus_pressure, focus_pressure_details = self._autonomy_focus_pressure_locked(focus_plan)
+        provider_signal = self._provider_curriculum_signal_locked(autonomy, focus_plan)
+        provider_priority_signal = max(0.0, min(1.0, float(provider_signal.get("signal", 0.0))))
+        provider_budget_signal = provider_priority_signal if focus_pressure > 0.0 else 0.0
+
+        trigger_scale = max(
+            AUTO_FOCUS_TRIGGER_INTERVAL_FLOOR,
+            1.0 - 0.45 * focus_pressure - 0.20 * provider_budget_signal,
+        )
+        effective_trigger_interval = max(1, int(math.ceil(float(base_trigger_interval) * float(trigger_scale))))
+
+        acquisition_token_scale = min(
+            AUTO_FOCUS_ACQUISITION_TOKEN_SCALE_MAX,
+            1.0 + 0.55 * focus_pressure + 0.20 * provider_budget_signal,
+        )
+        effective_acquisition_tokens = max(
+            1,
+            int(math.ceil(float(base_acquisition_tokens) * float(acquisition_token_scale))),
+        )
+
+        slot_pressure = 0.70 * focus_pressure + 0.30 * provider_budget_signal
+        effective_acquisition_slots = int(base_acquisition_slots)
+        if base_acquisition_slots < 2 and slot_pressure >= AUTO_FOCUS_SLOT_PRESSURE_THRESHOLD:
+            effective_acquisition_slots = 2
+
+        targeted_learning_share_target = float(
+            effective_acquisition_tokens
+            / float(max(1, effective_acquisition_tokens + effective_trigger_interval))
+        )
+        return {
+            "focus_pressure": float(focus_pressure),
+            "focus_pressure_details": dict(focus_pressure_details),
+            "provider_priority_signal": float(provider_priority_signal),
+            "provider_budget_signal": float(provider_budget_signal),
+            "provider_priority_details": dict(provider_signal),
+            "base_trigger_interval_tokens": int(base_trigger_interval),
+            "effective_trigger_interval_tokens": int(effective_trigger_interval),
+            "base_acquisition_tokens": int(base_acquisition_tokens),
+            "effective_acquisition_tokens": int(effective_acquisition_tokens),
+            "base_acquisition_slots": int(base_acquisition_slots),
+            "effective_acquisition_slots": int(effective_acquisition_slots),
+            "targeted_learning_share_target": float(targeted_learning_share_target),
+        }
+
+    def _apply_provider_response_outcome_calibration_locked(
+        self,
+        *,
+        autonomy: dict[str, Any],
+        response: Mapping[str, Any],
+        outcome_score: float,
+    ) -> bool:
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+        weighted_providers = self._selected_evidence_weight_map(
+            response,
+            singular_field="provider",
+            plural_field="providers",
+        )
+        if not curriculum or not weighted_providers:
+            return False
+        applied = False
+        for provider, weight in weighted_providers.items():
+            normalized_provider = " ".join(str(provider).split()).strip().lower()
+            if not normalized_provider:
+                continue
+            entry = curriculum.get(normalized_provider)
+            if not isinstance(entry, Mapping):
+                continue
+            sample = max(0.0, min(1.0, float(outcome_score) * float(weight)))
+            previous_outcome = max(0.0, min(1.0, float(entry.get("grounded_outcome_ema", 0.0) or 0.0)))
+            entry["grounded_outcome_ema"] = float(
+                sample if previous_outcome <= 0.0 else 0.70 * previous_outcome + 0.30 * sample
+            )
+            previous_utility = max(0.0, min(1.0, float(entry.get("utility_ema", 0.0) or 0.0)))
+            reinforced_utility = max(previous_utility, float(entry["grounded_outcome_ema"]))
+            entry["utility_ema"] = float(
+                reinforced_utility if previous_utility <= 0.0 else 0.75 * previous_utility + 0.25 * reinforced_utility
+            )
+            previous_alignment = max(0.0, min(1.0, float(entry.get("focus_alignment_ema", 0.0) or 0.0)))
+            entry["focus_alignment_ema"] = float(
+                float(weight)
+                if previous_alignment <= 0.0
+                else 0.75 * previous_alignment + 0.25 * max(float(weight), previous_alignment)
+            )
+            applied = True
+        if applied:
+            autonomy["provider_curriculum"] = curriculum
+        return applied
+
+    def _apply_provider_outcome_calibration_locked(
+        self,
+        *,
+        autonomy: dict[str, Any],
+        query_text: str,
+        outcome_score: float,
+    ) -> None:
+        curriculum = self._normalize_provider_curriculum(autonomy.get("provider_curriculum"))
+        normalized_query = " ".join(str(query_text).split()).strip()
+        calibrated_score = max(0.0, min(1.0, float(outcome_score)))
+        if not curriculum or not normalized_query or calibrated_score <= 0.0:
+            return
+        focus_plan = self._autonomy_focus_plan_locked()
+        focus_terms = list(
+            dict.fromkeys(
+                [
+                    *self._provider_curriculum_focus_terms_locked(focus_plan),
+                    *[
+                        _canonical_provider_term(term)
+                        for term in salient_query_terms(normalized_query)
+                        if _canonical_provider_term(term)
+                    ],
+                ]
+            )
+        )[:AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT]
+        ranked: list[tuple[float, float, float, str]] = []
+        for provider, entry in curriculum.items():
+            priority, details = self._provider_curriculum_priority_locked(
+                provider,
+                focus_plan,
+                autonomy=autonomy,
+            )
+            last_query_text = " ".join(str(entry.get("last_query_text", "")).split()).strip().lower()
+            query_overlap = 0.0 if not last_query_text else self._source_text_overlap(normalized_query.lower(), last_query_text)
+            focus_alignment = max(
+                float(details.get("focus_alignment", 0.0)),
+                float(details.get("focus_alignment_ema", 0.0)),
+                float(query_overlap),
+            )
+            utility_signal = max(
+                float(details.get("effective_utility_ema", details.get("utility_ema", 0.0))),
+                float(details.get("grounded_outcome_ema", 0.0)),
+            )
+            ranking_score = max(float(priority), focus_alignment) * max(0.35, utility_signal if utility_signal > 0.0 else 0.35)
+            ranked.append((float(ranking_score), float(focus_alignment), float(utility_signal), str(provider)))
+        if not ranked:
+            return
+        ranked.sort(key=lambda item: (-float(item[0]), -float(item[1]), -float(item[2]), item[3]))
+        _ranking_score, focus_alignment, _utility_signal, provider = ranked[0]
+        if float(focus_alignment) <= 0.0:
+            return
+        entry = curriculum.get(provider)
+        if not isinstance(entry, Mapping):
+            return
+        outcome_sample = max(0.0, min(1.0, calibrated_score * max(float(focus_alignment), 0.35)))
+        previous_outcome = max(0.0, min(1.0, float(entry.get("grounded_outcome_ema", 0.0) or 0.0)))
+        entry["grounded_outcome_ema"] = float(
+            outcome_sample if previous_outcome <= 0.0 else 0.70 * previous_outcome + 0.30 * outcome_sample
+        )
+        previous_utility = max(0.0, min(1.0, float(entry.get("utility_ema", 0.0) or 0.0)))
+        reinforced_utility = max(previous_utility, float(entry["grounded_outcome_ema"]))
+        entry["utility_ema"] = float(
+            reinforced_utility if previous_utility <= 0.0 else 0.75 * previous_utility + 0.25 * reinforced_utility
+        )
+        previous_alignment = max(0.0, min(1.0, float(entry.get("focus_alignment_ema", 0.0) or 0.0)))
+        entry["focus_alignment_ema"] = float(
+            max(float(focus_alignment), float(previous_alignment))
+            if previous_alignment <= 0.0
+            else 0.75 * previous_alignment + 0.25 * max(float(focus_alignment), float(previous_alignment))
+        )
+        autonomy["provider_curriculum"] = curriculum
 
     def _apply_provider_curriculum_locked(
         self,
@@ -1016,6 +1352,12 @@ class TerminusAutonomyMixin:
                     "answerability_gain_ema": 0.0,
                     "uncertainty_reduction_ema": 0.0,
                     "weak_concept_stabilization_ema": 0.0,
+                    "utility_ema": 0.0,
+                    "focus_alignment_ema": 0.0,
+                    "grounded_outcome_ema": 0.0,
+                    "grounded_family_summary_ema": 0.0,
+                    "delayed_consequence_ema": 0.0,
+                    "contradiction_decay_ema": 0.0,
                     "last_query_text": "",
                     "last_selected_at": "",
                     "topic_terms": {},
@@ -1203,6 +1545,61 @@ class TerminusAutonomyMixin:
                     for term in list(selected_metadata.get("catalog_terms") or [])
                     if _canonical_provider_term(term)
                 ]
+            focus_alignment_sample = 0.0
+            selected_terms = list(metadata_terms)
+            if not selected_terms and query_text:
+                selected_terms = [
+                    normalized
+                    for normalized in (_canonical_provider_term(term) for term in salient_query_terms(query_text))
+                    if normalized
+                ]
+            focus_term_tokens = {
+                _canonical_provider_term(term)
+                for raw_term in current_focus_terms
+                for term in salient_query_terms(str(raw_term))
+                if _canonical_provider_term(term)
+            }
+            selected_term_tokens = {
+                _canonical_provider_term(term)
+                for raw_term in selected_terms
+                for term in salient_query_terms(str(raw_term))
+                if _canonical_provider_term(term)
+            }
+            if query_text:
+                selected_term_tokens.update(
+                    _canonical_provider_term(term)
+                    for term in salient_query_terms(query_text)
+                    if _canonical_provider_term(term)
+                )
+            if focus_term_tokens and selected_term_tokens:
+                token_overlap = len(focus_term_tokens & selected_term_tokens) / max(
+                    1.0,
+                    min(float(len(focus_term_tokens)), float(len(selected_term_tokens))),
+                )
+                phrase_hits = sum(1 for term in list(current_focus_terms)[:4] if term and term in query_text.lower())
+                phrase_bonus = min(1.0, 0.34 * phrase_hits)
+                focus_alignment_sample = max(0.0, min(1.0, 0.75 * token_overlap + 0.25 * phrase_bonus))
+            utility_sample = max(
+                0.0,
+                min(
+                    1.0,
+                    0.30 * semantic_relevance
+                    + 0.22 * answerability_gain
+                    + 0.18 * uncertainty_reduction
+                    + 0.12 * weak_concept_stabilization
+                    + 0.18 * focus_alignment_sample,
+                ),
+            )
+            entry["focus_alignment_ema"] = float(
+                focus_alignment_sample
+                if int(entry["commits"]) <= 1
+                else 0.75 * float(entry.get("focus_alignment_ema", 0.0)) + 0.25 * focus_alignment_sample
+            )
+            entry["utility_ema"] = float(
+                utility_sample
+                if int(entry["commits"]) <= 1
+                else 0.75 * float(entry.get("utility_ema", 0.0)) + 0.25 * utility_sample
+            )
             update_terms = list(dict.fromkeys([*current_focus_terms, *metadata_terms]))
             if not update_terms and query_text:
                 update_terms = [

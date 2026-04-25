@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import deque
 import re
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -845,6 +845,7 @@ class HECSNTrainer:
         raw_window: Optional[str] = None,
         visual_spikes: Optional[torch.Tensor] = None,
         audio_spikes: Optional[torch.Tensor] = None,
+        memory_metadata: Mapping[str, Any] | None = None,
     ) -> Dict[str, Any]:
         metrics: Dict[str, Any] = {}
         x = pattern_vec.to(self.model.device)
@@ -1197,6 +1198,7 @@ class HECSNTrainer:
                 routing_key=routing_key,
                 raw_window=raw_window,
                 text=text_context,
+                metadata=memory_metadata,
                 capture_tag=capture_tag,
             )
         self.last_winner = winner_id

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import socket
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 
@@ -50,6 +53,29 @@ class _SilentSimpleHTTPRequestHandler(SimpleHTTPRequestHandler):
         return None
 
 
+class _EchoJsonApiHandler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args) -> None:  # pragma: no cover - suppress test noise
+        return None
+
+    def do_POST(self) -> None:  # noqa: N802
+        content_length = int(self.headers.get("Content-Length", "0") or 0)
+        payload = self.rfile.read(content_length) if content_length > 0 else b""
+        parsed_body = json.loads(payload.decode("utf-8") or "null")
+        parsed_url = urlparse(self.path)
+        response = {
+            "method": "POST",
+            "path": parsed_url.path,
+            "query": {key: values[0] if len(values) == 1 else values for key, values in parse_qs(parsed_url.query).items()},
+            "payload": parsed_body,
+        }
+        encoded = json.dumps(response).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+
 class ServiceApiTerminusRuntimeTests(unittest.TestCase):
     def test_terminus_configure_and_tick_endpoint_train_from_file_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -71,6 +97,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "tick_tokens": 20,
                         "sleep_interval_seconds": 0.01,
                         "repeat_sources": False,
+                        "ingestion": {"queue_target_tokens": 40, "prewarm_on_startup": False, "prewarm_max_seconds": 0.2},
                     },
                 )
                 tick_response = client.post("/terminus/tick", json={"steps": 2})
@@ -82,6 +109,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertTrue(configure_response.json()["terminus_runtime"]["configured"])
             self.assertGreater(tick_response.json()["token_count"], configure_response.json()["token_count"])
             self.assertEqual(status_response.json()["terminus_runtime"]["source_bank"][0]["name"], "api_terminus_source")
+            self.assertEqual(status_response.json()["terminus_runtime"]["ingestion"]["queue_target_tokens"], 40)
+            self.assertFalse(status_response.json()["terminus_runtime"]["ingestion"]["prewarm_on_startup"])
+            self.assertAlmostEqual(float(status_response.json()["terminus_runtime"]["ingestion"]["prewarm_max_seconds"]), 0.2, places=6)
             self.assertGreater(tick_response.json()["terminus_runtime"]["last_tick_token_delta"], 0)
             self.assertTrue(
                 any(event.get("type") == "tick" for event in status_response.json()["terminus_runtime"]["recent_events"])
@@ -90,6 +120,767 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 status_response.json()["terminus_runtime"]["source_progress"][0]["tick_visits"],
                 0,
             )
+
+    def test_terminus_action_endpoint_executes_workspace_search_and_records_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_terminus_action"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            with TestClient(app) as client:
+                action_response = client.post(
+                    "/terminus/action",
+                    json={
+                        "action_type": "workspace_search",
+                        "query_text": "cats chase mice",
+                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
+                    },
+                )
+                history_response = client.get("/terminus/actions")
+
+            self.assertEqual(action_response.status_code, 200)
+            self.assertEqual(history_response.status_code, 200)
+            action_body = action_response.json()
+            history_body = history_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertEqual(action_body["terminus_runtime"]["action_loop"]["verified_actions"], 1)
+            self.assertEqual(history_body["count"], 1)
+            self.assertEqual(history_body["actions"][0]["action_type"], "workspace_search")
+            self.assertEqual(history_body["actions"][0]["verification"]["status"], "verified")
+
+    def test_terminus_action_endpoint_executes_workspace_read_and_records_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_terminus_action_read"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            with TestClient(app) as client:
+                action_response = client.post(
+                    "/terminus/action",
+                    json={
+                        "action_type": "workspace_read",
+                        "path": "notes.md",
+                        "query_text": "cats chase night",
+                        "predicted_outcome": "I expect notes.md to say what cats chase at night.",
+                    },
+                )
+                history_response = client.get("/terminus/actions")
+
+            self.assertEqual(action_response.status_code, 200)
+            self.assertEqual(history_response.status_code, 200)
+            action_body = action_response.json()
+            history_body = history_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "workspace_read")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertEqual(action_body["result"]["inputs"]["path"], "notes.md")
+            self.assertEqual(history_body["count"], 1)
+            self.assertEqual(history_body["actions"][0]["action_type"], "workspace_read")
+
+    def test_terminus_action_endpoint_executes_web_fetch_and_records_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "page.html").write_text(
+                "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_fetch"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "web_fetch",
+                            "url": f"http://127.0.0.1:{port}/page.html",
+                            "query_text": "cats chase night",
+                            "predicted_outcome": "I expect the page to say what cats chase at night.",
+                        },
+                    )
+                    history_response = client.get("/terminus/actions")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            self.assertEqual(history_response.status_code, 200)
+            action_body = action_response.json()
+            history_body = history_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "web_fetch")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertIn("http://127.0.0.1", action_body["result"]["inputs"]["url"])
+            self.assertEqual(history_body["count"], 1)
+            self.assertEqual(history_body["actions"][0]["action_type"], "web_fetch")
+
+    def test_terminus_action_endpoint_executes_api_request_and_records_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "data.json").write_text(
+                '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/data.json",
+                            "query_text": "cats chase night",
+                            "predicted_outcome": "I expect the JSON endpoint to say what cats chase at night.",
+                        },
+                    )
+                    history_response = client.get("/terminus/actions")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            self.assertEqual(history_response.status_code, 200)
+            action_body = action_response.json()
+            history_body = history_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertIn("http://127.0.0.1", action_body["result"]["inputs"]["url"])
+            self.assertEqual(history_body["count"], 1)
+            self.assertEqual(history_body["actions"][0]["action_type"], "api_request")
+
+    def test_terminus_action_endpoint_executes_parameterized_api_request_and_records_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            port = _free_port()
+            server = ThreadingHTTPServer(("127.0.0.1", port), _EchoJsonApiHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_parameterized_api"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/api/echo",
+                            "method": "POST",
+                            "params": {"kind": "feline"},
+                            "json_body": {"topic": "cats", "fact": "mice at night"},
+                            "query_text": "cats mice night feline",
+                            "predicted_outcome": "I expect the JSON endpoint to echo a structured request about cats and mice at night.",
+                        },
+                    )
+                    history_response = client.get("/terminus/actions")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            self.assertEqual(history_response.status_code, 200)
+            action_body = action_response.json()
+            history_body = history_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["inputs"]["method"], "POST")
+            self.assertEqual(action_body["result"]["inputs"]["params"]["kind"], "feline")
+            self.assertEqual(action_body["result"]["inputs"]["json_body"]["topic"], "cats")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertEqual(history_body["count"], 1)
+            self.assertEqual(history_body["actions"][0]["action_type"], "api_request")
+            self.assertEqual(history_body["actions"][0]["inputs"]["method"], "POST")
+
+    def test_terminus_action_endpoint_preserves_structured_api_verification_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "animals.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice", "active_time": "night"},
+                            {"name": "cow", "diet": "grass", "active_time": "day"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_structured_api_verification"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/animals.json",
+                            "query_text": "cat mice night",
+                            "predicted_outcome": "I expect the JSON endpoint to identify the animal that hunts mice at night.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertEqual(action_body["result"]["verification"]["evidence"][0]["json_path"], "$.animals[0]")
+            self.assertEqual(action_body["result"]["verification"]["evidence"][0]["structure_kind"], "object")
+            self.assertGreaterEqual(action_body["result"]["verification"]["evidence"][0]["field_count"], 3)
+
+    def test_terminus_action_endpoint_verifies_expected_json_paths_and_response_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "animals.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice", "active_time": "night"},
+                            {"name": "cow", "diet": "grass", "active_time": "day"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api_assertions"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/animals.json",
+                            "expected_json_paths": ["$.animals[0]", "$.animals[0].diet"],
+                            "expected_response_shape": "object",
+                            "query_text": "cat mice night",
+                            "predicted_outcome": "I expect the JSON endpoint to expose the first animal entry and its diet.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["inputs"]["expected_json_paths"], ["$.animals[0]", "$.animals[0].diet"])
+            self.assertEqual(action_body["result"]["inputs"]["expected_response_shape"], "object")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertTrue(any(item.get("assertion_kind") == "expected_json_path" for item in action_body["result"]["verification"]["evidence"]))
+            self.assertTrue(any(item.get("assertion_kind") == "expected_response_shape" for item in action_body["result"]["verification"]["evidence"]))
+
+    def test_terminus_action_endpoint_verifies_expected_json_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "animals.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice", "active_time": "night"},
+                            {"name": "cow", "diet": "grass", "active_time": "day"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api_value_assertions"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/animals.json",
+                            "expected_json_values": {
+                                "$.animals[0].diet": "mice",
+                                "$.animals[0].active_time": "night",
+                            },
+                            "query_text": "cat mice night",
+                            "predicted_outcome": "I expect the JSON endpoint to confirm the first animal diet and active time.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in action_body["result"]["verification"]["evidence"]))
+
+    def test_terminus_action_endpoint_verifies_expected_json_predicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "metrics.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {"score": 0.91, "count": 7},
+                        "animals": [{"name": "cat", "diet": "mice at night"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api_predicate_assertions"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/metrics.json",
+                            "expected_json_predicates": [
+                                {"path": "$.animals[0].diet", "op": "contains", "value": "night"},
+                                {"path": "$.metrics.score", "op": "gte", "value": 0.9},
+                            ],
+                            "query_text": "cat metrics night",
+                            "predicted_outcome": "I expect the JSON endpoint to satisfy text and score predicates.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["inputs"]["expected_json_predicates"][0]["op"], "contains")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in action_body["result"]["verification"]["evidence"]))
+
+    def test_terminus_action_endpoint_verifies_composite_json_predicates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "metrics.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {"score": 0.91, "count": 7},
+                        "animals": [{"name": "cat", "diet": "mice at night"}],
+                        "tags": ["night-hunter", "feline-companion"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api_composite_predicates"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/metrics.json",
+                            "expected_json_predicates": [
+                                {"path": "$.metrics.score", "op": "between", "value": {"min": 0.9, "max": 1.0}},
+                                {"path": "$.animals[0].diet", "op": "startswith", "value": "mice"},
+                                {"path": "$.tags", "op": "any_contains", "value": "hunter"},
+                            ],
+                            "query_text": "cat metrics night",
+                            "predicted_outcome": "I expect the JSON endpoint to satisfy composite predicate checks.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["inputs"]["expected_json_predicates"][0]["op"], "between")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertTrue(any(item.get("predicate_op") == "between" for item in action_body["result"]["verification"]["evidence"]))
+            self.assertTrue(any(item.get("predicate_op") == "any_contains" for item in action_body["result"]["verification"]["evidence"]))
+
+    def test_terminus_action_endpoint_verifies_logical_predicate_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "logic.json").write_text(
+                json.dumps(
+                    {
+                        "metrics": {"score": 0.91},
+                        "animals": [{"diet": "mice at night"}],
+                        "traits": {"primary": "night-hunter", "secondary": "feline-companion"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api_logical_groups"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/logic.json",
+                            "expected_json_predicates": [
+                                {"path": "$.traits", "op": "all_regex", "value": "^[a-z-]+$"},
+                                {"path": "$.traits", "op": "any_contains", "value": "hunter"},
+                            ],
+                            "expected_json_predicate_groups": [
+                                {
+                                    "logic": "any",
+                                    "predicates": [
+                                        {"path": "$.metrics.score", "op": "lt", "value": 0.5},
+                                        {"path": "$.animals[0].diet", "op": "contains", "value": "night"},
+                                    ],
+                                }
+                            ],
+                            "query_text": "logic night",
+                            "predicted_outcome": "I expect the JSON endpoint to satisfy logical predicate groups and object quantifiers.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertEqual(action_body["result"]["inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in action_body["result"]["verification"]["evidence"]))
+            self.assertTrue(any(item.get("predicate_op") == "all_regex" for item in action_body["result"]["verification"]["evidence"]))
+
+    def test_terminus_action_endpoint_verifies_wildcard_and_nested_group_assertions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "wild.json").write_text(
+                json.dumps(
+                    {
+                        "animals": [
+                            {"name": "cat", "diet": "mice at night", "traits": ["hunter", "feline"]},
+                            {"name": "owl", "diet": "mice at dawn", "traits": ["bird", "night"]},
+                        ],
+                        "groups": {"predators": [{"name": "cat"}, {"name": "owl"}]},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_terminus_action_api_wildcard_nested_groups"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    action_response = client.post(
+                        "/terminus/action",
+                        json={
+                            "action_type": "api_request",
+                            "url": f"http://127.0.0.1:{port}/wild.json",
+                            "expected_json_paths": ["$.animals[*].diet"],
+                            "expected_json_values": {"$.animals[*].name": "owl"},
+                            "expected_json_predicate_groups": [
+                                {
+                                    "logic": "all",
+                                    "groups": [
+                                        {
+                                            "logic": "any",
+                                            "predicates": [
+                                                {"path": "$.animals[*].diet", "op": "contains", "value": "night"},
+                                                {"path": "$.animals[*].diet", "op": "contains", "value": "reptile"},
+                                            ],
+                                        },
+                                        {
+                                            "logic": "none",
+                                            "predicates": [
+                                                {"path": "$.animals[*].traits[*]", "op": "contains", "value": "reptile"},
+                                            ],
+                                        },
+                                    ],
+                                }
+                            ],
+                            "query_text": "wild json nested",
+                            "predicted_outcome": "I expect wildcard JSON checks and nested groups to pass on the maintained path.",
+                        },
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(action_response.status_code, 200)
+            action_body = action_response.json()
+            self.assertTrue(action_body["accepted"])
+            self.assertEqual(action_body["result"]["action_type"], "api_request")
+            self.assertTrue(any(item.get("asserted_json_path") == "$.animals[*].diet" for item in action_body["result"]["verification"]["evidence"]))
+            self.assertEqual(action_body["result"]["inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
+            self.assertEqual(action_body["result"]["verification"]["status"], "verified")
+            self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in action_body["result"]["verification"]["evidence"]))
+
+    def test_terminus_cortex_sleep_endpoint_requests_sleep_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            from hecsn.cortex.core import MockCortex
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
+
+            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env",
+                return_value=SimpleEmbedder(),
+            ):
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_cortex_sleep"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+            manager = app.state.hecsn_manager
+            manager._thought_loop.sleep_dream_count = 1
+            manager._thought_loop.start()
+            try:
+                with TestClient(app) as client:
+                    sleep_response = client.post(
+                        "/terminus/cortex/sleep",
+                        json={"reason": "Operator requested a consolidation cycle."},
+                    )
+
+                    deadline = time.time() + 2.0
+                    cortex_snapshot = {}
+                    terminus_runtime = {}
+                    while time.time() < deadline:
+                        cortex_snapshot = client.get("/terminus/cortex").json()
+                        terminus_runtime = client.get("/terminus").json()["terminus_runtime"]
+                        if cortex_snapshot.get("sleep_control", {}).get("requested_cycles_completed", 0) >= 1:
+                            break
+                        time.sleep(0.02)
+
+                self.assertEqual(sleep_response.status_code, 200)
+                sleep_body = sleep_response.json()
+                self.assertTrue(sleep_body["accepted"])
+                self.assertEqual(sleep_body["request"]["source"], "operator")
+                self.assertEqual(cortex_snapshot.get("sleep_control", {}).get("last_cycle", {}).get("trigger"), "requested")
+                self.assertTrue(any(event.get("type") == "cortex_sleep_requested" for event in terminus_runtime.get("recent_events", [])))
+                self.assertTrue(any(event.get("type") == "cortex_sleep_completed" for event in terminus_runtime.get("recent_events", [])))
+            finally:
+                manager.close()
+
+    def test_respond_endpoint_auto_executes_workspace_action_for_gap_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            (root / "page.html").write_text(
+                "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
+                encoding="utf-8",
+            )
+            (root / "data.json").write_text(
+                '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
+                encoding="utf-8",
+            )
+            port = _free_port()
+            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                app = create_app(
+                    _build_checkpoint(root, test_case="service_api_respond_auto_action"),
+                    trace_dir=root / "traces",
+                    env_root=root,
+                )
+                with TestClient(app) as client:
+                    respond_response = client.post(
+                        "/respond",
+                        json={
+                            "query_text": "What do cats chase at night?",
+                            "max_evidence_items": 3,
+                            "learn_mode": "none",
+                        },
+                    )
+                    read_response = client.post(
+                        "/respond",
+                        json={
+                            "query_text": "What does notes.md say cats chase at night?",
+                            "max_evidence_items": 3,
+                            "learn_mode": "none",
+                        },
+                    )
+                    fetch_response = client.post(
+                        "/respond",
+                        json={
+                            "query_text": f"What does http://127.0.0.1:{port}/page.html say cats chase at night?",
+                            "max_evidence_items": 3,
+                            "learn_mode": "none",
+                        },
+                    )
+                    api_response = client.post(
+                        "/respond",
+                        json={
+                            "query_text": f"What does http://127.0.0.1:{port}/data.json say cats chase at night?",
+                            "max_evidence_items": 3,
+                            "learn_mode": "none",
+                        },
+                    )
+                    actions_response = client.get("/terminus/actions")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2.0)
+
+            self.assertEqual(respond_response.status_code, 200)
+            self.assertEqual(read_response.status_code, 200)
+            self.assertEqual(fetch_response.status_code, 200)
+            self.assertEqual(api_response.status_code, 200)
+            self.assertEqual(actions_response.status_code, 200)
+            body = respond_response.json()
+            read_body = read_response.json()
+            fetch_body = fetch_response.json()
+            api_body = api_response.json()
+            actions = actions_response.json()
+            self.assertEqual(body["query_result"]["action_assist"]["reason"], "query_gap_auto_search")
+            self.assertTrue(body["query_result"]["action_assist"]["executed"])
+            self.assertIn("cats chase mice at night", body["response"]["response_text"].lower())
+            self.assertEqual(read_body["query_result"]["action_assist"]["reason"], "query_gap_auto_read")
+            self.assertEqual(read_body["query_result"]["action_assist"]["result"]["action_type"], "workspace_read")
+            self.assertIn("cats chase mice at night", read_body["response"]["response_text"].lower())
+            self.assertEqual(fetch_body["query_result"]["action_assist"]["reason"], "query_gap_auto_fetch")
+            self.assertEqual(fetch_body["query_result"]["action_assist"]["result"]["action_type"], "web_fetch")
+            self.assertIn("cats chase mice at night", fetch_body["response"]["response_text"].lower())
+            self.assertEqual(api_body["query_result"]["action_assist"]["reason"], "query_gap_auto_api_request")
+            self.assertEqual(api_body["query_result"]["action_assist"]["result"]["action_type"], "api_request")
+            self.assertIn("mice at night", api_body["response"]["response_text"].lower())
+            self.assertEqual(actions["count"], 4)
+            self.assertIn(actions["actions"][0]["trigger_reason"], {"query_gap_auto_api_request", "query_gap_auto_fetch", "query_gap_auto_read", "query_gap_auto_search"})
+
+    def test_terminus_tick_endpoint_rejects_when_runtime_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "terminus_source.txt"
+            source_path.write_text("runtime ownership safety signal " * 32, encoding="utf-8")
+            app = create_app(_build_checkpoint(root, test_case="service_api_terminus_tick_running"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                configure_response = client.post(
+                    "/terminus/configure",
+                    json={
+                        "source_bank": [
+                            {
+                                "name": "api_terminus_source",
+                                "source": str(source_path),
+                                "source_type": "file",
+                            }
+                        ],
+                        "tick_tokens": 20,
+                        "sleep_interval_seconds": 0.01,
+                        "repeat_sources": True,
+                    },
+                )
+                start_response = client.post("/terminus/start")
+                tick_response = client.post("/terminus/tick", json={"steps": 1})
+                stop_response = client.post("/terminus/stop")
+
+            self.assertEqual(configure_response.status_code, 200)
+            self.assertEqual(start_response.status_code, 200)
+            self.assertEqual(tick_response.status_code, 422)
+            self.assertIn("background runtime is active", tick_response.json()["detail"])
+            self.assertEqual(stop_response.status_code, 200)
 
     def test_terminus_tick_then_respond_returns_grounded_synthesis(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1402,6 +2193,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     self.assertFalse(data.get("already_running", False))
                     self.assertEqual(data.get("preset_applied"), "curriculum")
                     self.assertEqual(data["terminus_runtime"]["source_count"], 3)
+                    self.assertLessEqual(data["terminus_runtime"]["tick_tokens"], 64)
+                    self.assertTrue(data["terminus_runtime"]["autonomy"]["enabled"])
+                    self.assertEqual(data["terminus_runtime"]["autonomy"]["candidate_bank"][0]["catalog_mode"], "semantic_registry")
+                    self.assertNotIn("curriculum", data["terminus_runtime"])
                     stop_resp = client.post("/terminus/stop")
                     self.assertEqual(stop_resp.status_code, 200)
 
@@ -1420,7 +2215,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertIn("s2orc_arxiv_abstracts", names)
             self.assertIn("science_figures", names)
             self.assertIn("environmental_audio", names)
-            self.assertIn("nim_curriculum", names)
+            self.assertNotIn("nim_curriculum", names)
             self.assertNotIn("N-MNIST", names)
             self.assertNotIn("FSDD", names)
             self.assertIn("huggingface", data)

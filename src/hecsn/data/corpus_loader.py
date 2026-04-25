@@ -6,13 +6,16 @@ import os
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
+from queue import Empty, Full, Queue
 import re
-from typing import Any, Iterator, Literal, Mapping, Optional, Sequence
-from urllib.parse import urlparse
+from threading import Event, Thread
+from typing import Any, Generic, Iterator, Literal, Mapping, Optional, Sequence, TypeVar, cast
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
 SourceType = Literal["auto", "file", "hf", "web"]
+_StreamItemT = TypeVar("_StreamItemT")
 _HF_TOKEN_ENV_NAMES: tuple[str, ...] = (
     "HF_TOKEN",
     "HUGGINGFACE_HUB_TOKEN",
@@ -80,6 +83,55 @@ def huggingface_token_from_env() -> str | None:
         if value:
             return value
     return None
+
+
+def project_dataset_columns(dataset: Any, columns: Sequence[str] | None) -> Any:
+    requested = [str(column).strip() for column in list(columns or []) if str(column).strip()]
+    if not requested:
+        return dataset
+    select_columns = getattr(dataset, "select_columns", None)
+    if callable(select_columns):
+        try:
+            return select_columns(requested)
+        except Exception:
+            return dataset
+    return dataset
+
+
+def load_hf_first_rows(
+    source: str,
+    *,
+    hf_config: str | None = None,
+    split: str = "train",
+    columns: Sequence[str] | None = None,
+    max_rows: int = 10,
+    timeout_seconds: float = 20.0,
+) -> list[dict[str, Any]]:
+    query = {
+        "dataset": str(source),
+        "split": str(split or "train"),
+    }
+    if hf_config not in (None, "", "None"):
+        query["config"] = str(hf_config)
+    url = "https://datasets-server.huggingface.co/first-rows?" + urlencode(query)
+    headers = {
+        "User-Agent": "HECSN/1.0 (+https://github.com/) hf-first-rows-loader",
+        "Accept": "application/json",
+    }
+    token = huggingface_token_from_env()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = Request(url, headers=headers)
+    with urlopen(request, timeout=float(timeout_seconds)) as response:
+        payload = json.load(response)
+    requested = [str(column).strip() for column in list(columns or []) if str(column).strip()]
+    rows: list[dict[str, Any]] = []
+    for item in list(payload.get("rows") or [])[: max(1, int(max_rows))]:
+        row = dict(item.get("row") or {})
+        if requested:
+            row = {key: row.get(key) for key in requested if key in row}
+        rows.append(row)
+    return rows
 
 
 def _normalize_plain_text(text: str, *, max_chars: int | None = None) -> str:
@@ -433,6 +485,90 @@ def extract_web_text(payload: str, *, content_type: str | None = None, max_chars
     return _normalize_plain_text(unescape(cleaned), max_chars=max_chars)
 
 
+class _StreamFailure:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+
+_STREAM_END = object()
+
+
+class BackgroundPrefetchIterator(Generic[_StreamItemT]):
+    """Prefetch iterator items on a daemon thread and expose timeout-aware reads.
+
+    This lets active runtime execution check whether a slow remote source has
+    produced an item yet without blocking the caller on a single upstream
+    `next(...)` call.
+    """
+
+    def __init__(
+        self,
+        iterator: Iterator[_StreamItemT],
+        *,
+        max_buffer: int = 1,
+        name: str = "stream",
+    ) -> None:
+        self._iterator = iter(iterator)
+        self._queue: Queue[object] = Queue(maxsize=max(1, int(max_buffer)))
+        self._stop_event = Event()
+        self._closed = False
+        self._thread = Thread(target=self._pump, name=f"hecsn-prefetch-{name}", daemon=True)
+        self._thread.start()
+
+    def __iter__(self) -> "BackgroundPrefetchIterator[_StreamItemT]":
+        return self
+
+    def __next__(self) -> _StreamItemT:
+        return self.next_ready(timeout=None)
+
+    def next_ready(self, timeout: float | None = None) -> _StreamItemT:
+        if self._closed and self._queue.empty():
+            raise StopIteration
+        try:
+            payload = self._queue.get() if timeout is None else self._queue.get(timeout=max(0.0, float(timeout)))
+        except Empty as exc:
+            raise TimeoutError("Background-prefetched stream has not produced an item yet.") from exc
+        if payload is _STREAM_END:
+            self._closed = True
+            raise StopIteration
+        if isinstance(payload, _StreamFailure):
+            self._closed = True
+            raise payload.error
+        return cast(_StreamItemT, payload)
+
+    def close(self) -> None:
+        self._closed = True
+        self._stop_event.set()
+        close = getattr(self._iterator, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    def _pump(self) -> None:
+        try:
+            while not self._stop_event.is_set():
+                item = next(self._iterator)
+                if self._stop_event.is_set():
+                    break
+                if not self._put_payload(item):
+                    return
+        except StopIteration:
+            self._put_payload(_STREAM_END)
+        except BaseException as exc:  # pragma: no cover - background guard
+            self._put_payload(_StreamFailure(exc))
+
+    def _put_payload(self, payload: object) -> bool:
+        while not self._stop_event.is_set():
+            try:
+                self._queue.put(payload, timeout=0.05)
+                return True
+            except Full:
+                continue
+        return False
+
+
 class StreamingCorpusLoader:
     """Streaming character loader for local files, HF datasets, and web pages.
 
@@ -510,6 +646,7 @@ class StreamingCorpusLoader:
                 ds = load_dataset(self.source, self.hf_config, **legacy_kwargs)
             else:
                 ds = load_dataset(self.source, **legacy_kwargs)
+        ds = project_dataset_columns(ds, [self.text_field])
         for row in ds:
             text = str(row.get(self.text_field, ""))
             for ch in text:

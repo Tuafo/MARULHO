@@ -23,7 +23,9 @@ import logging
 import re
 import threading
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
@@ -33,6 +35,7 @@ from hecsn.cortex.episodic_memory import Episode, EpisodicMemory, Provenance
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
 from hecsn.cortex.narrative_self import NarrativeSelf
 from hecsn.cortex.working_memory import WorkingMemory, WMItemType
+from hecsn.semantics.grounding_text import match_terms, query_focused_clauses, salient_query_terms
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +61,22 @@ class BrainStats:
     avg_novelty: float = 0.0  # Mean cosine distance between consecutive thought embeddings
     snn_alignment: float = 0.0  # Fraction of thought topics present in SNN concepts
     dream_verification_rate: float = 0.0  # Verified dreams / total dreams
+    grounded_query_alignment: float = 0.0  # Mean answer/evidence alignment for external queries
+    grounded_query_recovery_rate: float = 0.0  # Fraction of query answers recovered from evidence
+    grounded_query_count: int = 0
+    grounded_wakeful_alignment: float = 0.0  # Mean thought/evidence alignment for non-query wakeful thoughts
+    grounded_wakeful_recovery_rate: float = 0.0  # Fraction of wakeful grounded thoughts recovered from evidence
+    grounded_wakeful_count: int = 0
     _topic_counts: dict = field(default_factory=dict)
     _total_topics: int = 0
     _concrete_count: int = 0
     _snn_aligned_count: int = 0
     _dreams_verified: int = 0
     _dreams_total: int = 0
+    _grounded_query_alignment_total: float = 0.0
+    _grounded_query_recoveries: int = 0
+    _grounded_wakeful_alignment_total: float = 0.0
+    _grounded_wakeful_recoveries: int = 0
 
     @property
     def avg_inference_ms(self) -> float:
@@ -113,6 +126,66 @@ class BrainStats:
             self._snn_aligned_count += aligned
             total_topic_instances = max(1, self._total_topics)
             self.snn_alignment = self._snn_aligned_count / total_topic_instances
+
+    def update_grounding_metrics(self, diagnostics: "GroundingDiagnostics" | None) -> None:
+        """Update grounding metrics from a grounded query or wakeful thought."""
+        if diagnostics is None or diagnostics.grounded_evidence_count <= 0:
+            return
+        if diagnostics.kind == "query":
+            self.grounded_query_count += 1
+            self._grounded_query_alignment_total += float(diagnostics.alignment_score)
+            self.grounded_query_alignment = (
+                self._grounded_query_alignment_total / max(1, self.grounded_query_count)
+            )
+            if diagnostics.fallback_used:
+                self._grounded_query_recoveries += 1
+            self.grounded_query_recovery_rate = (
+                self._grounded_query_recoveries / max(1, self.grounded_query_count)
+            )
+            return
+
+        self.grounded_wakeful_count += 1
+        self._grounded_wakeful_alignment_total += float(diagnostics.alignment_score)
+        self.grounded_wakeful_alignment = (
+            self._grounded_wakeful_alignment_total / max(1, self.grounded_wakeful_count)
+        )
+        if diagnostics.fallback_used:
+            self._grounded_wakeful_recoveries += 1
+        self.grounded_wakeful_recovery_rate = (
+            self._grounded_wakeful_recoveries / max(1, self.grounded_wakeful_count)
+        )
+
+
+@dataclass(frozen=True)
+class GroundingDiagnostics:
+    """Grounding diagnostics for a grounded cortex output."""
+
+    kind: str
+    target: str
+    target_terms: tuple[str, ...] = ()
+    matched_target_terms: tuple[str, ...] = ()
+    evidence_supported_terms: tuple[str, ...] = ()
+    grounded_evidence_count: int = 0
+    response_coverage: float = 0.0
+    evidence_coverage: float = 0.0
+    evidence_alignment: float = 0.0
+    alignment_score: float = 0.0
+    fallback_used: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "target": self.target,
+            "target_terms": list(self.target_terms),
+            "matched_target_terms": list(self.matched_target_terms),
+            "evidence_supported_terms": list(self.evidence_supported_terms),
+            "grounded_evidence_count": int(self.grounded_evidence_count),
+            "response_coverage": float(self.response_coverage),
+            "evidence_coverage": float(self.evidence_coverage),
+            "evidence_alignment": float(self.evidence_alignment),
+            "alignment_score": float(self.alignment_score),
+            "fallback_used": bool(self.fallback_used),
+        }
 
 
 @dataclass
@@ -204,10 +277,12 @@ class ThoughtLoop:
         curiosity_controller: Any = None,
         signal_provider: Optional[Callable[[], dict[str, Any]]] = None,
         narrative_state_path: str | None = None,
+        drives: Optional[DriveSystem] = None,
+        on_sleep_summary: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> None:
         self.cortex = cortex
         self.memory = memory if memory is not None else EpisodicMemory()
-        self.drives = DriveSystem()
+        self.drives = drives if drives is not None else DriveSystem()
         self.gate = ThalamicGate(self.memory, self.drives)
         self.working_memory = WorkingMemory(capacity=5, decay_rate=0.02)  # Slow decay: ~50 cycles to evict
         self.narrative_self = NarrativeSelf(persistence_path=narrative_state_path)
@@ -227,6 +302,7 @@ class ThoughtLoop:
         # Callbacks
         self._on_thought = on_thought
         self._on_sleep = on_sleep
+        self._on_sleep_summary = on_sleep_summary
 
         # State
         self.stats = BrainStats()
@@ -245,6 +321,13 @@ class ThoughtLoop:
         self._last_depth = ThoughtDepth.QUICK.value
         self._exploration_state = ExplorationState()
         self._pending_wake_tensions: list[dict[str, Any]] = []
+        self._active_wake_tensions: list[dict[str, Any]] = []
+        self._last_deliberation_grounding: GroundingDiagnostics | None = None
+        self._pending_sleep_request: dict[str, Any] | None = None
+        self._last_sleep_request: dict[str, Any] | None = None
+        self._last_sleep_cycle_summary: dict[str, Any] | None = None
+        self._sleep_requests = 0
+        self._requested_sleep_cycles = 0
 
         # Thought history (bounded deque — append is CPython-atomic)
         from collections import deque
@@ -343,6 +426,25 @@ class ThoughtLoop:
                     "snn_alignment": round(s.snn_alignment, 3),
                     "dream_verification_rate": round(s.dream_verification_rate, 3),
                 },
+                "grounding": {
+                    "query_answers_evaluated": int(s.grounded_query_count),
+                    "mean_query_alignment": round(s.grounded_query_alignment, 3),
+                    "query_recovery_rate": round(s.grounded_query_recovery_rate, 3),
+                    "wakeful_thoughts_evaluated": int(s.grounded_wakeful_count),
+                    "mean_wakeful_alignment": round(s.grounded_wakeful_alignment, 3),
+                    "wakeful_recovery_rate": round(s.grounded_wakeful_recovery_rate, 3),
+                },
+                "gating": {
+                    "startup_quiet": bool(self.drives.startup_quiet),
+                    "pending_grounded_observations": int(self.drives.pending_grounded_observations),
+                    "pending_substrate_wakes": int(self.drives.pending_substrate_wakes),
+                    "active_tension_count": int(len(self._active_wake_tensions)),
+                    "substrate_hysteresis_active": bool(self.drives.substrate_hysteresis_active),
+                    "substrate_hysteresis_reason": self.drives.substrate_hysteresis_reason,
+                    "substrate_hysteresis_updates": int(self.drives.substrate_hysteresis_updates),
+                    "last_gate_reason": self.drives.last_gate_reason,
+                    "inhibition_reason": self.drives._inhibition_reason(),
+                },
                 "cognitive_signals": {
                     "prediction_error_mean": round(self._cognitive_signals.prediction_error_mean, 3),
                     "prediction_error_max": round(self._cognitive_signals.prediction_error_max, 3),
@@ -375,6 +477,8 @@ class ThoughtLoop:
                     "updated_at": self._exploration_state.updated_at,
                 },
                 "pending_wake_tensions": list(self._pending_wake_tensions),
+                "active_wake_tensions": list(self._active_wake_tensions),
+                "sleep_control": self._sleep_control_snapshot_locked(),
                 "recent_thoughts": list(self._thought_history),
                 "episodic_memory": self.memory.stats,
                 "working_memory": self.working_memory.snapshot(),
@@ -383,16 +487,105 @@ class ThoughtLoop:
 
     # -- External interface --
 
+    @staticmethod
+    def _normalize_sleep_control_text(value: Any, *, max_length: int = 240) -> str:
+        return " ".join(str(value).split()).strip()[:max(1, int(max_length))]
+
+    def _sleep_request_snapshot_locked(self, request: dict[str, Any] | None) -> dict[str, Any] | None:
+        if request is None:
+            return None
+        snapshot = deepcopy(request)
+        snapshot["coalesced_count"] = max(1, int(snapshot.get("coalesced_count", 1) or 1))
+        if not isinstance(snapshot.get("metadata"), dict):
+            snapshot["metadata"] = {}
+        return snapshot
+
+    def _sleep_control_snapshot_locked(self) -> dict[str, Any]:
+        return {
+            "requests_submitted": int(self._sleep_requests),
+            "requested_cycles_completed": int(self._requested_sleep_cycles),
+            "pending_request": self._sleep_request_snapshot_locked(self._pending_sleep_request),
+            "last_request": self._sleep_request_snapshot_locked(self._last_sleep_request),
+            "last_cycle": None if self._last_sleep_cycle_summary is None else deepcopy(self._last_sleep_cycle_summary),
+        }
+
+    def request_sleep(
+        self,
+        *,
+        source: str = "operator",
+        reason: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        normalized_source = self._normalize_sleep_control_text(source, max_length=64).lower() or "operator"
+        normalized_reason = self._normalize_sleep_control_text(reason)
+        normalized_metadata = deepcopy(metadata) if isinstance(metadata, dict) else {}
+        requested_at = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._sleep_requests += 1
+            existing = self._pending_sleep_request
+            if existing is not None:
+                existing["coalesced_count"] = max(1, int(existing.get("coalesced_count", 1) or 1)) + 1
+                if normalized_reason and not self._normalize_sleep_control_text(existing.get("reason", "")):
+                    existing["reason"] = normalized_reason
+                if normalized_metadata:
+                    merged_metadata = dict(existing.get("metadata") or {})
+                    for key, value in normalized_metadata.items():
+                        if str(key) == "control_id" and merged_metadata.get("control_id"):
+                            continue
+                        merged_metadata[str(key)] = deepcopy(value)
+                    existing["metadata"] = merged_metadata
+                snapshot = self._sleep_request_snapshot_locked(existing)
+                self._last_sleep_request = None if snapshot is None else deepcopy(snapshot)
+                return {
+                    "accepted": True,
+                    "coalesced": True,
+                    "running": bool(self._running),
+                    "request": snapshot,
+                    "sleep_control": self._sleep_control_snapshot_locked(),
+                }
+
+            request = {
+                "source": normalized_source,
+                "reason": normalized_reason,
+                "requested_at": requested_at,
+                "coalesced_count": 1,
+                "metadata": normalized_metadata,
+            }
+            self._pending_sleep_request = request
+            self._last_sleep_request = deepcopy(request)
+            return {
+                "accepted": True,
+                "coalesced": False,
+                "running": bool(self._running),
+                "request": self._sleep_request_snapshot_locked(request),
+                "sleep_control": self._sleep_control_snapshot_locked(),
+            }
+
     def submit_query(self, query: str) -> None:
         """Submit an external query — the brain will answer it."""
         with self._lock:
             self.gate.submit_query(query)
+
+    def _has_pending_query_locked(self) -> bool:
+        return self.gate.has_pending_query()
+
+    def _has_pending_grounded_observation_locked(self) -> bool:
+        return self.drives.has_pending_grounded_observation()
+
+    def _consume_pending_query(self) -> str:
+        with self._lock:
+            return self.gate.pop_query()
+
+    def _has_unresolved_tension(self) -> bool:
+        return bool(self._pending_wake_tensions) or bool(self._active_wake_tensions)
 
     def inject_observation(
         self,
         content: str,
         topics: Sequence[str] = (),
         salience: float = 0.7,
+        *,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Inject an external observation into memory."""
         with self._lock:
@@ -401,8 +594,43 @@ class ThoughtLoop:
                 provenance=Provenance.OBSERVED,
                 topics=topics,
                 salience=salience,
+                metadata=metadata,
             )
-            self.drives.update_from_external_input()
+            self.drives.update_from_grounded_observation()
+
+    def inject_action_result(
+        self,
+        content: str,
+        topics: Sequence[str] = (),
+        *,
+        success: bool,
+        confidence: float,
+        contradicted: bool = False,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Inject a verified or contradicted action outcome into memory."""
+        with self._lock:
+            provenance = Provenance.CONTRADICTED if contradicted else Provenance.VERIFIED
+            clipped_confidence = max(0.0, min(1.0, float(confidence)))
+            valence = 0.35 if success and not contradicted else -0.25
+            salience = 0.84 if success and not contradicted else 0.74
+            self.memory.store(
+                content=content,
+                provenance=provenance,
+                topics=topics,
+                salience=salience,
+                confidence=clipped_confidence,
+                emotional_valence=valence,
+                metadata=metadata,
+            )
+            self.working_memory.update_from_thought(
+                content,
+                tuple(topics),
+                clipped_confidence,
+                valence,
+                WMItemType.INSIGHT if success and not contradicted else WMItemType.TENSION,
+            )
+            self.drives.update_from_grounded_observation()
 
     def inject_surprise(
         self,
@@ -435,17 +663,52 @@ class ThoughtLoop:
         self.stats.ticks += 1
 
         now = time.time()
+        with self._lock:
+            query_pending = self._has_pending_query_locked()
+            grounded_pending = self._has_pending_grounded_observation_locked()
+            substrate_pending = self.drives.has_pending_substrate_wake()
+            sleep_request = None
+            if not query_pending and not grounded_pending and self._pending_sleep_request is not None:
+                sleep_request = self._sleep_request_snapshot_locked(self._pending_sleep_request)
+                self._pending_sleep_request = None
+        has_tension = self._has_unresolved_tension()
+        should_answer = self.drives.should_answer_now(query_pending=query_pending)
 
-        # Check sleep
-        if self.drives.should_sleep() and (now - self._last_sleep_time) > self.sleep_cooldown_s:
+        # External queries and fresh grounded observations are wake events and
+        # take priority over passive sleep entry. Explicit sleep requests use
+        # the same sleep-cycle implementation but bypass fatigue/cooldown gating.
+        if sleep_request is not None:
+            dreams = self._sleep_cycle(trigger=sleep_request)
+            if self._on_sleep:
+                self._on_sleep(dreams)
+            if self._on_sleep_summary and self._last_sleep_cycle_summary is not None:
+                self._on_sleep_summary(deepcopy(self._last_sleep_cycle_summary))
+            return None
+        if (
+            not query_pending
+            and not grounded_pending
+            and self.drives.should_sleep()
+            and (now - self._last_sleep_time) > self.sleep_cooldown_s
+        ):
             dreams = self._sleep_cycle()
             if self._on_sleep:
                 self._on_sleep(dreams)
+            if self._on_sleep_summary and self._last_sleep_cycle_summary is not None:
+                self._on_sleep_summary(deepcopy(self._last_sleep_cycle_summary))
             return None
 
-        # Check deliberation
-        interval_ok = force or (now - self._last_thought_time) > self._effective_thought_interval()
-        if self.drives.should_think() and interval_ok:
+        interval_ok = (
+            force
+            or should_answer
+            or grounded_pending
+            or substrate_pending
+            or (now - self._last_thought_time) > self._effective_thought_interval()
+        )
+        should_think = should_answer or self.drives.should_think(
+            grounded_observation_pending=grounded_pending,
+            has_tension=has_tension,
+        )
+        if should_think and interval_ok:
             return self._deliberate()
 
         return None
@@ -478,15 +741,41 @@ class ThoughtLoop:
                     self.drives.tick()
                     self.stats.ticks += 1
                     now = time.time()
+                    query_pending = self._has_pending_query_locked()
+                    grounded_pending = self._has_pending_grounded_observation_locked()
+                    substrate_pending = self.drives.has_pending_substrate_wake()
+                    should_answer = self.drives.should_answer_now(query_pending=query_pending)
+                    has_tension = bool(self._pending_wake_tensions) or bool(self._active_wake_tensions)
+                    sleep_request = None
+                    if not query_pending and not grounded_pending and self._pending_sleep_request is not None:
+                        sleep_request = self._sleep_request_snapshot_locked(self._pending_sleep_request)
+                        self._pending_sleep_request = None
 
                     should_sleep = (
-                        self.drives.should_sleep()
-                        and (now - self._last_sleep_time) > self.sleep_cooldown_s
+                        sleep_request is not None
+                        or (
+                            not query_pending
+                            and not grounded_pending
+                            and self.drives.should_sleep()
+                            and (now - self._last_sleep_time) > self.sleep_cooldown_s
+                        )
+                    )
+                    interval_ok = (
+                        should_answer
+                        or grounded_pending
+                        or substrate_pending
+                        or (now - self._last_thought_time) > self._effective_thought_interval()
                     )
                     should_think = (
                         not should_sleep
-                        and self.drives.should_think()
-                        and (now - self._last_thought_time) > self._effective_thought_interval()
+                        and interval_ok
+                        and (
+                            should_answer
+                            or self.drives.should_think(
+                                grounded_observation_pending=grounded_pending,
+                                has_tension=has_tension,
+                            )
+                        )
                     )
 
                 # --- slow operations (outside lock) ---
@@ -494,12 +783,14 @@ class ThoughtLoop:
                     with self._lock:
                         self.stats.current_mode = "sleeping"
                         self.stats.is_sleeping = True
-                    dreams = self._sleep_cycle()
+                    dreams = self._sleep_cycle(trigger=sleep_request)
                     with self._lock:
                         self.stats.is_sleeping = False
                         self.stats.current_mode = "idle"
                     if self._on_sleep and dreams:
                         self._on_sleep(dreams)
+                    if self._on_sleep_summary and self._last_sleep_cycle_summary is not None:
+                        self._on_sleep_summary(deepcopy(self._last_sleep_cycle_summary))
                 elif should_think:
                     with self._lock:
                         self.stats.current_mode = "thinking"
@@ -784,7 +1075,7 @@ class ThoughtLoop:
                 min_quality=0.25,
             )
 
-        for item in self._pending_wake_tensions[:2]:
+        for item in [*self._active_wake_tensions[:2], *self._pending_wake_tensions[:2]]:
             topics = item.get("topics", [])
             target = self._candidate_target_text(topics[0] if topics else "", str(item.get("content", "")))
             add_candidate(
@@ -906,21 +1197,35 @@ class ThoughtLoop:
         topics: Sequence[str] = (),
         *,
         salience: float = 0.7,
+        continuation_cycles: int = 2,
     ) -> None:
         """Queue an unresolved contradiction to be revisited after sleep."""
         item = {
             "content": text[:220],
             "topics": list(topics[:4]),
             "salience": max(0.1, min(1.0, float(salience))),
+            "remaining_cycles": max(1, int(continuation_cycles)),
         }
+        self.drives.update_from_unresolved_tension()
         self._pending_wake_tensions.append(item)
         self._pending_wake_tensions = self._pending_wake_tensions[-4:]
 
     def _inject_pending_wake_tensions(self) -> None:
-        """Hydrate queued sleep contradictions into working memory."""
-        if not self._pending_wake_tensions:
+        """Hydrate queued sleep contradictions into working memory.
+
+        Unresolved tensions persist for a bounded number of deliberation cycles
+        so continuation stays tied to explicit unresolved state rather than a
+        single one-shot wake event.
+        """
+        if self._pending_wake_tensions:
+            self._active_wake_tensions.extend(self._pending_wake_tensions)
+            self._active_wake_tensions = self._active_wake_tensions[-4:]
+            self._pending_wake_tensions.clear()
+        if not self._active_wake_tensions:
             return
-        for item in self._pending_wake_tensions[:2]:
+
+        next_active: list[dict[str, Any]] = []
+        for item in self._active_wake_tensions[:2]:
             topics = tuple(str(t) for t in item.get("topics", []) if t)
             self.working_memory.update_from_thought(
                 str(item.get("content", "")),
@@ -929,11 +1234,17 @@ class ThoughtLoop:
                 emotional_valence=-0.2,
                 item_type=WMItemType.TENSION,
             )
-        self._pending_wake_tensions.clear()
+        for item in self._active_wake_tensions:
+            remaining = int(item.get("remaining_cycles", 1)) - 1
+            if remaining > 0:
+                next_item = dict(item)
+                next_item["remaining_cycles"] = remaining
+                next_active.append(next_item)
+        self._active_wake_tensions = next_active[-4:]
 
     # -- Depth selection (System 1 / System 2) --
 
-    def _choose_depth(self) -> ThoughtDepth:
+    def _choose_depth(self, *, query_pending: bool | None = None) -> ThoughtDepth:
         """Choose System-1 vs System-2 depth from real SNN-side signals.
 
         Depth is now driven by predictive-processing style triggers rather than
@@ -947,7 +1258,9 @@ class ThoughtLoop:
         """
         signals = self._refresh_cognitive_signals()
         now = time.time()
-        query_pending = bool(getattr(self.gate, "_query_queue", None))
+        if query_pending is None:
+            with self._lock:
+                query_pending = self._has_pending_query_locked()
         tension = self.working_memory.has_tension()
         question = self.working_memory.has_question()
 
@@ -1037,17 +1350,29 @@ class ThoughtLoop:
         # (observe→question→reason→synthesize) but resets between chains.
         self.working_memory.clear()
         self._inject_pending_wake_tensions()
-        depth = self._choose_depth()
+        query_text = self._consume_pending_query()
+        if not query_text:
+            grounded_consumed = self.drives.consume_grounded_observation()
+            if not grounded_consumed:
+                self.drives.consume_substrate_wake()
+        depth = self._choose_depth(query_pending=bool(query_text))
 
-        if depth == ThoughtDepth.QUICK:
+        grounding: GroundingDiagnostics | None = None
+        self._last_deliberation_grounding = None
+        if query_text:
+            result, grounding = self._deliberate_external_query(query_text, depth)
+        elif depth == ThoughtDepth.QUICK:
             result = self._deliberate_quick()
+            grounding = self._last_deliberation_grounding
         elif depth == ThoughtDepth.STANDARD:
             result = self._deliberate_standard()
+            grounding = self._last_deliberation_grounding
         else:
             result = self._deliberate_deep()
+            grounding = self._last_deliberation_grounding
 
         # Post-process the final result (same for all depths)
-        self._post_process_thought(result, depth)
+        self._post_process_thought(result, depth, grounding=grounding)
         return result
 
     def _set_temperature(self) -> float | None:
@@ -1062,6 +1387,173 @@ class ThoughtLoop:
         if old_temp is not None:
             self.cortex.temperature = old_temp
 
+    @staticmethod
+    def _coverage_ratio(expected_terms: Sequence[str], matched_terms: Sequence[str]) -> float:
+        expected = {str(term).strip().lower() for term in expected_terms if str(term).strip()}
+        if not expected:
+            return 0.0
+        matched = {str(term).strip().lower() for term in matched_terms if str(term).strip()}
+        return min(1.0, float(len(expected & matched)) / float(len(expected)))
+
+    def _grounding_diagnostics(
+        self,
+        *,
+        kind: str,
+        target_text: str,
+        response_text: str,
+        packet: ContextPacket,
+        fallback_used: bool = False,
+    ) -> GroundingDiagnostics:
+        target = " ".join(str(target_text).split()).strip()
+        target_terms = tuple(salient_query_terms(target)[:8]) if target else ()
+        evidence_texts = [str(item.text).strip() for item in packet.grounded_evidence if str(item.text).strip()]
+        evidence_text = " ".join(evidence_texts).strip()
+        matched_target_terms = tuple(match_terms(target_terms, response_text)) if target_terms else ()
+        evidence_supported_terms = tuple(match_terms(target_terms, evidence_text)) if target_terms and evidence_text else ()
+        response_coverage = self._coverage_ratio(target_terms, matched_target_terms)
+        evidence_coverage = self._coverage_ratio(target_terms, evidence_supported_terms)
+        response_terms = tuple(salient_query_terms(response_text)[:12])
+        supported_response_terms = tuple(match_terms(response_terms, evidence_text)) if response_terms and evidence_text else ()
+        evidence_alignment = max(
+            self._coverage_ratio(response_terms, supported_response_terms),
+            self._text_overlap(response_text, evidence_text),
+        ) if evidence_text else 0.0
+        alignment_score = (
+            0.55 * response_coverage + 0.45 * evidence_alignment
+            if target_terms else evidence_alignment
+        ) if evidence_texts else 0.0
+        return GroundingDiagnostics(
+            kind=kind,
+            target=target,
+            target_terms=target_terms,
+            matched_target_terms=matched_target_terms,
+            evidence_supported_terms=evidence_supported_terms,
+            grounded_evidence_count=len(evidence_texts),
+            response_coverage=max(0.0, min(1.0, float(response_coverage))),
+            evidence_coverage=max(0.0, min(1.0, float(evidence_coverage))),
+            evidence_alignment=max(0.0, min(1.0, float(evidence_alignment))),
+            alignment_score=max(0.0, min(1.0, float(alignment_score))),
+            fallback_used=fallback_used,
+        )
+
+    def _build_grounded_fallback(self, *, target_text: str, packet: ContextPacket) -> str:
+        target_terms = tuple(salient_query_terms(target_text)[:8]) if str(target_text).strip() else ()
+        selected: list[str] = []
+        covered_terms: set[str] = set()
+
+        for item in packet.grounded_evidence:
+            evidence_text = str(item.text).strip()
+            if not evidence_text:
+                continue
+            clauses = query_focused_clauses(evidence_text, target_terms) if target_terms else [evidence_text]
+            if not clauses:
+                clauses = [evidence_text]
+            for clause in clauses:
+                normalized = " ".join(str(clause).split()).strip()
+                if not normalized:
+                    continue
+                matched = {
+                    str(term).strip().lower()
+                    for term in match_terms(target_terms, normalized)
+                    if str(term).strip()
+                } if target_terms else set()
+                if target_terms and not matched:
+                    continue
+                adds_new_terms = bool(matched - covered_terms)
+                if selected and target_terms and not adds_new_terms:
+                    continue
+                if any(self._text_overlap(normalized, existing) >= 0.78 for existing in selected):
+                    continue
+                selected.append(normalized)
+                covered_terms.update(matched)
+                if len(selected) >= 2 or (target_terms and len(covered_terms) >= len(target_terms)):
+                    break
+            if len(selected) >= 2 or (target_terms and len(covered_terms) >= len(target_terms)):
+                break
+
+        if not selected:
+            return ""
+
+        fallback = self._dedupe_sentences(" ".join(selected).strip())
+        if fallback and fallback[-1] not in ".!?":
+            fallback = f"{fallback}."
+        if len(fallback) > 320:
+            clipped = fallback[:320].rstrip()
+            fallback = clipped.rsplit(" ", 1)[0].rstrip(" ,;:") + "..."
+        return fallback
+
+    def _stabilize_grounded_result(
+        self,
+        *,
+        kind: str,
+        target_text: str,
+        packet: ContextPacket,
+        result: ThoughtResult,
+        threshold: float,
+        allow_recovery: bool = True,
+    ) -> tuple[ThoughtResult, GroundingDiagnostics | None]:
+        diagnostics = self._grounding_diagnostics(
+            kind=kind,
+            target_text=target_text,
+            response_text=result.thought,
+            packet=packet,
+        )
+        if diagnostics.grounded_evidence_count <= 0:
+            return result, diagnostics
+        if diagnostics.alignment_score >= threshold or not allow_recovery:
+            return result, diagnostics
+
+        fallback_text = self._build_grounded_fallback(target_text=target_text, packet=packet)
+        if not fallback_text:
+            return result, diagnostics
+
+        recovered = ThoughtResult(
+            raw_text=result.raw_text,
+            thought=fallback_text,
+            topics=result.topics,
+            emotional_valence=result.emotional_valence,
+            confidence=max(result.confidence, 0.72 if kind == "query" else 0.68),
+            action_intent=result.action_intent,
+            latency_ms=result.latency_ms,
+            parse_success=result.parse_success,
+        )
+        recovered_diagnostics = self._grounding_diagnostics(
+            kind=kind,
+            target_text=target_text,
+            response_text=recovered.thought,
+            packet=packet,
+            fallback_used=True,
+        )
+        return recovered, recovered_diagnostics
+
+    def _deliberate_external_query(
+        self,
+        query_text: str,
+        depth: ThoughtDepth,
+    ) -> tuple[ThoughtResult, GroundingDiagnostics | None]:
+        """Answer an operator query directly."""
+        packet = self.gate.assemble(external_query=query_text)
+        if depth == ThoughtDepth.STANDARD:
+            packet.max_response_tokens = max(packet.max_response_tokens, 220)
+        elif depth == ThoughtDepth.DEEP:
+            packet.max_response_tokens = max(packet.max_response_tokens, 280)
+        old_temp = self._set_temperature()
+        result = self.cortex.generate(packet)
+        self._restore_temperature(old_temp)
+        result, diagnostics = self._stabilize_grounded_result(
+            kind="query",
+            target_text=query_text,
+            packet=packet,
+            result=result,
+            threshold=0.40,
+            allow_recovery=True,
+        )
+        self.working_memory.update_from_thought(
+            result.thought, result.topics, result.confidence,
+            result.emotional_valence, WMItemType.INSIGHT,
+        )
+        return result, diagnostics
+
     def _deliberate_quick(self) -> ThoughtResult:
         """System 1: single LLM call — fast pattern matching."""
         packet = self.gate.assemble()
@@ -1071,6 +1563,17 @@ class ThoughtLoop:
         self._restore_temperature(old_temp)
         if consumed_exploration:
             self._clear_active_exploration_target()
+        result, diagnostics = self._stabilize_grounded_result(
+            kind="wakeful",
+            target_text=packet.forced_topic,
+            packet=packet,
+            result=result,
+            threshold=0.40,
+            allow_recovery=True,
+        )
+        self._last_deliberation_grounding = (
+            diagnostics if diagnostics is not None and diagnostics.grounded_evidence_count > 0 else None
+        )
 
         # Update working memory with the observation
         self.working_memory.update_from_thought(
@@ -1084,19 +1587,27 @@ class ThoughtLoop:
         old_temp = self._set_temperature()
 
         # Phase 1: OBSERVE
-        packet = self.gate.assemble(phase="observe")
-        consumed_exploration = bool(self._exploration_state.target and packet.forced_topic == self._exploration_state.target)
-        observation = self.cortex.generate(packet)
+        observe_packet = self.gate.assemble(phase="observe")
+        consumed_exploration = bool(self._exploration_state.target and observe_packet.forced_topic == self._exploration_state.target)
+        observation = self.cortex.generate(observe_packet)
         if consumed_exploration:
             self._clear_active_exploration_target()
+        observation, observation_grounding = self._stabilize_grounded_result(
+            kind="wakeful",
+            target_text=observe_packet.forced_topic,
+            packet=observe_packet,
+            result=observation,
+            threshold=0.40,
+            allow_recovery=True,
+        )
         self.working_memory.update_from_thought(
             observation.thought, observation.topics, observation.confidence,
             observation.emotional_valence, WMItemType.OBSERVATION,
         )
 
         # Phase 2: QUESTION (sees observation in working memory)
-        packet = self.gate.assemble(phase="question")
-        question = self.cortex.generate(packet)
+        question_packet = self.gate.assemble(phase="question")
+        question = self.cortex.generate(question_packet)
         self.working_memory.update_from_thought(
             question.thought, question.topics, question.confidence,
             question.emotional_valence, WMItemType.QUESTION,
@@ -1104,18 +1615,27 @@ class ThoughtLoop:
 
         self._restore_temperature(old_temp)
 
-        # The question is the final output — it's richer than a bare observation
-        # but we synthesize both into the result
-        return self._merge_chain_results([observation, question])
+        final_result = self._merge_chain_results([observation, question])
+        _, final_grounding = self._stabilize_grounded_result(
+            kind="wakeful",
+            target_text=observe_packet.forced_topic,
+            packet=observe_packet,
+            result=final_result,
+            threshold=0.25,
+            allow_recovery=False,
+        )
+        chosen_grounding = final_grounding or observation_grounding
+        self._last_deliberation_grounding = (
+            chosen_grounding if chosen_grounding is not None and chosen_grounding.grounded_evidence_count > 0 else None
+        )
+        return final_result
 
     def _deliberate_deep(self) -> ThoughtResult:
-        """System 2 full: observe → question → reason → synthesize (4 calls).
-
-        Each phase builds on the previous through working memory.
-        If any phase fails (API error), return the best result so far.
-        """
+        """System 2 full: observe → question → reason → synthesize (4 calls)."""
         old_temp = self._set_temperature()
         chain: list[ThoughtResult] = []
+        observe_packet: ContextPacket | None = None
+        observe_grounding: GroundingDiagnostics | None = None
 
         phases = [
             ("observe", WMItemType.OBSERVATION),
@@ -1133,6 +1653,16 @@ class ThoughtLoop:
                     and packet.forced_topic == self._exploration_state.target
                 )
                 result = self.cortex.generate(packet)
+                if phase_name == "observe":
+                    observe_packet = packet
+                    result, observe_grounding = self._stabilize_grounded_result(
+                        kind="wakeful",
+                        target_text=packet.forced_topic,
+                        packet=packet,
+                        result=result,
+                        threshold=0.40,
+                        allow_recovery=True,
+                    )
                 if consumed_exploration:
                     self._clear_active_exploration_target()
                 chain.append(result)
@@ -1150,7 +1680,23 @@ class ThoughtLoop:
             # All phases failed — fall back to quick
             return self._deliberate_quick()
 
-        return self._merge_chain_results(chain)
+        final_result = self._merge_chain_results(chain)
+        if observe_packet is not None:
+            _, final_grounding = self._stabilize_grounded_result(
+                kind="wakeful",
+                target_text=observe_packet.forced_topic,
+                packet=observe_packet,
+                result=final_result,
+                threshold=0.25,
+                allow_recovery=False,
+            )
+        else:
+            final_grounding = None
+        chosen_grounding = final_grounding or observe_grounding
+        self._last_deliberation_grounding = (
+            chosen_grounding if chosen_grounding is not None and chosen_grounding.grounded_evidence_count > 0 else None
+        )
+        return final_result
 
     @staticmethod
     def _text_keywords(text: str) -> set[str]:
@@ -1291,7 +1837,13 @@ class ThoughtLoop:
             parse_success=final.parse_success,
         )
 
-    def _post_process_thought(self, result: ThoughtResult, depth: ThoughtDepth) -> None:
+    def _post_process_thought(
+        self,
+        result: ThoughtResult,
+        depth: ThoughtDepth,
+        *,
+        grounding: GroundingDiagnostics | None = None,
+    ) -> None:
         """Common post-processing after any deliberation depth."""
         now = time.time()
 
@@ -1299,7 +1851,7 @@ class ThoughtLoop:
         # it again. Still advance the pacing clock because the API call already
         # happened and we do not want duplicate generations to create burst loops.
         recent_texts = {h["thought"] for h in self._thought_history}
-        if result.thought in recent_texts:
+        if grounding is None and result.thought in recent_texts:
             self._last_thought_time = now
             logger.debug("Duplicate thought suppressed: %s", result.thought[:60])
             return
@@ -1334,6 +1886,14 @@ class ThoughtLoop:
         # Pick the next thing to actively explore from uncertainty/tension.
         self._update_active_exploration_target(result)
 
+        inferred_metadata = None
+        if grounding is not None:
+            inferred_metadata = {
+                "external_query": grounding.kind == "query",
+                "grounding": grounding.to_dict(),
+            }
+            self.stats.update_grounding_metrics(grounding)
+
         # Store as episodic memory (inferred)
         self.memory.store(
             content=result.thought,
@@ -1342,6 +1902,7 @@ class ThoughtLoop:
             emotional_valence=result.emotional_valence,
             confidence=result.confidence,
             salience=max(0.3, abs(result.emotional_valence) + 0.2 * result.confidence),
+            metadata=inferred_metadata,
         )
 
         # Update memory stats
@@ -1356,16 +1917,21 @@ class ThoughtLoop:
             result.thought[:80],
         )
 
-        # Append to history (deque.append is CPython-atomic)
-        self._thought_history.append({
+        history_item = {
             "thought": result.thought,
             "confidence": result.confidence,
             "emotional_valence": result.emotional_valence,
             "topics": list(result.topics),
+            "action_intent": result.action_intent,
             "latency_ms": round(result.latency_ms, 1),
             "time": self._last_thought_time,
             "depth": depth.value,
-        })
+        }
+        if grounding is not None:
+            history_item["grounding"] = grounding.to_dict()
+
+        # Append to history (deque.append is CPython-atomic)
+        self._thought_history.append(history_item)
 
         # Update thought quality metrics
         snn_labels = self.gate._snn_concept_labels if hasattr(self.gate, '_snn_concept_labels') else None
@@ -1545,12 +2111,14 @@ class ThoughtLoop:
             return "unresolved"
         return "unresolved"
 
-    def _sleep_cycle(self) -> list[ThoughtResult]:
+    def _sleep_cycle(self, trigger: dict[str, Any] | None = None) -> list[ThoughtResult]:
         """Run a sleep/dream cycle — compositional replay and hypothesis testing."""
         logger.info("Entering sleep cycle")
         self._last_sleep_time = time.time()
         self.stats.sleep_cycles += 1
         dreams: list[ThoughtResult] = []
+        trigger_snapshot = None if trigger is None else deepcopy(trigger)
+        fatigue_before = float(self.drives.state.fatigue)
 
         old_temp = getattr(self.cortex, "temperature", None)
         if old_temp is not None:
@@ -1650,6 +2218,20 @@ class ThoughtLoop:
         finally:
             if old_temp is not None:
                 self.cortex.temperature = old_temp
+
+        with self._lock:
+            if trigger_snapshot is not None:
+                self._requested_sleep_cycles += 1
+            self._last_sleep_cycle_summary = {
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "requested": trigger_snapshot is not None,
+                "trigger": "requested" if trigger_snapshot is not None else "passive",
+                "request": self._sleep_request_snapshot_locked(trigger_snapshot),
+                "dreams_generated": int(len(dreams)),
+                "sleep_cycles": int(self.stats.sleep_cycles),
+                "fatigue_before": float(fatigue_before),
+                "fatigue_after": float(self.drives.state.fatigue),
+            }
 
         logger.info("Sleep cycle complete: %d dreams generated", len(dreams))
         return dreams

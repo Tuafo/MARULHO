@@ -198,6 +198,10 @@ def memory_matches(
         consolidation_level = float(replay_entry.get("consolidation_level", 0.0))
         text = replay_entry.get("text") or store.slow_raw_windows[idx]
         raw_window = store.slow_raw_windows[idx]
+        replay_metadata = replay_entry.get("metadata") if isinstance(replay_entry.get("metadata"), Mapping) else {}
+        source_name = " ".join(str(replay_metadata.get("source_name", "")).split()).strip()
+        source_type = " ".join(str(replay_metadata.get("source_type", "")).split()).strip()
+        provider = " ".join(str(replay_metadata.get("provider", "")).split()).strip().lower()
         complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
         matched_query_terms = match_terms(query_terms or [], str(text or ""))
         query_overlap = len(matched_query_terms)
@@ -211,6 +215,10 @@ def memory_matches(
                 "bucket_id": None if store.slow_bucket_ids[idx] is None else int(store.slow_bucket_ids[idx]),
                 "raw_window": raw_window,
                 "text": text,
+                "metadata": dict(replay_metadata),
+                "source_name": source_name,
+                "source_type": source_type,
+                "provider": provider,
                 "age_tokens": int(max(0, trainer.token_count - int(store.slow_entry_timestamps[idx]))),
                 "importance": float(store.slow_importance[idx]),
                 "tag_strength": float(capture_tag),
@@ -366,6 +374,12 @@ def build_memory_episodes(
                     "complete_sentence": 0,
                     "clipped_overlap": 1,
                     "expansion_chars": 0,
+                    "metadata": dict(match.get("metadata") or {}),
+                    "source_name": " ".join(str(match.get("source_name", "")).split()).strip(),
+                    "source_type": " ".join(str(match.get("source_type", "")).split()).strip(),
+                    "provider": " ".join(str(match.get("provider", "")).split()).strip().lower(),
+                    "source_names": [],
+                    "providers": [],
                 }
                 grouped[key] = entry
                 order.append(key)
@@ -373,6 +387,12 @@ def build_memory_episodes(
             entry["similarity"] = max(float(entry["similarity"]), float(match.get("similarity", 0.0)))
             entry["importance"] = max(float(entry["importance"]), float(match.get("importance", 0.0)))
             entry["age_tokens"] = min(int(entry["age_tokens"]), int(match.get("age_tokens", 0)))
+            source_name = " ".join(str(match.get("source_name", "")).split()).strip()
+            if source_name and source_name not in entry["source_names"]:
+                entry["source_names"].append(source_name)
+            provider = " ".join(str(match.get("provider", "")).split()).strip().lower()
+            if provider and provider not in entry["providers"]:
+                entry["providers"].append(provider)
             complete_sentence, clipped_overlap = episode_quality(text, match.get("raw_window"))
             raw_window_text = str(match.get("raw_window") or "").strip()
             expansion_chars = max(0, len(text.strip()) - len(raw_window_text))
@@ -396,6 +416,10 @@ def build_memory_episodes(
                 entry["memory_index"] = memory_index
                 if match.get("raw_window"):
                     entry["raw_window"] = match.get("raw_window")
+                entry["metadata"] = dict(match.get("metadata") or {})
+                entry["source_name"] = source_name
+                entry["source_type"] = " ".join(str(match.get("source_type", "")).split()).strip()
+                entry["provider"] = provider
 
     episodes = [grouped[key] for key in order]
     episodes.sort(

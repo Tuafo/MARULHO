@@ -110,6 +110,7 @@ class TestContextPacket:
             self_state="calm",
             narrative_self="I've recently been exploring bridge stability.",
             working_memory_narrative="Considering bridges and balance.",
+            grounded_evidence=[MemoryItem(text="e1")],
             top_memories=[MemoryItem(text="m1")],
             external_query="q1",
         )
@@ -118,9 +119,10 @@ class TestContextPacket:
         state_pos = prompt.index("Internal State")
         narrative_pos = prompt.index("Ongoing Narrative")
         wm_pos = prompt.index("Working Memory")
-        mem_pos = prompt.index("Relevant Memories")
         query_pos = prompt.index("External Query")
-        assert drives_pos < state_pos < narrative_pos < wm_pos < mem_pos < query_pos
+        evidence_pos = prompt.index("Grounded Evidence")
+        mem_pos = prompt.index("Relevant Memories")
+        assert drives_pos < state_pos < narrative_pos < wm_pos < query_pos < evidence_pos < mem_pos
 
 
 # ---------------------------------------------------------------------------

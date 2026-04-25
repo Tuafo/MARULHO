@@ -3,12 +3,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()  # Load .env file (NVIDIA_API_KEY, etc.)
-except ImportError:
-    pass  # python-dotenv optional; user can set env vars directly
-
 import uvicorn
 
 from hecsn.service.api import create_app
@@ -35,6 +29,7 @@ def main() -> None:
         trace_history_limit=args.trace_history_limit,
         trace_dir=args.trace_dir,
         web_dist_dir=args.web_dist_dir,
+        env_root=Path.cwd(),
     )
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level, reload=args.reload)
 

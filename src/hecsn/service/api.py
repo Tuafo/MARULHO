@@ -13,11 +13,15 @@ from fastapi.staticfiles import StaticFiles
 
 from .manager import HECSNServiceManager
 from .schemas import (
+    ActionHistoryResponse,
     CheckpointActionResponse,
     CheckpointListResponse,
     CheckpointRecord,
     CheckpointRestoreRequest,
     CheckpointSaveRequest,
+    CortexSleepRequest,
+    DigitalActionRequest,
+    DigitalActionResponse,
     FeedRequest,
     FeedResponse,
     QueryRequest,
@@ -62,11 +66,13 @@ def create_app(
     trace_history_limit: int = 200,
     trace_dir: str | Path | None = None,
     web_dist_dir: str | Path | None = None,
+    env_root: str | Path | None = None,
 ) -> FastAPI:
     manager = HECSNServiceManager(
         checkpoint_path=checkpoint_path,
         trace_history_limit=trace_history_limit,
         trace_dir=trace_dir,
+        env_root=env_root,
     )
     app = FastAPI(
         title="HECSN Local Service",
@@ -169,8 +175,8 @@ def create_app(
                     sleep_interval_seconds=request.sleep_interval_seconds,
                     repeat_sources=request.repeat_sources,
                     autonomy=None if request.autonomy is None else _model_to_dict(request.autonomy),
-                    curriculum=None if request.curriculum is None else _model_to_dict(request.curriculum),
                     sensory=None if request.sensory is None else _model_to_dict(request.sensory),
+                    ingestion=None if request.ingestion is None else _model_to_dict(request.ingestion),
                 )
             )
         except ValueError as exc:
@@ -222,6 +228,22 @@ def create_app(
         """Full cortex snapshot (drives, memories, stats)."""
         return manager.cortex_snapshot()
 
+    @app.post("/terminus/cortex/sleep")
+    def terminus_cortex_sleep(request: CortexSleepRequest) -> dict[str, Any]:
+        """Request an explicit cortex sleep cycle on the maintained control path."""
+        return manager.cortex_sleep(reason=request.reason)
+
+    @app.get("/terminus/actions", response_model=ActionHistoryResponse)
+    def terminus_actions(limit: int = Query(20, ge=1, le=100)) -> ActionHistoryResponse:
+        return ActionHistoryResponse(**manager.action_history(limit=limit))
+
+    @app.post("/terminus/action", response_model=DigitalActionResponse)
+    def terminus_action(request: DigitalActionRequest) -> DigitalActionResponse:
+        try:
+            return DigitalActionResponse(**manager.execute_digital_action(_model_to_dict(request)))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/terminus/sensory/recent")
     def terminus_sensory_recent(limit: int = Query(6, ge=1, le=12)) -> dict[str, Any]:
         """Recent real sensory previews (images/audio) for the UI."""
@@ -271,16 +293,6 @@ def create_app(
     async def datasets():
         """List the data sources used by the current Terminus runtime."""
         result = current_runtime_datasets()
-        result.append(
-            {
-                "name": "nim_curriculum",
-                "type": "text+synthetic-multimodal",
-                "path": "nim://curriculum-generator",
-                "exists": True,
-                "file_count": None,
-                "description": "NIM-generated educational episodes with visual/audio hints used for targeted curriculum injection.",
-            }
-        )
         return {
             "datasets": result,
             "huggingface": {

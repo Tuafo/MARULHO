@@ -77,6 +77,7 @@ class ContextPacket:
     """
     drive_summary: str = ""
     top_memories: list[MemoryItem] = field(default_factory=list)
+    grounded_evidence: list[MemoryItem] = field(default_factory=list)
     self_state: str = ""
     mode: ThinkingMode = ThinkingMode.THINK
     external_query: str = ""
@@ -89,6 +90,7 @@ class ContextPacket:
 
     # Budget limits (token approximation: 1 token ~ 4 chars)
     MAX_MEMORIES: int = 8
+    MAX_GROUNDED_EVIDENCE: int = 4
     MAX_DRIVE_CHARS: int = 400
     MAX_STATE_CHARS: int = 200
     MAX_NARRATIVE_CHARS: int = 500
@@ -136,16 +138,23 @@ class ContextPacket:
         if self.working_memory_narrative:
             parts.append(f"## Working Memory\n{self.working_memory_narrative}")
 
+        if self.external_query:
+            query = self.external_query[:self.MAX_QUERY_CHARS]
+            parts.append(f"## External Query\n{query}")
+
+        if self.grounded_evidence:
+            evidence_lines = [
+                m.to_prompt_str()
+                for m in self.grounded_evidence[:self.MAX_GROUNDED_EVIDENCE]
+            ]
+            parts.append("## Grounded Evidence\n" + "\n".join(evidence_lines))
+
         if self.top_memories:
             mem_lines = [
                 m.to_prompt_str()
                 for m in self.top_memories[:self.MAX_MEMORIES]
             ]
             parts.append("## Relevant Memories\n" + "\n".join(mem_lines))
-
-        if self.external_query:
-            query = self.external_query[:self.MAX_QUERY_CHARS]
-            parts.append(f"## External Query\n{query}")
 
         return "\n\n".join(parts) if parts else "No context provided. Think freely."
 
