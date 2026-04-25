@@ -1198,9 +1198,17 @@ class AutonomySelectionTests(unittest.TestCase):
 
     def test_train_source_chunk_calls_runtime_step_callback(self) -> None:
         bank = make_chunk_bank("candidate")
-        trainer = SimpleNamespace(
-            train_step=lambda pattern, raw_window=None: {"winner": int(torch.sum(pattern).item())},
-        )
+        observed_metadata: list[dict[str, object] | None] = []
+
+        def fake_train_step(
+            pattern: torch.Tensor,
+            raw_window: str | None = None,
+            memory_metadata: dict[str, object] | None = None,
+        ) -> dict[str, int]:
+            observed_metadata.append(memory_metadata)
+            return {"winner": int(torch.sum(pattern).item())}
+
+        trainer = SimpleNamespace(train_step=fake_train_step)
         metrics_rows: list[dict[str, object]] = []
         observed_steps: list[tuple[str, int, str]] = []
 
@@ -1222,6 +1230,23 @@ class AutonomySelectionTests(unittest.TestCase):
             [
                 ("candidate-a", 1, "probe"),
                 ("candidate-b", 1, "probe"),
+            ],
+        )
+        self.assertEqual(
+            observed_metadata,
+            [
+                {
+                    "observation_kind": "source",
+                    "source_name": "candidate",
+                    "source_type": "test",
+                    "source": "candidate",
+                },
+                {
+                    "observation_kind": "source",
+                    "source_name": "candidate",
+                    "source_type": "test",
+                    "source": "candidate",
+                },
             ],
         )
 

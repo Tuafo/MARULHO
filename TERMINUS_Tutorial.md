@@ -127,7 +127,7 @@ pip install -e .
 or, if you need a quick direct install:
 
 ```bash
-pip install torch numpy fastapi uvicorn[standard] datasets tiktoken httpx
+pip install torch numpy fastapi uvicorn[standard] datasets httpx
 ```
 
 ### Environment
@@ -180,13 +180,24 @@ PYTHONPATH=src python -m hecsn.training.developmental_runner \
   --n-tokens 5000
 ```
 
-### Evaluating a checkpoint
+### Supported evaluation and health checks
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.emergence_evaluation_runner \
-  --output-dir reports/my_evaluation
+PYTHONPATH=src python -m hecsn.training.meaning_grounding_runner \
+  --output-dir reports/meaning_grounding
 ```
 
+For runtime acceptance/health reporting, use:
+
+```bash
+PYTHONPATH=src python -m hecsn.training.long_test_runner \
+  --duration 0.2 \
+  --interval 2.0 \
+  --preset curriculum \
+  --output reports/long_test
+```
+
+The old `hecsn.training.emergence_evaluation_runner` module is no longer available.
 Checkpoint output is a `.pt` file used by the local service.
 
 ---
@@ -199,8 +210,7 @@ Checkpoint output is a `.pt` file used by the local service.
 PYTHONPATH=src python -m hecsn.service.server \
   --checkpoint checkpoints/terminus/model.pt \
   --port 8000 \
-  --trace-dir reports/service/traces \
-  --web-dist-dir HECSN_UI/dist
+  --trace-dir reports/service/traces
 ```
 
 ### Useful flags
@@ -212,7 +222,7 @@ PYTHONPATH=src python -m hecsn.service.server \
 | `--port` | bind port |
 | `--trace-history-limit` | in-memory trace cap |
 | `--trace-dir` | persisted trace output directory |
-| `--web-dist-dir` | built frontend directory to serve at `/app` |
+| `--web-dist-dir` | built frontend directory to serve at `/app`; defaults to `HECSN_UI/dist` |
 | `--log-level` | uvicorn log level |
 | `--reload` | dev autoreload |
 
@@ -250,12 +260,11 @@ cd HECSN_UI
 npm run build
 ```
 
-Then point the service at the build:
+The service defaults to this build directory:
 
 ```bash
 PYTHONPATH=src python -m hecsn.service.server \
-  --checkpoint checkpoints/terminus/model.pt \
-  --web-dist-dir HECSN_UI/dist
+  --checkpoint checkpoints/terminus/model.pt
 ```
 
 If the build directory exists, the service mounts it at:
@@ -267,10 +276,18 @@ If the build directory exists, the service mounts it at:
 
 Terminus is the maintained long-running backend runtime. The canonical current path is:
 
-1. configure one source bank / runtime config
-2. start the background brain loop
-3. let the SNN side buffer, gate, and pressure cortex activity
-4. expose action history, runtime summaries, and recent thought data through the service
+`observe -> predict -> error/salience/drives -> reason/act -> verify -> typed memory -> replay/consolidation -> self-model update`
+
+In practice this means:
+
+1. observe configured sources, sensory previews, operator questions, and action outcomes
+2. predict likely outcomes before acting or answering
+3. convert prediction error, salience, uncertainty, novelty, fatigue, and drive pressure into control signals
+4. reason or act through the cortex and maintained digital action loop
+5. verify action/answer outcomes against grounded evidence
+6. write typed memory with provenance such as `observed`, `inferred`, `dreamed`, `verified`, and `contradicted`
+7. replay and consolidate memories, delayed consequences, source utility, and long-horizon evidence
+8. update the operational self-model so capabilities, limits, budgets, memory health, and grounding health stay visible
 
 ### Current quick-start preset
 
@@ -304,6 +321,25 @@ curl -X POST "http://localhost:8000/terminus/quick-start?preset=curriculum"
 ```bash
 curl http://localhost:8000/terminus
 ```
+
+#### Inspect the living loop/self-model surface
+
+```bash
+curl http://localhost:8000/terminus/living-loop
+```
+
+`/terminus/living-loop` returns the same living-loop snapshot embedded in `/status` under `terminus_runtime.living_loop`, plus wrapper status fields such as `dirty_state`, `state_revision`, and `token_count`.
+
+Key telemetry fields:
+- `prediction_count` — number of surfaced predictions in the current snapshot
+- `action_count` — number of surfaced action records in the current snapshot
+- `world_model_lite` — derived prediction/verification scoring, contradiction rate, policy score, and recommended next action
+- `skill_memories` — action/tool memories derived from verified, contradicted, and mixed action history
+- `capabilities` — currently observed operational abilities such as action execution, prediction tracking, verification tracking, and world-model-lite policy scoring
+- `limits` — supported actions, snapshot/history counts, truncation state, memory capacity/fill, revision, and runtime flags
+- `budgets` — action-history use, snapshot use, world-model policy budget/cost/risk/uncertainty, and memory use
+- `memory_health` — capacity/fill/provenance health for the surfaced memory snapshot
+- `grounding_health` — verification, evidence, contradiction, and grounding status for the current loop state
 
 #### Stop runtime
 
@@ -461,6 +497,7 @@ curl http://localhost:8000/terminus/cortex
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/terminus` | current Terminus runtime snapshot |
+| `GET` | `/terminus/living-loop` | living-loop telemetry and operational self-model snapshot |
 | `GET` | `/terminus/presets` | list maintained quick-start presets |
 | `POST` | `/terminus/quick-start` | apply preset and start runtime |
 | `POST` | `/terminus/configure` | explicit runtime configuration |
@@ -515,6 +552,18 @@ The maintained long-test path now:
 - runs the deterministic local acceptance harness
 - emits `alive` / `degraded` / `dead`
 - writes markdown + JSON reports
+
+### Benchmark posture: ARC-AGI
+
+ARC-AGI should remain a **separate benchmark path**, not a claim attached to the current Terminus runtime. A credible ARC-AGI path would need, at minimum:
+- an object parser for grids and relational scene structure
+- a DSL/program synthesis layer for candidate transformations
+- a verifier that executes candidates against examples
+- search/refinement over candidates and partial programs
+- optional LLM candidates as proposals, not as the scorer
+- exact-match scoring against held-out task outputs
+
+Current Terminus telemetry validates living-loop, grounding, action verification, memory, and operational self-model posture. It does **not** imply that Terminus already solves ARC-AGI.
 
 ### Current validation reports
 
@@ -601,8 +650,7 @@ PYTHONPATH=src python -m hecsn.training.developmental_runner \
 
 # Start service
 PYTHONPATH=src python -m hecsn.service.server \
-  --checkpoint checkpoints/terminus/model.pt \
-  --web-dist-dir HECSN_UI/dist
+  --checkpoint checkpoints/terminus/model.pt
 
 # Build frontend
 cd HECSN_UI && npm install && npm run build

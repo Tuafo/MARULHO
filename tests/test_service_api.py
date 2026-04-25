@@ -15,7 +15,8 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.service.api import create_app
+from hecsn.service.api import DEFAULT_WEB_DIST_DIR, create_app
+from hecsn.service.server import build_arg_parser
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
@@ -77,6 +78,20 @@ class _EchoJsonApiHandler(BaseHTTPRequestHandler):
 
 
 class ServiceApiTerminusRuntimeTests(unittest.TestCase):
+    def test_static_ui_default_points_to_built_frontend_dist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            ckpt = _build_checkpoint(root, test_case="service_api_static_default")
+            app = create_app(ckpt, trace_dir=root / "traces")
+            self.assertEqual(app.state.web_dist_dir, DEFAULT_WEB_DIST_DIR)
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(DEFAULT_WEB_DIST_DIR, Path("HECSN_UI") / "dist")
+
+        parser = build_arg_parser()
+        args = parser.parse_args(["--checkpoint", "checkpoints\\terminus\\model.pt"])
+        self.assertEqual(args.web_dist_dir, DEFAULT_WEB_DIST_DIR)
+
     def test_terminus_configure_and_tick_endpoint_train_from_file_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -2196,6 +2211,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     self.assertLessEqual(data["terminus_runtime"]["tick_tokens"], 64)
                     self.assertTrue(data["terminus_runtime"]["autonomy"]["enabled"])
                     self.assertEqual(data["terminus_runtime"]["autonomy"]["candidate_bank"][0]["catalog_mode"], "semantic_registry")
+                    manager = app.state.hecsn_manager
+                    self.assertTrue(manager._trainer.config.enable_context_layer)
+                    self.assertTrue(manager._trainer.config.enable_binding_layer)
                     self.assertNotIn("curriculum", data["terminus_runtime"])
                     stop_resp = client.post("/terminus/stop")
                     self.assertEqual(stop_resp.status_code, 200)

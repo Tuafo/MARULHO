@@ -55,6 +55,7 @@ TERMINUS_QUICK_START_PRESETS: dict[str, dict[str, Any]] = {
         "repeat_sources": True,
         "model_overrides": {
             "n_columns": 1024,
+            "enable_context_layer": True,
             "enable_binding_layer": True,
             "binding_mode": "hypercube",
             "routing_shards": 4,

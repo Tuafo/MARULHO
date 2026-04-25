@@ -98,6 +98,12 @@ from hecsn.service.terminus_autonomy import (  # noqa: E402
 )
 
 from hecsn.service.action_loop import DigitalActionResult, execute_digital_action
+from hecsn.service.living_loop import (
+    ActionExecutionRecord,
+    ConsolidationRecord,
+    OperationalSelfModel,
+    ProvenanceState,
+)
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_episode_from_row, build_sensory_stream, sensory_bootstrap_columns
 
@@ -2787,6 +2793,60 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         if self._thought_loop is None:
             return {"enabled": False}
         return self._thought_loop.snapshot()
+
+    def _living_loop_snapshot_locked(self, *, cortex_snapshot: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        cortex_data = dict(cortex_snapshot or (self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False}))
+        episodic_memory = cortex_data.get("episodic_memory") if isinstance(cortex_data.get("episodic_memory"), Mapping) else {}
+        provenance = ProvenanceState.from_distribution(
+            cast(Mapping[str, Any], episodic_memory).get("provenance_distribution")
+            if isinstance(episodic_memory, Mapping)
+            else {}
+        )
+        action_records = [
+            ActionExecutionRecord.from_payload(item)
+            for item in list(self._action_history)[:8]
+            if isinstance(item, Mapping)
+        ]
+        consolidation_records = [
+            ConsolidationRecord.from_payload(item)
+            for item in list(self._delayed_consequence_records)[:8]
+            if isinstance(item, Mapping)
+        ]
+        narrative = cortex_data.get("narrative_self") if isinstance(cortex_data.get("narrative_self"), Mapping) else {}
+        cortex_summary = {
+            "enabled": bool(cortex_data.get("enabled", False)),
+            "running": bool(cortex_data.get("running", False)),
+            "current_mode": str(cortex_data.get("current_mode", "idle")),
+            "thoughts_generated": int(cortex_data.get("thoughts_generated", 0) or 0),
+            "dreams_generated": int(cortex_data.get("dreams_generated", 0) or 0),
+            "sleep_cycles": int(cortex_data.get("sleep_cycles", 0) or 0),
+            "memory_count": int(cortex_data.get("memory_count", 0) or 0),
+        }
+        model = OperationalSelfModel.build(
+            token_count=int(self._trainer.token_count),
+            state_revision=int(self._state_revision),
+            configured=bool(self._brain_config.get("source_bank")),
+            running=bool(self._brain_runtime_active_locked()),
+            provenance=provenance,
+            predictions=[item.prediction for item in action_records],
+            actions=action_records,
+            consolidations=consolidation_records,
+            action_loop=self._action_loop_summary_locked(),
+            memory=dict(episodic_memory) if isinstance(episodic_memory, Mapping) else {},
+            narrative=dict(narrative) if isinstance(narrative, Mapping) else {},
+            cortex=cortex_summary,
+        )
+        return model.to_payload()
+
+    def living_loop_status(self) -> dict[str, Any]:
+        with self._lock:
+            cortex_snapshot = self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False}
+            return {
+                "living_loop": self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot),
+                "dirty_state": bool(self._dirty_state),
+                "state_revision": int(self._state_revision),
+                "token_count": int(self._trainer.token_count),
+            }
 
     def action_history(self, limit: int = 20) -> dict[str, Any]:
         with self._lock:
@@ -8870,6 +8930,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
+        cortex_snapshot = self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False}
+        living_loop_snapshot = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
         return {
             "configured": bool(self._brain_config.get("source_bank")),
             "running": bool(thread_alive),
@@ -9006,7 +9068,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "geometric_curiosity": deepcopy(self._geometric_curiosity.summary()),
             },
             "multimodal": self._multimodal_runtime_summary_locked(),
-            "cortex": self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False},
+            "living_loop": living_loop_snapshot,
+            "cortex": cortex_snapshot,
         }
 
     def _delayed_consequence_summary_locked(self, limit: int = 4) -> dict[str, Any]:

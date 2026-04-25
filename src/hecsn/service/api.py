@@ -37,6 +37,9 @@ from .schemas import (
 from .terminus_hf_sources import current_runtime_datasets
 
 
+DEFAULT_WEB_DIST_DIR = Path("HECSN_UI") / "dist"
+
+
 def _model_to_dict(model: object) -> dict:
     if hasattr(model, "model_dump"):
         return getattr(model, "model_dump")()
@@ -89,7 +92,8 @@ def create_app(
         allow_headers=["*"],
     )
 
-    dist_dir = Path(web_dist_dir) if web_dist_dir is not None else (Path("web") / "dist")
+    dist_dir = Path(web_dist_dir) if web_dist_dir is not None else DEFAULT_WEB_DIST_DIR
+    app.state.web_dist_dir = dist_dir
     if dist_dir.exists():
         app.mount("/app", StaticFiles(directory=dist_dir, html=True), name="app")
 
@@ -164,6 +168,10 @@ def create_app(
     @app.get("/terminus", response_model=TerminusRuntimeResponse)
     def terminus_status() -> TerminusRuntimeResponse:
         return TerminusRuntimeResponse(**manager.terminus_status())
+
+    @app.get("/terminus/living-loop")
+    def terminus_living_loop() -> dict[str, Any]:
+        return manager.living_loop_status()
 
     @app.post("/terminus/configure", response_model=TerminusRuntimeResponse)
     def terminus_configure(request: TerminusConfigureRequest) -> TerminusRuntimeResponse:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import uvicorn
 
-from hecsn.service.api import create_app
+from hecsn.service.api import DEFAULT_WEB_DIST_DIR, create_app
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -15,7 +15,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--trace-history-limit", type=int, default=200)
     parser.add_argument("--trace-dir", type=Path, default=Path("reports") / "service" / "traces")
-    parser.add_argument("--web-dist-dir", type=Path, default=Path("web") / "dist")
+    parser.add_argument("--web-dist-dir", type=Path, default=DEFAULT_WEB_DIST_DIR)
     parser.add_argument("--log-level", type=str, default="info")
     parser.add_argument("--reload", action="store_true")
     return parser

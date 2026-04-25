@@ -13,7 +13,6 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "datasets",
-    "tiktoken",
     "httpx",
 ]
 
