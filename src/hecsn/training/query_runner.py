@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
@@ -11,14 +12,145 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.retrieval import NativeAssemblyDecoder
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics.grounding_text import TOKEN_RE
-from hecsn.semantics.grounding_text import match_terms
 from hecsn.semantics.grounding_text import query_focused_clauses
 from hecsn.semantics.grounding_text import salient_query_terms
+from hecsn.semantics.grounding_text import semantic_unit_similarity
+from hecsn.semantics.grounding_text import stream_matching_units
+from hecsn.semantics.grounding_text import token_forms
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 from hecsn.training.trainer import HECSNTrainer
 
 
 _NATIVE_DECODER = NativeAssemblyDecoder()
+_TERM_MATCH_THRESHOLD = 0.70
+_MAX_EVIDENCE_CACHE_ENTRIES = 8192
+_MAX_FORM_CACHE_ENTRIES = 65536
+_MAX_TERM_PAIR_CACHE_ENTRIES = 65536
+
+
+def _compact_match_unit(value: str) -> str:
+    return "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+
+def _cache_put(cache: OrderedDict[Any, Any], key: Any, value: Any, max_entries: int) -> Any:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > max(1, int(max_entries)):
+        cache.popitem(last=False)
+    return value
+
+
+class _SemanticTermMatchCache:
+    def __init__(
+        self,
+        *,
+        max_evidence_entries: int = _MAX_EVIDENCE_CACHE_ENTRIES,
+        max_form_entries: int = _MAX_FORM_CACHE_ENTRIES,
+        max_pair_entries: int = _MAX_TERM_PAIR_CACHE_ENTRIES,
+    ) -> None:
+        self._max_evidence_entries = max(1, int(max_evidence_entries))
+        self._max_form_entries = max(1, int(max_form_entries))
+        self._max_pair_entries = max(1, int(max_pair_entries))
+        self._evidence_cache: OrderedDict[str, tuple[str, ...]] = OrderedDict()
+        self._evidence_form_cache: OrderedDict[str, frozenset[str]] = OrderedDict()
+        self._form_cache: OrderedDict[str, frozenset[str]] = OrderedDict()
+        self._pair_cache: OrderedDict[tuple[str, str], bool] = OrderedDict()
+
+    def _forms(self, term: str) -> frozenset[str]:
+        key = str(term)
+        cached = self._form_cache.get(key)
+        if cached is not None:
+            self._form_cache.move_to_end(key)
+            return cached
+        return _cache_put(
+            self._form_cache,
+            key,
+            frozenset(token_forms(key)),
+            self._max_form_entries,
+        )
+
+    def _evidence_terms(self, text: str) -> tuple[str, ...]:
+        key = str(text or "")
+        cached = self._evidence_cache.get(key)
+        if cached is not None:
+            self._evidence_cache.move_to_end(key)
+            return cached
+        return _cache_put(
+            self._evidence_cache,
+            key,
+            tuple(stream_matching_units(key)),
+            self._max_evidence_entries,
+        )
+
+    def _evidence_forms(self, text: str, evidence_terms: Sequence[str]) -> frozenset[str]:
+        key = str(text or "")
+        cached = self._evidence_form_cache.get(key)
+        if cached is not None:
+            self._evidence_form_cache.move_to_end(key)
+            return cached
+        forms: set[str] = set()
+        for evidence_term in evidence_terms:
+            forms.update(self._forms(evidence_term))
+        return _cache_put(
+            self._evidence_form_cache,
+            key,
+            frozenset(forms),
+            self._max_evidence_entries,
+        )
+
+    @staticmethod
+    def _can_reach_threshold(left: str, right: str) -> bool:
+        left_compact = _compact_match_unit(left)
+        right_compact = _compact_match_unit(right)
+        if not left_compact or not right_compact:
+            return False
+        if left_compact == right_compact:
+            return True
+        shorter, longer = (
+            (left_compact, right_compact)
+            if len(left_compact) <= len(right_compact)
+            else (right_compact, left_compact)
+        )
+        length_ratio = float(len(shorter) / max(1, len(longer)))
+        if length_ratio < _TERM_MATCH_THRESHOLD:
+            return False
+        if len(shorter) >= 4 and shorter in longer:
+            return True
+        return len(shorter) >= 4
+
+    def _semantic_match(self, left: str, right: str) -> bool:
+        pair = (str(left), str(right))
+        cached = self._pair_cache.get(pair)
+        if cached is not None:
+            self._pair_cache.move_to_end(pair)
+            return cached
+        if not self._can_reach_threshold(pair[0], pair[1]):
+            return _cache_put(self._pair_cache, pair, False, self._max_pair_entries)
+        if _compact_match_unit(pair[0]) == _compact_match_unit(pair[1]):
+            return _cache_put(self._pair_cache, pair, True, self._max_pair_entries)
+        result = bool(semantic_unit_similarity(pair[0], pair[1]) >= _TERM_MATCH_THRESHOLD)
+        return _cache_put(self._pair_cache, pair, result, self._max_pair_entries)
+
+    def match_terms(self, query_terms: Sequence[str], text: str) -> list[str]:
+        if not query_terms:
+            return []
+        evidence_terms = self._evidence_terms(text)
+        if not evidence_terms:
+            return []
+
+        evidence_forms = self._evidence_forms(text, evidence_terms)
+        matches: list[str] = []
+        for raw_term in query_terms:
+            term = str(raw_term)
+            if term in matches:
+                continue
+            term_forms = self._forms(term)
+            if term_forms and evidence_forms and term_forms & evidence_forms:
+                matches.append(term)
+                continue
+            if any(self._semantic_match(term, evidence_term) for evidence_term in evidence_terms):
+                matches.append(term)
+        return matches
 
 
 def episode_quality(text: str, raw_window: str | None = None) -> tuple[int, int]:
@@ -177,6 +309,7 @@ def memory_matches(
     representation = getattr(trainer.config, "input_representation", "order_weighted_ascii")
     replay_scores = store.replay_scores(trainer.token_count)
     ordered_focus_terms = _dedupe_terms(focus_terms)
+    term_match_cache = _SemanticTermMatchCache()
     matches: list[dict[str, Any]] = []
     query_input = pattern_vec.detach().cpu()
     query_key = routing_key.detach().cpu()
@@ -203,9 +336,11 @@ def memory_matches(
         source_type = " ".join(str(replay_metadata.get("source_type", "")).split()).strip()
         provider = " ".join(str(replay_metadata.get("provider", "")).split()).strip().lower()
         complete_sentence, clipped_overlap = episode_quality(str(text or "").strip(), raw_window)
-        matched_query_terms = match_terms(query_terms or [], str(text or ""))
+        matched_query_terms = term_match_cache.match_terms(query_terms, str(text or "")) if query_terms else []
         query_overlap = len(matched_query_terms)
-        matched_focus_terms = match_terms(ordered_focus_terms, str(text or "")) if ordered_focus_terms else []
+        matched_focus_terms = (
+            term_match_cache.match_terms(ordered_focus_terms, str(text or "")) if ordered_focus_terms else []
+        )
         focus_overlap = len(matched_focus_terms)
         focus_priority = _memory_focus_priority(memory_priority, (idx,))
         matches.append(
@@ -346,6 +481,7 @@ def build_memory_episodes(
 ) -> list[dict[str, Any]]:
     ordered_focus_terms = _dedupe_terms(focus_terms)
     clause_terms = _dedupe_terms([*(query_terms or []), *ordered_focus_terms])
+    term_match_cache = _SemanticTermMatchCache()
     grouped: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for match in memory_matches:
@@ -400,8 +536,12 @@ def build_memory_episodes(
             entry["complete_sentence"] = max(int(entry["complete_sentence"]), int(complete_sentence))
             entry["clipped_overlap"] = min(int(entry["clipped_overlap"]), int(clipped_overlap))
             entry["expansion_chars"] = max(previous_expansion, int(expansion_chars))
-            entry["query_overlap"] = max(int(entry["query_overlap"]), len(match_terms(query_terms or [], text)))
-            entry["focus_overlap"] = max(int(entry["focus_overlap"]), len(match_terms(ordered_focus_terms, text)))
+            query_overlap = len(term_match_cache.match_terms(query_terms, text)) if query_terms else 0
+            focus_overlap = (
+                len(term_match_cache.match_terms(ordered_focus_terms, text)) if ordered_focus_terms else 0
+            )
+            entry["query_overlap"] = max(int(entry["query_overlap"]), query_overlap)
+            entry["focus_overlap"] = max(int(entry["focus_overlap"]), focus_overlap)
             memory_index = int(match.get("memory_index", -1))
             if memory_index >= 0 and memory_index not in entry["memory_indices"]:
                 entry["memory_indices"].append(memory_index)

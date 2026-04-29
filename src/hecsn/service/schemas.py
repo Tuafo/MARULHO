@@ -192,6 +192,18 @@ class DigitalActionRequest(BaseModel):
     timeout_seconds: float = Field(10.0, ge=0.1, le=120.0)
 
 
+class RuntimeFeedbackRequest(BaseModel):
+    target_type: Literal["runtime_episode", "action"]
+    target_id: str = Field(..., min_length=1, max_length=160)
+    verdict: Literal["verified", "contradicted", "unverified"]
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    summary: str | None = Field(None, max_length=2000)
+    corrected_output: Any | None = None
+    evidence: list[Any] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    evaluator_id: str | None = Field(None, max_length=160)
+
+
 class CheckpointSaveRequest(BaseModel):
     path: str | None = None
 
@@ -224,6 +236,7 @@ class CheckpointActionResponse(BaseModel):
 
 class FeedResponse(BaseModel):
     feed_summary: dict[str, Any]
+    runtime_episode: dict[str, Any] | None = None
     dirty_state: bool
     state_revision: int
 
@@ -249,6 +262,7 @@ class StatusResponse(BaseModel):
     memory_store: dict[str, Any]
     concept_store: dict[str, Any]
     terminus_runtime: dict[str, Any]
+    replay_dataset_summary: dict[str, Any] | None = None
 
 
 class TerminusRuntimeResponse(BaseModel):
@@ -258,6 +272,7 @@ class TerminusRuntimeResponse(BaseModel):
     state_revision: int
     token_count: int
     multimodal: dict[str, Any] | None = None
+    replay_dataset_summary: dict[str, Any] | None = None
 
 
 class DigitalActionResponse(BaseModel):
@@ -278,6 +293,134 @@ class ActionHistoryResponse(BaseModel):
     actions: list[dict[str, Any]]
 
 
+class RuntimeFeedbackResponse(BaseModel):
+    accepted: bool
+    target_type: str
+    target_id: str
+    feedback: dict[str, Any]
+    target: dict[str, Any]
+    dirty_state: bool
+    state_revision: int
+    terminus_runtime: dict[str, Any] | None = None
+
+
+class PolicyActuatorReason(BaseModel):
+    code: str
+    detail: str
+
+
+class PolicyActuatorResponse(BaseModel):
+    schema_version: int
+    recommendation: str
+    action: str
+    reasons: list[PolicyActuatorReason]
+    risk: float
+    expected_information_gain: float
+    expected_goal_progress: float
+    expected_cost: float
+    uncertainty: float
+    advisory: bool = True
+    executable: bool = False
+    target_episode_id: str | None = None
+    target_action_id: str | None = None
+    action_id: str | None = None
+    suggested_endpoint: str
+    suggested_input: dict[str, Any]
+    input: dict[str, Any]
+    created_at: str
+
+
+class ReplayCandidateResponse(BaseModel):
+    candidate_id: str
+    rank: int
+    target_type: str
+    target_id: str
+    target_ids: list[str]
+    operation: str
+    created_at: str
+    completed_at: str
+    reason_codes: list[str]
+    priority_score: float
+    priority_components: dict[str, float]
+    suggested_consolidation_action: str
+    suggested_endpoint: str
+    suggested_input: dict[str, Any]
+    summary: str
+    provenance: dict[str, Any]
+    risk: float
+    uncertainty: float
+    latency: dict[str, Any]
+    memory_health: dict[str, Any]
+    feedback: dict[str, Any]
+    policy: dict[str, Any]
+
+
+class ReplayPlanResponse(BaseModel):
+    schema_version: int
+    generated_at: str
+    advisory: bool = True
+    executable: bool = False
+    endpoint: str
+    limit: int
+    count: int
+    state_revision: int
+    token_count: int
+    snapshot_counts: dict[str, int]
+    priority_rules_version: str
+    priority_weights: dict[str, float]
+    plan_reason_codes: list[str]
+    candidates: list[ReplayCandidateResponse]
+
+
+class ReplaySampleRequest(BaseModel):
+    mode: Literal["dry_run", "sample", "execute"] = "sample"
+    candidate_id: str | None = Field(None, min_length=1, max_length=160)
+    target_type: str | None = Field(None, min_length=1, max_length=64)
+    target_id: str | None = Field(None, min_length=1, max_length=160)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    operator_note: str | None = Field(None, max_length=2000)
+    confirmation: bool = False
+    limit: int | None = Field(None, ge=1, le=20)
+    count: int | None = Field(None, ge=1, le=20)
+    alpha: float = Field(1.0, ge=0.0, le=4.0)
+    seed: int | None = None
+
+
+class ReplaySampleResponse(BaseModel):
+    schema_version: int
+    replay_sample_id: str
+    execution_id: str | None = None
+    created_at: str
+    mode: Literal["dry_run", "sample", "execute"]
+    status: str
+    reason: str
+    endpoint: str
+    operator_id: str
+    operator_note: str
+    requested_candidate_id: str | None = None
+    target_type: str | None = None
+    target_id: str | None = None
+    requested_count: int
+    alpha: float
+    seed: int | None = None
+    candidate_ids: list[str]
+    selected_candidate_ids: list[str]
+    selected_candidates: list[dict[str, Any]]
+    safety_checks: dict[str, Any]
+    safety_flags: dict[str, Any]
+    before: dict[str, int]
+    after: dict[str, int]
+    plan_summary: dict[str, Any]
+
+
+class ReplaySampleHistoryResponse(BaseModel):
+    schema_version: int
+    endpoint: str
+    count: int
+    limit: int
+    history: list[ReplaySampleResponse]
+
+
 class ResponseBundle(BaseModel):
     trace_id: str
     trace_path: str
@@ -285,6 +428,7 @@ class ResponseBundle(BaseModel):
     query_result: dict[str, Any]
     response: dict[str, Any]
     learning: dict[str, Any] | None
+    runtime_episode: dict[str, Any] | None = None
     dirty_state: bool
     state_revision: int
 
@@ -293,8 +437,87 @@ class TraceHistoryResponse(BaseModel):
     traces: list[dict[str, Any]]
 
 
+class RuntimeTraceExportResponse(BaseModel):
+    export_kind: str
+    schema_version: int
+    training_role: str
+    description: str
+    limit: int
+    max_limit: int
+    endpoint: str | None = None
+    count: int
+    policy_decision: dict[str, Any] | None = None
+    replay_plan_summary: dict[str, Any] | None = None
+    replay_sample_summary: dict[str, Any] | None = None
+    replay_executor_summary: dict[str, Any] | None = None
+    replay_dataset_summary: dict[str, Any] | None = None
+    examples: list[dict[str, Any]]
+    excluded_fields: list[str]
+
+
+class ReplayDatasetPreviewResponse(BaseModel):
+    schema_version: int
+    export_kind: str
+    training_role: str
+    description: str
+    created_at: str
+    latest_export_timestamp: str | None = None
+    latest_history_timestamp: str | None = None
+    endpoint: str
+    limit: int
+    max_limit: int
+    filter_endpoint: str | None = None
+    count: int
+    positive_count: int
+    negative_count: int
+    provenance_counts: dict[str, int]
+    example_type_counts: dict[str, int]
+    policy_decision: dict[str, Any] | None = None
+    replay_plan_summary: dict[str, Any] | None = None
+    replay_sample_summary: dict[str, Any] | None = None
+    replay_executor_summary: dict[str, Any] | None = None
+    safety_flags: dict[str, Any]
+    before: dict[str, int]
+    after: dict[str, int]
+    items: list[dict[str, Any]]
+    excluded_fields: list[str]
+    empty_reason: str | None = None
+
+
+class ReplayDatasetCandidatesResponse(BaseModel):
+    schema_version: int
+    export_kind: str
+    training_role: str
+    created_at: str
+    endpoint: str
+    limit: int
+    max_limit: int
+    count: int
+    candidates: list[dict[str, Any]]
+    replay_plan_summary: dict[str, Any] | None = None
+    safety_flags: dict[str, Any]
+    excluded_fields: list[str]
+
+
+class ReplayDatasetHistoryResponse(BaseModel):
+    schema_version: int
+    export_kind: str
+    training_role: str
+    created_at: str
+    endpoint: str
+    source_endpoint: str
+    limit: int
+    max_limit: int
+    count: int
+    history: list[dict[str, Any]]
+    replay_sample_summary: dict[str, Any] | None = None
+    safety_flags: dict[str, Any]
+    excluded_fields: list[str]
+
+
 class QueryResponse(BaseModel):
     query_summary: dict[str, Any]
     concept_summary: dict[str, Any]
     gap_plan: dict[str, Any]
     service_state: dict[str, Any]
+    runtime_episode: dict[str, Any] | None = None

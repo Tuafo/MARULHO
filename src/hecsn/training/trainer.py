@@ -846,6 +846,7 @@ class HECSNTrainer:
         visual_spikes: Optional[torch.Tensor] = None,
         audio_spikes: Optional[torch.Tensor] = None,
         memory_metadata: Mapping[str, Any] | None = None,
+        allow_sleep_maintenance: bool = True,
     ) -> Dict[str, Any]:
         metrics: Dict[str, Any] = {}
         x = pattern_vec.to(self.model.device)
@@ -875,7 +876,15 @@ class HECSNTrainer:
             self.pending_emergency_deep_sleep
             and (self.token_count - self.last_deep_sleep_token) >= self.config.emergency_deep_sleep_cooldown_tokens
         )
-        if deep_due_interval or deep_due_emergency:
+        micro_due = (
+            self.token_count >= self.config.micro_sleep_interval_tokens
+            and (self.token_count - self.last_micro_sleep_token) >= self.config.micro_sleep_interval_tokens
+        )
+        sleep_maintenance_deferred = bool(
+            not allow_sleep_maintenance
+            and (deep_due_interval or deep_due_emergency or micro_due)
+        )
+        if allow_sleep_maintenance and (deep_due_interval or deep_due_emergency):
             self._flush_hnsw_buffer()
             replay_updates = self._sleep_replay("repair" if deep_due_emergency else "deep")
             if replay_updates > 0:
@@ -883,10 +892,7 @@ class HECSNTrainer:
                 deep_sleep_emergency = bool(deep_due_emergency)
                 if deep_due_emergency:
                     self.pending_emergency_deep_sleep = False
-        elif (
-            self.token_count >= self.config.micro_sleep_interval_tokens
-            and (self.token_count - self.last_micro_sleep_token) >= self.config.micro_sleep_interval_tokens
-        ):
+        elif allow_sleep_maintenance and micro_due:
             self._flush_hnsw_buffer()
             replay_updates = self._sleep_replay("micro")
             if replay_updates > 0:
@@ -908,6 +914,7 @@ class HECSNTrainer:
         metrics["micro_sleep_events_total"] = int(self.micro_sleep_events)
         metrics["deep_sleep_events_total"] = int(self.deep_sleep_events)
         metrics["deep_sleep_emergency"] = int(deep_sleep_emergency)
+        metrics["sleep_maintenance_deferred"] = int(sleep_maintenance_deferred)
         metrics["drift_floor"] = float(self.current_rolling_drift_floor if self.current_rolling_drift_floor is not None else drift)
         metrics["drift_floor_rising"] = int(floor_rising)
         if self._dead_column_census:

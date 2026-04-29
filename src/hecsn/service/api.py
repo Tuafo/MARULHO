@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .manager import HECSNServiceManager
+from .manager import HECSNServiceManager, MAX_RUNTIME_TRACE_EXPORT_LIMIT
 from .schemas import (
     ActionHistoryResponse,
     CheckpointActionResponse,
@@ -24,10 +24,21 @@ from .schemas import (
     DigitalActionResponse,
     FeedRequest,
     FeedResponse,
+    PolicyActuatorResponse,
     QueryRequest,
     QueryResponse,
+    ReplayDatasetCandidatesResponse,
+    ReplayDatasetHistoryResponse,
+    ReplayDatasetPreviewResponse,
+    ReplayPlanResponse,
+    ReplaySampleHistoryResponse,
+    ReplaySampleRequest,
+    ReplaySampleResponse,
     RespondRequest,
     ResponseBundle,
+    RuntimeFeedbackRequest,
+    RuntimeFeedbackResponse,
+    RuntimeTraceExportResponse,
     StatusResponse,
     TerminusConfigureRequest,
     TerminusRuntimeResponse,
@@ -146,6 +157,7 @@ def create_app(
             concept_summary=result.get("concept_summary") or {},
             gap_plan=result.get("gap_plan") or {},
             service_state=result.get("service_state") or {},
+            runtime_episode=result.get("runtime_episode"),
         )
 
     @app.post("/respond", response_model=ResponseBundle)
@@ -172,6 +184,80 @@ def create_app(
     @app.get("/terminus/living-loop")
     def terminus_living_loop() -> dict[str, Any]:
         return manager.living_loop_status()
+
+    @app.get("/terminus/policy-actuator", response_model=PolicyActuatorResponse)
+    def terminus_policy_actuator() -> PolicyActuatorResponse:
+        return PolicyActuatorResponse(**manager.policy_actuator_status())
+
+    @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)
+    def terminus_replay_plan(limit: int = Query(20, ge=1, le=50)) -> ReplayPlanResponse:
+        return ReplayPlanResponse(**manager.replay_plan_status(limit=limit))
+
+    def _replay_sample_response(request: ReplaySampleRequest) -> ReplaySampleResponse:
+        try:
+            return ReplaySampleResponse(
+                **manager.replay_sample(
+                    mode=request.mode,
+                    candidate_id=request.candidate_id,
+                    target_type=request.target_type,
+                    target_id=request.target_id,
+                    operator_id=request.operator_id,
+                    operator_note=request.operator_note,
+                    confirmation=request.confirmation,
+                    limit=request.limit,
+                    count=request.count,
+                    alpha=request.alpha,
+                    seed=request.seed,
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/terminus/replay-sample", response_model=ReplaySampleResponse)
+    def terminus_replay_sample(request: ReplaySampleRequest) -> ReplaySampleResponse:
+        return _replay_sample_response(request)
+
+    @app.post("/terminus/replay-execute", response_model=ReplaySampleResponse)
+    def terminus_replay_execute(request: ReplaySampleRequest) -> ReplaySampleResponse:
+        return _replay_sample_response(request)
+
+    @app.get("/terminus/replay-sample/history", response_model=ReplaySampleHistoryResponse)
+    def terminus_replay_sample_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
+        return ReplaySampleHistoryResponse(**manager.replay_sample_history(limit=limit))
+
+    @app.get("/terminus/replay-execute/history", response_model=ReplaySampleHistoryResponse)
+    def terminus_replay_execute_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
+        return ReplaySampleHistoryResponse(**manager.replay_sample_history(limit=limit))
+
+    @app.get("/terminus/runtime-traces/export", response_model=RuntimeTraceExportResponse)
+    def terminus_runtime_trace_export(
+        limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
+        endpoint: str | None = Query(None, min_length=1, max_length=32),
+        trace_type: str | None = Query(None, alias="type", min_length=1, max_length=32),
+    ) -> RuntimeTraceExportResponse:
+        return RuntimeTraceExportResponse(
+            **manager.export_runtime_trace_examples(limit=limit, endpoint=endpoint or trace_type)
+        )
+
+    @app.get("/terminus/replay-dataset/preview", response_model=ReplayDatasetPreviewResponse)
+    def terminus_replay_dataset_preview(
+        limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
+        endpoint: str | None = Query(None, min_length=1, max_length=32),
+        trace_type: str | None = Query(None, alias="type", min_length=1, max_length=32),
+    ) -> ReplayDatasetPreviewResponse:
+        return ReplayDatasetPreviewResponse(
+            **manager.replay_dataset_preview(limit=limit, endpoint=endpoint or trace_type)
+        )
+
+    @app.get("/terminus/replay-dataset/candidates", response_model=ReplayDatasetCandidatesResponse)
+    def terminus_replay_dataset_candidates(
+        limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
+    ) -> ReplayDatasetCandidatesResponse:
+        return ReplayDatasetCandidatesResponse(**manager.replay_dataset_candidates(limit=limit))
+
+    @app.get("/terminus/replay-dataset/history", response_model=ReplayDatasetHistoryResponse)
+    def terminus_replay_dataset_history(limit: int = Query(20, ge=1, le=256)) -> ReplayDatasetHistoryResponse:
+        return ReplayDatasetHistoryResponse(**manager.replay_dataset_history(limit=limit))
 
     @app.post("/terminus/configure", response_model=TerminusRuntimeResponse)
     def terminus_configure(request: TerminusConfigureRequest) -> TerminusRuntimeResponse:
@@ -249,6 +335,13 @@ def create_app(
     def terminus_action(request: DigitalActionRequest) -> DigitalActionResponse:
         try:
             return DigitalActionResponse(**manager.execute_digital_action(_model_to_dict(request)))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/terminus/runtime-feedback", response_model=RuntimeFeedbackResponse)
+    def terminus_runtime_feedback(request: RuntimeFeedbackRequest) -> RuntimeFeedbackResponse:
+        try:
+            return RuntimeFeedbackResponse(**manager.record_runtime_feedback(_model_to_dict(request)))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

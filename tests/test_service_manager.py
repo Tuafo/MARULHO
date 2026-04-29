@@ -140,7 +140,9 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertTrue(env_info["dotenv_loaded"])
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-checkpoint-key")
-                    self.assertTrue(manager._cortex_available)
+                    self.assertIsNotNone(manager._cortex_factory_refs)
+                    self.assertFalse(manager._cortex_available)
+                    self.assertIsNone(manager._thought_loop_actual)
                 finally:
                     manager.close()
             finally:
@@ -198,7 +200,9 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(Path(str(env_info["env_root"])).resolve(), env_root.resolve())
                     self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-explicit-root")
-                    self.assertTrue(manager._cortex_available)
+                    self.assertIsNotNone(manager._cortex_factory_refs)
+                    self.assertFalse(manager._cortex_available)
+                    self.assertIsNone(manager._thought_loop_actual)
                 finally:
                     manager.close()
             finally:
@@ -209,6 +213,27 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
 
 
 class ServiceManagerCheckpointTests(unittest.TestCase):
+    def test_feed_defers_due_deep_sleep_maintenance_for_request_latency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_feed_defers_sleep")
+            try:
+                trainer = manager._trainer
+                trainer.token_count = trainer.config.deep_sleep_interval_tokens
+                with patch.object(
+                    trainer,
+                    "_sleep_replay",
+                    side_effect=AssertionError("feed must not synchronously run sleep maintenance"),
+                ) as sleep_replay:
+                    result = manager.feed(text="x")
+
+                self.assertEqual(sleep_replay.call_count, 0)
+                self.assertEqual(result["feed_summary"]["tokens_processed"], 1)
+                self.assertFalse(result["feed_summary"]["sleep_maintenance_allowed"])
+                self.assertEqual(result["feed_summary"]["sleep_maintenance_deferred"], 1)
+            finally:
+                manager.close()
+
     def test_save_restore_round_trips_concept_store_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -259,6 +284,50 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
 
 
 class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
+    def test_record_runtime_feedback_updates_and_persists_runtime_episode_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_runtime_feedback_episode")
+            try:
+                feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
+                episode_id = feed_result["runtime_episode"]["episode_id"]
+                feedback = manager.record_runtime_feedback(
+                    {
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "verdict": "contradicted",
+                        "confidence": 0.82,
+                        "summary": "Operator corrected the feed trace outcome.",
+                        "corrected_output": {"summary": "The feed text mentioned cats and mice."},
+                        "evidence": [{"note": "manual review", "api_key": "must be stripped"}],
+                        "tags": ["Manual", "manual", "Runtime"],
+                        "evaluator_id": " operator-1 ",
+                    }
+                )
+
+                self.assertTrue(feedback["accepted"])
+                self.assertTrue(feedback["dirty_state"])
+                self.assertEqual(feedback["target"]["verification"]["status"], "contradicted")
+                self.assertEqual(feedback["target"]["verification"]["provenance"], "contradicted")
+                self.assertEqual(feedback["target"]["provenance"], "contradicted")
+                self.assertEqual(feedback["target"]["feedback"][0]["tags"], ["manual", "runtime"])
+                self.assertEqual(feedback["target"]["feedback"][0]["evaluator_id"], "operator-1")
+                self.assertNotIn("api_key", feedback["target"]["feedback"][0]["evidence"][0])
+
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+
+            restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+            try:
+                restored_episode = list(restored._runtime_episode_traces)[0]
+                self.assertEqual(restored_episode["episode_id"], episode_id)
+                self.assertEqual(restored_episode["verification"]["status"], "contradicted")
+                self.assertEqual(restored_episode["feedback"][0]["summary"], "Operator corrected the feed trace outcome.")
+                self.assertEqual(restored_episode["corrected_output"]["summary"], "The feed text mentioned cats and mice.")
+            finally:
+                restored.close()
+
     def test_terminus_tick_trains_from_configured_file_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -7840,6 +7909,26 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 class CortexIntegrationTests(unittest.TestCase):
     """Test cortex/ThoughtLoop integration with service manager."""
 
+    def test_manager_creation_status_do_not_eagerly_initialize_cortex(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with patch.dict(os.environ, {"NVIDIA_API_KEY": "real-env-placeholder"}), patch(
+                "hecsn.cortex.multi_cortex.create_cortex_from_env"
+            ) as create_cortex, patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env"
+            ) as create_embedder:
+                manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
+                try:
+                    status = manager.status()
+                    snapshot = manager.cortex_snapshot()
+                finally:
+                    manager.close()
+
+            create_cortex.assert_not_called()
+            create_embedder.assert_not_called()
+            self.assertIn("terminus_runtime", status)
+            self.assertFalse(snapshot["enabled"])
+
     def test_cortex_methods_available_without_nim_key(self) -> None:
         """Cortex methods return graceful fallbacks when NIM API key is missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -8203,6 +8292,66 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
                 self.assertEqual(restored_episodes[0].metadata["verification_status"], "verified")
                 self.assertIn("workspace_search", restored_episodes[0].content)
+            finally:
+                restored.close()
+
+    def test_record_runtime_feedback_updates_action_history_and_missing_target_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_runtime_feedback_action",
+                env_root=root,
+            )
+            try:
+                result = manager.execute_digital_action(
+                    {
+                        "action_type": "workspace_search",
+                        "query_text": "cats chase mice",
+                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
+                    }
+                )
+                action_id = result["result"]["action_id"]
+                feedback = manager.record_runtime_feedback(
+                    {
+                        "target_type": "action",
+                        "target_id": action_id,
+                        "verdict": "verified",
+                        "confidence": 0.77,
+                        "summary": "Manual evaluator verified the action result.",
+                        "evidence": [{"source": "review"}],
+                        "tags": ["reviewed"],
+                        "evaluator_id": "qa-bot",
+                    }
+                )
+
+                self.assertTrue(feedback["accepted"])
+                self.assertEqual(feedback["target"]["verification"]["status"], "verified")
+                self.assertEqual(feedback["target"]["provenance"], "verified")
+                self.assertEqual(feedback["target"]["feedback"][0]["evidence"][0]["source"], "review")
+                with self.assertRaisesRegex(ValueError, "Runtime feedback target not found"):
+                    manager.record_runtime_feedback(
+                        {
+                            "target_type": "action",
+                            "target_id": "missing-action",
+                            "verdict": "unverified",
+                            "confidence": 0.1,
+                        }
+                    )
+                saved = manager.save_checkpoint()
+            finally:
+                manager.close()
+
+            restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces", env_root=root)
+            try:
+                history = restored.action_history(limit=4)
+                self.assertEqual(history["actions"][0]["action_id"], action_id)
+                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
+                self.assertEqual(history["actions"][0]["feedback"][0]["evaluator_id"], "qa-bot")
             finally:
                 restored.close()
 

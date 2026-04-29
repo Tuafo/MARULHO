@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -13,6 +14,40 @@ from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class MemoryConsolidationTests(unittest.TestCase):
+    def test_train_step_can_defer_due_sleep_maintenance_until_allowed(self) -> None:
+        cfg = HECSNConfig(
+            n_columns=8,
+            column_latent_dim=16,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            micro_sleep_interval_tokens=10**9,
+            deep_sleep_interval_tokens=1,
+        )
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
+        pattern[1:5] = 1.0
+        pattern = pattern / pattern.sum()
+        trainer.token_count = cfg.deep_sleep_interval_tokens
+        calls: list[str] = []
+
+        def _fake_sleep_replay(mode: str) -> int:
+            calls.append(mode)
+            return 1
+
+        with patch.object(trainer, "_sleep_replay", side_effect=_fake_sleep_replay):
+            deferred_metrics = trainer.train_step(
+                pattern,
+                raw_window="alpha",
+                allow_sleep_maintenance=False,
+            )
+            allowed_metrics = trainer.train_step(pattern, raw_window="beta")
+
+        self.assertEqual(calls, ["deep"])
+        self.assertEqual(deferred_metrics["sleep_triggered"], 0)
+        self.assertEqual(deferred_metrics["sleep_maintenance_deferred"], 1)
+        self.assertEqual(allowed_metrics["sleep_triggered"], 1)
+        self.assertEqual(allowed_metrics["sleep_type"], "deep")
+
     def test_memory_store_snapshot_preserves_text_contexts(self) -> None:
         store = DualMemoryStore(capacity=8)
         assembly = torch.tensor([1.0, 0.0], dtype=torch.float32)

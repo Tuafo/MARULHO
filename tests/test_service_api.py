@@ -78,6 +78,25 @@ class _EchoJsonApiHandler(BaseHTTPRequestHandler):
 
 
 class ServiceApiTerminusRuntimeTests(unittest.TestCase):
+    def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with patch.dict("os.environ", {"NVIDIA_API_KEY": "real-env-placeholder"}), patch(
+                "hecsn.cortex.multi_cortex.create_cortex_from_env"
+            ) as create_cortex, patch(
+                "hecsn.cortex.multi_cortex.create_embedder_from_env"
+            ) as create_embedder:
+                app = create_app(_build_checkpoint(root, test_case="service_api_cortex_lazy_startup"), trace_dir=root / "traces")
+                with TestClient(app) as client:
+                    health_response = client.get("/health")
+                    status_response = client.get("/status")
+                app.state.hecsn_manager.close()
+
+            self.assertEqual(health_response.status_code, 200)
+            self.assertEqual(status_response.status_code, 200)
+            create_cortex.assert_not_called()
+            create_embedder.assert_not_called()
+
     def test_static_ui_default_points_to_built_frontend_dist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -127,6 +146,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertEqual(status_response.json()["terminus_runtime"]["ingestion"]["queue_target_tokens"], 40)
             self.assertFalse(status_response.json()["terminus_runtime"]["ingestion"]["prewarm_on_startup"])
             self.assertAlmostEqual(float(status_response.json()["terminus_runtime"]["ingestion"]["prewarm_max_seconds"]), 0.2, places=6)
+            self.assertEqual(status_response.json()["replay_dataset_summary"]["endpoint"], "/terminus/replay-dataset/preview")
+            self.assertEqual(
+                status_response.json()["terminus_runtime"]["living_loop"]["replay_dataset_summary"]["endpoint"],
+                "/terminus/replay-dataset/preview",
+            )
             self.assertGreater(tick_response.json()["terminus_runtime"]["last_tick_token_delta"], 0)
             self.assertTrue(
                 any(event.get("type") == "tick" for event in status_response.json()["terminus_runtime"]["recent_events"])
@@ -169,6 +193,285 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertEqual(history_body["count"], 1)
             self.assertEqual(history_body["actions"][0]["action_type"], "workspace_search")
             self.assertEqual(history_body["actions"][0]["verification"]["status"], "verified")
+
+    def test_policy_actuator_endpoint_is_advisory_and_does_not_mutate_action_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_policy_actuator"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            manager = app.state.hecsn_manager
+            with TestClient(app) as client:
+                action_response = client.post(
+                    "/terminus/action",
+                    json={
+                        "action_type": "workspace_search",
+                        "query_text": "cats chase mice",
+                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
+                    },
+                )
+                before_history = manager.action_history()["count"]
+                before_revision = manager.status()["state_revision"]
+                policy_response = client.get("/terminus/policy-actuator")
+                after_history = manager.action_history()["count"]
+                after_revision = manager.status()["state_revision"]
+
+        self.assertEqual(action_response.status_code, 200)
+        self.assertEqual(policy_response.status_code, 200)
+        body = policy_response.json()
+        self.assertEqual(body["schema_version"], 1)
+        self.assertEqual(body["action"], "continue_current_policy")
+        self.assertTrue(body["advisory"])
+        self.assertFalse(body["executable"])
+        self.assertIsNone(body["target_episode_id"])
+        self.assertIsNone(body["target_action_id"])
+        self.assertIsNone(body["action_id"])
+        self.assertIn("suggested_endpoint", body)
+        self.assertIn("suggested_input", body)
+        self.assertIn("input", body)
+        self.assertEqual(before_history, after_history)
+        self.assertEqual(before_revision, after_revision)
+
+    def test_replay_plan_endpoint_is_advisory_and_does_not_mutate_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_replay_plan"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            manager = app.state.hecsn_manager
+            with TestClient(app) as client:
+                feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
+                episode_id = feed_response.json()["runtime_episode"]["episode_id"]
+                feedback_response = client.post(
+                    "/terminus/runtime-feedback",
+                    json={
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "verdict": "contradicted",
+                        "confidence": 0.91,
+                        "summary": "Manual review contradicted this episode.",
+                        "corrected_output": {"summary": "Cats chase mice at night."},
+                    },
+                )
+                before_revision = manager.status()["state_revision"]
+                before_history = manager.action_history()["count"]
+                replay_response = client.get("/terminus/replay-plan?limit=5")
+                after_revision = manager.status()["state_revision"]
+                after_history = manager.action_history()["count"]
+
+        self.assertEqual(feed_response.status_code, 200)
+        self.assertEqual(feedback_response.status_code, 200)
+        self.assertEqual(replay_response.status_code, 200)
+        body = replay_response.json()
+        self.assertEqual(body["schema_version"], 1)
+        self.assertTrue(body["advisory"])
+        self.assertFalse(body["executable"])
+        self.assertEqual(body["endpoint"], "/terminus/replay-plan")
+        self.assertGreaterEqual(body["count"], 1)
+        top = body["candidates"][0]
+        self.assertEqual(top["target_type"], "runtime_episode")
+        self.assertEqual(top["target_id"], episode_id)
+        self.assertIn("contradicted_feedback", top["reason_codes"])
+        self.assertEqual(top["suggested_consolidation_action"], "review_contradiction")
+        self.assertEqual(before_revision, after_revision)
+        self.assertEqual(before_history, after_history)
+
+    def test_replay_sample_endpoint_records_audit_only_history(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_replay_sample"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            manager = app.state.hecsn_manager
+            with TestClient(app) as client:
+                feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
+                episode_id = feed_response.json()["runtime_episode"]["episode_id"]
+                feedback_response = client.post(
+                    "/terminus/runtime-feedback",
+                    json={
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "verdict": "contradicted",
+                        "confidence": 0.91,
+                        "summary": "Manual review contradicted this episode.",
+                        "corrected_output": {"summary": "Cats chase mice at night."},
+                    },
+                )
+                plan_response = client.get("/terminus/replay-plan?limit=5")
+                candidate = plan_response.json()["candidates"][0]
+                before_revision = manager.status()["state_revision"]
+                before_history = manager.action_history()["count"]
+                rejected_response = client.post(
+                    "/terminus/replay-sample",
+                    json={
+                        "mode": "sample",
+                        "candidate_id": candidate["candidate_id"],
+                        "operator_id": "operator-a",
+                        "confirmation": False,
+                    },
+                )
+                sample_response = client.post(
+                    "/terminus/replay-sample",
+                    json={
+                        "mode": "sample",
+                        "candidate_id": candidate["candidate_id"],
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "operator_id": "operator-a",
+                        "operator_note": "Audit contradicted replay candidate only.",
+                        "confirmation": True,
+                        "seed": 123,
+                    },
+                )
+                history_response = client.get("/terminus/replay-sample/history?limit=5")
+                alias_history_response = client.get("/terminus/replay-execute/history?limit=5")
+                living_response = client.get("/terminus/living-loop")
+                export_response = client.get("/terminus/runtime-traces/export?limit=5")
+                replay_dataset_response = client.get("/terminus/replay-dataset/preview?limit=5")
+                replay_dataset_candidates_response = client.get("/terminus/replay-dataset/candidates?limit=5")
+                replay_dataset_history_response = client.get("/terminus/replay-dataset/history?limit=5")
+                seeded_sample_a = manager._sample_replay_candidates(
+                    [
+                        {"candidate_id": "a", "priority_score": 100.0, "target_type": "runtime_episode"},
+                        {"candidate_id": "b", "priority_score": 95.0, "target_type": "runtime_episode"},
+                        {"candidate_id": "c", "priority_score": 90.0, "target_type": "action"},
+                    ],
+                    count=2,
+                    alpha=1.0,
+                    seed=1,
+                )
+                seeded_sample_b = manager._sample_replay_candidates(
+                    [
+                        {"candidate_id": "a", "priority_score": 100.0, "target_type": "runtime_episode"},
+                        {"candidate_id": "b", "priority_score": 95.0, "target_type": "runtime_episode"},
+                        {"candidate_id": "c", "priority_score": 90.0, "target_type": "action"},
+                    ],
+                    count=2,
+                    alpha=1.0,
+                    seed=1,
+                )
+                after_revision = manager.status()["state_revision"]
+                after_history = manager.action_history()["count"]
+
+        self.assertEqual(feed_response.status_code, 200)
+        self.assertEqual(feedback_response.status_code, 200)
+        self.assertEqual(plan_response.status_code, 200)
+        self.assertEqual(rejected_response.status_code, 422)
+        self.assertEqual(sample_response.status_code, 200)
+        body = sample_response.json()
+        self.assertEqual(body["schema_version"], 1)
+        self.assertEqual(body["mode"], "sample")
+        self.assertEqual(body["status"], "recorded")
+        self.assertEqual(body["operator_id"], "operator-a")
+        self.assertEqual(body["selected_candidate_ids"], [candidate["candidate_id"]])
+        self.assertTrue(body["safety_checks"]["passed"])
+        self.assertTrue(body["safety_flags"]["audit_only"])
+        self.assertFalse(body["safety_flags"]["training_started"])
+        self.assertFalse(body["safety_flags"]["sleep_started"])
+        self.assertFalse(body["safety_flags"]["feedback_posted"])
+        self.assertFalse(body["safety_flags"]["digital_action_executed"])
+        self.assertFalse(body["safety_flags"]["external_calls_made"])
+        self.assertTrue(body["selected_candidates"][0]["safety"]["not_promoted"])
+        self.assertTrue(body["selected_candidates"][0]["safety"]["non_factual"])
+        self.assertEqual(body["before"]["state_revision"], body["after"]["state_revision"])
+        self.assertEqual(body["before"]["token_count"], body["after"]["token_count"])
+        self.assertEqual(body["before"]["action_history_count"], body["after"]["action_history_count"])
+        self.assertEqual(body["before"]["feedback_count"], body["after"]["feedback_count"])
+        self.assertEqual(before_revision, after_revision)
+        self.assertEqual(before_history, after_history)
+        self.assertEqual(history_response.status_code, 200)
+        history = history_response.json()
+        self.assertEqual(history["count"], 1)
+        self.assertEqual(history["history"][0]["replay_sample_id"], body["replay_sample_id"])
+        self.assertEqual(alias_history_response.status_code, 200)
+        self.assertEqual(alias_history_response.json()["history"][0]["replay_sample_id"], body["replay_sample_id"])
+        self.assertEqual(living_response.status_code, 200)
+        living_loop = living_response.json()["living_loop"]
+        replay_summary = living_loop["replay_sample_summary"]
+        self.assertEqual(replay_summary["endpoint"], "/terminus/replay-sample")
+        self.assertEqual(replay_summary["execution_endpoint"], "/terminus/replay-execute")
+        self.assertEqual(replay_summary["history_endpoint"], "/terminus/replay-sample/history")
+        self.assertEqual(replay_summary["count"], 1)
+        self.assertEqual(replay_summary["mode_counts"]["sample"], 1)
+        self.assertEqual(replay_summary["status_counts"]["recorded"], 1)
+        self.assertEqual(replay_summary["latest_selected_count"], 1)
+        self.assertTrue(replay_summary["safety_flags"]["audit_only"])
+        self.assertFalse(replay_summary["safety_flags"]["external_calls_made"])
+        self.assertEqual(living_loop["benchmark_telemetry"]["replay_sample_summary"]["count"], 1)
+        self.assertEqual(living_loop["replay_executor_summary"]["count"], 1)
+        living_dataset_summary = living_loop["replay_dataset_summary"]
+        self.assertEqual(living_dataset_summary["export_kind"], "terminus_replay_dataset_preview")
+        self.assertEqual(living_dataset_summary["endpoint"], "/terminus/replay-dataset/preview")
+        self.assertGreaterEqual(living_dataset_summary["positive_count"], 1)
+        self.assertGreaterEqual(living_dataset_summary["negative_count"], 1)
+        self.assertEqual(living_dataset_summary["latest_history_timestamp"], body["created_at"])
+        self.assertEqual(
+            living_loop["benchmark_telemetry"]["replay_dataset_summary"]["endpoint"],
+            "/terminus/replay-dataset/preview",
+        )
+        self.assertEqual(export_response.status_code, 200)
+        export_body = export_response.json()
+        self.assertEqual(export_body["replay_sample_summary"]["count"], 1)
+        self.assertEqual(export_body["replay_dataset_summary"]["endpoint"], "/terminus/replay-dataset/preview")
+        self.assertEqual(export_body["replay_dataset_summary"]["latest_history_timestamp"], body["created_at"])
+        self.assertTrue(export_body["replay_sample_summary"]["safety_flags"]["audit_only"])
+        if export_body["examples"]:
+            self.assertEqual(export_body["examples"][0]["replay_sample_summary"]["count"], 1)
+            self.assertTrue(export_body["examples"][0]["replay_sample_summary"]["safety_flags"]["audit_only"])
+        self.assertEqual(replay_dataset_response.status_code, 200)
+        replay_dataset = replay_dataset_response.json()
+        self.assertEqual(replay_dataset["export_kind"], "terminus_replay_dataset_preview")
+        self.assertEqual(replay_dataset["training_role"], "replay_dataset_preview_only_not_training_no_mutation")
+        self.assertGreaterEqual(replay_dataset["count"], 1)
+        self.assertGreaterEqual(replay_dataset["positive_count"], 1)
+        self.assertGreaterEqual(replay_dataset["negative_count"], 1)
+        self.assertEqual(replay_dataset["endpoint"], "/terminus/replay-dataset/preview")
+        self.assertIsNotNone(replay_dataset["latest_export_timestamp"])
+        self.assertEqual(replay_dataset["latest_history_timestamp"], body["created_at"])
+        self.assertFalse(replay_dataset["safety_flags"]["training_started"])
+        self.assertFalse(replay_dataset["safety_flags"]["memory_mutated"])
+        self.assertFalse(replay_dataset["safety_flags"]["feedback_posted"])
+        self.assertFalse(replay_dataset["safety_flags"]["digital_action_executed"])
+        self.assertFalse(replay_dataset["safety_flags"]["external_calls_made"])
+        dataset_item = next(
+            item
+            for item in replay_dataset["items"]
+            if item["target_id"] == episode_id
+        )
+        self.assertEqual(dataset_item["verification_label"], "contradicted")
+        self.assertFalse(dataset_item["is_verified_fact"])
+        self.assertTrue(dataset_item["has_positive_example"])
+        self.assertTrue(dataset_item["has_negative_example"])
+        self.assertEqual(dataset_item["sft_example"]["output_source"], "corrected_output")
+        self.assertEqual(dataset_item["preference_pair"]["chosen_source"], "corrected_output")
+        self.assertIn("contradicted", dataset_item["preference_pair"]["rejected_source"])
+        self.assertTrue(dataset_item["replay_sample_linkage"]["selected"])
+        self.assertEqual(dataset_item["replay_sample_linkage"]["replay_sample_ids"], [body["replay_sample_id"]])
+        self.assertFalse(dataset_item["safety_flags"]["eligible_for_training"])
+        self.assertEqual(replay_dataset_candidates_response.status_code, 200)
+        self.assertEqual(replay_dataset_candidates_response.json()["export_kind"], "terminus_replay_dataset_candidates_preview")
+        self.assertGreaterEqual(replay_dataset_candidates_response.json()["count"], 1)
+        self.assertEqual(replay_dataset_history_response.status_code, 200)
+        self.assertEqual(replay_dataset_history_response.json()["export_kind"], "terminus_replay_dataset_history_preview")
+        self.assertEqual(replay_dataset_history_response.json()["history"][0]["replay_sample_id"], body["replay_sample_id"])
+        self.assertEqual(
+            [candidate["candidate_id"] for candidate in seeded_sample_a],
+            [candidate["candidate_id"] for candidate in seeded_sample_b],
+        )
+        self.assertEqual(
+            {candidate["target_type"] for candidate in seeded_sample_a},
+            {"runtime_episode", "action"},
+        )
 
     def test_terminus_action_endpoint_executes_workspace_read_and_records_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1007,6 +1310,161 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 any(term in body["response"]["response_text"].lower() for term in ("submarine", "ballast", "buoyancy"))
             )
             self.assertEqual(body["response"]["unsupported_terms"], [])
+
+    def test_feed_query_respond_endpoints_return_runtime_episodes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_runtime_episodes"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                feed_response = client.post(
+                    "/feed",
+                    json={"text": "Cats chase mice at night. Cats rest indoors during the day. " * 4},
+                )
+                query_response = client.post("/query", json={"query_text": "cats chase mice", "top_k_memories": 4})
+                respond_response = client.post(
+                    "/respond",
+                    json={"query_text": "cats chase mice", "top_k_memories": 4, "learn_mode": "none"},
+                )
+                living_response = client.get("/terminus/living-loop")
+                replay_response = client.get("/terminus/replay-plan?limit=3")
+                export_response = client.get("/terminus/runtime-traces/export?limit=2")
+                query_export_response = client.get(
+                    "/terminus/runtime-traces/export",
+                    params={"endpoint": "query", "limit": 5},
+                )
+                oversized_export_response = client.get("/terminus/runtime-traces/export?limit=51")
+
+        self.assertEqual(feed_response.status_code, 200)
+        self.assertEqual(query_response.status_code, 200)
+        self.assertEqual(respond_response.status_code, 200)
+        self.assertEqual(living_response.status_code, 200)
+        self.assertEqual(replay_response.status_code, 200)
+        self.assertEqual(export_response.status_code, 200)
+        self.assertEqual(query_export_response.status_code, 200)
+        self.assertEqual(oversized_export_response.status_code, 422)
+        self.assertEqual(feed_response.json()["runtime_episode"]["operation"], "feed")
+        self.assertEqual(query_response.json()["runtime_episode"]["operation"], "query")
+        self.assertEqual(respond_response.json()["runtime_episode"]["operation"], "respond")
+        living_loop = living_response.json()["living_loop"]
+        self.assertLessEqual(
+            {"feed", "query", "respond"},
+            {episode["operation"] for episode in living_loop["runtime_episodes"]},
+        )
+        self.assertIn("runtime_episode_trace", living_loop["capabilities"])
+        self.assertEqual(living_loop["policy_decision"]["schema_version"], 1)
+        self.assertIsInstance(living_loop["policy_decision"]["action"], str)
+        replay_body = replay_response.json()
+        self.assertEqual(replay_body["schema_version"], 1)
+        self.assertTrue(replay_body["advisory"])
+        self.assertFalse(replay_body["executable"])
+        self.assertEqual(replay_body["endpoint"], "/terminus/replay-plan")
+        self.assertLessEqual(replay_body["count"], 3)
+        self.assertIn("snapshot_counts", replay_body)
+        self.assertIn("candidates", replay_body)
+        export_body = export_response.json()
+        self.assertEqual(export_body["export_kind"], "terminus_runtime_trace_dataset_preview")
+        self.assertIn("not_training", export_body["training_role"])
+        self.assertEqual(export_body["count"], 2)
+        self.assertEqual(export_body["policy_decision"]["action"], living_loop["policy_decision"]["action"])
+        self.assertEqual(export_body["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
+        self.assertEqual(export_body["replay_dataset_summary"]["endpoint"], "/terminus/replay-dataset/preview")
+        self.assertEqual(export_body["replay_dataset_summary"]["count"], 2)
+        self.assertIn("latest_export_timestamp", export_body["replay_dataset_summary"])
+        self.assertEqual([example["endpoint"] for example in export_body["examples"]], ["/respond", "/query"])
+        for example in export_body["examples"]:
+            self.assertLessEqual(
+                {
+                    "context",
+                    "prediction",
+                    "actual_output",
+                    "verification",
+                    "provenance",
+                    "latency_ms",
+                    "state_revision",
+                    "token_count",
+                    "policy_decision",
+                    "replay_plan_summary",
+                },
+                set(example),
+            )
+            self.assertEqual(example["policy_decision"]["action"], export_body["policy_decision"]["action"])
+            self.assertEqual(example["replay_plan_summary"]["endpoint"], "/terminus/replay-plan")
+        query_export = query_export_response.json()
+        self.assertEqual(query_export["endpoint"], "query")
+        self.assertEqual(query_export["count"], 1)
+        self.assertEqual(query_export["examples"][0]["type"], "query")
+
+    def test_runtime_feedback_endpoint_updates_runtime_episode_and_action_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "notes.md").write_text(
+                "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                encoding="utf-8",
+            )
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_runtime_feedback"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            with TestClient(app) as client:
+                feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
+                episode_id = feed_response.json()["runtime_episode"]["episode_id"]
+                episode_feedback_response = client.post(
+                    "/terminus/runtime-feedback",
+                    json={
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "verdict": "verified",
+                        "confidence": 0.91,
+                        "summary": "Runtime trace reviewed.",
+                        "evidence": [{"note": "manual verification"}],
+                        "tags": ["Reviewed"],
+                        "evaluator_id": "api-test",
+                    },
+                )
+                action_response = client.post(
+                    "/terminus/action",
+                    json={
+                        "action_type": "workspace_search",
+                        "query_text": "cats chase mice",
+                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
+                    },
+                )
+                action_id = action_response.json()["result"]["action_id"]
+                action_feedback_response = client.post(
+                    "/terminus/runtime-feedback",
+                    json={
+                        "target_type": "action",
+                        "target_id": action_id,
+                        "verdict": "unverified",
+                        "confidence": 0.33,
+                        "summary": "Needs a second review.",
+                        "tags": ["needs-review"],
+                    },
+                )
+                missing_response = client.post(
+                    "/terminus/runtime-feedback",
+                    json={
+                        "target_type": "action",
+                        "target_id": "missing-action",
+                        "verdict": "verified",
+                        "confidence": 0.5,
+                    },
+                )
+                history_response = client.get("/terminus/actions")
+
+        self.assertEqual(episode_feedback_response.status_code, 200)
+        self.assertEqual(action_feedback_response.status_code, 200)
+        self.assertEqual(missing_response.status_code, 422)
+        episode_body = episode_feedback_response.json()
+        action_body = action_feedback_response.json()
+        self.assertEqual(episode_body["target"]["verification"]["status"], "verified")
+        self.assertEqual(episode_body["target"]["provenance"], "verified")
+        self.assertEqual(episode_body["feedback"]["tags"], ["reviewed"])
+        self.assertTrue(episode_body["dirty_state"])
+        self.assertEqual(action_body["target"]["verification"]["status"], "unverified")
+        self.assertEqual(action_body["target"]["verification"]["provenance"], "unverified")
+        self.assertEqual(history_response.json()["actions"][0]["feedback"][0]["summary"], "Needs a second review.")
 
     def test_terminus_tick_then_respond_handles_mixed_world_grounding(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

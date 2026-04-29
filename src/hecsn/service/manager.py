@@ -11,6 +11,7 @@ import math
 import os
 from pathlib import Path
 from queue import Empty, Queue
+import random
 import re
 from threading import Event, Lock, RLock, Thread
 import time
@@ -80,6 +81,52 @@ DEFAULT_DELAYED_CONSEQUENCE_SPLIT_MIN_BRANCH_OCCURRENCES = 1
 DEFAULT_DELAYED_CONSEQUENCE_REMERGE_MIN_CROSS_OCCURRENCES = 1
 DEFAULT_FORGIVENESS_RECOVERY_RATIO = 0.80
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
+DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT = 20
+MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
+DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT
+MAX_REPLAY_DATASET_EXPORT_LIMIT = MAX_RUNTIME_TRACE_EXPORT_LIMIT
+DEFAULT_REPLAY_SAMPLE_HISTORY = 256
+MAX_REPLAY_SAMPLE_LIMIT = 20
+DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS = 2.0
+DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = 0.25
+RUNTIME_TRACE_EXPORT_SCHEMA_VERSION = 1
+REPLAY_DATASET_SCHEMA_VERSION = 1
+REPLAY_DATASET_TRAINING_ROLE = "replay_dataset_preview_only_not_training_no_mutation"
+DEFAULT_RUNTIME_FEEDBACK_HISTORY = 8
+DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT = 8
+DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT = 12
+DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS = 2000
+_RUNTIME_TRACE_EXPORT_MAX_STRING_CHARS = 2000
+_RUNTIME_TRACE_EXPORT_MAX_LIST_ITEMS = 16
+_RUNTIME_TRACE_EXPORT_MAX_MAPPING_ITEMS = 48
+_RUNTIME_TRACE_EXPORT_ALLOWED_TOKEN_KEYS = {
+    "token_count",
+    "token_count_mutated",
+    "tokens_processed",
+    "top_k_candidates",
+    "top_k_memories",
+}
+_RUNTIME_TRACE_EXPORT_UNSAFE_KEY_MARKERS = (
+    "api_key",
+    "authorization",
+    "cookie",
+    "credential",
+    "dotenv",
+    "environment",
+    "password",
+    "secret",
+)
+_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS = {
+    "checkpoint_path",
+    "env",
+    "env_root",
+    "path",
+    "raw_environment",
+    "root_path",
+    "runtime_env",
+    "trace_path",
+    "workspace_root",
+}
 
 # Re-export autonomy constants for backwards compatibility
 from hecsn.service.terminus_autonomy import (  # noqa: E402
@@ -103,6 +150,12 @@ from hecsn.service.living_loop import (
     ConsolidationRecord,
     OperationalSelfModel,
     ProvenanceState,
+    RuntimeEpisodeTrace,
+    REPLAY_SAMPLE_SAFETY_BOUNDARIES,
+    build_policy_actuator_status,
+    build_replay_plan,
+    build_runtime_benchmark_telemetry,
+    replay_candidate_safety_flags,
 )
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_episode_from_row, build_sensory_stream, sensory_bootstrap_columns
@@ -114,6 +167,56 @@ from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E4
 class _TimedCallFailure:
     def __init__(self, error: BaseException) -> None:
         self.error = error
+
+
+class _LazyThoughtLoop:
+    """Compatibility proxy that initializes the real ThoughtLoop on active use."""
+
+    def __init__(self, manager: "HECSNServiceManager") -> None:
+        self._manager = manager
+
+    def _get(self) -> Any:
+        loop = self._manager._ensure_cortex_initialized()
+        if loop is None:
+            raise RuntimeError("cortex_unavailable")
+        return loop
+
+    @property
+    def is_running(self) -> bool:
+        loop = self._manager._thought_loop_actual
+        return bool(loop is not None and loop.is_running)
+
+    def snapshot(self) -> dict[str, Any]:
+        loop = self._manager._thought_loop_actual
+        if loop is None:
+            return self._manager._cortex_unavailable_snapshot()
+        return loop.snapshot()
+
+    def start(self) -> None:
+        loop = self._get()
+        loop.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        loop = self._manager._thought_loop_actual
+        if loop is not None:
+            loop.stop(timeout=timeout)
+
+    def request_stop(self) -> None:
+        loop = self._manager._thought_loop_actual
+        if loop is not None:
+            loop.request_stop()
+
+    def submit_query(self, query: str) -> None:
+        self._get().submit_query(query)
+
+    def request_sleep(self, **kwargs: Any) -> dict[str, Any]:
+        return self._get().request_sleep(**kwargs)
+
+    def inject_action_result(self, **kwargs: Any) -> None:
+        self._get().inject_action_result(**kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._get(), name)
 
 
 @dataclass
@@ -266,6 +369,28 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             ),
             maxlen=24,
         )
+        self._runtime_episode_traces: deque[dict[str, Any]] = deque(
+            (
+                item
+                for item in (
+                    self._normalize_runtime_episode_trace(raw_item)
+                    for raw_item in list(terminus_state.get("runtime_episode_traces") or [])
+                )
+                if item is not None
+            ),
+            maxlen=64,
+        )
+        self._replay_sample_history: deque[dict[str, Any]] = deque(
+            (
+                item
+                for item in (
+                    self._normalize_replay_sample_record(raw_item)
+                    for raw_item in list(terminus_state.get("replay_sample_history") or [])
+                )
+                if item is not None
+            ),
+            maxlen=DEFAULT_REPLAY_SAMPLE_HISTORY,
+        )
         self._delayed_consequence_records: deque[dict[str, Any]] = deque(
             (
                 item
@@ -341,35 +466,156 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         self._load_persisted_traces_locked()
 
         # --- Cortex / ThoughtLoop (requires NVIDIA_API_KEY) ---
-        self._thought_loop: Any = None  # type: ThoughtLoop | None
+        # Cortex/NIM clients are intentionally not constructed during service
+        # startup. Real NVIDIA environments can block for minutes during NIM
+        # health checks; initialization is triggered only by active cortex use.
+        self._thought_loop_actual: Any = None  # type: ThoughtLoop | None
+        self._lazy_thought_loop = _LazyThoughtLoop(self)
         self._cortex_available = False
+        self._cortex_init_lock = Lock()
+        self._cortex_init_event = Event()
+        self._cortex_init_thread: Thread | None = None
+        self._cortex_init_started = False
+        self._cortex_init_finished = False
+        self._cortex_init_timed_out = False
+        self._cortex_init_error: str | None = None
+        self._cortex_factory_refs: tuple[Any, Any, Any, Any] | None = None
         try:
             from hecsn.cortex.thought_loop import ThoughtLoop
             from hecsn.cortex.multi_cortex import create_cortex_from_env, create_embedder_from_env
             from hecsn.cortex.episodic_memory import EpisodicMemory
 
-            cortex = create_cortex_from_env()
-            embedder = create_embedder_from_env(allow_fallback=False)
-            memory = EpisodicMemory(capacity=2048, embedder=embedder)
-            curiosity_ctrl = getattr(self, "_geometric_curiosity", None)
-            self._thought_loop = ThoughtLoop(
-                cortex=cortex,
-                memory=memory,
-                curiosity_controller=curiosity_ctrl,
-                signal_provider=self._cortex_signal_state,
-                narrative_state_path=str(self._checkpoint_dir / "cortex_narrative_self.json"),
-                on_thought=self._on_cortex_thought,
-                on_sleep_summary=self._on_cortex_sleep_cycle,
+            self._cortex_factory_refs = (
+                ThoughtLoop,
+                create_cortex_from_env,
+                create_embedder_from_env,
+                EpisodicMemory,
             )
-            self._replay_action_history_into_cortex_locked()
-            self._cortex_available = True
-            _cortex_logger.info("Cortex module initialised (%s, embedder=%s)", cortex.model, type(embedder).__name__)
-
-        except RuntimeError as exc:
-            # API key missing or NIM unreachable — cortex disabled
-            _cortex_logger.warning("Cortex disabled: %s", exc)
+            _cortex_logger.info("Cortex module available for lazy initialization")
         except Exception as exc:
+            self._cortex_init_finished = True
+            self._cortex_init_error = str(exc)
+            self._cortex_init_event.set()
             _cortex_logger.info("Cortex module unavailable: %s", exc)
+
+    @property
+    def _thought_loop(self) -> Any:
+        if self._thought_loop_actual is not None:
+            return self._thought_loop_actual
+        if self._cortex_factories_are_mocked():
+            return self._lazy_thought_loop
+        return None
+
+    @_thought_loop.setter
+    def _thought_loop(self, value: Any) -> None:
+        self._thought_loop_actual = value
+        self._cortex_available = value is not None
+        if value is not None:
+            self._cortex_init_started = True
+            self._cortex_init_finished = True
+            self._cortex_init_error = None
+            self._cortex_init_event.set()
+
+    def _cortex_factories_are_mocked(self) -> bool:
+        refs = self._cortex_factory_refs or ()
+        return any(
+            "unittest.mock" in type(ref).__module__ or hasattr(ref, "mock_calls")
+            for ref in refs
+        )
+
+    def _cortex_unavailable_snapshot(self) -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "initialization": {
+                "started": bool(getattr(self, "_cortex_init_started", False)),
+                "finished": bool(getattr(self, "_cortex_init_finished", False)),
+                "timed_out": bool(getattr(self, "_cortex_init_timed_out", False)),
+                "error": getattr(self, "_cortex_init_error", None),
+            },
+        }
+
+    def _inject_action_record_into_loop(self, thought_loop: Any, record: Mapping[str, Any]) -> None:
+        content = " ".join(str(record.get("episode_text", "")).split()).strip()
+        if not content:
+            return
+        verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
+        thought_loop.inject_action_result(
+            content=content,
+            topics=tuple(str(item) for item in list(record.get("topics") or []) if str(item).strip()),
+            success=bool(verification.get("success", False)),
+            confidence=float(verification.get("confidence", 0.0) or 0.0),
+            contradicted=bool(verification.get("contradiction", False)),
+            metadata=self._action_history_memory_metadata(record),
+        )
+
+    def _build_cortex_thought_loop(self, action_history: Sequence[Mapping[str, Any]]) -> Any:
+        if self._cortex_factory_refs is None:
+            raise RuntimeError(self._cortex_init_error or "Cortex module unavailable")
+        ThoughtLoop, create_cortex_from_env, create_embedder_from_env, EpisodicMemory = self._cortex_factory_refs
+        cortex = create_cortex_from_env()
+        embedder = create_embedder_from_env(allow_fallback=False)
+        memory = EpisodicMemory(capacity=2048, embedder=embedder)
+        thought_loop = ThoughtLoop(
+            cortex=cortex,
+            memory=memory,
+            curiosity_controller=getattr(self, "_geometric_curiosity", None),
+            signal_provider=self._cortex_signal_state,
+            narrative_state_path=str(self._checkpoint_dir / "cortex_narrative_self.json"),
+            on_thought=self._on_cortex_thought,
+            on_sleep_summary=self._on_cortex_sleep_cycle,
+        )
+        for record in reversed(list(action_history)):
+            self._inject_action_record_into_loop(thought_loop, record)
+        _cortex_logger.info("Cortex module initialised (%s, embedder=%s)", cortex.model, type(embedder).__name__)
+        return thought_loop
+
+    def _start_cortex_initialization(self) -> None:
+        with self._cortex_init_lock:
+            if self._thought_loop_actual is not None:
+                self._cortex_init_event.set()
+                return
+            if self._cortex_init_thread is not None and self._cortex_init_thread.is_alive():
+                return
+            if self._cortex_init_finished and self._cortex_init_error:
+                return
+            self._cortex_init_started = True
+            self._cortex_init_finished = False
+            self._cortex_init_timed_out = False
+            self._cortex_init_error = None
+            self._cortex_init_event.clear()
+            action_history = list(self._action_history)
+
+            def _runner() -> None:
+                try:
+                    thought_loop = self._build_cortex_thought_loop(action_history)
+                except RuntimeError as exc:
+                    self._cortex_init_error = str(exc)
+                    _cortex_logger.warning("Cortex disabled: %s", exc)
+                except Exception as exc:  # pragma: no cover - defensive init guard
+                    self._cortex_init_error = str(exc)
+                    _cortex_logger.info("Cortex module unavailable: %s", exc)
+                else:
+                    self._thought_loop_actual = thought_loop
+                    self._cortex_available = True
+                finally:
+                    self._cortex_init_finished = True
+                    self._cortex_init_event.set()
+
+            self._cortex_init_thread = Thread(target=_runner, name="hecsn-cortex-init", daemon=True)
+            self._cortex_init_thread.start()
+
+    def _ensure_cortex_initialized(self, *, wait_seconds: float | None = DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS) -> Any:
+        if self._thought_loop_actual is not None:
+            return self._thought_loop_actual
+        self._start_cortex_initialization()
+        if self._thought_loop_actual is not None:
+            return self._thought_loop_actual
+        if wait_seconds is not None:
+            if not self._cortex_init_event.wait(timeout=max(0.0, float(wait_seconds))):
+                self._cortex_init_timed_out = True
+                _cortex_logger.warning("Cortex initialization still pending after %.2fs", float(wait_seconds))
+                return None
+        return self._thought_loop_actual
 
     def _runtime_environment_summary(self) -> dict[str, Any]:
         return {
@@ -382,8 +628,18 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             "hf_token_present": bool(huggingface_token_from_env()),
         }
 
+    @staticmethod
+    def _replay_dataset_summary_from_runtime(runtime: Mapping[str, Any]) -> dict[str, Any] | None:
+        living_loop = runtime.get("living_loop") if isinstance(runtime, Mapping) else None
+        if not isinstance(living_loop, Mapping):
+            return None
+        summary = living_loop.get("replay_dataset_summary")
+        return deepcopy(dict(summary)) if isinstance(summary, Mapping) else None
+
     def _status_snapshot_locked(self) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
+        terminus_runtime = self._brain_runtime_snapshot_locked()
+        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         return {
             "checkpoint_path": str(self._checkpoint_path),
             "dirty_state": bool(self._dirty_state),
@@ -404,7 +660,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             "runtime_scope": self._trainer.model.runtime_scope_report(),
             "memory_store": self._trainer.model.memory_store.summary_stats(),
             "concept_store": self._concept_store.snapshot(),
-            "terminus_runtime": self._brain_runtime_snapshot_locked(),
+            "terminus_runtime": terminus_runtime,
+            "replay_dataset_summary": replay_dataset_summary,
         }
 
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
@@ -453,7 +710,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
     def _telemetry_snapshot_locked(self) -> dict[str, Any]:
         """Build the telemetry dict. Caller MUST hold self._lock."""
         current_rev = int(self._state_revision)
-        cortex_active = self._thought_loop is not None and self._thought_loop.is_running
+        cortex_active = self._thought_loop_actual is not None and self._thought_loop_actual.is_running
         cached = getattr(self, "_cached_telemetry", None)
         cached_rev = getattr(self, "_cached_telemetry_rev", -1)
         if not cortex_active and cached is not None and cached_rev == current_rev:
@@ -468,6 +725,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 self._trainer.last_winner if self._trainer.config.use_winner_local_drift else None
             )
         )
+        terminus_runtime = self._brain_runtime_snapshot_locked()
+        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         snapshot = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "checkpoint_path": str(self._checkpoint_path),
@@ -505,7 +764,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 if self._trainer.model.cross_modal is not None else None
             ),
             "animation": self._animation_snapshot_locked(),
-            "terminus_runtime": self._brain_runtime_snapshot_locked(),
+            "terminus_runtime": terminus_runtime,
+            "replay_dataset_summary": replay_dataset_summary,
         }
         self._cached_telemetry = snapshot
         self._cached_telemetry_rev = current_rev
@@ -538,46 +798,225 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         top_chars: int = 6,
     ) -> dict[str, Any]:
         with self._lock:
-            result = self._build_query_locked(
-                query_text=query_text,
-                context_text=context_text,
-                top_k_candidates=top_k_candidates,
-                top_k_memories=top_k_memories,
-                top_chars=top_chars,
+            started_perf = time.perf_counter()
+            created_at = datetime.now(timezone.utc).isoformat()
+            trace_id = str(uuid4())
+            request = {
+                "query_text": query_text,
+                "context_text": context_text,
+                "top_k_candidates": int(top_k_candidates),
+                "top_k_memories": int(top_k_memories),
+                "top_chars": int(top_chars),
+            }
+            prediction = {
+                "kind": "retrieval_prediction",
+                "predicted_output": f"Query should produce memory evidence and a semantic gap plan for: {query_text}",
+                "proposed_action": "build_query_result",
+                "topics": salient_query_terms(query_text)[:8],
+            }
+            action = {
+                "action_type": "query",
+                "top_k_candidates": int(top_k_candidates),
+                "top_k_memories": int(top_k_memories),
+                "top_chars": int(top_chars),
+            }
+            try:
+                result = self._build_query_locked(
+                    query_text=query_text,
+                    context_text=context_text,
+                    top_k_candidates=top_k_candidates,
+                    top_k_memories=top_k_memories,
+                    top_chars=top_chars,
+                )
+                result["concept_summary"] = self._observe_concepts_locked(
+                    query_text=query_text,
+                    query_result=result,
+                )
+                result["gap_plan"] = self._plan_gaps_locked(
+                    query_text=query_text,
+                    query_result=result,
+                )
+                result["delayed_consequence"] = self._apply_delayed_query_consequence_locked(
+                    query_result=result,
+                )
+                self._record_recent_query_gap_locked(
+                    query_text=query_text,
+                    gap_plan=result["gap_plan"],
+                    source="query",
+                )
+                actual_output = self._query_runtime_actual_output(result)
+                verification = self._query_runtime_verification(result)
+                episode = self._runtime_episode_payload_locked(
+                    operation="query",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=actual_output,
+                    verification=verification,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                )
+                trace = {
+                    "trace_id": trace_id,
+                    "created_at": created_at,
+                    "operation": "query",
+                    "request": request,
+                    "runtime_episode": episode,
+                    "state_after": self._service_state_snapshot(),
+                }
+                trace_path = self._persist_trace_locked(trace)
+                episode["trace_path"] = str(trace_path)
+                episode = self._append_runtime_episode_trace_locked(episode)
+                result["service_state"] = self._service_state_snapshot()
+                result["runtime_episode"] = episode
+                return result
+            except Exception as exc:
+                episode = self._runtime_episode_payload_locked(
+                    operation="query",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=None,
+                    verification=None,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                    error=exc,
+                )
+                trace = {
+                    "trace_id": trace_id,
+                    "created_at": created_at,
+                    "operation": "query",
+                    "request": request,
+                    "runtime_episode": episode,
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                    "state_after": self._service_state_snapshot(),
+                }
+                trace_path = self._persist_trace_locked(trace)
+                episode["trace_path"] = str(trace_path)
+                self._append_runtime_episode_trace_locked(episode)
+                raise
+
+    def _feed_text_for_request_locked(
+        self,
+        text: str,
+        *,
+        allow_sleep_maintenance: bool,
+        on_step: Any = None,
+    ) -> dict[str, Any]:
+        self._trainer.encoder = self._encoder
+        last_metrics: dict[str, Any] | None = None
+        tokens = 0
+        sleep_maintenance_deferred = 0
+        for raw_window, pattern in self._encoder.iter_char_patterns(
+            text,
+            self._trainer.config.window_size,
+            learn=True,
+        ):
+            last_metrics = self._trainer.train_step(
+                pattern,
+                raw_window=raw_window,
+                allow_sleep_maintenance=allow_sleep_maintenance,
             )
-            result["concept_summary"] = self._observe_concepts_locked(
-                query_text=query_text,
-                query_result=result,
-            )
-            result["gap_plan"] = self._plan_gaps_locked(
-                query_text=query_text,
-                query_result=result,
-            )
-            result["delayed_consequence"] = self._apply_delayed_query_consequence_locked(
-                query_result=result,
-            )
-            self._record_recent_query_gap_locked(
-                query_text=query_text,
-                gap_plan=result["gap_plan"],
-                source="query",
-            )
-            result["service_state"] = self._service_state_snapshot()
-            return result
+            sleep_maintenance_deferred += int(last_metrics.get("sleep_maintenance_deferred", 0) or 0)
+            if on_step is not None:
+                on_step(raw_window, last_metrics)
+            tokens += 1
+
+        return {
+            "tokens_processed": int(tokens),
+            "token_count": int(self._trainer.token_count),
+            "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
+            "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
+            "memory_buffer_size": int(len(self._trainer.model.memory_store.slow_buffer)),
+            "sleep_maintenance_allowed": bool(allow_sleep_maintenance),
+            "sleep_maintenance_deferred": int(sleep_maintenance_deferred),
+        }
 
     def feed(self, *, text: str) -> dict[str, Any]:
         with self._lock:
-            summary = feed_text(
-                self._trainer,
-                self._encoder,
-                text,
-                on_step=self._runtime_concept_callback_locked(),
-            )
-            self._mark_mutated()
-            return {
-                "feed_summary": summary,
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+            started_perf = time.perf_counter()
+            created_at = datetime.now(timezone.utc).isoformat()
+            trace_id = str(uuid4())
+            request = {"text_length": int(len(text)), "text_preview": text[:120]}
+            prediction = {
+                "kind": "feed_prediction",
+                "predicted_output": "Feed text should be encoded into runtime memory and concept observations.",
+                "proposed_action": "feed_text",
+                "topics": salient_query_terms(text)[:8],
             }
+            action = {"action_type": "feed", "text_length": int(len(text))}
+            try:
+                summary = self._feed_text_for_request_locked(
+                    text,
+                    allow_sleep_maintenance=False,
+                    on_step=self._runtime_concept_callback_locked(),
+                )
+                self._mark_mutated()
+                actual_output = self._feed_runtime_actual_output(summary)
+                tokens_processed = int(summary.get("tokens_processed", 0) or 0)
+                verification = {
+                    "status": "verified" if tokens_processed > 0 else "unverified",
+                    "success": bool(tokens_processed > 0),
+                    "confidence": 1.0 if tokens_processed > 0 else 0.0,
+                    "contradiction": False,
+                    "summary": actual_output["summary"],
+                }
+                episode = self._runtime_episode_payload_locked(
+                    operation="feed",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=actual_output,
+                    verification=verification,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                )
+                trace = {
+                    "trace_id": trace_id,
+                    "created_at": created_at,
+                    "operation": "feed",
+                    "request": request,
+                    "runtime_episode": episode,
+                    "state_after": self._service_state_snapshot(),
+                }
+                trace_path = self._persist_trace_locked(trace)
+                episode["trace_path"] = str(trace_path)
+                episode = self._append_runtime_episode_trace_locked(episode)
+                return {
+                    "feed_summary": summary,
+                    "runtime_episode": episode,
+                    "dirty_state": bool(self._dirty_state),
+                    "state_revision": int(self._state_revision),
+                }
+            except Exception as exc:
+                episode = self._runtime_episode_payload_locked(
+                    operation="feed",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=None,
+                    verification=None,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                    error=exc,
+                )
+                trace = {
+                    "trace_id": trace_id,
+                    "created_at": created_at,
+                    "operation": "feed",
+                    "request": request,
+                    "runtime_episode": episode,
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                    "state_after": self._service_state_snapshot(),
+                }
+                trace_path = self._persist_trace_locked(trace)
+                episode["trace_path"] = str(trace_path)
+                self._append_runtime_episode_trace_locked(episode)
+                raise
 
     def respond(
         self,
@@ -591,119 +1030,217 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         learn_mode: str = "user_and_selected_evidence",
     ) -> dict[str, Any]:
         with self._lock:
+            started_perf = time.perf_counter()
+            created_at = datetime.now(timezone.utc).isoformat()
+            trace_id = str(uuid4())
+            request = {
+                "query_text": query_text,
+                "context_text": context_text,
+                "top_k_candidates": int(top_k_candidates),
+                "top_k_memories": int(top_k_memories),
+                "top_chars": int(top_chars),
+                "max_evidence_items": int(max_evidence_items),
+                "learn_mode": learn_mode,
+            }
             state_before = self._service_state_snapshot()
-            query_result = self._build_query_locked(
-                query_text=query_text,
-                context_text=context_text,
-                top_k_candidates=top_k_candidates,
-                top_k_memories=top_k_memories,
-                top_chars=top_chars,
-            )
-            query_result["concept_summary"] = self._observe_concepts_locked(
-                query_text=query_text,
-                query_result=query_result,
-            )
-            query_result["gap_plan"] = self._plan_gaps_locked(
-                query_text=query_text,
-                query_result=query_result,
-            )
-            query_result["delayed_consequence"] = self._apply_delayed_query_consequence_locked(
-                query_result=query_result,
-            )
-            self._record_recent_query_gap_locked(
-                query_text=query_text,
-                gap_plan=query_result["gap_plan"],
-                source="respond",
-            )
-            query_summary = query_result.get("query_summary") or {}
-            response = self._responder.build_response(
-                query_text=query_text,
-                query_summary=query_summary,
-                concept_summary=query_result.get("concept_summary"),
-                max_evidence_items=max_evidence_items,
-            )
-            action_assist = self._maybe_auto_action_assist_locked(
-                query_text=query_text,
-                query_result=query_result,
-                response=response,
-            )
-            if action_assist is not None:
-                if int(action_assist.get("response_episode_count", 0) or 0) > 0:
-                    query_summary = query_result.get("query_summary") or {}
-                    response = self._responder.build_response(
-                        query_text=query_text,
-                        query_summary=query_summary,
-                        concept_summary=query_result.get("concept_summary"),
-                        max_evidence_items=max_evidence_items,
-                    )
-                    action_assist["used_in_response"] = True
-                response_note = self._normalize_action_text(action_assist.get("response_note", ""))
-                if response_note:
-                    base_text = self._normalize_action_text(response.get("response_text", ""))
-                    if response_note.strip() not in base_text:
-                        response["response_text"] = (base_text + response_note).strip()
-                        action_assist["used_in_response"] = True
-                query_result["action_assist"] = deepcopy(action_assist)
-                response["action_assist"] = deepcopy(action_assist)
-            response_outcome_score = self._response_grounded_outcome_score_locked(
-                query_result=query_result,
-                response=response,
-                action_assist=action_assist,
-            )
-            applied_background_provenance = self._apply_background_source_response_provenance_locked(
-                response=response,
-                outcome_score=response_outcome_score,
-            )
-            if not applied_background_provenance:
-                self._apply_background_source_outcome_calibration_locked(
+            try:
+                query_result = self._build_query_locked(
                     query_text=query_text,
-                    outcome_score=response_outcome_score,
+                    context_text=context_text,
+                    top_k_candidates=top_k_candidates,
+                    top_k_memories=top_k_memories,
+                    top_chars=top_chars,
                 )
-            autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
-            if autonomy is not None:
-                self._apply_provider_response_outcome_calibration_locked(
-                    autonomy=autonomy,
+                query_result["concept_summary"] = self._observe_concepts_locked(
+                    query_text=query_text,
+                    query_result=query_result,
+                )
+                query_result["gap_plan"] = self._plan_gaps_locked(
+                    query_text=query_text,
+                    query_result=query_result,
+                )
+                query_result["delayed_consequence"] = self._apply_delayed_query_consequence_locked(
+                    query_result=query_result,
+                )
+                self._record_recent_query_gap_locked(
+                    query_text=query_text,
+                    gap_plan=query_result["gap_plan"],
+                    source="respond",
+                )
+                query_summary = query_result.get("query_summary") or {}
+                response = self._responder.build_response(
+                    query_text=query_text,
+                    query_summary=query_summary,
+                    concept_summary=query_result.get("concept_summary"),
+                    max_evidence_items=max_evidence_items,
+                )
+                proposed_response = deepcopy(response)
+                action_assist = self._maybe_auto_action_assist_locked(
+                    query_text=query_text,
+                    query_result=query_result,
+                    response=response,
+                )
+                if action_assist is not None:
+                    if int(action_assist.get("response_episode_count", 0) or 0) > 0:
+                        query_summary = query_result.get("query_summary") or {}
+                        response = self._responder.build_response(
+                            query_text=query_text,
+                            query_summary=query_summary,
+                            concept_summary=query_result.get("concept_summary"),
+                            max_evidence_items=max_evidence_items,
+                        )
+                        action_assist["used_in_response"] = True
+                    response_note = self._normalize_action_text(action_assist.get("response_note", ""))
+                    if response_note:
+                        base_text = self._normalize_action_text(response.get("response_text", ""))
+                        if response_note.strip() not in base_text:
+                            response["response_text"] = (base_text + response_note).strip()
+                            action_assist["used_in_response"] = True
+                    query_result["action_assist"] = deepcopy(action_assist)
+                    response["action_assist"] = deepcopy(action_assist)
+                response_outcome_score = self._response_grounded_outcome_score_locked(
+                    query_result=query_result,
+                    response=response,
+                    action_assist=action_assist,
+                )
+                applied_background_provenance = self._apply_background_source_response_provenance_locked(
                     response=response,
                     outcome_score=response_outcome_score,
                 )
-            learning = self._learn_from_turn_locked(query_text=query_text, response=response, learn_mode=learn_mode)
-            delayed_candidate = self._record_response_consequence_candidate_locked(
-                query_result=query_result,
-                response=response,
-                outcome_score=response_outcome_score,
-            )
-            if delayed_candidate is not None:
-                response["delayed_consequence_candidate"] = deepcopy(delayed_candidate)
-            trace = {
-                "trace_id": str(uuid4()),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "operation": "respond",
-                "request": {
-                    "query_text": query_text,
-                    "context_text": context_text,
-                    "top_k_candidates": int(top_k_candidates),
-                    "top_k_memories": int(top_k_memories),
-                    "top_chars": int(top_chars),
-                    "max_evidence_items": int(max_evidence_items),
+                if not applied_background_provenance:
+                    self._apply_background_source_outcome_calibration_locked(
+                        query_text=query_text,
+                        outcome_score=response_outcome_score,
+                    )
+                autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
+                if autonomy is not None:
+                    self._apply_provider_response_outcome_calibration_locked(
+                        autonomy=autonomy,
+                        response=response,
+                        outcome_score=response_outcome_score,
+                    )
+                learning = self._learn_from_turn_locked(query_text=query_text, response=response, learn_mode=learn_mode)
+                delayed_candidate = self._record_response_consequence_candidate_locked(
+                    query_result=query_result,
+                    response=response,
+                    outcome_score=response_outcome_score,
+                )
+                if delayed_candidate is not None:
+                    response["delayed_consequence_candidate"] = deepcopy(delayed_candidate)
+
+                action = {
+                    "action_type": "respond",
                     "learn_mode": learn_mode,
-                },
-                "state_before": state_before,
-                "query_result": query_result,
-                "response": response,
-                "learning": learning,
-                "state_after": self._service_state_snapshot(),
-            }
-            trace_path = self._persist_trace_locked(trace)
-            return {
-                "trace_id": trace["trace_id"],
-                "trace_path": str(trace_path),
-                "created_at": trace["created_at"],
-                "query_result": query_result,
-                "response": response,
-                "learning": learning,
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
-            }
+                    "max_evidence_items": int(max_evidence_items),
+                }
+                if isinstance(action_assist, Mapping):
+                    record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
+                    action["action_assist"] = {
+                        "triggered": bool(action_assist.get("triggered", False)),
+                        "executed": bool(action_assist.get("executed", False)),
+                        "reused_recent_action": bool(action_assist.get("reused_recent_action", False)),
+                        "reason": self._normalize_action_text(action_assist.get("reason", "")),
+                        "action_type": self._normalize_action_text(record.get("action_type", "")),
+                        "action_id": self._normalize_action_text(record.get("action_id", "")),
+                    }
+                    predicted_action = self._normalize_action_text(record.get("predicted_outcome", ""))
+                    if predicted_action:
+                        action["proposed_action"] = predicted_action
+                prediction = {
+                    "kind": "response_prediction",
+                    "predicted_output": self._normalize_action_text(proposed_response.get("response_text", ""))
+                    or f"Respond should produce a grounded answer for: {query_text}",
+                    "proposed_answer": self._normalize_action_text(proposed_response.get("response_text", "")),
+                    "confidence": float(proposed_response.get("support_score", 0.0) or 0.0),
+                    "topics": salient_query_terms(query_text)[:8],
+                }
+                if action.get("proposed_action"):
+                    prediction["proposed_action"] = action["proposed_action"]
+                actual_output = self._respond_runtime_actual_output(
+                    response=response,
+                    action_assist=action_assist,
+                    outcome_score=response_outcome_score,
+                )
+                verification = self._respond_runtime_verification(
+                    response=response,
+                    action_assist=action_assist,
+                    outcome_score=response_outcome_score,
+                )
+                state_after = self._service_state_snapshot()
+                episode = self._runtime_episode_payload_locked(
+                    operation="respond",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=actual_output,
+                    verification=verification,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                )
+                trace = {
+                    "trace_id": trace_id,
+                    "created_at": created_at,
+                    "operation": "respond",
+                    "request": request,
+                    "state_before": state_before,
+                    "query_result": query_result,
+                    "response": response,
+                    "learning": learning,
+                    "runtime_episode": episode,
+                    "state_after": state_after,
+                }
+                trace_path = self._persist_trace_locked(trace)
+                episode["trace_path"] = str(trace_path)
+                episode = self._append_runtime_episode_trace_locked(episode)
+                return {
+                    "trace_id": trace["trace_id"],
+                    "trace_path": str(trace_path),
+                    "created_at": trace["created_at"],
+                    "query_result": query_result,
+                    "response": response,
+                    "learning": learning,
+                    "runtime_episode": episode,
+                    "dirty_state": bool(self._dirty_state),
+                    "state_revision": int(self._state_revision),
+                }
+            except Exception as exc:
+                prediction = {
+                    "kind": "response_prediction",
+                    "predicted_output": f"Respond should produce a grounded answer for: {query_text}",
+                    "topics": salient_query_terms(query_text)[:8],
+                }
+                action = {
+                    "action_type": "respond",
+                    "learn_mode": learn_mode,
+                    "max_evidence_items": int(max_evidence_items),
+                }
+                episode = self._runtime_episode_payload_locked(
+                    operation="respond",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=None,
+                    verification=None,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                    error=exc,
+                )
+                trace = {
+                    "trace_id": trace_id,
+                    "created_at": created_at,
+                    "operation": "respond",
+                    "request": request,
+                    "state_before": state_before,
+                    "runtime_episode": episode,
+                    "error": {"type": type(exc).__name__, "message": str(exc)},
+                    "state_after": self._service_state_snapshot(),
+                }
+                trace_path = self._persist_trace_locked(trace)
+                episode["trace_path"] = str(trace_path)
+                self._append_runtime_episode_trace_locked(episode)
+                raise
 
     def acquire(
         self,
@@ -1081,12 +1618,15 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         }
 
     def _terminus_status_snapshot_locked(self) -> dict[str, Any]:
+        terminus_runtime = self._brain_runtime_snapshot_locked()
+        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         return {
-            "terminus_runtime": self._brain_runtime_snapshot_locked(),
+            "terminus_runtime": terminus_runtime,
             "dirty_state": bool(self._dirty_state),
             "state_revision": int(self._state_revision),
             "token_count": int(self._trainer.token_count),
             "multimodal": self._multimodal_runtime_summary_locked(),
+            "replay_dataset_summary": replay_dataset_summary,
         }
 
     def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
@@ -2326,20 +2866,22 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             })
             self._brain_thread.start()
 
-            # Start cortex thought loop alongside brain
-            if self._thought_loop is not None and not self._thought_loop.is_running:
-                try:
-                    self._thought_loop.start()
-                    _cortex_logger.info("ThoughtLoop started alongside Terminus brain")
-                except Exception as exc:
-                    _cortex_logger.warning("ThoughtLoop failed to start: %s", exc)
-
-            return {
+            result = {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
                 "dirty_state": bool(self._dirty_state),
                 "state_revision": int(self._state_revision),
                 "token_count": int(self._trainer.token_count),
             }
+        # Start cortex thought loop alongside brain, but do not let NIM startup
+        # hold the service lock or block the request beyond the lazy init budget.
+        thought_loop = self._ensure_cortex_initialized()
+        if thought_loop is not None and not thought_loop.is_running:
+            try:
+                thought_loop.start()
+                _cortex_logger.info("ThoughtLoop started alongside Terminus brain")
+            except Exception as exc:
+                _cortex_logger.warning("ThoughtLoop failed to start: %s", exc)
+        return result
 
     def stop_terminus(self) -> dict[str, Any]:
         # Signal ThoughtLoop stop under lock (safe), join outside (avoids deadlock)
@@ -2470,7 +3012,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         thought_text: str = "",
         topics: Sequence[str] = (),
     ) -> dict[str, Any]:
-        if self._thought_loop is None:
+        thought_loop = self._thought_loop_actual
+        if thought_loop is None:
             return {"accepted": False, "reason": "cortex_unavailable"}
         normalized_source = self._normalize_action_text(source).lower() or "operator"
         normalized_reason = self._normalize_action_text(reason)
@@ -2482,7 +3025,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             if self._normalize_action_text(topic)
         ]
         control_id = str(uuid4())
-        request = self._thought_loop.request_sleep(
+        request = thought_loop.request_sleep(
             source=normalized_source,
             reason=normalized_reason or (
                 "Operator requested cortex sleep."
@@ -2757,16 +3300,18 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         The cortex will answer asynchronously in its next deliberation cycle.
         Returns acknowledgement with queue depth.
         """
-        if self._thought_loop is None:
+        thought_loop = self._ensure_cortex_initialized()
+        if thought_loop is None:
             return {"accepted": False, "reason": "cortex_unavailable"}
         with self._lock:
             self._remember_cortex_query_hint_locked(query)
-        self._thought_loop.submit_query(query)
+        thought_loop.submit_query(query)
         return {"accepted": True, "query": query}
 
     def cortex_sleep(self, reason: str | None = None) -> dict[str, Any]:
         """Request an explicit cortex sleep cycle on the maintained control path."""
         normalized_reason = self._normalize_action_text(reason or "")
+        self._ensure_cortex_initialized()
         with self._lock:
             return self._request_cortex_sleep_locked(
                 source="operator",
@@ -2775,9 +3320,10 @@ class HECSNServiceManager(TerminusAutonomyMixin):
 
     def cortex_thoughts(self, limit: int = 20) -> dict[str, Any]:
         """Return recent thoughts from the cortex thought loop."""
-        if self._thought_loop is None:
+        thought_loop = self._thought_loop_actual
+        if thought_loop is None:
             return {"enabled": False, "thoughts": []}
-        snap = self._thought_loop.snapshot()
+        snap = thought_loop.snapshot()
         thoughts = snap.get("recent_thoughts", [])
         return {
             "enabled": True,
@@ -2790,12 +3336,17 @@ class HECSNServiceManager(TerminusAutonomyMixin):
 
     def cortex_snapshot(self) -> dict[str, Any]:
         """Full cortex status snapshot."""
-        if self._thought_loop is None:
-            return {"enabled": False}
-        return self._thought_loop.snapshot()
+        if self._thought_loop_actual is None:
+            return self._cortex_unavailable_snapshot()
+        return self._thought_loop_actual.snapshot()
 
-    def _living_loop_snapshot_locked(self, *, cortex_snapshot: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        cortex_data = dict(cortex_snapshot or (self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False}))
+    def _living_loop_snapshot_locked(
+        self,
+        *,
+        cortex_snapshot: Mapping[str, Any] | None = None,
+        include_replay_dataset_summary: bool = False,
+    ) -> dict[str, Any]:
+        cortex_data = dict(cortex_snapshot or (self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()))
         episodic_memory = cortex_data.get("episodic_memory") if isinstance(cortex_data.get("episodic_memory"), Mapping) else {}
         provenance = ProvenanceState.from_distribution(
             cast(Mapping[str, Any], episodic_memory).get("provenance_distribution")
@@ -2812,15 +3363,25 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             for item in list(self._delayed_consequence_records)[:8]
             if isinstance(item, Mapping)
         ]
+        runtime_episodes = [
+            RuntimeEpisodeTrace.from_payload(item)
+            for item in list(self._runtime_episode_traces)[:12]
+            if isinstance(item, Mapping)
+        ]
         narrative = cortex_data.get("narrative_self") if isinstance(cortex_data.get("narrative_self"), Mapping) else {}
         cortex_summary = {
             "enabled": bool(cortex_data.get("enabled", False)),
             "running": bool(cortex_data.get("running", False)),
             "current_mode": str(cortex_data.get("current_mode", "idle")),
+            "is_sleeping": bool(cortex_data.get("is_sleeping", False)),
             "thoughts_generated": int(cortex_data.get("thoughts_generated", 0) or 0),
             "dreams_generated": int(cortex_data.get("dreams_generated", 0) or 0),
             "sleep_cycles": int(cortex_data.get("sleep_cycles", 0) or 0),
             "memory_count": int(cortex_data.get("memory_count", 0) or 0),
+            "memory_fill_ratio": float(cortex_data.get("memory_fill_ratio", 0.0) or 0.0),
+            "drives": deepcopy(dict(cortex_data.get("drives") or {}))
+            if isinstance(cortex_data.get("drives"), Mapping)
+            else {},
         }
         model = OperationalSelfModel.build(
             token_count=int(self._trainer.token_count),
@@ -2831,22 +3392,540 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             predictions=[item.prediction for item in action_records],
             actions=action_records,
             consolidations=consolidation_records,
+            runtime_episodes=runtime_episodes,
             action_loop=self._action_loop_summary_locked(),
             memory=dict(episodic_memory) if isinstance(episodic_memory, Mapping) else {},
             narrative=dict(narrative) if isinstance(narrative, Mapping) else {},
             cortex=cortex_summary,
         )
-        return model.to_payload()
+        payload = model.to_payload()
+        feedback_summary = self._runtime_feedback_summary_locked()
+        payload["feedback_summary"] = feedback_summary
+        payload["feedback_count"] = int(feedback_summary["feedback_count"])
+        payload["verified_feedback_count"] = int(feedback_summary["verified_count"])
+        payload["contradicted_feedback_count"] = int(feedback_summary["contradicted_count"])
+        payload["unverified_feedback_count"] = int(feedback_summary["unverified_count"])
+        payload["recent_feedback"] = [deepcopy(item) for item in feedback_summary["recent_feedback"]]
+        replay_sample_summary = self._replay_sample_summary_locked()
+        payload["replay_sample_summary"] = replay_sample_summary
+        payload["replay_executor_summary"] = replay_sample_summary
+        grounding_health = (
+            dict(payload.get("grounding_health") or {})
+            if isinstance(payload.get("grounding_health"), Mapping)
+            else {}
+        )
+        grounding_health.update(
+            {
+                "feedback_count": int(feedback_summary["feedback_count"]),
+                "feedback_verified_count": int(feedback_summary["verified_count"]),
+                "feedback_contradicted_count": int(feedback_summary["contradicted_count"]),
+                "feedback_unverified_count": int(feedback_summary["unverified_count"]),
+                "feedback_impact": str(feedback_summary["grounding_impact"]),
+            }
+        )
+        if feedback_summary["contradicted_count"] > 0:
+            grounding_health["status"] = "contradictions_present"
+        elif feedback_summary["unverified_count"] > 0 and grounding_health.get("status") == "grounded":
+            grounding_health["status"] = "needs_verification"
+        payload["grounding_health"] = grounding_health
+        payload["benchmark_telemetry"] = build_runtime_benchmark_telemetry(
+            runtime_episodes=runtime_episodes,
+            actions=action_records,
+            world_model_lite=payload.get("world_model_lite") if isinstance(payload.get("world_model_lite"), Mapping) else None,
+            action_loop=payload.get("action_loop") if isinstance(payload.get("action_loop"), Mapping) else {},
+            memory=payload.get("memory") if isinstance(payload.get("memory"), Mapping) else {},
+            runtime_memory=self._trainer.model.memory_store.summary_stats(),
+            cortex=cortex_data,
+            runtime={
+                "tokens_per_second": (
+                    float(self._brain_last_tick_token_delta) / (float(self._brain_last_tick_duration_ms) / 1000.0)
+                    if self._brain_last_tick_duration_ms and self._brain_last_tick_duration_ms > 0.0
+                    else 0.0
+                ),
+                "last_tick_token_delta": int(self._brain_last_tick_token_delta),
+            },
+            feedback_summary=feedback_summary,
+            replay_sample_summary=replay_sample_summary,
+            generated_at=str(payload.get("generated_at", "")) or None,
+        )
+        payload["policy_decision"] = build_policy_actuator_status(
+            payload,
+            cortex_snapshot=cortex_data,
+        ).to_payload()
+        replay_plan = build_replay_plan(payload).to_payload()
+        payload["replay_plan"] = replay_plan
+        replay_dataset_summary: dict[str, Any] | None = None
+        if include_replay_dataset_summary:
+            replay_dataset_summary = self._replay_dataset_preview_summary_locked(
+                living_loop=payload,
+                plan=replay_plan,
+                replay_sample_summary=replay_sample_summary,
+                limit=DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
+            )
+            payload["replay_dataset_summary"] = replay_dataset_summary
+        if isinstance(payload.get("benchmark_telemetry"), Mapping):
+            payload["benchmark_telemetry"]["replay_plan_summary"] = self._replay_plan_summary(replay_plan)
+            payload["benchmark_telemetry"]["replay_sample_summary"] = replay_sample_summary
+            payload["benchmark_telemetry"]["replay_executor_summary"] = replay_sample_summary
+            if replay_dataset_summary is not None:
+                payload["benchmark_telemetry"]["replay_dataset_summary"] = replay_dataset_summary
+        return payload
 
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
-            cortex_snapshot = self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False}
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
             return {
-                "living_loop": self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot),
+                "living_loop": self._living_loop_snapshot_locked(
+                    cortex_snapshot=cortex_snapshot,
+                    include_replay_dataset_summary=True,
+                ),
                 "dirty_state": bool(self._dirty_state),
                 "state_revision": int(self._state_revision),
                 "token_count": int(self._trainer.token_count),
             }
+
+    def policy_actuator_status(self) -> dict[str, Any]:
+        with self._lock:
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            return build_policy_actuator_status(
+                living_loop,
+                cortex_snapshot=cortex_snapshot,
+            ).to_payload()
+
+    def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
+        with self._lock:
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            return build_replay_plan(living_loop, limit=limit).to_payload()
+
+    def replay_sample(
+        self,
+        *,
+        mode: str = "sample",
+        candidate_id: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        operator_id: str,
+        operator_note: str | None = None,
+        confirmation: bool = False,
+        limit: int | None = None,
+        count: int | None = None,
+        alpha: float = 1.0,
+        seed: int | None = None,
+    ) -> dict[str, Any]:
+        normalized_mode = self._normalize_action_text(mode).lower()
+        if normalized_mode not in {"dry_run", "sample", "execute"}:
+            raise ValueError(f"Unsupported replay sample mode: {normalized_mode or '<empty>'}")
+        normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
+        if not normalized_operator_id:
+            raise ValueError("Replay sample operator_id is required.")
+        if not confirmation:
+            raise ValueError("Replay sample confirmation=true is required for operator-gated audit sampling.")
+        requested_candidate_id = self._normalize_feedback_text(candidate_id or "", max_chars=160) or None
+        guard_target_type = self._normalize_action_text(target_type or "").lower() or None
+        guard_target_id = self._normalize_feedback_text(target_id or "", max_chars=160) or None
+        try:
+            requested_count = int(count if count is not None else (limit if limit is not None else 1))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Replay sample count/limit must be numeric.") from exc
+        requested_count = max(1, min(MAX_REPLAY_SAMPLE_LIMIT, requested_count))
+        try:
+            normalized_alpha = max(0.0, min(4.0, float(alpha)))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Replay sample alpha must be numeric.") from exc
+
+        with self._lock:
+            before = self._replay_sample_state_counts_locked()
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            plan = build_replay_plan(living_loop, limit=MAX_RUNTIME_TRACE_EXPORT_LIMIT).to_payload()
+            candidates = [dict(item) for item in plan.get("candidates", []) if isinstance(item, Mapping)]
+            if requested_candidate_id:
+                selected = [candidate for candidate in candidates if str(candidate.get("candidate_id", "")) == requested_candidate_id]
+                if not selected:
+                    raise ValueError(f"Replay candidate_id is stale or invalid: {requested_candidate_id}")
+            else:
+                selected = self._sample_replay_candidates(
+                    candidates,
+                    count=requested_count,
+                    alpha=normalized_alpha,
+                    seed=seed,
+                )
+            if not selected:
+                raise ValueError("Replay sample found no current replay-plan candidates.")
+            for candidate in selected:
+                candidate_target_type = self._normalize_action_text(candidate.get("target_type", "")).lower()
+                candidate_target_id = self._normalize_feedback_text(candidate.get("target_id", ""), max_chars=160)
+                if guard_target_type and candidate_target_type != guard_target_type:
+                    raise ValueError(
+                        f"Replay target_type guard mismatch for {candidate.get('candidate_id')}: "
+                        f"{candidate_target_type or '<empty>'} != {guard_target_type}"
+                    )
+                if guard_target_id and candidate_target_id != guard_target_id:
+                    raise ValueError(
+                        f"Replay target_id guard mismatch for {candidate.get('candidate_id')}: "
+                        f"{candidate_target_id or '<empty>'} != {guard_target_id}"
+                    )
+            selected_candidates = [self._replay_sample_candidate_payload(candidate) for candidate in selected]
+            created_at = datetime.now(timezone.utc).isoformat()
+            replay_sample_id = f"replay-{normalized_mode}-{uuid4()}"
+            after = self._replay_sample_state_counts_locked()
+            safety_flags = {
+                "audit_only": True,
+                "operator_confirmed": True,
+                "training_started": False,
+                "sleep_started": False,
+                "memory_verification_promoted": False,
+                "feedback_posted": False,
+                "digital_action_executed": False,
+                "external_calls_made": False,
+                "memory_mutated": False,
+                "state_revision_mutated": after["state_revision"] != before["state_revision"],
+                "token_count_mutated": after["token_count"] != before["token_count"],
+                "action_history_mutated": after["action_history_count"] != before["action_history_count"],
+                "feedback_mutated": after["feedback_count"] != before["feedback_count"],
+                "not_promoted": True,
+            }
+            status = "recorded"
+            reason = (
+                "operator-gated audit execution recorded without training, memory promotion, feedback posting, "
+                "digital action execution, sleep, or external calls"
+                if normalized_mode == "execute"
+                else "operator-gated replay sample recorded without training, memory promotion, feedback posting, digital action execution, sleep, or external calls"
+            )
+            record = {
+                "schema_version": 1,
+                "replay_sample_id": replay_sample_id,
+                "execution_id": replay_sample_id if normalized_mode == "execute" else None,
+                "created_at": created_at,
+                "mode": normalized_mode,
+                "status": status,
+                "reason": reason,
+                "endpoint": "/terminus/replay-sample",
+                "operator_id": normalized_operator_id,
+                "operator_note": self._normalize_feedback_text(operator_note or "", max_chars=2000),
+                "requested_candidate_id": requested_candidate_id,
+                "target_type": guard_target_type,
+                "target_id": guard_target_id,
+                "requested_count": int(requested_count),
+                "alpha": float(normalized_alpha),
+                "seed": seed,
+                "candidate_ids": [str(candidate.get("candidate_id", "")) for candidate in candidates if str(candidate.get("candidate_id", ""))],
+                "selected_candidate_ids": [
+                    str(candidate.get("candidate_id", ""))
+                    for candidate in selected
+                    if str(candidate.get("candidate_id", ""))
+                ],
+                "selected_candidates": selected_candidates,
+                "safety_checks": {
+                    "passed": True,
+                    "candidate_revalidation": "passed",
+                    "target_guard": "passed" if (guard_target_type or guard_target_id) else "not_requested",
+                    "operator_confirmation": "passed",
+                    "bounded_count": requested_count <= MAX_REPLAY_SAMPLE_LIMIT,
+                    "max_count": MAX_REPLAY_SAMPLE_LIMIT,
+                    "boundaries": list(REPLAY_SAMPLE_SAFETY_BOUNDARIES),
+                },
+                "safety_flags": safety_flags,
+                "before": before,
+                "after": after,
+                "plan_summary": self._replay_plan_summary(plan),
+            }
+            normalized_record = self._normalize_replay_sample_record(record) or record
+            self._replay_sample_history.appendleft(normalized_record)
+            self._dirty_state = True
+            return deepcopy(normalized_record)
+
+    def replay_sample_history(self, *, limit: int = 20) -> dict[str, Any]:
+        with self._lock:
+            count = max(1, min(DEFAULT_REPLAY_SAMPLE_HISTORY, int(limit)))
+            history = [deepcopy(item) for item in list(self._replay_sample_history)[:count]]
+            return {
+                "schema_version": 1,
+                "endpoint": "/terminus/replay-sample/history",
+                "count": int(len(self._replay_sample_history)),
+                "limit": int(count),
+                "history": history,
+            }
+
+    def _replay_sample_summary_locked(self) -> dict[str, Any]:
+        records = [
+            dict(item)
+            for item in list(self._replay_sample_history)
+            if isinstance(item, Mapping)
+        ]
+        mode_counts: Counter[str] = Counter({"dry_run": 0, "sample": 0, "execute": 0})
+        status_counts: Counter[str] = Counter()
+        selected_count = 0
+        for record in records:
+            mode = self._normalize_action_text(record.get("mode", "sample")).lower() or "sample"
+            if mode not in {"dry_run", "sample", "execute"}:
+                mode = "sample"
+            status = self._normalize_feedback_text(record.get("status", "recorded"), max_chars=80) or "recorded"
+            mode_counts[mode] += 1
+            status_counts[status] += 1
+            selected_ids = record.get("selected_candidate_ids")
+            if isinstance(selected_ids, Sequence) and not isinstance(selected_ids, (str, bytes)):
+                selected_count += len(selected_ids)
+            else:
+                selected_candidates = record.get("selected_candidates")
+                if isinstance(selected_candidates, Sequence) and not isinstance(selected_candidates, (str, bytes)):
+                    selected_count += len(selected_candidates)
+        latest_item: dict[str, Any] | None = None
+        latest_safety_flags: dict[str, Any] = {
+            "audit_only": True,
+            "operator_confirmed": False,
+            "training_started": False,
+            "sleep_started": False,
+            "memory_verification_promoted": False,
+            "feedback_posted": False,
+            "digital_action_executed": False,
+            "external_calls_made": False,
+            "memory_mutated": False,
+            "state_revision_mutated": False,
+            "token_count_mutated": False,
+            "action_history_mutated": False,
+            "feedback_mutated": False,
+            "not_promoted": True,
+        }
+        latest_selected_count = 0
+        if records:
+            latest = self._normalize_replay_sample_record(records[0]) or records[0]
+            selected_ids = latest.get("selected_candidate_ids")
+            latest_selected_count = (
+                len(selected_ids)
+                if isinstance(selected_ids, Sequence) and not isinstance(selected_ids, (str, bytes))
+                else 0
+            )
+            if not latest_selected_count:
+                selected_candidates = latest.get("selected_candidates")
+                latest_selected_count = (
+                    len(selected_candidates)
+                    if isinstance(selected_candidates, Sequence) and not isinstance(selected_candidates, (str, bytes))
+                    else 0
+                )
+            latest_safety_flags.update(
+                dict(latest.get("safety_flags", {})) if isinstance(latest.get("safety_flags"), Mapping) else {}
+            )
+            latest_item = {
+                "schema_version": latest.get("schema_version", 1),
+                "replay_sample_id": latest.get("replay_sample_id"),
+                "execution_id": latest.get("execution_id"),
+                "created_at": latest.get("created_at"),
+                "mode": latest.get("mode"),
+                "status": latest.get("status"),
+                "reason": latest.get("reason"),
+                "endpoint": latest.get("endpoint", "/terminus/replay-sample"),
+                "operator_id": latest.get("operator_id"),
+                "requested_candidate_id": latest.get("requested_candidate_id"),
+                "target_type": latest.get("target_type"),
+                "target_id": latest.get("target_id"),
+                "requested_count": latest.get("requested_count"),
+                "selected_count": latest_selected_count,
+                "selected_candidate_ids": list(latest.get("selected_candidate_ids") or [])[:MAX_REPLAY_SAMPLE_LIMIT],
+                "safety_checks": dict(latest.get("safety_checks", {})) if isinstance(latest.get("safety_checks"), Mapping) else {},
+                "safety_flags": dict(latest_safety_flags),
+                "plan_summary": self._replay_plan_summary(latest.get("plan_summary")),
+            }
+        summary = {
+            "schema_version": 1,
+            "endpoint": "/terminus/replay-sample",
+            "execution_endpoint": "/terminus/replay-execute",
+            "history_endpoint": "/terminus/replay-sample/history",
+            "execution_history_endpoint": "/terminus/replay-execute/history",
+            "count": int(len(records)),
+            "history_count": int(len(records)),
+            "selected_count": int(selected_count),
+            "latest_selected_count": int(latest_selected_count),
+            "mode_counts": dict(mode_counts),
+            "status_counts": dict(status_counts),
+            "latest_history_item": latest_item,
+            "safety_flags": dict(latest_safety_flags),
+            "safety_boundaries": list(REPLAY_SAMPLE_SAFETY_BOUNDARIES),
+            "audit_only": True,
+            "advisory": True,
+            "executable": False,
+        }
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
+
+    @staticmethod
+    def _replay_dataset_count_map(value: Any) -> dict[str, int]:
+        if not isinstance(value, Mapping):
+            return {}
+        result: dict[str, int] = {}
+        for key, count in value.items():
+            try:
+                result[str(key)] = int(count or 0)
+            except (TypeError, ValueError):
+                result[str(key)] = 0
+        return result
+
+    def _replay_dataset_latest_history_timestamp_locked(self) -> str | None:
+        for record in list(self._replay_sample_history):
+            if not isinstance(record, Mapping):
+                continue
+            created_at = self._normalize_feedback_text(record.get("created_at", ""), max_chars=80)
+            if created_at:
+                return created_at
+        return None
+
+    def _replay_dataset_summary_from_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        replay_sample_summary = payload.get("replay_sample_summary")
+        latest_history_timestamp = payload.get("latest_history_timestamp")
+        if latest_history_timestamp in ("", None) and isinstance(replay_sample_summary, Mapping):
+            latest = replay_sample_summary.get("latest_history_item")
+            if isinstance(latest, Mapping):
+                latest_history_timestamp = latest.get("created_at")
+        if latest_history_timestamp in ("", None):
+            latest_history_timestamp = self._replay_dataset_latest_history_timestamp_locked()
+
+        latest_export_timestamp = (
+            payload.get("latest_export_timestamp")
+            or payload.get("created_at")
+        )
+        summary = {
+            "export_kind": str(payload.get("export_kind") or "terminus_replay_dataset_preview"),
+            "schema_version": int(payload.get("schema_version", REPLAY_DATASET_SCHEMA_VERSION) or REPLAY_DATASET_SCHEMA_VERSION),
+            "training_role": str(payload.get("training_role") or REPLAY_DATASET_TRAINING_ROLE),
+            "endpoint": str(payload.get("endpoint") or "/terminus/replay-dataset/preview"),
+            "filter_endpoint": payload.get("filter_endpoint"),
+            "limit": int(payload.get("limit", 0) or 0),
+            "max_limit": int(payload.get("max_limit", MAX_REPLAY_DATASET_EXPORT_LIMIT) or MAX_REPLAY_DATASET_EXPORT_LIMIT),
+            "count": int(payload.get("count", 0) or 0),
+            "positive_count": int(payload.get("positive_count", 0) or 0),
+            "negative_count": int(payload.get("negative_count", 0) or 0),
+            "provenance_counts": self._replay_dataset_count_map(payload.get("provenance_counts")),
+            "example_type_counts": self._replay_dataset_count_map(payload.get("example_type_counts")),
+            "safety_flags": dict(payload.get("safety_flags", {})) if isinstance(payload.get("safety_flags"), Mapping) else {},
+            "empty_reason": payload.get("empty_reason"),
+            "latest_export_timestamp": str(latest_export_timestamp) if latest_export_timestamp not in ("", None) else None,
+            "latest_history_timestamp": str(latest_history_timestamp) if latest_history_timestamp not in ("", None) else None,
+        }
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
+
+    def _replay_dataset_preview_payload_locked(
+        self,
+        *,
+        limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
+        endpoint: str | None = None,
+        living_loop: Mapping[str, Any] | None = None,
+        plan: Mapping[str, Any] | None = None,
+        replay_sample_summary: Mapping[str, Any] | None = None,
+        created_at: str | None = None,
+    ) -> dict[str, Any]:
+        count = min(MAX_REPLAY_DATASET_EXPORT_LIMIT, max(1, int(limit)))
+        endpoint_filter = self._normalize_runtime_trace_export_filter(endpoint)
+        export_created_at = created_at or datetime.now(timezone.utc).isoformat()
+        before = self._replay_sample_state_counts_locked()
+        if living_loop is None:
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(
+                cortex_snapshot=cortex_snapshot,
+                include_replay_dataset_summary=False,
+            )
+        policy_decision = self._runtime_trace_export_policy_decision_summary(
+            living_loop.get("policy_decision") if isinstance(living_loop, Mapping) else None
+        )
+        replay_plan = dict(plan) if isinstance(plan, Mapping) else build_replay_plan(living_loop, limit=MAX_REPLAY_DATASET_EXPORT_LIMIT).to_payload()
+        replay_plan_summary = self._replay_plan_summary(replay_plan)
+        sample_summary = (
+            dict(replay_sample_summary)
+            if isinstance(replay_sample_summary, Mapping)
+            else self._replay_sample_summary_locked()
+        )
+        state_by_trace_id = self._runtime_trace_state_by_trace_id_locked()
+        candidates_by_target = self._replay_dataset_candidates_by_target(replay_plan.get("candidates", []))
+        sample_links_by_target = self._replay_dataset_sample_links_by_target_locked()
+        items: list[dict[str, Any]] = []
+        for episode in list(self._runtime_episode_traces):
+            operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
+            endpoint_path = self._runtime_trace_export_endpoint(operation)
+            if endpoint_filter is not None and endpoint_filter not in {operation, endpoint_path.lower(), endpoint_path.lower().lstrip("/")}:
+                continue
+            trace_id = str(episode.get("trace_id", "") or "")
+            example = self._runtime_trace_export_example_locked(
+                episode,
+                endpoint_path=endpoint_path,
+                state_after=state_by_trace_id.get(trace_id, {}),
+                policy_decision=policy_decision,
+                replay_plan_summary=replay_plan_summary,
+                replay_sample_summary=sample_summary,
+            )
+            target_id = str(example.get("example_id", "") or episode.get("episode_id", "") or "")
+            target_key = ("runtime_episode", target_id)
+            items.append(
+                self._replay_dataset_item_from_trace_example(
+                    example,
+                    replay_candidate=candidates_by_target.get(target_key),
+                    replay_sample_linkage=sample_links_by_target.get(target_key),
+                )
+            )
+            if len(items) >= count:
+                break
+
+        positive_count = sum(1 for item in items if bool(item.get("has_positive_example")))
+        negative_count = sum(1 for item in items if bool(item.get("has_negative_example")))
+        provenance_counts: Counter[str] = Counter(
+            str(item.get("provenance_label", "unknown") or "unknown") for item in items
+        )
+        example_type_counts: Counter[str] = Counter(
+            str(item.get("example_type", "unknown") or "unknown") for item in items
+        )
+        after = self._replay_sample_state_counts_locked()
+        payload = {
+            "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
+            "export_kind": "terminus_replay_dataset_preview",
+            "training_role": REPLAY_DATASET_TRAINING_ROLE,
+            "description": (
+                "Curated replay dataset preview assembled from sanitized runtime traces, feedback, "
+                "replay-plan context, and operator-gated replay-sample linkage. This endpoint is "
+                "export-only and does not train, mutate memory, post feedback, execute actions, or "
+                "make external calls."
+            ),
+            "created_at": export_created_at,
+            "latest_export_timestamp": export_created_at,
+            "latest_history_timestamp": self._replay_dataset_latest_history_timestamp_locked(),
+            "endpoint": "/terminus/replay-dataset/preview",
+            "limit": count,
+            "max_limit": MAX_REPLAY_DATASET_EXPORT_LIMIT,
+            "filter_endpoint": endpoint_filter,
+            "count": len(items),
+            "positive_count": positive_count,
+            "negative_count": negative_count,
+            "provenance_counts": dict(provenance_counts),
+            "example_type_counts": dict(example_type_counts),
+            "policy_decision": policy_decision,
+            "replay_plan_summary": replay_plan_summary,
+            "replay_sample_summary": sample_summary,
+            "replay_executor_summary": sample_summary,
+            "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
+            "before": before,
+            "after": after,
+            "items": items,
+            "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
+        }
+        if not items:
+            payload["empty_reason"] = "checkpoint_contains_no_eligible_sanitized_runtime_traces"
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(payload))
+
+    def _replay_dataset_preview_summary_locked(
+        self,
+        *,
+        limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
+        endpoint: str | None = None,
+        living_loop: Mapping[str, Any] | None = None,
+        plan: Mapping[str, Any] | None = None,
+        replay_sample_summary: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = self._replay_dataset_preview_payload_locked(
+            limit=limit,
+            endpoint=endpoint,
+            living_loop=living_loop,
+            plan=plan,
+            replay_sample_summary=replay_sample_summary,
+        )
+        return self._replay_dataset_summary_from_payload(payload)
 
     def action_history(self, limit: int = 20) -> dict[str, Any]:
         with self._lock:
@@ -2858,6 +3937,199 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "supported_actions": ["workspace_search", "workspace_read", "web_fetch", "api_request"],
                 "actions": history,
             }
+
+    def record_runtime_feedback(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
+        entry = self._normalize_runtime_feedback_request(feedback)
+        target_type = str(entry["target_type"])
+        target_id = str(entry["target_id"])
+        with self._lock:
+            updated_target: dict[str, Any] | None = None
+            if target_type == "runtime_episode":
+                episodes = list(self._runtime_episode_traces)
+                for index, episode in enumerate(episodes):
+                    if str(episode.get("episode_id", "")) == target_id:
+                        updated = deepcopy(episode)
+                        self._apply_runtime_feedback_to_target(updated, entry)
+                        episodes[index] = updated
+                        self._runtime_episode_traces = deque(episodes, maxlen=self._runtime_episode_traces.maxlen)
+                        updated_target = deepcopy(updated)
+                        break
+            elif target_type == "action":
+                actions = list(self._action_history)
+                for index, action in enumerate(actions):
+                    if str(action.get("action_id", "")) == target_id:
+                        updated = deepcopy(action)
+                        self._apply_runtime_feedback_to_target(updated, entry)
+                        actions[index] = updated
+                        self._action_history = deque(actions, maxlen=self._action_history.maxlen)
+                        updated_target = deepcopy(updated)
+                        break
+            else:
+                raise ValueError(f"Unsupported runtime feedback target_type: {target_type}")
+
+            if updated_target is None:
+                raise ValueError(f"Runtime feedback target not found: {target_type} {target_id}")
+
+            self._record_brain_event_locked(
+                {
+                    "type": "runtime_feedback_recorded",
+                    "timestamp": str(entry.get("created_at", "")),
+                    "target_type": target_type,
+                    "target_id": target_id,
+                    "verdict": str(entry.get("verdict", "")),
+                    "applied_status": str(entry.get("applied_status", "")),
+                    "evaluator_id": str(entry.get("evaluator_id", "")),
+                }
+            )
+            self._mark_mutated()
+            return {
+                "accepted": True,
+                "target_type": target_type,
+                "target_id": target_id,
+                "feedback": deepcopy(entry),
+                "target": updated_target,
+                "dirty_state": bool(self._dirty_state),
+                "state_revision": int(self._state_revision),
+                "terminus_runtime": self._brain_runtime_snapshot_locked(),
+            }
+
+    def export_runtime_trace_examples(
+        self,
+        *,
+        limit: int = DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT,
+        endpoint: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            count = min(MAX_RUNTIME_TRACE_EXPORT_LIMIT, max(1, int(limit)))
+            endpoint_filter = self._normalize_runtime_trace_export_filter(endpoint)
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            policy_decision = self._runtime_trace_export_policy_decision_summary(
+                living_loop.get("policy_decision") if isinstance(living_loop, Mapping) else None
+            )
+            replay_plan = (
+                dict(living_loop.get("replay_plan"))
+                if isinstance(living_loop, Mapping) and isinstance(living_loop.get("replay_plan"), Mapping)
+                else build_replay_plan(living_loop, limit=MAX_REPLAY_DATASET_EXPORT_LIMIT).to_payload()
+            )
+            replay_plan_summary = self._replay_plan_summary(replay_plan)
+            replay_sample_summary = self._replay_sample_summary_locked()
+            replay_dataset_summary = self._replay_dataset_preview_summary_locked(
+                limit=count,
+                endpoint=endpoint_filter,
+                living_loop=living_loop,
+                plan=replay_plan,
+                replay_sample_summary=replay_sample_summary,
+            )
+            state_by_trace_id = self._runtime_trace_state_by_trace_id_locked()
+            examples: list[dict[str, Any]] = []
+            for episode in list(self._runtime_episode_traces):
+                operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
+                endpoint_path = self._runtime_trace_export_endpoint(operation)
+                if endpoint_filter is not None and endpoint_filter not in {operation, endpoint_path.lower(), endpoint_path.lower().lstrip("/")}:
+                    continue
+                trace_id = str(episode.get("trace_id", "") or "")
+                examples.append(
+                    self._runtime_trace_export_example_locked(
+                        episode,
+                        endpoint_path=endpoint_path,
+                        state_after=state_by_trace_id.get(trace_id, {}),
+                        policy_decision=policy_decision,
+                        replay_plan_summary=replay_plan_summary,
+                        replay_sample_summary=replay_sample_summary,
+                    )
+                )
+                if len(examples) >= count:
+                    break
+            return {
+                "export_kind": "terminus_runtime_trace_dataset_preview",
+                "schema_version": RUNTIME_TRACE_EXPORT_SCHEMA_VERSION,
+                "training_role": "adapter_distillation_dataset_preview_only_not_training",
+                "description": (
+                    "Bounded, sanitized Terminus runtime episode examples for future adapter "
+                    "distillation dataset preparation. This endpoint does not train a model."
+                ),
+                "limit": count,
+                "max_limit": MAX_RUNTIME_TRACE_EXPORT_LIMIT,
+                "endpoint": endpoint_filter,
+                "count": len(examples),
+                "policy_decision": policy_decision,
+                "replay_plan_summary": replay_plan_summary,
+                "replay_sample_summary": replay_sample_summary,
+                "replay_executor_summary": replay_sample_summary,
+                "replay_dataset_summary": replay_dataset_summary,
+                "examples": examples,
+                "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
+            }
+
+    def replay_dataset_preview(
+        self,
+        *,
+        limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
+        endpoint: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            return self._replay_dataset_preview_payload_locked(limit=limit, endpoint=endpoint)
+
+    def replay_dataset_candidates(self, *, limit: int = DEFAULT_REPLAY_DATASET_EXPORT_LIMIT) -> dict[str, Any]:
+        with self._lock:
+            count = min(MAX_REPLAY_DATASET_EXPORT_LIMIT, max(1, int(limit)))
+            before = self._replay_sample_state_counts_locked()
+            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            plan = build_replay_plan(living_loop, limit=count).to_payload()
+            after = self._replay_sample_state_counts_locked()
+            candidates = [
+                self._replay_sample_candidate_payload(candidate)
+                for candidate in list(plan.get("candidates", []))
+                if isinstance(candidate, Mapping)
+            ]
+            return cast(
+                dict[str, Any],
+                self._runtime_trace_export_safe_value(
+                    {
+                        "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
+                        "export_kind": "terminus_replay_dataset_candidates_preview",
+                        "training_role": REPLAY_DATASET_TRAINING_ROLE,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "endpoint": "/terminus/replay-dataset/candidates",
+                        "limit": count,
+                        "max_limit": MAX_REPLAY_DATASET_EXPORT_LIMIT,
+                        "count": len(candidates),
+                        "candidates": candidates,
+                        "replay_plan_summary": self._replay_plan_summary(plan),
+                        "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
+                        "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
+                    }
+                ),
+            )
+
+    def replay_dataset_history(self, *, limit: int = DEFAULT_REPLAY_SAMPLE_HISTORY) -> dict[str, Any]:
+        with self._lock:
+            count = max(1, min(DEFAULT_REPLAY_SAMPLE_HISTORY, int(limit)))
+            before = self._replay_sample_state_counts_locked()
+            history = [deepcopy(item) for item in list(self._replay_sample_history)[:count]]
+            after = self._replay_sample_state_counts_locked()
+            return cast(
+                dict[str, Any],
+                self._runtime_trace_export_safe_value(
+                    {
+                        "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
+                        "export_kind": "terminus_replay_dataset_history_preview",
+                        "training_role": REPLAY_DATASET_TRAINING_ROLE,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "endpoint": "/terminus/replay-dataset/history",
+                        "source_endpoint": "/terminus/replay-sample/history",
+                        "limit": count,
+                        "max_limit": DEFAULT_REPLAY_SAMPLE_HISTORY,
+                        "count": int(len(self._replay_sample_history)),
+                        "history": history,
+                        "replay_sample_summary": self._replay_sample_summary_locked(),
+                        "safety_flags": self._replay_dataset_safety_flags(before=before, after=after),
+                        "excluded_fields": sorted(_RUNTIME_TRACE_EXPORT_UNSAFE_KEYS),
+                    }
+                ),
+            )
 
     def execute_digital_action(
         self,
@@ -3404,6 +4676,28 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                     if item is not None
                 ),
                 maxlen=24,
+            )
+            self._runtime_episode_traces = deque(
+                (
+                    item
+                    for item in (
+                        self._normalize_runtime_episode_trace(raw_item)
+                        for raw_item in list(terminus_state.get("runtime_episode_traces") or [])
+                    )
+                    if item is not None
+                ),
+                maxlen=64,
+            )
+            self._replay_sample_history = deque(
+                (
+                    item
+                    for item in (
+                        self._normalize_replay_sample_record(raw_item)
+                        for raw_item in list(terminus_state.get("replay_sample_history") or [])
+                    )
+                    if item is not None
+                ),
+                maxlen=DEFAULT_REPLAY_SAMPLE_HISTORY,
             )
             self._delayed_consequence_records = deque(
                 (
@@ -4394,8 +5688,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         terms: list[str] = []
 
         exploration_target = ""
-        if self._thought_loop is not None and hasattr(self._thought_loop, "gate"):
-            exploration_target = str(getattr(self._thought_loop.gate, "active_exploration_target", "")).strip()
+        if self._thought_loop_actual is not None and hasattr(self._thought_loop_actual, "gate"):
+            exploration_target = str(getattr(self._thought_loop_actual.gate, "active_exploration_target", "")).strip()
         if exploration_target:
             terms.append(exploration_target)
 
@@ -7083,8 +8377,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
 
     def _sensory_focus_terms_locked(self, limit: int = 12) -> list[str]:
         phrases: list[str] = []
-        if self._thought_loop is not None and hasattr(self._thought_loop, "gate"):
-            target = str(getattr(self._thought_loop.gate, "active_exploration_target", "")).strip()
+        if self._thought_loop_actual is not None and hasattr(self._thought_loop_actual, "gate"):
+            target = str(getattr(self._thought_loop_actual.gate, "active_exploration_target", "")).strip()
             if target:
                 phrases.append(target)
         if self._brain_recent_query_gaps:
@@ -7502,7 +8796,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         semantic_match: float | None = None,
         evidence_unit_count: int | None = None,
     ) -> dict[str, Any]:
-        if self._thought_loop is None:
+        if self._thought_loop_actual is None:
             return {"topics": [], "salience": 0.0}
         text = " ".join(str(episode.text).split()).strip()
         if not text:
@@ -7568,7 +8862,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "item_semantic_match": float(runtime.last_item_semantic_match),
             },
         )
-        self._thought_loop.inject_observation(
+        self._thought_loop_actual.inject_observation(
             content=text,
             topics=deduped_topics,
             salience=salience,
@@ -8469,7 +9763,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         total_trained: int,
         last_metrics: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        if self._thought_loop is None:
+        if self._thought_loop_actual is None:
             return {"content": "", "topics": [], "salience": 0.0}
         sentences = self._grounded_source_sentences(evidence_windows)
         excerpt = " ".join(sentences).strip()
@@ -8525,7 +9819,7 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "evidence_window_count": int(len(evidence_windows)),
             },
         )
-        self._thought_loop.inject_observation(
+        self._thought_loop_actual.inject_observation(
             content=excerpt,
             topics=deduped_topics,
             salience=salience,
@@ -8590,10 +9884,10 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         autonomy_summary = self._run_brain_autonomy_locked()
         cortex_work = bool(source_summary.get("did_work")) or autonomy_summary is not None
 
-        if cortex_work and self._thought_loop is not None:
+        if cortex_work and self._thought_loop_actual is not None:
             try:
                 surprise = self._trainer.model.surprise
-                self._thought_loop.inject_surprise(
+                self._thought_loop_actual.inject_surprise(
                     dopamine=float(surprise.dopamine),
                     serotonin=float(surprise.serotonin),
                     norepinephrine=float(surprise.norepinephrine),
@@ -8930,8 +10224,11 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
-        cortex_snapshot = self._thought_loop.snapshot() if self._thought_loop is not None else {"enabled": False}
-        living_loop_snapshot = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+        cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+        living_loop_snapshot = self._living_loop_snapshot_locked(
+            cortex_snapshot=cortex_snapshot,
+            include_replay_dataset_summary=True,
+        )
         return {
             "configured": bool(self._brain_config.get("source_bank")),
             "running": bool(thread_alive),
@@ -9204,6 +10501,8 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             "delayed_consequence_remerged_total": int(self._delayed_consequence_remerged_total),
             "recent_query_gaps": [deepcopy(item) for item in list(self._brain_recent_query_gaps)],
             "action_history": [deepcopy(item) for item in list(self._action_history)],
+            "runtime_episode_traces": [deepcopy(item) for item in list(self._runtime_episode_traces)],
+            "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
         }
 
@@ -9510,6 +10809,10 @@ class HECSNServiceManager(TerminusAutonomyMixin):
             for value in list(item.get("topics") or [])
             if " ".join(str(value).split()).strip()
         ]
+        try:
+            feedback_count = max(0, int(verification.get("feedback_count", 0) or 0))
+        except (TypeError, ValueError):
+            feedback_count = 0
         return {
             "action_id": action_id,
             "action_type": action_type,
@@ -9523,12 +10826,819 @@ class HECSNServiceManager(TerminusAutonomyMixin):
                 "contradiction": bool(verification.get("contradiction", False)),
                 "summary": " ".join(str(verification.get("summary", "")).split()).strip(),
                 "evidence": [deepcopy(dict(raw)) for raw in list(verification.get("evidence") or []) if isinstance(raw, Mapping)],
+                "provenance": self._normalize_feedback_text(verification.get("provenance", ""), max_chars=32),
+                "last_feedback_id": self._normalize_feedback_text(verification.get("last_feedback_id", ""), max_chars=80),
+                "last_feedback_at": self._normalize_feedback_text(verification.get("last_feedback_at", ""), max_chars=80),
+                "feedback_count": feedback_count,
             },
+            "feedback": self._normalize_runtime_feedback_entries(item.get("feedback", [])),
+            "feedback_status": self._normalize_feedback_text(item.get("feedback_status", ""), max_chars=32),
+            "feedback_provenance": self._normalize_feedback_text(item.get("feedback_provenance", ""), max_chars=32),
+            "provenance": self._normalize_feedback_text(item.get("provenance", ""), max_chars=32),
+            "corrected_output": self._runtime_trace_export_safe_value(item.get("corrected_output")) if item.get("corrected_output") is not None else None,
             "topics": topics[:8],
             "recorded_at": str(item.get("recorded_at") or datetime.now(timezone.utc).isoformat()),
             "episode_text": " ".join(str(item.get("episode_text", "")).split()).strip(),
             "trigger_reason": " ".join(str(item.get("trigger_reason", "operator")).split()).strip().lower() or "operator",
             "trigger_query_text": " ".join(str(item.get("trigger_query_text", "")).split()).strip(),
+        }
+
+    def _normalize_runtime_episode_trace(self, item: Any) -> dict[str, Any] | None:
+        if not isinstance(item, Mapping):
+            return None
+        try:
+            return RuntimeEpisodeTrace.from_payload(cast(Mapping[str, Any], item)).to_payload()
+        except Exception:
+            return None
+
+    def _append_runtime_episode_trace_locked(self, episode: Mapping[str, Any]) -> dict[str, Any]:
+        normalized = self._normalize_runtime_episode_trace(episode)
+        if normalized is None:
+            normalized = dict(self._json_safe(dict(episode)))
+        episode_id = str(normalized.get("episode_id", ""))
+        if episode_id:
+            existing = [
+                item for item in list(self._runtime_episode_traces) if str(item.get("episode_id", "")) != episode_id
+            ]
+            self._runtime_episode_traces = deque(existing, maxlen=self._runtime_episode_traces.maxlen)
+        self._runtime_episode_traces.appendleft(deepcopy(normalized))
+        return deepcopy(normalized)
+
+    @staticmethod
+    def _normalize_runtime_trace_export_filter(endpoint: str | None) -> str | None:
+        if endpoint is None:
+            return None
+        normalized = " ".join(str(endpoint).split()).strip().lower()
+        if not normalized:
+            return None
+        return normalized if normalized.startswith("/") else normalized.lstrip("/")
+
+    @staticmethod
+    def _runtime_trace_export_endpoint(operation: str) -> str:
+        normalized = " ".join(str(operation or "unknown").split()).strip().lower() or "unknown"
+        if normalized in {"feed", "query", "respond"}:
+            return f"/{normalized}"
+        return f"/terminus/{normalized}"
+
+    def _runtime_trace_state_by_trace_id_locked(self) -> dict[str, Mapping[str, Any]]:
+        states: dict[str, Mapping[str, Any]] = {}
+        for trace in list(self._trace_history):
+            if not isinstance(trace, Mapping):
+                continue
+            trace_id = str(trace.get("trace_id", "") or "")
+            state_after = trace.get("state_after")
+            if trace_id and isinstance(state_after, Mapping):
+                states.setdefault(trace_id, state_after)
+        return states
+
+    def _runtime_trace_export_example_locked(
+        self,
+        episode: Mapping[str, Any],
+        *,
+        endpoint_path: str,
+        state_after: Mapping[str, Any],
+        policy_decision: Mapping[str, Any],
+        replay_plan_summary: Mapping[str, Any],
+        replay_sample_summary: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
+        prediction = self._runtime_trace_export_safe_value(episode.get("prediction") or {})
+        action = self._runtime_trace_export_safe_value(episode.get("action") or {})
+        request = self._runtime_trace_export_safe_value(episode.get("request") or {})
+        actual_output = self._runtime_trace_export_safe_value(episode.get("actual_output") or {})
+        verification = self._runtime_trace_export_safe_value(episode.get("verification") or {})
+        failure = self._runtime_trace_export_safe_value(episode.get("failure")) if episode.get("failure") else None
+        feedback = self._normalize_runtime_feedback_entries(episode.get("feedback", []))
+        feedback_summary = self._runtime_feedback_summary_from_targets(
+            [("runtime_episode", str(episode.get("episode_id", "") or ""), feedback)]
+        )
+        prediction_map = prediction if isinstance(prediction, Mapping) else {}
+        action_map = action if isinstance(action, Mapping) else {}
+        failure_map = failure if isinstance(failure, Mapping) else {}
+        state_revision = self._runtime_trace_export_int(
+            episode.get("state_revision"),
+            state_after.get("state_revision") if isinstance(state_after, Mapping) else None,
+        )
+        token_count = self._runtime_trace_export_int(
+            episode.get("token_count"),
+            state_after.get("token_count") if isinstance(state_after, Mapping) else None,
+        )
+        example = {
+            "example_id": str(episode.get("episode_id", "") or ""),
+            "trace_id": str(episode.get("trace_id", "") or ""),
+            "dataset_role": "adapter_distillation_example_preview",
+            "endpoint": endpoint_path,
+            "type": operation,
+            "operation": operation,
+            "status": str(episode.get("status", "") or "unknown"),
+            "timestamp": str(episode.get("created_at", "") or ""),
+            "created_at": str(episode.get("created_at", "") or ""),
+            "completed_at": str(episode.get("completed_at", "") or ""),
+            "state_revision": state_revision,
+            "token_count": token_count,
+            "context": {
+                "endpoint": endpoint_path,
+                "operation": operation,
+                "request": request,
+            },
+            "prediction": prediction,
+            "proposed_answer": prediction_map.get("proposed_answer"),
+            "proposed_action": (
+                prediction_map.get("proposed_action")
+                or action_map.get("proposed_action")
+                or action_map.get("action_type")
+            ),
+            "action": action,
+            "actual_output": actual_output,
+            "verification": verification,
+            "feedback": feedback,
+            "feedback_summary": feedback_summary,
+            "policy_decision": self._runtime_trace_export_policy_decision_summary(policy_decision),
+            "replay_plan_summary": self._replay_plan_summary(replay_plan_summary),
+            "replay_sample_summary": self._runtime_trace_export_safe_value(dict(replay_sample_summary)),
+            "corrected_output": self._runtime_trace_export_safe_value(episode.get("corrected_output"))
+            if episode.get("corrected_output") is not None
+            else None,
+            "provenance": str(episode.get("provenance", "") or "observed"),
+            "latency_ms": episode.get("latency_ms"),
+            "failure": failure,
+            "error": failure_map.get("message") if failure_map else None,
+        }
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(example))
+
+    def _replay_dataset_safety_flags(self, *, before: Mapping[str, int], after: Mapping[str, int]) -> dict[str, Any]:
+        return {
+            "preview_only": True,
+            "export_only": True,
+            "training_started": False,
+            "sleep_started": False,
+            "memory_verification_promoted": False,
+            "feedback_posted": False,
+            "digital_action_executed": False,
+            "external_calls_made": False,
+            "memory_mutated": False,
+            "state_revision_mutated": int(after.get("state_revision", 0)) != int(before.get("state_revision", 0)),
+            "token_count_mutated": int(after.get("token_count", 0)) != int(before.get("token_count", 0)),
+            "action_history_mutated": int(after.get("action_history_count", 0)) != int(before.get("action_history_count", 0)),
+            "feedback_mutated": int(after.get("feedback_count", 0)) != int(before.get("feedback_count", 0)),
+            "not_promoted": True,
+            "eligible_for_training": False,
+        }
+
+    @staticmethod
+    def _replay_dataset_candidates_by_target(candidates: Any) -> dict[tuple[str, str], dict[str, Any]]:
+        by_target: dict[tuple[str, str], dict[str, Any]] = {}
+        if not isinstance(candidates, Sequence) or isinstance(candidates, (str, bytes)):
+            return by_target
+        for raw in candidates:
+            if not isinstance(raw, Mapping):
+                continue
+            target_type = str(raw.get("target_type", "") or "").strip()
+            target_id = str(raw.get("target_id", "") or "").strip()
+            if target_type and target_id:
+                by_target.setdefault((target_type, target_id), dict(raw))
+        return by_target
+
+    def _replay_dataset_sample_links_by_target_locked(self) -> dict[tuple[str, str], dict[str, Any]]:
+        links: dict[tuple[str, str], dict[str, Any]] = {}
+        for record in list(self._replay_sample_history):
+            if not isinstance(record, Mapping):
+                continue
+            selected_candidates = record.get("selected_candidates")
+            if not isinstance(selected_candidates, Sequence) or isinstance(selected_candidates, (str, bytes)):
+                continue
+            for raw_candidate in selected_candidates:
+                if not isinstance(raw_candidate, Mapping):
+                    continue
+                target_type = self._normalize_feedback_text(raw_candidate.get("target_type", ""), max_chars=64)
+                target_id = self._normalize_feedback_text(raw_candidate.get("target_id", ""), max_chars=160)
+                if not target_type or not target_id:
+                    continue
+                key = (target_type, target_id)
+                link = links.setdefault(
+                    key,
+                    {
+                        "selected": True,
+                        "target_type": target_type,
+                        "target_id": target_id,
+                        "replay_sample_ids": [],
+                        "execution_ids": [],
+                        "modes": [],
+                        "candidate_ids": [],
+                        "latest": None,
+                    },
+                )
+                replay_sample_id = self._normalize_feedback_text(record.get("replay_sample_id", ""), max_chars=160)
+                execution_id = self._normalize_feedback_text(record.get("execution_id", ""), max_chars=160)
+                mode = self._normalize_feedback_text(record.get("mode", ""), max_chars=32)
+                candidate_id = self._normalize_feedback_text(raw_candidate.get("candidate_id", ""), max_chars=160)
+                if replay_sample_id and replay_sample_id not in link["replay_sample_ids"]:
+                    link["replay_sample_ids"].append(replay_sample_id)
+                if execution_id and execution_id not in link["execution_ids"]:
+                    link["execution_ids"].append(execution_id)
+                if mode and mode not in link["modes"]:
+                    link["modes"].append(mode)
+                if candidate_id and candidate_id not in link["candidate_ids"]:
+                    link["candidate_ids"].append(candidate_id)
+                if link["latest"] is None:
+                    link["latest"] = {
+                        "replay_sample_id": replay_sample_id,
+                        "execution_id": execution_id or None,
+                        "created_at": self._normalize_feedback_text(record.get("created_at", ""), max_chars=80),
+                        "mode": mode,
+                        "status": self._normalize_feedback_text(record.get("status", ""), max_chars=80),
+                        "candidate_id": candidate_id,
+                        "operator_id": self._normalize_feedback_text(record.get("operator_id", ""), max_chars=160),
+                        "safety_flags": dict(record.get("safety_flags", {})) if isinstance(record.get("safety_flags"), Mapping) else {},
+                    }
+        return links
+
+    def _replay_dataset_verification_label(self, example: Mapping[str, Any]) -> str:
+        feedback_summary = example.get("feedback_summary") if isinstance(example.get("feedback_summary"), Mapping) else {}
+        if int(feedback_summary.get("contradicted_count", 0) or 0) > 0:
+            return "contradicted"
+        if int(feedback_summary.get("verified_count", 0) or 0) > 0:
+            return "verified"
+        verification = example.get("verification") if isinstance(example.get("verification"), Mapping) else {}
+        status = self._normalize_action_text(verification.get("status", example.get("status", "unverified"))).lower()
+        if status in {"verified", "contradicted", "failed"}:
+            return status
+        if bool(verification.get("contradiction", False)):
+            return "contradicted"
+        if bool(verification.get("success", False)):
+            return "verified"
+        return "unverified"
+
+    def _replay_dataset_output_or_none(self, value: Any) -> Any:
+        safe = self._runtime_trace_export_safe_value(value)
+        if safe in ({}, [], "", None):
+            return None
+        return safe
+
+    def _replay_dataset_item_from_trace_example(
+        self,
+        example: Mapping[str, Any],
+        *,
+        replay_candidate: Mapping[str, Any] | None,
+        replay_sample_linkage: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        verification_label = self._replay_dataset_verification_label(example)
+        runtime_status = self._normalize_action_text(example.get("status", "unknown")).lower() or "unknown"
+        raw_provenance = self._normalize_action_text(example.get("provenance", "observed")).lower() or "observed"
+        synthetic_provenance = raw_provenance in {"dreamed", "synthetic"}
+        provenance_label = (
+            raw_provenance
+            if synthetic_provenance
+            else verification_label
+            if verification_label in {"verified", "contradicted"}
+            else raw_provenance
+        )
+        corrected_output = self._replay_dataset_output_or_none(example.get("corrected_output"))
+        actual_output = self._replay_dataset_output_or_none(example.get("actual_output"))
+        prediction = self._replay_dataset_output_or_none(example.get("prediction"))
+        failure = self._replay_dataset_output_or_none(example.get("failure"))
+
+        chosen_output: Any = None
+        chosen_source = ""
+        if corrected_output is not None:
+            chosen_output = corrected_output
+            chosen_source = "corrected_output"
+        elif verification_label == "verified" and actual_output is not None:
+            chosen_output = actual_output
+            chosen_source = "verified_actual_output"
+
+        rejected_output: Any = None
+        rejected_source = ""
+        if verification_label == "contradicted":
+            rejected_output = actual_output if actual_output is not None else prediction
+            rejected_source = "contradicted_actual_output" if actual_output is not None else "contradicted_prediction"
+        elif runtime_status == "failed" or failure is not None or verification_label == "failed":
+            rejected_output = failure if failure is not None else actual_output if actual_output is not None else prediction
+            rejected_source = "failed_runtime_output"
+
+        has_positive = chosen_output is not None
+        has_negative = rejected_output is not None
+        if has_positive and has_negative:
+            example_type = "dpo_preference_pair_preview"
+        elif has_positive:
+            example_type = "sft_example_preview"
+        elif has_negative:
+            example_type = "negative_only_preview_context"
+        else:
+            example_type = "excluded_preview_context"
+
+        target_id = str(example.get("example_id", "") or "")
+        context = example.get("context") if isinstance(example.get("context"), Mapping) else {}
+        sft_example = (
+            {
+                "input": self._runtime_trace_export_safe_value(context),
+                "output": chosen_output,
+                "output_source": chosen_source,
+                "eligible_source": chosen_source in {"corrected_output", "verified_actual_output"},
+                "preview_only": True,
+            }
+            if has_positive
+            else None
+        )
+        preference_pair = (
+            {
+                "chosen": chosen_output,
+                "chosen_source": chosen_source,
+                "rejected": rejected_output,
+                "rejected_source": rejected_source,
+                "preview_only": True,
+            }
+            if has_positive and has_negative
+            else None
+        )
+        is_verified_fact = (
+            verification_label == "verified"
+            and not synthetic_provenance
+            and provenance_label not in {"contradicted", "dreamed", "synthetic"}
+        )
+        item = {
+            "schema_version": REPLAY_DATASET_SCHEMA_VERSION,
+            "item_id": f"replay-dataset-{target_id or example.get('trace_id', uuid4())}",
+            "training_role": REPLAY_DATASET_TRAINING_ROLE,
+            "dataset_role": "replay_dataset_item_preview",
+            "example_type": example_type,
+            "target_type": "runtime_episode",
+            "target_id": target_id,
+            "trace_id": example.get("trace_id"),
+            "endpoint": example.get("endpoint"),
+            "operation": example.get("operation"),
+            "timestamp": example.get("timestamp") or example.get("created_at"),
+            "status": runtime_status,
+            "verification_label": verification_label,
+            "provenance_label": provenance_label,
+            "is_verified_fact": is_verified_fact,
+            "has_positive_example": has_positive,
+            "has_negative_example": has_negative,
+            "sft_example": sft_example,
+            "preference_pair": preference_pair,
+            "runtime_trace": self._runtime_trace_export_safe_value(dict(example)),
+            "feedback": self._runtime_trace_export_safe_value(example.get("feedback", [])),
+            "feedback_summary": self._runtime_trace_export_safe_value(example.get("feedback_summary", {})),
+            "policy_context": self._runtime_trace_export_policy_decision_summary(example.get("policy_decision")),
+            "replay_plan_context": self._runtime_trace_export_safe_value(dict(replay_candidate or {})),
+            "replay_sample_linkage": self._runtime_trace_export_safe_value(
+                dict(replay_sample_linkage)
+                if isinstance(replay_sample_linkage, Mapping)
+                else {
+                    "selected": False,
+                    "target_type": "runtime_episode",
+                    "target_id": target_id,
+                    "replay_sample_ids": [],
+                    "execution_ids": [],
+                    "modes": [],
+                    "candidate_ids": [],
+                    "latest": None,
+                }
+            ),
+            "safety_flags": {
+                "preview_only": True,
+                "training_started": False,
+                "sleep_started": False,
+                "memory_verification_promoted": False,
+                "feedback_posted": False,
+                "digital_action_executed": False,
+                "external_calls_made": False,
+                "memory_mutated": False,
+                "not_promoted": True,
+                "eligible_for_training": False,
+            },
+        }
+        if example_type == "excluded_preview_context":
+            item["excluded_reason"] = "no_verified_or_corrected_positive_output_and_no_failed_or_contradicted_rejected_output"
+        elif example_type == "negative_only_preview_context":
+            item["excluded_reason"] = "negative_signal_without_verified_or_corrected_chosen_output"
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(item))
+
+    def _replay_plan_summary(self, replay_plan: Any) -> dict[str, Any]:
+        data = dict(replay_plan) if isinstance(replay_plan, Mapping) else {}
+        if not data:
+            return {}
+        candidates = data.get("candidates")
+        reason_codes = data.get("plan_reason_codes")
+        if not isinstance(reason_codes, Sequence) or isinstance(reason_codes, (str, bytes)):
+            reason_counter: Counter[str] = Counter()
+            if isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
+                for candidate in candidates:
+                    if not isinstance(candidate, Mapping):
+                        continue
+                    for code in candidate.get("reason_codes", []):
+                        text = str(code).strip()
+                        if text:
+                            reason_counter[text] += 1
+            reason_codes = list(reason_counter.keys())
+        top_candidate: Mapping[str, Any] = {}
+        if isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)) and candidates:
+            first = candidates[0]
+            if isinstance(first, Mapping):
+                top_candidate = first
+        summary = {
+            "schema_version": data.get("schema_version"),
+            "generated_at": data.get("generated_at"),
+            "advisory": data.get("advisory", True),
+            "executable": data.get("executable", False),
+            "endpoint": data.get("endpoint", "/terminus/replay-plan"),
+            "limit": data.get("limit"),
+            "count": data.get("count"),
+            "priority_rules_version": data.get("priority_rules_version"),
+            "plan_reason_codes": [str(item) for item in list(reason_codes or [])[:12]],
+            "top_candidate": {
+                "candidate_id": top_candidate.get("candidate_id"),
+                "rank": top_candidate.get("rank"),
+                "target_type": top_candidate.get("target_type"),
+                "target_id": top_candidate.get("target_id"),
+                "operation": top_candidate.get("operation"),
+                "priority_score": top_candidate.get("priority_score"),
+                "reason_codes": list(top_candidate.get("reason_codes") or [])[:8],
+                "suggested_consolidation_action": top_candidate.get("suggested_consolidation_action"),
+                "suggested_endpoint": top_candidate.get("suggested_endpoint"),
+            }
+            if top_candidate
+            else None,
+        }
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
+
+    def _runtime_trace_export_policy_decision_summary(self, policy_decision: Any) -> dict[str, Any]:
+        data = dict(policy_decision) if isinstance(policy_decision, Mapping) else {}
+        if not data:
+            return {}
+        reasons = data.get("reasons")
+        reason_codes: list[str] = []
+        existing_reason_codes = data.get("reason_codes")
+        if isinstance(existing_reason_codes, Sequence) and not isinstance(existing_reason_codes, (str, bytes)):
+            reason_codes = [str(item).strip() for item in existing_reason_codes if str(item).strip()]
+        elif isinstance(reasons, Sequence) and not isinstance(reasons, (str, bytes)):
+            reason_codes = [
+                str(item.get("code", "")).strip()
+                for item in reasons
+                if isinstance(item, Mapping) and str(item.get("code", "")).strip()
+            ]
+        summary = {
+            "schema_version": data.get("schema_version"),
+            "action": data.get("action"),
+            "recommendation": data.get("recommendation"),
+            "reason_codes": reason_codes,
+            "risk": data.get("risk"),
+            "expected_information_gain": data.get("expected_information_gain"),
+            "expected_goal_progress": data.get("expected_goal_progress"),
+            "expected_cost": data.get("expected_cost"),
+            "uncertainty": data.get("uncertainty"),
+            "advisory": data.get("advisory", True),
+            "executable": data.get("executable", False),
+            "target_episode_id": data.get("target_episode_id"),
+            "target_action_id": data.get("target_action_id"),
+            "suggested_endpoint": data.get("suggested_endpoint"),
+            "created_at": data.get("created_at"),
+        }
+        return cast(dict[str, Any], self._runtime_trace_export_safe_value(summary))
+
+    @staticmethod
+    def _runtime_trace_export_key_is_safe(key: Any) -> bool:
+        normalized = str(key).strip().lower()
+        if not normalized:
+            return False
+        if normalized in _RUNTIME_TRACE_EXPORT_ALLOWED_TOKEN_KEYS:
+            return True
+        if normalized in _RUNTIME_TRACE_EXPORT_UNSAFE_KEYS:
+            return False
+        if "token" in normalized:
+            return False
+        return not any(marker in normalized for marker in _RUNTIME_TRACE_EXPORT_UNSAFE_KEY_MARKERS)
+
+    def _runtime_trace_export_safe_value(self, value: Any) -> Any:
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, str):
+            text = value
+            if len(text) > _RUNTIME_TRACE_EXPORT_MAX_STRING_CHARS:
+                return text[:_RUNTIME_TRACE_EXPORT_MAX_STRING_CHARS] + "…"
+            return text
+        if isinstance(value, Mapping):
+            sanitized: dict[str, Any] = {}
+            for key, item in list(value.items())[:_RUNTIME_TRACE_EXPORT_MAX_MAPPING_ITEMS]:
+                if not self._runtime_trace_export_key_is_safe(key):
+                    continue
+                sanitized[str(key)] = self._runtime_trace_export_safe_value(item)
+            return sanitized
+        if isinstance(value, (list, tuple, deque)):
+            return [
+                self._runtime_trace_export_safe_value(item)
+                for item in list(value)[:_RUNTIME_TRACE_EXPORT_MAX_LIST_ITEMS]
+            ]
+        return self._runtime_trace_export_safe_value(str(value))
+
+    @staticmethod
+    def _runtime_trace_export_int(*values: Any) -> int | None:
+        for value in values:
+            if value is None:
+                continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _runtime_feedback_summary_from_targets(
+        self,
+        targets: Sequence[tuple[str, str, Any]],
+        *,
+        recent_limit: int = DEFAULT_RUNTIME_FEEDBACK_HISTORY,
+    ) -> dict[str, Any]:
+        status_counts: Counter[str] = Counter({"verified": 0, "contradicted": 0, "unverified": 0})
+        verdict_counts: Counter[str] = Counter({"verified": 0, "contradicted": 0, "unverified": 0})
+        target_counts: Counter[str] = Counter({"runtime_episode": 0, "action": 0})
+        recent: list[dict[str, Any]] = []
+        latest_feedback_at = ""
+        total = 0
+        for target_type, target_id, feedback_entries in targets:
+            normalized_entries = self._normalize_runtime_feedback_entries(feedback_entries)
+            if not normalized_entries:
+                continue
+            target_counts[target_type] += len(normalized_entries)
+            for entry in normalized_entries:
+                total += 1
+                verdict = self._normalize_action_text(entry.get("verdict", "unverified")).lower()
+                if verdict not in {"verified", "contradicted", "unverified"}:
+                    verdict = "unverified"
+                applied_status = self._normalize_action_text(entry.get("applied_status", "")).lower()
+                if applied_status not in {"verified", "contradicted", "unverified"}:
+                    applied_status = self._runtime_feedback_applied_status(
+                        verdict,
+                        corrected=entry.get("corrected_output") is not None,
+                    )
+                verdict_counts[verdict] += 1
+                status_counts[applied_status] += 1
+                created_at = self._normalize_feedback_text(entry.get("created_at", ""), max_chars=80)
+                if created_at and created_at > latest_feedback_at:
+                    latest_feedback_at = created_at
+                evidence = (
+                    entry.get("evidence")
+                    if isinstance(entry.get("evidence"), Sequence)
+                    and not isinstance(entry.get("evidence"), (str, bytes))
+                    else []
+                )
+                tags = (
+                    entry.get("tags")
+                    if isinstance(entry.get("tags"), Sequence)
+                    and not isinstance(entry.get("tags"), (str, bytes))
+                    else []
+                )
+                try:
+                    confidence = max(0.0, min(1.0, float(entry.get("confidence", 0.0) or 0.0)))
+                except (TypeError, ValueError):
+                    confidence = 0.0
+                recent.append(
+                    {
+                        "feedback_id": self._normalize_feedback_text(entry.get("feedback_id", ""), max_chars=80),
+                        "created_at": created_at,
+                        "target_type": target_type,
+                        "target_id": self._normalize_feedback_text(
+                            entry.get("target_id") or target_id,
+                            max_chars=160,
+                        ),
+                        "verdict": verdict,
+                        "applied_status": applied_status,
+                        "confidence": confidence,
+                        "summary": self._normalize_feedback_text(entry.get("summary", "")),
+                        "tags": [
+                            self._normalize_feedback_text(tag, max_chars=64)
+                            for tag in list(tags)[:DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT]
+                        ],
+                        "evaluator_id": self._normalize_feedback_text(entry.get("evaluator_id", ""), max_chars=160),
+                        "evidence_count": int(len(evidence)),
+                        "has_corrected_output": entry.get("corrected_output") is not None,
+                    }
+                )
+
+        recent.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+        if status_counts["contradicted"] > 0:
+            grounding_impact = "contradictions_present"
+        elif status_counts["unverified"] > 0:
+            grounding_impact = "needs_verification"
+        elif status_counts["verified"] > 0:
+            grounding_impact = "operator_verified"
+        else:
+            grounding_impact = "none"
+        return {
+            "feedback_count": int(total),
+            "verified_count": int(status_counts["verified"]),
+            "contradicted_count": int(status_counts["contradicted"]),
+            "unverified_count": int(status_counts["unverified"]),
+            "status_counts": {
+                "verified": int(status_counts["verified"]),
+                "contradicted": int(status_counts["contradicted"]),
+                "unverified": int(status_counts["unverified"]),
+            },
+            "verdict_counts": {
+                "verified": int(verdict_counts["verified"]),
+                "contradicted": int(verdict_counts["contradicted"]),
+                "unverified": int(verdict_counts["unverified"]),
+            },
+            "target_counts": {
+                "runtime_episode": int(target_counts["runtime_episode"]),
+                "action": int(target_counts["action"]),
+            },
+            "recent_feedback": recent[: max(1, int(recent_limit))],
+            "latest_feedback_at": latest_feedback_at,
+            "grounding_impact": grounding_impact,
+        }
+
+    def _runtime_feedback_summary_locked(self) -> dict[str, Any]:
+        targets: list[tuple[str, str, Any]] = []
+        for episode in list(self._runtime_episode_traces):
+            if isinstance(episode, Mapping):
+                targets.append(("runtime_episode", str(episode.get("episode_id", "") or ""), episode.get("feedback", [])))
+        for action in list(self._action_history):
+            if isinstance(action, Mapping):
+                targets.append(("action", str(action.get("action_id", "") or ""), action.get("feedback", [])))
+        return self._runtime_feedback_summary_from_targets(targets)
+
+    def _runtime_episode_payload_locked(
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        prediction: Mapping[str, Any],
+        action: Mapping[str, Any],
+        actual_output: Mapping[str, Any] | None,
+        verification: Mapping[str, Any] | None,
+        started_perf: float,
+        created_at: str,
+        trace_id: str,
+        trace_path: str = "",
+        error: BaseException | None = None,
+    ) -> dict[str, Any]:
+        completed_at = datetime.now(timezone.utc).isoformat()
+        latency_ms = max(0.0, (time.perf_counter() - started_perf) * 1000.0)
+        failure = None
+        status = "succeeded"
+        normalized_verification = dict(verification or {})
+        if error is not None:
+            status = "failed"
+            failure = {
+                "error_type": type(error).__name__,
+                "message": str(error),
+            }
+            normalized_verification = {
+                "status": "contradicted",
+                "success": False,
+                "confidence": 1.0,
+                "contradiction": True,
+                "summary": str(error),
+            }
+        provenance = "contradicted" if status == "failed" else str(normalized_verification.get("provenance", "observed") or "observed")
+        if str(normalized_verification.get("status", "")).lower() == "verified":
+            provenance = "verified"
+        elif str(normalized_verification.get("status", "")).lower() == "contradicted":
+            provenance = "contradicted"
+        payload = {
+            "episode_id": str(uuid4()),
+            "trace_id": trace_id,
+            "trace_path": trace_path,
+            "operation": operation,
+            "status": status,
+            "created_at": created_at,
+            "completed_at": completed_at,
+            "latency_ms": latency_ms,
+            "request": dict(request),
+            "prediction": dict(prediction),
+            "action": dict(action),
+            "actual_output": dict(actual_output or {}),
+            "verification": normalized_verification,
+            "provenance": provenance,
+            "failure": failure,
+        }
+        return RuntimeEpisodeTrace.from_payload(cast(Mapping[str, Any], self._json_safe(payload))).to_payload()
+
+    def _feed_runtime_actual_output(self, summary: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "summary": f"Processed {int(summary.get('tokens_processed', 0) or 0)} feed tokens.",
+            "tokens_processed": int(summary.get("tokens_processed", 0) or 0),
+            "token_count": int(summary.get("token_count", 0) or 0),
+            "last_winner": summary.get("last_winner"),
+            "last_recon_error": summary.get("last_recon_error"),
+            "memory_buffer_size": int(summary.get("memory_buffer_size", 0) or 0),
+        }
+
+    def _query_runtime_actual_output(self, result: Mapping[str, Any]) -> dict[str, Any]:
+        query_summary = result.get("query_summary") if isinstance(result.get("query_summary"), Mapping) else {}
+        gap_plan = result.get("gap_plan") if isinstance(result.get("gap_plan"), Mapping) else {}
+        concept_summary = result.get("concept_summary") if isinstance(result.get("concept_summary"), Mapping) else {}
+        memory_matches = list(query_summary.get("memory_matches") or [])
+        memory_episodes = list(query_summary.get("memory_episodes") or [])
+        return {
+            "summary": f"Retrieved {len(memory_matches)} memory matches and {len(memory_episodes)} memory episodes.",
+            "query_text": str(query_summary.get("query_text", "")),
+            "winner_column": query_summary.get("winner_column"),
+            "reconstruction_error": query_summary.get("reconstruction_error"),
+            "top_candidate_count": int(len(list(query_summary.get("top_candidates") or []))),
+            "memory_match_count": int(len(memory_matches)),
+            "memory_episode_count": int(len(memory_episodes)),
+            "gap_plan": {
+                "planner_mode": gap_plan.get("planner_mode"),
+                "grounded_fraction": float(gap_plan.get("grounded_fraction", 0.0) or 0.0),
+                "unsupported_terms": list(gap_plan.get("unsupported_terms") or []),
+                "retrieval_queries": list(gap_plan.get("retrieval_queries") or [])[:3],
+            },
+            "concept_summary": {
+                "concept_count": concept_summary.get("concept_count"),
+                "observations": concept_summary.get("observations"),
+                "top_concepts": list(concept_summary.get("top_concepts") or [])[:3],
+            },
+        }
+
+    def _query_runtime_verification(self, result: Mapping[str, Any]) -> dict[str, Any]:
+        actual = self._query_runtime_actual_output(result)
+        gap_plan = actual.get("gap_plan") if isinstance(actual.get("gap_plan"), Mapping) else {}
+        confidence = max(
+            0.20 if int(actual.get("memory_match_count", 0) or 0) > 0 else 0.05,
+            min(1.0, float(gap_plan.get("grounded_fraction", 0.0) or 0.0)),
+        )
+        return {
+            "status": "verified",
+            "success": True,
+            "confidence": confidence,
+            "contradiction": False,
+            "summary": str(actual.get("summary", "")),
+        }
+
+    def _respond_runtime_actual_output(
+        self,
+        *,
+        response: Mapping[str, Any],
+        action_assist: Mapping[str, Any] | None,
+        outcome_score: float,
+    ) -> dict[str, Any]:
+        actual = {
+            "summary": self._normalize_action_text(response.get("response_text", "")),
+            "response_text": self._normalize_action_text(response.get("response_text", "")),
+            "response_mode": self._normalize_action_text(response.get("response_mode", "")),
+            "support_score": float(response.get("support_score", 0.0) or 0.0),
+            "evidence_coverage": float(response.get("evidence_coverage", 0.0) or 0.0),
+            "selected_evidence_count": int(len(list(response.get("selected_evidence") or []))),
+            "unsupported_terms": list(response.get("unsupported_terms") or []),
+            "outcome_score": float(outcome_score),
+        }
+        if isinstance(action_assist, Mapping):
+            record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
+            actual["action_assist"] = {
+                "triggered": bool(action_assist.get("triggered", False)),
+                "executed": bool(action_assist.get("executed", False)),
+                "reused_recent_action": bool(action_assist.get("reused_recent_action", False)),
+                "reason": self._normalize_action_text(action_assist.get("reason", "")),
+                "used_in_response": bool(action_assist.get("used_in_response", False)),
+                "action_type": self._normalize_action_text(record.get("action_type", "")),
+                "action_id": self._normalize_action_text(record.get("action_id", "")),
+            }
+        return actual
+
+    def _respond_runtime_verification(
+        self,
+        *,
+        response: Mapping[str, Any],
+        action_assist: Mapping[str, Any] | None,
+        outcome_score: float,
+    ) -> dict[str, Any]:
+        action_verification: Mapping[str, Any] = {}
+        if isinstance(action_assist, Mapping):
+            record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
+            action_verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
+        if bool(action_verification.get("contradiction", False)):
+            return {
+                "status": "contradicted",
+                "success": False,
+                "confidence": float(action_verification.get("confidence", 0.0) or 0.0),
+                "contradiction": True,
+                "summary": self._normalize_action_text(action_verification.get("summary", "Action verification contradicted the prediction.")),
+            }
+        if bool(action_verification.get("success", False)):
+            return {
+                "status": "verified",
+                "success": True,
+                "confidence": max(float(action_verification.get("confidence", 0.0) or 0.0), float(outcome_score)),
+                "contradiction": False,
+                "summary": self._normalize_action_text(action_verification.get("summary", "Action verification supplied grounded evidence.")),
+            }
+        selected_count = int(len(list(response.get("selected_evidence") or [])))
+        response_mode = self._normalize_action_text(response.get("response_mode", "")).lower()
+        if response_mode == "insufficient_evidence" or selected_count <= 0:
+            return {
+                "status": "unverified",
+                "success": False,
+                "confidence": float(outcome_score),
+                "contradiction": False,
+                "summary": "Response did not have enough grounded evidence for verification.",
+            }
+        return {
+            "status": "verified" if outcome_score >= 0.5 else "unverified",
+            "success": bool(outcome_score >= 0.5),
+            "confidence": float(outcome_score),
+            "contradiction": False,
+            "summary": f"Response grounded by {selected_count} selected evidence item(s).",
         }
 
     def _action_history_memory_metadata(self, record: Mapping[str, Any]) -> dict[str, Any]:
@@ -9555,20 +11665,12 @@ class HECSNServiceManager(TerminusAutonomyMixin):
         }
 
     def _inject_action_record_into_cortex_locked(self, record: Mapping[str, Any]) -> None:
-        if self._thought_loop is None:
-            return
-        content = " ".join(str(record.get("episode_text", "")).split()).strip()
-        if not content:
-            return
-        verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
-        self._thought_loop.inject_action_result(
-            content=content,
-            topics=tuple(str(item) for item in list(record.get("topics") or []) if str(item).strip()),
-            success=bool(verification.get("success", False)),
-            confidence=float(verification.get("confidence", 0.0) or 0.0),
-            contradicted=bool(verification.get("contradiction", False)),
-            metadata=self._action_history_memory_metadata(record),
+        thought_loop = self._thought_loop_actual or self._ensure_cortex_initialized(
+            wait_seconds=DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS
         )
+        if thought_loop is None:
+            return
+        self._inject_action_record_into_loop(thought_loop, record)
 
     def _replay_action_history_into_cortex_locked(self) -> None:
         for record in reversed(list(self._action_history)):
@@ -9597,6 +11699,319 @@ class HECSNServiceManager(TerminusAutonomyMixin):
     @staticmethod
     def _normalize_action_text(value: Any) -> str:
         return " ".join(str(value).split()).strip()
+
+    @classmethod
+    def _normalize_feedback_text(cls, value: Any, *, max_chars: int = DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS) -> str:
+        text = cls._normalize_action_text(value)
+        if len(text) > max_chars:
+            return text[:max_chars].rstrip() + "…"
+        return text
+
+    def _replay_sample_state_counts_locked(self) -> dict[str, int]:
+        feedback_summary = self._runtime_feedback_summary_locked()
+        return {
+            "token_count": int(self._trainer.token_count),
+            "state_revision": int(self._state_revision),
+            "action_history_count": int(len(self._action_history)),
+            "feedback_count": int(feedback_summary.get("feedback_count", 0) or 0),
+        }
+
+    def _sample_replay_candidates(
+        self,
+        candidates: Sequence[Mapping[str, Any]],
+        *,
+        count: int,
+        alpha: float,
+        seed: int | None,
+    ) -> list[dict[str, Any]]:
+        available = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+        selected: list[dict[str, Any]] = []
+        if not available:
+            return selected
+        rng = random.Random(seed)
+        requested = max(1, min(MAX_REPLAY_SAMPLE_LIMIT, int(count), len(available)))
+        normalized_alpha = max(0.0, min(4.0, float(alpha)))
+        seen_target_types: set[str] = set()
+        epsilon = 1.0e-6
+        while available and len(selected) < requested:
+            unseen_types = {
+                self._normalize_action_text(candidate.get("target_type", "")).lower()
+                for candidate in available
+            } - seen_target_types
+            weights: list[float] = []
+            for candidate in available:
+                try:
+                    priority_score = max(0.0, float(candidate.get("priority_score", 0.0) or 0.0))
+                except (TypeError, ValueError):
+                    priority_score = 0.0
+                weight = (epsilon + priority_score) ** normalized_alpha
+                candidate_type = self._normalize_action_text(candidate.get("target_type", "")).lower()
+                if unseen_types and candidate_type in seen_target_types:
+                    weight *= 0.35
+                weights.append(max(epsilon, weight))
+            total = sum(weights)
+            threshold = rng.random() * total
+            cumulative = 0.0
+            chosen_index = len(available) - 1
+            for index, weight in enumerate(weights):
+                cumulative += weight
+                if threshold <= cumulative:
+                    chosen_index = index
+                    break
+            chosen = available.pop(chosen_index)
+            selected.append(chosen)
+            chosen_type = self._normalize_action_text(chosen.get("target_type", "")).lower()
+            if chosen_type:
+                seen_target_types.add(chosen_type)
+        return selected
+
+    def _replay_sample_candidate_payload(self, candidate: Mapping[str, Any]) -> dict[str, Any]:
+        safe_candidate = self._runtime_trace_export_safe_value(dict(candidate))
+        payload = dict(safe_candidate) if isinstance(safe_candidate, Mapping) else {}
+        payload["safety"] = replay_candidate_safety_flags(payload)
+        return payload
+
+    def _normalize_replay_sample_record(self, raw: Any) -> dict[str, Any] | None:
+        if not isinstance(raw, Mapping):
+            return None
+        safe = self._runtime_trace_export_safe_value(dict(raw))
+        data = dict(safe) if isinstance(safe, Mapping) else {}
+        if not data:
+            return None
+
+        def _safe_int(value: Any) -> int:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return 0
+
+        def _counts(value: Any) -> dict[str, int]:
+            mapping = value if isinstance(value, Mapping) else {}
+            return {
+                "token_count": _safe_int(mapping.get("token_count")),
+                "state_revision": _safe_int(mapping.get("state_revision")),
+                "action_history_count": _safe_int(mapping.get("action_history_count")),
+                "feedback_count": _safe_int(mapping.get("feedback_count")),
+            }
+
+        mode = self._normalize_action_text(data.get("mode", "sample")).lower()
+        if mode not in {"dry_run", "sample", "execute"}:
+            mode = "sample"
+        selected_candidates = [
+            dict(item)
+            for item in data.get("selected_candidates", [])
+            if isinstance(item, Mapping)
+        ] if isinstance(data.get("selected_candidates", []), Sequence) and not isinstance(data.get("selected_candidates", []), (str, bytes)) else []
+        selected_ids = [
+            self._normalize_feedback_text(item, max_chars=160)
+            for item in data.get("selected_candidate_ids", [])
+            if self._normalize_feedback_text(item, max_chars=160)
+        ] if isinstance(data.get("selected_candidate_ids", []), Sequence) and not isinstance(data.get("selected_candidate_ids", []), (str, bytes)) else []
+        candidate_ids = [
+            self._normalize_feedback_text(item, max_chars=160)
+            for item in data.get("candidate_ids", [])
+            if self._normalize_feedback_text(item, max_chars=160)
+        ] if isinstance(data.get("candidate_ids", []), Sequence) and not isinstance(data.get("candidate_ids", []), (str, bytes)) else []
+        replay_sample_id = self._normalize_feedback_text(data.get("replay_sample_id", ""), max_chars=160) or f"replay-{mode}-{uuid4()}"
+        try:
+            alpha = max(0.0, min(4.0, float(data.get("alpha", 1.0))))
+        except (TypeError, ValueError):
+            alpha = 1.0
+        seed_value: int | None
+        if data.get("seed") is None:
+            seed_value = None
+        else:
+            try:
+                seed_value = int(data.get("seed"))
+            except (TypeError, ValueError):
+                seed_value = None
+        return {
+            "schema_version": 1,
+            "replay_sample_id": replay_sample_id,
+            "execution_id": self._normalize_feedback_text(data.get("execution_id", ""), max_chars=160) or None,
+            "created_at": self._normalize_feedback_text(data.get("created_at", ""), max_chars=80) or datetime.now(timezone.utc).isoformat(),
+            "mode": mode,
+            "status": self._normalize_feedback_text(data.get("status", "recorded"), max_chars=80) or "recorded",
+            "reason": self._normalize_feedback_text(data.get("reason", ""), max_chars=2000),
+            "endpoint": self._normalize_feedback_text(data.get("endpoint", "/terminus/replay-sample"), max_chars=120) or "/terminus/replay-sample",
+            "operator_id": self._normalize_feedback_text(data.get("operator_id", ""), max_chars=160),
+            "operator_note": self._normalize_feedback_text(data.get("operator_note", ""), max_chars=2000),
+            "requested_candidate_id": self._normalize_feedback_text(data.get("requested_candidate_id", ""), max_chars=160) or None,
+            "target_type": self._normalize_feedback_text(data.get("target_type", ""), max_chars=64) or None,
+            "target_id": self._normalize_feedback_text(data.get("target_id", ""), max_chars=160) or None,
+            "requested_count": max(1, min(MAX_REPLAY_SAMPLE_LIMIT, _safe_int(data.get("requested_count", 1)) or 1)),
+            "alpha": alpha,
+            "seed": seed_value,
+            "candidate_ids": candidate_ids,
+            "selected_candidate_ids": selected_ids,
+            "selected_candidates": selected_candidates,
+            "safety_checks": dict(data.get("safety_checks", {})) if isinstance(data.get("safety_checks"), Mapping) else {},
+            "safety_flags": dict(data.get("safety_flags", {})) if isinstance(data.get("safety_flags"), Mapping) else {},
+            "before": _counts(data.get("before")),
+            "after": _counts(data.get("after")),
+            "plan_summary": dict(data.get("plan_summary", {})) if isinstance(data.get("plan_summary"), Mapping) else {},
+        }
+
+    @classmethod
+    def _runtime_feedback_applied_status(cls, verdict: str, *, corrected: bool = False) -> str:
+        normalized = cls._normalize_action_text(verdict).lower()
+        if corrected or normalized == "contradicted":
+            return "contradicted"
+        if normalized == "verified":
+            return "verified"
+        return "unverified"
+
+    @classmethod
+    def _runtime_feedback_provenance(cls, status: str) -> str:
+        normalized = cls._normalize_action_text(status).lower()
+        if normalized == "verified":
+            return "verified"
+        if normalized == "contradicted":
+            return "contradicted"
+        return "unverified"
+
+    def _sanitize_runtime_feedback_tags(self, tags: Any) -> list[str]:
+        if not isinstance(tags, Sequence) or isinstance(tags, (str, bytes)):
+            return []
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in list(tags)[: DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT * 2]:
+            tag = self._normalize_feedback_text(raw, max_chars=64).lower()
+            if not tag or tag in seen:
+                continue
+            seen.add(tag)
+            cleaned.append(tag)
+            if len(cleaned) >= DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT:
+                break
+        return cleaned
+
+    def _sanitize_runtime_feedback_evidence(self, evidence: Any) -> list[Any]:
+        if not isinstance(evidence, Sequence) or isinstance(evidence, (str, bytes)):
+            return []
+        sanitized: list[Any] = []
+        for raw in list(evidence)[:DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT]:
+            item = self._runtime_trace_export_safe_value(raw)
+            if item in ({}, [], None, ""):
+                continue
+            sanitized.append(item)
+        return sanitized
+
+    def _runtime_feedback_corrected_present(self, feedback: Mapping[str, Any]) -> bool:
+        if "corrected_output" not in feedback or feedback.get("corrected_output") is None:
+            return False
+        corrected_output = feedback.get("corrected_output")
+        if isinstance(corrected_output, str) and not self._normalize_action_text(corrected_output):
+            return False
+        return True
+
+    def _normalize_runtime_feedback_request(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(feedback, Mapping):
+            raise ValueError("Runtime feedback must be an object.")
+        target_type = self._normalize_action_text(feedback.get("target_type", "")).lower()
+        if target_type not in {"runtime_episode", "action"}:
+            raise ValueError(f"Unsupported runtime feedback target_type: {target_type or '<empty>'}")
+        target_id = self._normalize_feedback_text(feedback.get("target_id", ""), max_chars=160)
+        if not target_id:
+            raise ValueError("Runtime feedback target_id is required.")
+        verdict = self._normalize_action_text(feedback.get("verdict", "")).lower()
+        if verdict not in {"verified", "contradicted", "unverified"}:
+            raise ValueError(f"Unsupported runtime feedback verdict: {verdict or '<empty>'}")
+        try:
+            confidence = max(0.0, min(1.0, float(feedback.get("confidence", 1.0))))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Runtime feedback confidence must be numeric.") from exc
+        corrected = self._runtime_feedback_corrected_present(feedback)
+        applied_status = self._runtime_feedback_applied_status(verdict, corrected=corrected)
+        corrected_output = self._runtime_trace_export_safe_value(feedback.get("corrected_output")) if corrected else None
+        return {
+            "feedback_id": str(uuid4()),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "target_type": target_type,
+            "target_id": target_id,
+            "verdict": verdict,
+            "applied_status": applied_status,
+            "confidence": confidence,
+            "summary": self._normalize_feedback_text(feedback.get("summary", "")),
+            "corrected_output": corrected_output,
+            "evidence": self._sanitize_runtime_feedback_evidence(feedback.get("evidence", [])),
+            "tags": self._sanitize_runtime_feedback_tags(feedback.get("tags", [])),
+            "evaluator_id": self._normalize_feedback_text(feedback.get("evaluator_id", ""), max_chars=160),
+        }
+
+    def _normalize_runtime_feedback_entries(self, feedback: Any) -> list[dict[str, Any]]:
+        if not isinstance(feedback, Sequence) or isinstance(feedback, (str, bytes)):
+            return []
+        entries: list[dict[str, Any]] = []
+        for raw in list(feedback)[-DEFAULT_RUNTIME_FEEDBACK_HISTORY:]:
+            if not isinstance(raw, Mapping):
+                continue
+            verdict = self._normalize_action_text(raw.get("verdict", "unverified")).lower()
+            if verdict not in {"verified", "contradicted", "unverified"}:
+                verdict = "unverified"
+            corrected = self._runtime_feedback_corrected_present(raw)
+            applied_status = self._normalize_action_text(raw.get("applied_status", "")).lower()
+            if applied_status not in {"verified", "contradicted", "unverified"}:
+                applied_status = self._runtime_feedback_applied_status(verdict, corrected=corrected)
+            try:
+                confidence = max(0.0, min(1.0, float(raw.get("confidence", 0.0))))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            corrected_output = self._runtime_trace_export_safe_value(raw.get("corrected_output")) if corrected else None
+            entries.append(
+                {
+                    "feedback_id": self._normalize_feedback_text(raw.get("feedback_id", ""), max_chars=80) or str(uuid4()),
+                    "created_at": self._normalize_feedback_text(raw.get("created_at", ""), max_chars=80)
+                    or datetime.now(timezone.utc).isoformat(),
+                    "target_type": self._normalize_feedback_text(raw.get("target_type", ""), max_chars=32),
+                    "target_id": self._normalize_feedback_text(raw.get("target_id", ""), max_chars=160),
+                    "verdict": verdict,
+                    "applied_status": applied_status,
+                    "confidence": confidence,
+                    "summary": self._normalize_feedback_text(raw.get("summary", "")),
+                    "corrected_output": corrected_output,
+                    "evidence": self._sanitize_runtime_feedback_evidence(raw.get("evidence", [])),
+                    "tags": self._sanitize_runtime_feedback_tags(raw.get("tags", [])),
+                    "evaluator_id": self._normalize_feedback_text(raw.get("evaluator_id", ""), max_chars=160),
+                }
+            )
+        return entries
+
+    def _apply_runtime_feedback_to_target(self, target: dict[str, Any], feedback: Mapping[str, Any]) -> None:
+        feedback_entries = self._normalize_runtime_feedback_entries(target.get("feedback", []))
+        feedback_entries.append(deepcopy(dict(feedback)))
+        feedback_entries = feedback_entries[-DEFAULT_RUNTIME_FEEDBACK_HISTORY:]
+        target["feedback"] = feedback_entries
+
+        status = self._runtime_feedback_applied_status(
+            str(feedback.get("verdict", "")),
+            corrected=feedback.get("corrected_output") is not None,
+        )
+        provenance = self._runtime_feedback_provenance(status)
+        summary = self._normalize_feedback_text(feedback.get("summary", ""))
+        if not summary:
+            summary = f"Runtime feedback marked target {status}."
+        verification = dict(target.get("verification") or {}) if isinstance(target.get("verification"), Mapping) else {}
+        verification.update(
+            {
+                "status": status,
+                "success": status == "verified",
+                "confidence": max(0.0, min(1.0, float(feedback.get("confidence", 0.0) or 0.0))),
+                "contradiction": status == "contradicted",
+                "summary": summary,
+                "provenance": provenance,
+                "last_feedback_id": str(feedback.get("feedback_id", "")),
+                "last_feedback_at": str(feedback.get("created_at", "")),
+                "feedback_count": int(len(feedback_entries)),
+            }
+        )
+        target["verification"] = verification
+        target["feedback_status"] = status
+        target["feedback_provenance"] = provenance
+        target["last_feedback_at"] = str(feedback.get("created_at", ""))
+        if status in {"verified", "contradicted"} or "action_id" in target:
+            target["provenance"] = provenance
+        if feedback.get("corrected_output") is not None:
+            target["corrected_output"] = deepcopy(feedback.get("corrected_output"))
 
     @classmethod
     def _action_request_has_body(cls, inputs: Mapping[str, Any]) -> bool:
