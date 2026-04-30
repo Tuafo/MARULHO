@@ -4,7 +4,7 @@
 
 The project currently stands as an auditable Terminus runtime: a grounded SNN-style substrate, lazy NVIDIA NIM cortex path, sensory/action/replay evidence APIs, and a refactored service manager facade split into modules. It is not yet a self-improving autonomous brain; replay bundle generation is still preview/export only and does not train, mutate memory, promote facts, execute actions, call tools, or start sleep.
 
-Fresh validation found the core is mostly intact after the refactor: service API, action loop, cortex/thought loop, query/memory primitives, service benchmark, trace export, and UI build all pass in targeted slices. Two regressions block calling `main` green: one stale/refactor-broken query-focus test, and one acceptance harness mock-cortex failure where idle gating returns `partial`.
+Fresh validation after the refactor stabilization is green on the maintained runtime surfaces: service manager/API, runtime truth reporting, long-test reporting, replay bundle safety, service benchmark, and the new offline replay-to-learning gate all pass in targeted slices. `main` is not yet a claim of autonomous learning; it is a checked preview/export runtime with explicit gates.
 
 System DNA to preserve: grounded evidence first, language cortex second, explicit safety gates, measurable liveness, reproducible traces, and no autonomous learning without offline evaluation plus operator approval.
 
@@ -47,9 +47,9 @@ Public API defaults:
 - Add benchmark result records that capture command, git commit, environment, endpoint latencies, pass/fail verdicts, and known limitations.
 
 Benchmark ladder:
-- Internal required: unit slices, service API, long acceptance harness, replay bundle safety, runtime trace export, action audit loop, latency benchmark, UI build.
-- Live required before major autonomy claims: real NIM cortex long run with cost/credential approval, saved report, trace export, and acceptance verdict.
-- External optional pressure tests: [GAIA](https://arxiv.org/abs/2311.12983) for tool-use assistants, [WebArena](https://arxiv.org/abs/2307.13854) for web action reliability, [AgentBench](https://arxiv.org/abs/2308.03688) for multi-environment agents, [ARC-AGI-3](https://arcprize.org/media/ARC_AGI_3_Technical_Report.pdf) for adaptive reasoning, and [MLE-bench](https://arxiv.org/abs/2410.07095) only if the project becomes an ML-engineering agent.
+- Internal required now: unit slices, service API, long acceptance harness, replay bundle safety, offline replay-to-learning gate, runtime trace export, action audit loop, latency benchmark, UI build.
+- Live required before major autonomy claims: real NIM cortex long run with cost/credential approval, saved report, trace export, runtime truth verdict, and acceptance verdict.
+- External pressure tests are deferred until the internal gate is credible. GAIA/WebArena/AgentBench/ARC-style tasks may become useful later, but they are not the concrete path for the next PRs.
 
 ## Test Plan
 
@@ -114,6 +114,24 @@ Validated:
 
 Next useful roadmap step:
 - Build the offline evaluation command behind `run_offline_replay_training_eval_gate`; it should consume a saved bundle, run decontamination/regression checks, write a gate report, and still avoid adapter training or memory mutation until separately approved.
+
+## 2026-04-30 Offline Replay Training Gate Command
+
+Implemented:
+- Added `hecsn.evaluation.replay_training_gate`, a read-only offline evaluator for saved replay dataset bundle JSON.
+- The gate validates bundle schema, manifest fingerprints, dedupe, train/holdout/eval split counts, decontamination terms, no-training side-effect flags, and the blocked source `training_gate`.
+- Passing the offline gate produces `status=passed_pending_operator_training_approval`, not training eligibility. `eligible_for_training` remains false and no adapter, memory, feedback, action, sleep, or external side effect is triggered.
+- Replay bundle runner metadata now preserves the source `training_gate`.
+- Delayed-consequence split/recovery matching now treats exact stored supportive/adverse branch examples as deterministic matches, removing a threshold flake without broadening unrelated fuzzy matches.
+
+Validated:
+- `python -m pytest tests/test_replay_training_gate.py -q` - 3 passed
+- Real saved-bundle gate run: `reports/replay_training_gate_bundle.json` -> `reports/replay_training_gate_report.json`, 7/7 checks passed, `eligible_for_training=false`, next action `request_explicit_operator_training_approval`.
+- Repeated split/remerge focused check: 5 consecutive runs of the two delayed-consequence branch tests passed.
+- Broader affected suites: `tests/test_replay_training_gate.py tests/test_service_api.py tests/test_service_benchmark.py` - 50 passed; `tests/test_service_manager.py tests/test_long_test_runner.py` - 134 passed.
+
+Next useful roadmap step:
+- Add a separate operator approval artifact format that can approve a specific `bundle_hash` plus `gate_report_hash`, still without training. Only after that should a dry-run adapter training plan be designed.
 
 ## Assumptions And Sources
 

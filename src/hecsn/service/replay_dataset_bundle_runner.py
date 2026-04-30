@@ -139,7 +139,7 @@ def export_replay_dataset_bundle(
         "digital_action_executed": False,
         "external_calls_made": False,
     }
-    for key in ("bundle_id", "bundle_version", "bundle_hash", "split_counts", "safety_flags"):
+    for key in ("bundle_id", "bundle_version", "bundle_hash", "split_counts", "training_gate", "safety_flags"):
         if key in bundle:
             metadata[key] = bundle[key]
     return {**bundle, "metadata": metadata}

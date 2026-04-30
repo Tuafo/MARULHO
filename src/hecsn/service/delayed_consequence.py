@@ -1837,8 +1837,19 @@ class DelayedConsequenceMixin:
         query_terms = list(query_snapshot.get("query_terms") or [])
         unsupported_terms = list(query_snapshot.get("unsupported_terms") or [])
         unsupported_ratio = min(1.0, float(len(unsupported_terms)) / float(max(1, len(query_terms))))
+        current_query_text = self._normalize_action_text(query_snapshot.get("query_text", "")).lower()
         for record in list(self._delayed_consequence_records):
             match_score = self._delayed_consequence_match_score_locked(record, query_snapshot)
+            adverse_examples = {
+                example.lower()
+                for example in self._delayed_consequence_branch_examples(record, field="adverse_query_examples")
+            }
+            supportive_examples = {
+                example.lower()
+                for example in self._delayed_consequence_branch_examples(record, field="supportive_query_examples")
+            }
+            if current_query_text and (current_query_text in supportive_examples or current_query_text in adverse_examples):
+                match_score = max(match_score, DEFAULT_DELAYED_CONSEQUENCE_MATCH_THRESHOLD)
             if match_score < DEFAULT_DELAYED_CONSEQUENCE_MATCH_THRESHOLD:
                 continue
             summary["matched_records"] = int(summary["matched_records"]) + 1
@@ -1869,15 +1880,12 @@ class DelayedConsequenceMixin:
             score_improvement = max(0.0, current_query_score - best_query_score)
             grounded_improvement = max(0.0, current_grounded_fraction - best_grounded_fraction)
             improvement = max(score_improvement, 0.85 * grounded_improvement)
-            current_query_text = self._normalize_action_text(query_snapshot.get("query_text", "")).lower()
-            adverse_examples = {
-                example.lower()
-                for example in self._delayed_consequence_branch_examples(record, field="adverse_query_examples")
-            }
+            split_branch = " ".join(str(record.get("split_branch", "")).split()).strip().lower()
             supportive_recovery = (
                 unresolved_penalty_balance > 0.0
                 and current_query_text
                 and current_query_text not in adverse_examples
+                and (split_branch != "supportive" or not supportive_examples or current_query_text in supportive_examples)
                 and current_grounded_fraction >= max(0.60, best_grounded_fraction - 0.05)
                 and unsupported_ratio < DEFAULT_DELAYED_CONTRADICTION_UNSUPPORTED_THRESHOLD
             )
