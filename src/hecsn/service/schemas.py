@@ -515,6 +515,57 @@ class ReplayDatasetHistoryResponse(BaseModel):
     excluded_fields: list[str]
 
 
+class ReplayDatasetBundleRequest(BaseModel):
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    operator_note: str | None = Field(None, max_length=2000)
+    confirmation: bool = False
+    limit: int = Field(20, ge=1, le=50)
+    endpoint: str | None = Field(None, min_length=1, max_length=32)
+    holdout_fraction: float = Field(0.2, ge=0.0, le=0.8)
+    eval_fraction: float = Field(0.2, ge=0.0, le=0.8)
+    seed: int | None = None
+    retention_days: int = Field(3650, ge=0)
+    decontamination_terms: list[str] | None = None
+
+
+class ReplayDatasetBundleResponse(BaseModel):
+    schema_version: int
+    export_kind: str
+    training_role: str
+    description: str
+    created_at: str
+    endpoint: str
+    source_endpoint: str
+    limit: int
+    max_limit: int
+    filter_endpoint: str | None = None
+    bundle_id: str
+    bundle_version: str
+    bundle_hash: str
+    source_preview_hash: str
+    operator_approval: dict[str, Any]
+    packaging_policy: dict[str, Any]
+    source_count: int
+    count: int
+    excluded_count: int
+    positive_count: int
+    negative_count: int
+    preference_pair_count: int
+    sft_count: int
+    negative_only_count: int
+    split_counts: dict[str, int]
+    split_summaries: dict[str, dict[str, Any]]
+    source_preview_summary: dict[str, Any]
+    manifest: dict[str, Any]
+    splits: dict[str, list[dict[str, Any]]]
+    excluded_items: list[dict[str, Any]]
+    safety_flags: dict[str, Any]
+    before: dict[str, int]
+    after: dict[str, int]
+    excluded_fields: list[str]
+    empty_reason: str | None = None
+
+
 class QueryResponse(BaseModel):
     query_summary: dict[str, Any]
     concept_summary: dict[str, Any]

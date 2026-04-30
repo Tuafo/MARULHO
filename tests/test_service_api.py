@@ -338,6 +338,26 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 living_response = client.get("/terminus/living-loop")
                 export_response = client.get("/terminus/runtime-traces/export?limit=5")
                 replay_dataset_response = client.get("/terminus/replay-dataset/preview?limit=5")
+                rejected_bundle_response = client.post(
+                    "/terminus/replay-dataset/bundle",
+                    json={
+                        "operator_id": "operator-a",
+                        "confirmation": False,
+                        "limit": 5,
+                    },
+                )
+                replay_dataset_bundle_response = client.post(
+                    "/terminus/replay-dataset/bundle",
+                    json={
+                        "operator_id": "operator-a",
+                        "operator_note": "Package preview only for offline review.",
+                        "confirmation": True,
+                        "limit": 5,
+                        "holdout_fraction": 0.0,
+                        "eval_fraction": 0.0,
+                        "seed": 123,
+                    },
+                )
                 replay_dataset_candidates_response = client.get("/terminus/replay-dataset/candidates?limit=5")
                 replay_dataset_history_response = client.get("/terminus/replay-dataset/history?limit=5")
                 seeded_sample_a = manager._sample_replay_candidates(
@@ -464,6 +484,38 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(replay_dataset_history_response.status_code, 200)
         self.assertEqual(replay_dataset_history_response.json()["export_kind"], "terminus_replay_dataset_history_preview")
         self.assertEqual(replay_dataset_history_response.json()["history"][0]["replay_sample_id"], body["replay_sample_id"])
+        self.assertEqual(rejected_bundle_response.status_code, 422)
+        self.assertEqual(replay_dataset_bundle_response.status_code, 200)
+        replay_dataset_bundle = replay_dataset_bundle_response.json()
+        self.assertEqual(replay_dataset_bundle["export_kind"], "terminus_replay_dataset_bundle_preview")
+        self.assertEqual(
+            replay_dataset_bundle["training_role"],
+            "replay_dataset_bundle_preview_only_not_training_operator_approved",
+        )
+        self.assertEqual(replay_dataset_bundle["endpoint"], "/terminus/replay-dataset/bundle")
+        self.assertEqual(replay_dataset_bundle["source_endpoint"], "/terminus/replay-dataset/preview")
+        self.assertTrue(replay_dataset_bundle["operator_approval"]["approved"])
+        self.assertEqual(replay_dataset_bundle["operator_approval"]["operator_id"], "operator-a")
+        self.assertGreaterEqual(replay_dataset_bundle["count"], 1)
+        self.assertGreaterEqual(replay_dataset_bundle["preference_pair_count"], 1)
+        self.assertEqual(replay_dataset_bundle["split_counts"]["holdout"], 0)
+        self.assertEqual(replay_dataset_bundle["split_counts"]["eval"], 0)
+        self.assertEqual(replay_dataset_bundle["split_counts"]["train"], replay_dataset_bundle["count"])
+        self.assertFalse(replay_dataset_bundle["safety_flags"]["training_started"])
+        self.assertFalse(replay_dataset_bundle["safety_flags"]["memory_mutated"])
+        self.assertFalse(replay_dataset_bundle["safety_flags"]["feedback_posted"])
+        self.assertFalse(replay_dataset_bundle["safety_flags"]["digital_action_executed"])
+        self.assertFalse(replay_dataset_bundle["safety_flags"]["external_calls_made"])
+        self.assertTrue(replay_dataset_bundle["safety_flags"]["requires_separate_training_approval"])
+        bundled_item = next(
+            item
+            for item in replay_dataset_bundle["splits"]["train"]
+            if item["target_id"] == episode_id
+        )
+        self.assertEqual(bundled_item["verification_label"], "contradicted")
+        self.assertEqual(bundled_item["split"], "train")
+        self.assertIsNotNone(bundled_item["preference_pair"])
+        self.assertIn("bundle_hash", replay_dataset_bundle["manifest"])
         self.assertEqual(
             [candidate["candidate_id"] for candidate in seeded_sample_a],
             [candidate["candidate_id"] for candidate in seeded_sample_b],

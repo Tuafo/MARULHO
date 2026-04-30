@@ -272,6 +272,20 @@ def benchmark_service_app(
                 "params": {"limit": int(export_limit)},
             },
             {
+                "name": "replay_dataset_bundle",
+                "method": "POST",
+                "path": "/terminus/replay-dataset/bundle",
+                "json_body": {
+                    "operator_id": "benchmark-operator",
+                    "operator_note": "Benchmark package preview only.",
+                    "confirmation": True,
+                    "limit": int(export_limit),
+                    "holdout_fraction": 0.2,
+                    "eval_fraction": 0.2,
+                    "seed": 17,
+                },
+            },
+            {
                 "name": "replay_dataset_candidates",
                 "method": "GET",
                 "path": "/terminus/replay-dataset/candidates",
@@ -367,6 +381,32 @@ def benchmark_service_app(
             key: replay_dataset_candidates_body.get(key)
             for key in ("export_kind", "schema_version", "training_role", "limit", "count", "replay_plan_summary", "safety_flags")
             if key in replay_dataset_candidates_body
+        }
+
+    replay_dataset_bundle_summary: dict[str, Any] | None = None
+    replay_dataset_bundle_body = response_bodies.get("replay_dataset_bundle")
+    if isinstance(replay_dataset_bundle_body, dict):
+        replay_dataset_bundle_summary = {
+            key: replay_dataset_bundle_body.get(key)
+            for key in (
+                "export_kind",
+                "schema_version",
+                "training_role",
+                "bundle_id",
+                "bundle_version",
+                "source_count",
+                "count",
+                "excluded_count",
+                "positive_count",
+                "negative_count",
+                "preference_pair_count",
+                "sft_count",
+                "split_counts",
+                "operator_approval",
+                "safety_flags",
+                "empty_reason",
+            )
+            if key in replay_dataset_bundle_body
         }
 
     replay_dataset_history_summary: dict[str, Any] | None = None
@@ -488,6 +528,7 @@ def benchmark_service_app(
         "replay_executor_summary": replay_sample_summary,
         "trace_export_summary": export_summary,
         "replay_dataset_summary": replay_dataset_summary,
+        "replay_dataset_bundle_summary": replay_dataset_bundle_summary,
         "replay_dataset_candidates_summary": replay_dataset_candidates_summary,
         "replay_dataset_history_summary": replay_dataset_history_summary,
     }

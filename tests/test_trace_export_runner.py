@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from copy import deepcopy
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +12,11 @@ from hecsn.service.replay_dataset_runner import (
     build_arg_parser as build_replay_dataset_arg_parser,
     export_replay_dataset_preview,
     main as replay_dataset_main,
+)
+from hecsn.service.replay_dataset_bundle_runner import (
+    build_arg_parser as build_replay_dataset_bundle_arg_parser,
+    export_replay_dataset_bundle,
+    main as replay_dataset_bundle_main,
 )
 from hecsn.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
 from hecsn.training.checkpointing import save_trainer_checkpoint
@@ -347,6 +353,124 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertNotIn("secret-value", exported_json)
         self.assertNotIn("api_key", exported_json)
         self.assertNotIn("password", exported_json)
+
+    def test_replay_dataset_bundle_runner_applies_packaging_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            duplicate = deepcopy(_runtime_trace_payload())
+            duplicate["episode_id"] = "episode-duplicate"
+            duplicate["trace_id"] = "trace-duplicate"
+            contaminated = deepcopy(_runtime_trace_payload())
+            contaminated["episode_id"] = "episode-arc"
+            contaminated["trace_id"] = "trace-arc"
+            contaminated["request"]["query_text"] = "ARC-AGI benchmark task"
+            contaminated["actual_output"]["response_text"] = "ARC-AGI benchmark fixture answer."
+            contaminated["corrected_output"]["response_text"] = "ARC-AGI benchmark fixture answer."
+            checkpoint = _build_checkpoint(
+                root,
+                metadata={
+                    "service_state": {
+                        "terminus_runtime": {
+                            "runtime_episode_traces": [
+                                _runtime_trace_payload(),
+                                duplicate,
+                                contaminated,
+                            ],
+                        }
+                    }
+                },
+            )
+
+            bundle = export_replay_dataset_bundle(
+                checkpoint,
+                operator_id="qa-1",
+                operator_note="Package preview gate test.",
+                confirmation=True,
+                limit=5,
+                endpoint="respond",
+                holdout_fraction=0.0,
+                eval_fraction=0.0,
+                seed=7,
+                trace_dir=root / "traces",
+            )
+
+        self.assertEqual(bundle["export_kind"], "terminus_replay_dataset_bundle_preview")
+        self.assertEqual(bundle["training_role"], "replay_dataset_bundle_preview_only_not_training_operator_approved")
+        self.assertEqual(bundle["operator_approval"]["operator_id"], "qa-1")
+        self.assertTrue(bundle["operator_approval"]["approved"])
+        self.assertEqual(bundle["source_count"], 3)
+        self.assertEqual(bundle["count"], 1)
+        self.assertEqual(bundle["excluded_count"], 2)
+        self.assertEqual(bundle["split_counts"], {"eval": 0, "holdout": 0, "train": 1})
+        self.assertEqual(bundle["metadata"]["source"], "checkpoint_replay_dataset_preview_package_gate")
+        self.assertFalse(bundle["safety_flags"]["training_started"])
+        self.assertFalse(bundle["safety_flags"]["memory_mutated"])
+        self.assertFalse(bundle["safety_flags"]["feedback_posted"])
+        self.assertTrue(bundle["safety_flags"]["requires_separate_training_approval"])
+        excluded_reasons = {
+            reason
+            for item in bundle["excluded_items"]
+            for reason in item["excluded_reasons"]
+        }
+        self.assertIn("duplicate_item_fingerprint", excluded_reasons)
+        self.assertTrue(any(reason.startswith("decontamination_blocked") for reason in excluded_reasons))
+        exported_json = json.dumps(bundle, sort_keys=True)
+        self.assertNotIn("secret-value", exported_json)
+        self.assertNotIn("api_key", exported_json)
+        self.assertNotIn("password", exported_json)
+
+    def test_replay_dataset_bundle_runner_main_requires_confirmation(self) -> None:
+        parser = build_replay_dataset_bundle_arg_parser()
+        args = parser.parse_args(
+            [
+                "--checkpoint",
+                "checkpoints\\terminus\\model.pt",
+                "--output",
+                "reports\\replay_dataset_bundle.json",
+                "--operator-id",
+                "operator-a",
+                "--confirm",
+                "--limit",
+                "3",
+            ]
+        )
+        self.assertEqual(args.operator_id, "operator-a")
+        self.assertTrue(args.confirm)
+        self.assertEqual(args.limit, 3)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            checkpoint = _build_checkpoint(
+                root,
+                metadata={
+                    "service_state": {
+                        "terminus_runtime": {
+                            "runtime_episode_traces": [_runtime_trace_payload()],
+                        }
+                    }
+                },
+            )
+            stdout = io.StringIO()
+
+            exit_code = replay_dataset_bundle_main(
+                [
+                    "--checkpoint",
+                    str(checkpoint),
+                    "--output",
+                    "-",
+                    "--operator-id",
+                    "operator-a",
+                    "--confirm",
+                    "--trace-dir",
+                    str(root / "traces"),
+                ],
+                stdout=stdout,
+            )
+            bundle = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(bundle["operator_approval"]["operator_id"], "operator-a")
+        self.assertEqual(bundle["count"], 1)
 
     def test_replay_dataset_runner_main_writes_empty_valid_dataset(self) -> None:
         parser = build_replay_dataset_arg_parser()

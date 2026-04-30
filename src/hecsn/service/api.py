@@ -27,6 +27,8 @@ from .schemas import (
     PolicyActuatorResponse,
     QueryRequest,
     QueryResponse,
+    ReplayDatasetBundleRequest,
+    ReplayDatasetBundleResponse,
     ReplayDatasetCandidatesResponse,
     ReplayDatasetHistoryResponse,
     ReplayDatasetPreviewResponse,
@@ -258,6 +260,26 @@ def create_app(
     @app.get("/terminus/replay-dataset/history", response_model=ReplayDatasetHistoryResponse)
     def terminus_replay_dataset_history(limit: int = Query(20, ge=1, le=256)) -> ReplayDatasetHistoryResponse:
         return ReplayDatasetHistoryResponse(**manager.replay_dataset_history(limit=limit))
+
+    @app.post("/terminus/replay-dataset/bundle", response_model=ReplayDatasetBundleResponse)
+    def terminus_replay_dataset_bundle(request: ReplayDatasetBundleRequest) -> ReplayDatasetBundleResponse:
+        try:
+            return ReplayDatasetBundleResponse(
+                **manager.replay_dataset_bundle(
+                    operator_id=request.operator_id,
+                    operator_note=request.operator_note,
+                    confirmation=request.confirmation,
+                    limit=request.limit,
+                    endpoint=request.endpoint,
+                    holdout_fraction=request.holdout_fraction,
+                    eval_fraction=request.eval_fraction,
+                    seed=request.seed,
+                    retention_days=request.retention_days,
+                    decontamination_terms=request.decontamination_terms,
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/terminus/configure", response_model=TerminusRuntimeResponse)
     def terminus_configure(request: TerminusConfigureRequest) -> TerminusRuntimeResponse:

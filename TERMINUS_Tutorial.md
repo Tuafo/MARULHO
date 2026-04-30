@@ -503,6 +503,9 @@ Typical usage:
 curl "http://localhost:8000/terminus/replay-dataset/preview?limit=20"
 curl "http://localhost:8000/terminus/replay-dataset/candidates?limit=20"
 curl "http://localhost:8000/terminus/replay-dataset/history?limit=20"
+curl -X POST "http://localhost:8000/terminus/replay-dataset/bundle" \
+  -H "Content-Type: application/json" \
+  -d '{"operator_id":"operator-a","confirmation":true,"limit":20,"holdout_fraction":0.2,"eval_fraction":0.2,"seed":17}'
 ```
 
 The equivalent CLI helper writes the same preview shape to disk:
@@ -511,6 +514,13 @@ The equivalent CLI helper writes the same preview shape to disk:
 PYTHONPATH=src python -m hecsn.service.replay_dataset_runner \
   --checkpoint checkpoints/terminus/model.pt \
   --output reports/replay_dataset.json \
+  --limit 20
+
+PYTHONPATH=src python -m hecsn.service.replay_dataset_bundle_runner \
+  --checkpoint checkpoints/terminus/model.pt \
+  --output reports/replay_dataset_bundle.json \
+  --operator-id operator-a \
+  --confirm \
   --limit 20
 ```
 
@@ -525,6 +535,8 @@ Preview response fields:
 
 `GET /terminus/replay-dataset/candidates` exposes the replay-plan candidates that could feed a dataset preview. `GET /terminus/replay-dataset/history` exposes replay-sample history through the same preview-only safety boundary, using `/terminus/replay-sample/history` as its source.
 
+`POST /terminus/replay-dataset/bundle` is the first packaging gate. It requires `operator_id` plus `confirmation=true`, then converts the preview into a versioned bundle artifact with deterministic deduplication, contamination filters, retention filtering, and train/holdout/eval splits. Response fields include `bundle_id`, `bundle_version`, `bundle_hash`, `source_preview_hash`, `operator_approval`, `packaging_policy`, `split_counts`, `split_summaries`, `manifest`, `splits`, and `excluded_items`. The bundle endpoint remains preview/export only: `safety_flags.training_started=false`, `memory_mutated=false`, `feedback_posted=false`, `digital_action_executed=false`, `external_calls_made=false`, and `requires_separate_training_approval=true`.
+
 Provenance and training-role rules:
 - `operator_verified` and `corrected` examples can become positive SFT-style candidates only after external review.
 - `contradicted`, `failed`, and rejected examples remain negative lessons or DPO rejected-side candidates; they are not facts.
@@ -535,10 +547,10 @@ Provenance and training-role rules:
 Replay-dataset fields are surfaced consistently across telemetry/export/benchmark/UI paths:
 - telemetry: `/terminus/living-loop`, `/status`, and `/terminus` include `replay_dataset_summary`; `benchmark_telemetry.replay_dataset_summary` mirrors count, positive/negative counts, provenance/type counts, latest timestamps, endpoint, safety flags, and empty reason
 - export: `GET /terminus/runtime-traces/export` includes top-level `replay_dataset_summary`; `python -m hecsn.service.trace_export_runner` mirrors the summary in CLI metadata
-- benchmark: `src\hecsn\evaluation\service_benchmark.py` exercises `/terminus/replay-dataset/preview`, `/terminus/replay-dataset/candidates`, and `/terminus/replay-dataset/history`, then writes `replay_dataset_summary`, `replay_dataset_candidates_summary`, and `replay_dataset_history_summary`
+- benchmark: `src\hecsn\evaluation\service_benchmark.py` exercises `/terminus/replay-dataset/preview`, `/terminus/replay-dataset/bundle`, `/terminus/replay-dataset/candidates`, and `/terminus/replay-dataset/history`, then writes `replay_dataset_summary`, `replay_dataset_bundle_summary`, `replay_dataset_candidates_summary`, and `replay_dataset_history_summary`
 - UI: the Runtime dashboard shows a read-only Curated replay dataset card with example counts, positive/negative split, provenance/type counts, endpoint, timestamps, empty reason, and mutation-boundary safety flags
 
-Safety boundary: replay datasets are **preview/export artifacts only**. They do not train adapters, rewrite or promote memories, post feedback, execute digital actions, call external tools, start sleep, or convert contradicted/dreamed content into verified facts. The next real step after this wave is a separate operator-approved packaging/training pipeline that validates schema, decontamination, retention, deduplication, and holdout splits before any LoRA/QLoRA adapter job runs.
+Safety boundary: replay datasets and bundles are **preview/export artifacts only**. They do not train adapters, rewrite or promote memories, post feedback, execute digital actions, call external tools, start sleep, or convert contradicted/dreamed content into verified facts. The packaging gate validates schema, decontamination, retention, deduplication, and holdout/eval splits, but a separate offline trainer approval is still required before any LoRA/QLoRA adapter job runs.
 
 ### Feedback-grounded living loop
 
@@ -764,6 +776,10 @@ curl http://localhost:8000/terminus/cortex
 | `POST` | `/terminus/runtime-feedback` | record verified/contradicted/unverified feedback for runtime episodes or actions |
 | `GET` | `/terminus/sensory/recent` | recent sensory previews |
 | `GET` | `/terminus/runtime-traces/export` | sanitized runtime trace dataset preview |
+| `GET` | `/terminus/replay-dataset/preview` | curated replay dataset preview |
+| `POST` | `/terminus/replay-dataset/bundle` | operator-approved preview-only dataset packaging gate |
+| `GET` | `/terminus/replay-dataset/candidates` | replay-plan candidates for dataset preview |
+| `GET` | `/terminus/replay-dataset/history` | replay-sample history for dataset preview |
 
 ---
 

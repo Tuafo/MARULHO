@@ -254,6 +254,38 @@ def _fake_service_app() -> FastAPI:
             "empty_reason": "checkpoint_contains_no_eligible_sanitized_runtime_traces",
         }
 
+    @app.post("/terminus/replay-dataset/bundle")
+    def replay_dataset_bundle(payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "export_kind": "terminus_replay_dataset_bundle_preview",
+            "training_role": "replay_dataset_bundle_preview_only_not_training_operator_approved",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "endpoint": "/terminus/replay-dataset/bundle",
+            "source_endpoint": "/terminus/replay-dataset/preview",
+            "limit": int(payload.get("limit", 3)),
+            "bundle_id": "terminus-replay-dataset-bundle-v1-empty",
+            "bundle_version": "v1.empty",
+            "source_count": 0,
+            "count": 0,
+            "excluded_count": 0,
+            "positive_count": 0,
+            "negative_count": 0,
+            "preference_pair_count": 0,
+            "sft_count": 0,
+            "split_counts": {"train": 0, "holdout": 0, "eval": 0},
+            "operator_approval": {
+                "approved": True,
+                "operator_id": payload.get("operator_id", "benchmark-operator"),
+            },
+            "safety_flags": {
+                "preview_only": True,
+                "training_started": False,
+                "requires_separate_training_approval": True,
+            },
+            "empty_reason": "no_items_survived_bundle_packaging_gate",
+        }
+
     @app.get("/terminus/replay-dataset/candidates")
     def replay_dataset_candidates(limit: int = 3) -> dict[str, Any]:
         return {
@@ -317,6 +349,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
             "replay_sample_history",
             "export",
             "replay_dataset_preview",
+            "replay_dataset_bundle",
             "replay_dataset_candidates",
             "replay_dataset_history",
         ]
@@ -334,6 +367,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["endpoints_by_name"]["replay_plan"]["path"] == "/terminus/replay-plan"
         assert result["endpoints_by_name"]["replay_sample_history"]["path"] == "/terminus/replay-sample/history"
         assert result["endpoints_by_name"]["replay_dataset_preview"]["path"] == "/terminus/replay-dataset/preview"
+        assert result["endpoints_by_name"]["replay_dataset_bundle"]["path"] == "/terminus/replay-dataset/bundle"
         assert result["endpoints_by_name"]["replay_dataset_candidates"]["path"] == "/terminus/replay-dataset/candidates"
         assert result["endpoints_by_name"]["replay_dataset_history"]["path"] == "/terminus/replay-dataset/history"
         assert result["replay_plan_summary"]["endpoint"] == "/terminus/replay-plan"
@@ -357,6 +391,11 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["replay_dataset_summary"]["latest_export_timestamp"] == "2026-01-01T00:00:00+00:00"
         assert result["replay_dataset_summary"]["latest_history_timestamp"] == "2026-01-01T00:00:01+00:00"
         assert result["replay_dataset_summary"]["safety_flags"]["external_calls_made"] is False
+        assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
+        assert result["replay_dataset_bundle_summary"]["training_role"] == "replay_dataset_bundle_preview_only_not_training_operator_approved"
+        assert result["replay_dataset_bundle_summary"]["operator_approval"]["operator_id"] == "benchmark-operator"
+        assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
+        assert result["replay_dataset_bundle_summary"]["safety_flags"]["requires_separate_training_approval"] is True
         assert result["replay_dataset_candidates_summary"]["export_kind"] == "terminus_replay_dataset_candidates_preview"
         assert result["replay_dataset_history_summary"]["source_endpoint"] == "/terminus/replay-sample/history"
         assert result["replay_dataset_history_summary"]["latest_history_timestamp"] == "2026-01-01T00:00:01+00:00"
@@ -396,6 +435,7 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["replay_sample_history"]["status_code"] == 200
         assert result["endpoints_by_name"]["export"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_preview"]["status_code"] == 200
+        assert result["endpoints_by_name"]["replay_dataset_bundle"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_candidates"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_history"]["status_code"] == 200
         assert isinstance(result["living_loop_benchmark_telemetry"], dict)
@@ -415,6 +455,9 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["replay_dataset_summary"]["endpoint"] == "/terminus/replay-dataset/preview"
         assert "latest_export_timestamp" in result["replay_dataset_summary"]
         assert result["replay_dataset_summary"]["safety_flags"]["training_started"] is False
+        assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
+        assert result["replay_dataset_bundle_summary"]["operator_approval"]["approved"] is True
+        assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
         assert result["replay_dataset_candidates_summary"]["count"] <= 2
         assert result["replay_dataset_history_summary"]["count"] >= 0
     finally:
