@@ -217,6 +217,7 @@ def run_acceptance_harness(
             env_root=root,
         )
         try:
+            manager._ensure_cortex_initialized()
             cortex_snapshot = manager.cortex_snapshot()
             if not bool(cortex_snapshot.get("enabled", False)) or getattr(manager, "_thought_loop", None) is None:
                 checks.append(

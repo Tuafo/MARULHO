@@ -5214,7 +5214,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     }
 
-                with patch("hecsn.service.manager.build_query_result", side_effect=_fake_build_query_result):
+                with patch("hecsn.service.interaction_runtime.build_query_result", side_effect=_fake_build_query_result):
                     result = manager.query(query_text="submarine control depth", top_k_memories=4)
 
                 self.assertIn("ballast", " ".join(captured["retrieval_focus_terms"]).lower())

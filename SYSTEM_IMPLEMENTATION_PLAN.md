@@ -6,6 +6,28 @@
 
 ---
 
+## 2026-04-30 Stabilization Update
+
+The service refactor is now treated as the current implementation baseline: `HECSNServiceManager` is a composition root over focused service mixins, cortex/NIM construction remains lazy, and replay dataset bundle generation is still preview/export only.
+
+Current validation after the stabilization pass:
+
+- `tests/test_service_manager.py`: **123 passed**
+- `tests/test_long_test_runner.py tests/test_service_benchmark.py tests/test_trace_export_runner.py`: **15 passed**
+- `tests/test_service_api.py`: **44 passed**
+- action, cortex, thought-loop, living-loop, query-runner, and memory-consolidation slices: **194 passed, 3 skipped**
+- `HECSN_UI` production build: **passed**, with the existing large `three` chunk warning still present
+- fresh in-process service benchmark: **success**, total latency **7155.884 ms**
+
+Important current truth:
+
+- The acceptance harness now initializes the lazy cortex before judging idle gating, so mock-cortex and live-cortex paths exercise the same initialization contract.
+- Query-conditioned retrieval focus is owned by `hecsn.service.interaction_runtime`; tests should patch that module when they need to intercept `build_query_result`.
+- Replay dataset preview and bundle APIs remain safety-gated: no training, no memory promotion, no action execution, no sleep, no external calls, and no state mutation beyond packaging metadata.
+- `/feed` remains the dominant benchmark cost and should be treated as the first performance target before expanding autonomy.
+
+---
+
 ## 1. Purpose
 
 This document turns the recent audit into an implementation roadmap.
