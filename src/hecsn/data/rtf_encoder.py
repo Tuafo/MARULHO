@@ -610,8 +610,25 @@ class RTFEncoder:
         if not text:
             return []
         if self.learned_chunking is None:
-            normalized = str(text).strip()
-            return [normalized] if normalized else []
+            segments: list[str] = []
+            chunk: list[str] = []
+            for ch in str(text):
+                is_separator = ch.isspace() or ch in ",.;:!?()[]{}<>\""
+                if is_separator:
+                    if chunk:
+                        if ch in ".!?":
+                            chunk.append(ch)
+                        segment = "".join(chunk).strip()
+                        if segment:
+                            segments.append(segment)
+                        chunk = []
+                    continue
+                chunk.append(ch)
+            if chunk:
+                segment = "".join(chunk).strip()
+                if segment:
+                    segments.append(segment)
+            return segments
 
         segments: list[str] = []
         chunk_codes: list[int] = []
@@ -656,6 +673,36 @@ class RTFEncoder:
             if learn:
                 self.learned_chunking.learn_chunk(chunk_codes, context=chunk_context)
         return segments
+
+    def iter_segment_patterns(
+        self,
+        text: str,
+        window_size: int,
+        *,
+        learn: bool = False,
+        context_segments: int = 5,
+    ) -> Iterator[tuple[str, torch.Tensor]]:
+        maxlen = max(1, int(window_size))
+        segment_window: list[str] = []
+        max_segments = max(1, int(context_segments))
+        for segment in self.segment_text(str(text), learn=learn):
+            segment_window.append(segment)
+            if len(segment_window) > max_segments:
+                segment_window.pop(0)
+            raw_window = " ".join(segment_window)
+            codes = [_ascii_code(ch) for ch in raw_window][-maxlen:]
+            if not codes:
+                continue
+            chunk_state = (
+                self.learned_chunking.detector_activations(codes)
+                if self.learned_chunking is not None
+                else None
+            )
+            yield raw_window, self.blended_feature_vector(
+                codes,
+                chunk_state=chunk_state,
+                chunk_codes=codes,
+            )
 
     def encode(self, chars: Iterable[int], context_confidence: float) -> torch.Tensor:
         window: List[int] = list(chars)[-self.window_size :]

@@ -462,6 +462,11 @@ def benchmark_service_app(
                 if isinstance(item, dict) and item.get("code") is not None
             ]
 
+    feed_summary: dict[str, Any] | None = None
+    feed_body = response_bodies.get("feed")
+    if isinstance(feed_body, dict) and isinstance(feed_body.get("feed_summary"), dict):
+        feed_summary = dict(feed_body["feed_summary"])
+
     replay_plan_summary: dict[str, Any] | None = None
     replay_body = response_bodies.get("replay_plan")
     if isinstance(replay_body, dict):
@@ -521,6 +526,7 @@ def benchmark_service_app(
         "endpoint_timings": endpoint_timings,
         "endpoints_by_name": {str(item["name"]): item for item in endpoint_timings},
         "living_loop_benchmark_telemetry": living_loop_telemetry,
+        "feed_summary": feed_summary,
         "feedback_telemetry": feedback_telemetry,
         "policy_actuator_summary": policy_actuator_summary,
         "replay_plan_summary": replay_plan_summary,

@@ -27,6 +27,8 @@ PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
 DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
+DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
+REQUEST_FEED_ENCODING_MODE = "semantic_segments"
 
 
 class InteractionRuntimeMixin:
@@ -146,16 +148,21 @@ class InteractionRuntimeMixin:
         *,
         allow_sleep_maintenance: bool,
         on_step: Any = None,
+        concept_observation_interval: int = DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
     ) -> dict[str, Any]:
         self._trainer.encoder = self._encoder
         last_metrics: dict[str, Any] | None = None
         tokens = 0
+        concept_observations = 0
+        pending_concept_observation: tuple[str, dict[str, Any]] | None = None
+        observation_interval = max(1, int(concept_observation_interval))
         sleep_maintenance_deferred = 0
-        for raw_window, pattern in self._encoder.iter_char_patterns(
+        pattern_iter = self._encoder.iter_segment_patterns(
             text,
             self._trainer.config.window_size,
             learn=True,
-        ):
+        )
+        for raw_window, pattern in pattern_iter:
             last_metrics = self._trainer.train_step(
                 pattern,
                 raw_window=raw_window,
@@ -163,8 +170,17 @@ class InteractionRuntimeMixin:
             )
             sleep_maintenance_deferred += int(last_metrics.get("sleep_maintenance_deferred", 0) or 0)
             if on_step is not None:
-                on_step(raw_window, last_metrics)
+                pending_concept_observation = (raw_window, last_metrics)
+                if tokens == 0 or (tokens + 1) % observation_interval == 0:
+                    on_step(raw_window, last_metrics)
+                    concept_observations += 1
+                    pending_concept_observation = None
             tokens += 1
+
+        if on_step is not None and pending_concept_observation is not None:
+            raw_window, metrics = pending_concept_observation
+            on_step(raw_window, metrics)
+            concept_observations += 1
 
         return {
             "tokens_processed": int(tokens),
@@ -172,6 +188,10 @@ class InteractionRuntimeMixin:
             "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
             "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
             "memory_buffer_size": int(len(self._trainer.model.memory_store.slow_buffer)),
+            "feed_encoding_mode": REQUEST_FEED_ENCODING_MODE,
+            "concept_observation_mode": "sampled" if on_step is not None else "disabled",
+            "concept_observation_interval": int(observation_interval),
+            "concept_observations": int(concept_observations),
             "sleep_maintenance_allowed": bool(allow_sleep_maintenance),
             "sleep_maintenance_deferred": int(sleep_maintenance_deferred),
         }

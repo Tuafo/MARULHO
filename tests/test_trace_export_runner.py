@@ -406,6 +406,16 @@ class TraceExportRunnerTests(unittest.TestCase):
         self.assertFalse(bundle["safety_flags"]["training_started"])
         self.assertFalse(bundle["safety_flags"]["memory_mutated"])
         self.assertFalse(bundle["safety_flags"]["feedback_posted"])
+        self.assertFalse(bundle["safety_flags"]["digital_action_executed"])
+        self.assertFalse(bundle["safety_flags"]["external_calls_made"])
+        self.assertFalse(bundle["safety_flags"]["memory_verification_promoted"])
+        self.assertFalse(bundle["safety_flags"]["sleep_started"])
+        self.assertFalse(bundle["safety_flags"]["state_revision_mutated"])
+        self.assertFalse(bundle["safety_flags"]["token_count_mutated"])
+        self.assertFalse(bundle["safety_flags"]["eligible_for_training"])
+        self.assertTrue(bundle["safety_flags"]["export_only"])
+        self.assertTrue(bundle["safety_flags"]["preview_only"])
+        self.assertTrue(bundle["safety_flags"]["not_promoted"])
         self.assertTrue(bundle["safety_flags"]["requires_separate_training_approval"])
         excluded_reasons = {
             reason

@@ -88,6 +88,25 @@ def test_run_acceptance_harness_passes_with_mock_cortex() -> None:
     assert check_names == {"idle_gating", "query_answer", "grounded_source_influence", "runtime_progress"}
 
 
+def test_run_acceptance_harness_reports_partial_when_cortex_initialization_fails() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch(
+            "hecsn.cortex.multi_cortex.create_cortex_from_env",
+            side_effect=RuntimeError("mock cortex unavailable"),
+        ), patch(
+            "hecsn.cortex.multi_cortex.create_embedder_from_env",
+            return_value=SimpleEmbedder(),
+        ):
+            result = run_acceptance_harness(output_dir=tmpdir, env_root=Path.cwd())
+
+    idle_check = next(item for item in result["checks"] if item["name"] == "idle_gating")
+    assert result["verdict"] == "partial"
+    assert result["passed"] > 0
+    assert result["failed"] == 1
+    assert idle_check["passed"] is False
+    assert idle_check["details"]["cortex_enabled"] is False
+
+
 def test_write_report_handles_unicode_text_and_health_sections() -> None:
     report = LongTestReport(
         start_time="2026-04-21T00:00:00+00:00",

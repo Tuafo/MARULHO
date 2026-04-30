@@ -1036,6 +1036,9 @@ class RuntimeEvidenceMixin:
             "last_winner": summary.get("last_winner"),
             "last_recon_error": summary.get("last_recon_error"),
             "memory_buffer_size": int(summary.get("memory_buffer_size", 0) or 0),
+            "feed_encoding_mode": summary.get("feed_encoding_mode"),
+            "concept_observation_mode": summary.get("concept_observation_mode"),
+            "concept_observations": int(summary.get("concept_observations", 0) or 0),
         }
 
     def _query_runtime_actual_output(self, result: Mapping[str, Any]) -> dict[str, Any]:

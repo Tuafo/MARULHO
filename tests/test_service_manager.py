@@ -23,6 +23,10 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.data.corpus_loader import BackgroundPrefetchIterator
 from hecsn.service import manager as manager_module
 from hecsn.service import terminus_sensory as sensory_module
+from hecsn.service.interaction_runtime import (
+    DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+    REQUEST_FEED_ENCODING_MODE,
+)
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.terminus_sensory import SensoryEpisode
 from hecsn.training.checkpointing import save_trainer_checkpoint
@@ -231,6 +235,39 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertEqual(result["feed_summary"]["tokens_processed"], 1)
                 self.assertFalse(result["feed_summary"]["sleep_maintenance_allowed"])
                 self.assertEqual(result["feed_summary"]["sleep_maintenance_deferred"], 1)
+            finally:
+                manager.close()
+
+    def test_feed_samples_runtime_concept_observation_for_request_latency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_feed_concept_sampling")
+            try:
+                text = ("submarine ballast buoyancy pressure control " * 16).strip()
+                with patch.object(
+                    manager,
+                    "_observe_runtime_concepts_locked",
+                    wraps=manager._observe_runtime_concepts_locked,
+                ) as observe:
+                    result = manager.feed(text=text)
+
+                summary = result["feed_summary"]
+                tokens_processed = int(summary["tokens_processed"])
+                concept_observations = int(summary["concept_observations"])
+                concept_store = manager.status()["concept_store"]
+
+                self.assertGreater(tokens_processed, DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL)
+                self.assertEqual(summary["feed_encoding_mode"], REQUEST_FEED_ENCODING_MODE)
+                self.assertEqual(summary["concept_observation_mode"], "sampled")
+                self.assertEqual(
+                    int(summary["concept_observation_interval"]),
+                    DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+                )
+                self.assertEqual(observe.call_count, concept_observations)
+                self.assertGreaterEqual(concept_observations, 2)
+                self.assertLess(concept_observations, tokens_processed)
+                self.assertGreater(int(concept_store["concept_count"]), 0)
+                self.assertGreater(int(concept_store["observations"]), 0)
             finally:
                 manager.close()
 

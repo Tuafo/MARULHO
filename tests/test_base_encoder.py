@@ -44,6 +44,17 @@ class BaseEncoderProtocolTests(unittest.TestCase):
             self.assertIsInstance(text, str)
             self.assertIsInstance(vec, torch.Tensor)
 
+    def test_iter_segment_patterns_yields_semantic_chunks(self) -> None:
+        encoder = RTFEncoder()
+        patterns = list(encoder.iter_segment_patterns("hello world. hello again.", window_size=10, learn=True))
+
+        self.assertEqual(patterns[0][0], "hello")
+        self.assertEqual(patterns[1][0], "hello world.")
+        self.assertEqual(patterns[-1][0], "hello world. hello again.")
+        self.assertLess(len(patterns), len("hello world. hello again."))
+        for _text, vec in patterns:
+            self.assertIsInstance(vec, torch.Tensor)
+
     def test_segment_text_returns_list(self) -> None:
         encoder = RTFEncoder()
         segments = encoder.segment_text("hello world")

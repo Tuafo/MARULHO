@@ -13,18 +13,30 @@ The service refactor is now treated as the current implementation baseline: `HEC
 Current validation after the stabilization pass:
 
 - `tests/test_service_manager.py`: **123 passed**
-- `tests/test_long_test_runner.py tests/test_service_benchmark.py tests/test_trace_export_runner.py`: **15 passed**
+- `tests/test_long_test_runner.py tests/test_service_benchmark.py tests/test_trace_export_runner.py`: **16 passed**
 - `tests/test_service_api.py`: **44 passed**
 - action, cortex, thought-loop, living-loop, query-runner, and memory-consolidation slices: **194 passed, 3 skipped**
 - `HECSN_UI` production build: **passed**, with the existing large `three` chunk warning still present
 - fresh in-process service benchmark: **success**, total latency **7155.884 ms**
+- post-feed-sampling service benchmark: **success**, total latency **2201.261 ms**, `/feed` **1584.017 ms**
+- post-feed-segmentation service benchmark: **success**, total latency **1070.362 ms**, `/feed` **619.942 ms**
 
 Important current truth:
 
 - The acceptance harness now initializes the lazy cortex before judging idle gating, so mock-cortex and live-cortex paths exercise the same initialization contract.
 - Query-conditioned retrieval focus is owned by `hecsn.service.interaction_runtime`; tests should patch that module when they need to intercept `build_query_result`.
 - Replay dataset preview and bundle APIs remain safety-gated: no training, no memory promotion, no action execution, no sleep, no external calls, and no state mutation beyond packaging metadata.
-- `/feed` remains the dominant benchmark cost and should be treated as the first performance target before expanding autonomy.
+- `/feed` remains the dominant benchmark cost, but request-time feed now uses rolling semantic segment windows instead of character windows. It still preserves phrase-level concept grounding, samples runtime concept observation every 8 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 7 concept observations.
+- Service benchmark JSON now exposes `feed_summary`, so future performance PRs can inspect endpoint latency and feed observation pressure in the same artifact.
+
+Tests worth having toward the living-brain goal:
+
+- **Truth/liveness tests:** acceptance harness must pass with a valid cortex and must report `partial` or `failed` when cortex initialization is unavailable; empty or dead runs must never be classified as alive.
+- **Grounding tests:** query, response, and cortex thought paths must prove that source evidence influences output instead of allowing generic language drift.
+- **Safety-boundary tests:** replay sample, replay execute, replay dataset preview, and replay dataset bundle must prove they do not train, mutate memory, promote facts, post feedback, execute actions, start sleep, or make external calls.
+- **Autonomy tests:** policy actuator and delayed-consequence tests must verify proposal, contradiction, recovery, split/remerge lineage, and operator-gated execution without hiding side effects.
+- **Performance tests:** service benchmark output must keep endpoint timings and `feed_summary` visible, with `/feed` tracked as the current first optimization target rather than hidden inside total latency.
+- **Operator-surface tests:** API and UI build checks protect the dashboard as an observation/control surface, but they are secondary to runtime truth, safety, and evidence quality.
 
 ---
 

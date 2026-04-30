@@ -359,6 +359,7 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
             assert record["latency_ms"] >= 0.0
         assert result["endpoints_by_name"]["export"]["path"] == "/terminus/runtime-traces/export"
         assert result["living_loop_benchmark_telemetry"]["endpoint_latency"]["feed"]["count"] == 1
+        assert result["feed_summary"]["tokens_processed"] > 0
         assert result["living_loop_benchmark_telemetry"]["feedback"]["feedback_count"] == 2
         assert result["feedback_telemetry"]["contradicted_count"] == 1
         assert result["endpoints_by_name"]["policy_actuator"]["path"] == "/terminus/policy-actuator"
@@ -440,6 +441,9 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["replay_dataset_history"]["status_code"] == 200
         assert isinstance(result["living_loop_benchmark_telemetry"], dict)
         assert isinstance(result["living_loop_benchmark_telemetry"]["feedback"], dict)
+        assert result["feed_summary"]["feed_encoding_mode"] == "semantic_segments"
+        assert result["feed_summary"]["concept_observation_mode"] == "sampled"
+        assert result["feed_summary"]["concept_observations"] < result["feed_summary"]["tokens_processed"]
         assert isinstance(result["feedback_telemetry"], dict)
         assert isinstance(result["policy_actuator_summary"], dict)
         assert isinstance(result["policy_actuator_summary"]["action"], str)
