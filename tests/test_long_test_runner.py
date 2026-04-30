@@ -55,6 +55,29 @@ def test_classify_test_report_marks_degraded_when_runtime_progresses_without_tho
     assert health_exit_code(report) == 1
 
 
+def test_classify_test_report_uses_runtime_truth_contract_warnings() -> None:
+    report = LongTestReport(
+        cortex_available=True,
+        samples_collected=3,
+        initial_token_count=100,
+        final_token_count=180,
+        max_background_tokens_processed=80,
+        final_tick_count=4,
+        total_thoughts=5,
+        acceptance_verdict="passed",
+        final_runtime_truth={
+            "verdict": "degraded",
+            "recommended_action": "run_tick_or_start_runtime",
+        },
+    )
+
+    classify_test_report(report)
+
+    assert report.health_verdict == "degraded"
+    assert any("Runtime truth contract reported degraded" in reason for reason in report.health_reasons)
+    assert health_exit_code(report) == 1
+
+
 def test_classify_test_report_marks_alive_run() -> None:
     report = LongTestReport(
         cortex_available=True,
@@ -135,6 +158,11 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         ],
         acceptance_passed=2,
         acceptance_failed=0,
+        final_runtime_truth={
+            "schema_version": 1,
+            "verdict": "alive",
+            "recommended_action": "continue_monitoring",
+        },
         final_narrative_summary="Coral reefs balance calcium carbonate growth with ocean chemistry — a fragile equilibrium.",
         sample_thoughts=[
             "Aurora Borealis occurs when charged solar particles strike Earth's atmosphere.",
@@ -177,7 +205,10 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
 
     assert json_data["preset"] == "curriculum"
     assert json_data["health_verdict"] == "alive"
+    assert json_data["final_runtime_truth"]["verdict"] == "alive"
     assert "## Health Verdict" in md_text
     assert "## Acceptance Harness" in md_text
+    assert "Runtime truth verdict" in md_text
+    assert "continue_monitoring" in md_text
     assert "équilibre" in md_text
     assert "Aurora Borealis" in md_text

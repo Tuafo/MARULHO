@@ -424,9 +424,6 @@ class HypercubeBindingLayer:
         self._hub_connection_multiplier = torch.ones(n_columns, device=device)
         self._hub_extra_connections = torch.zeros(n_columns, dtype=torch.long, device=device)
         self._hub_mask = torch.zeros(n_columns, dtype=torch.bool, device=device)
-        self._hub_profile_active = False
-        self._hub_profile_refresh_interval = 8
-        self._hub_bind_steps_since_refresh = 0
 
         self._base_neighbor_ids = torch.empty((n_columns, 0), dtype=torch.long, device=device)
         self._base_degree = torch.zeros(n_columns, dtype=torch.long, device=device)
@@ -595,19 +592,9 @@ class HypercubeBindingLayer:
         self._hub_mask = new_hub_mask
         self._hub_extra_connections = new_hub_extra_connections
         self._hub_connection_multiplier = new_hub_connection_multiplier
-        self._hub_profile_active = bool(new_hub_mask.any().item())
-        self._hub_bind_steps_since_refresh = 0
 
         if profile_changed:
             self._refresh_structural_hub_connectivity(preserved_weights=preserved_weights)
-
-    def _maybe_refresh_hub_profile_after_bind(self) -> None:
-        self._hub_bind_steps_since_refresh += 1
-        should_refresh = self._hub_bind_steps_since_refresh >= self._hub_profile_refresh_interval
-        if not self._hub_profile_active:
-            should_refresh = should_refresh or float(self._hub_activation_ema.max().item()) > 1e-8
-        if should_refresh:
-            self._refresh_hub_profile()
 
     def hub_stats(self) -> dict[str, Any]:
         hub_indices = torch.nonzero(self._hub_mask, as_tuple=False).flatten().tolist()
@@ -732,7 +719,7 @@ class HypercubeBindingLayer:
             self._hub_ema_alpha * active_float
             + (1.0 - self._hub_ema_alpha) * self._hub_activation_ema
         )
-        self._maybe_refresh_hub_profile_after_bind()
+        self._refresh_hub_profile()
 
         return self.binding_state, strength
 
@@ -837,8 +824,6 @@ class HypercubeBindingLayer:
         self._hub_connection_multiplier.fill_(1.0)
         self._hub_extra_connections.zero_()
         self._hub_mask.zero_()
-        self._hub_profile_active = False
-        self._hub_bind_steps_since_refresh = 0
         self._refresh_structural_hub_connectivity()
 
     def state_dict(self) -> dict[str, Any]:

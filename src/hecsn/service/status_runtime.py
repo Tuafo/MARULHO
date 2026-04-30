@@ -36,10 +36,106 @@ class StatusRuntimeMixin:
         summary = living_loop.get("replay_dataset_summary")
         return deepcopy(dict(summary)) if isinstance(summary, Mapping) else None
 
+    def _runtime_truth_contract_locked(
+        self,
+        *,
+        terminus_runtime: Mapping[str, Any],
+        memory_store: Mapping[str, Any],
+        replay_dataset_summary: Mapping[str, Any] | None,
+        trace_history_size: int,
+    ) -> dict[str, Any]:
+        cortex = terminus_runtime.get("cortex") if isinstance(terminus_runtime, Mapping) else {}
+        cortex_available = bool(isinstance(cortex, Mapping) and cortex.get("enabled"))
+        configured = bool(terminus_runtime.get("configured"))
+        running = bool(terminus_runtime.get("running"))
+        last_error = str(terminus_runtime.get("last_error") or "").strip()
+        tick_count = max(0, int(terminus_runtime.get("tick_count", 0) or 0))
+        background_tokens = max(0, int(terminus_runtime.get("background_tokens_processed", 0) or 0))
+        autonomy_tokens = max(0, int(terminus_runtime.get("autonomy_tokens_processed", 0) or 0))
+        token_count = max(0, int(self._trainer.token_count))
+        last_work_at = terminus_runtime.get("last_work_at")
+        progress_observed = bool(
+            running
+            or tick_count > 0
+            or background_tokens > 0
+            or autonomy_tokens > 0
+            or token_count > 0
+            or trace_history_size > 0
+            or last_work_at
+        )
+
+        if last_error:
+            verdict = "failed"
+            recommended_action = "inspect_last_error"
+        elif not configured:
+            verdict = "partial"
+            recommended_action = "configure_terminus_sources"
+        elif not cortex_available:
+            verdict = "partial"
+            recommended_action = "initialize_or_configure_cortex"
+        elif not progress_observed:
+            verdict = "degraded"
+            recommended_action = "run_tick_or_start_runtime"
+        else:
+            verdict = "alive"
+            recommended_action = "continue_monitoring"
+
+        replay_role = "none"
+        replay_endpoint = None
+        replay_safety_flags: dict[str, Any] = {}
+        if isinstance(replay_dataset_summary, Mapping):
+            replay_endpoint = replay_dataset_summary.get("endpoint")
+            replay_safety_flags = dict(replay_dataset_summary.get("safety_flags") or {})
+            replay_role = str(replay_dataset_summary.get("training_role") or "preview_export_only")
+
+        fill_fraction = float(memory_store.get("fill_fraction", 0.0) or 0.0)
+        memory_pressure = {
+            "fill_fraction": fill_fraction,
+            "size": int(memory_store.get("size", 0) or 0),
+            "capacity": int(memory_store.get("capacity", 0) or 0),
+            "pressure": "high" if fill_fraction >= 0.85 else "medium" if fill_fraction >= 0.50 else "low",
+        }
+
+        last_tick_duration = terminus_runtime.get("last_tick_duration_ms")
+        latency_ms = {
+            "last_tick": None if last_tick_duration is None else float(last_tick_duration),
+            "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
+        }
+
+        return {
+            "schema_version": 1,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "verdict": verdict,
+            "recommended_action": recommended_action,
+            "cortex_available": cortex_available,
+            "memory_pressure": memory_pressure,
+            "replay_role": replay_role,
+            "safety_flags": {
+                "replay_dataset_preview_only": replay_role != "training",
+                "replay_safety": replay_safety_flags,
+            },
+            "latency_ms": latency_ms,
+            "evidence": {
+                "configured": configured,
+                "running": running,
+                "token_count": token_count,
+                "trace_history_size": int(trace_history_size),
+                "tick_count": tick_count,
+                "background_tokens_processed": background_tokens,
+                "autonomy_tokens_processed": autonomy_tokens,
+                "last_work_at": last_work_at,
+                "last_error": last_error or None,
+                "cortex_enabled": cortex_available,
+                "replay_endpoint": replay_endpoint,
+            },
+        }
+
     def _status_snapshot_locked(self) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
         terminus_runtime = self._brain_runtime_snapshot_locked()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
+        memory_store = self._trainer.model.memory_store.summary_stats()
+        trace_history_size = int(len(self._trace_history))
         return {
             "checkpoint_path": str(self._checkpoint_path),
             "dirty_state": bool(self._dirty_state),
@@ -48,7 +144,7 @@ class StatusRuntimeMixin:
             "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
             "context_supported": bool(self._trainer.model.context_layer is not None),
             "context_state_norm": float(torch.norm(self._trainer.context_state().float()).item()),
-            "trace_history_size": int(len(self._trace_history)),
+            "trace_history_size": trace_history_size,
             "trace_storage_dir": str(self._trace_dir),
             "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
             "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
@@ -58,10 +154,16 @@ class StatusRuntimeMixin:
             "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
             "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
             "runtime_scope": self._trainer.model.runtime_scope_report(),
-            "memory_store": self._trainer.model.memory_store.summary_stats(),
+            "memory_store": memory_store,
             "concept_store": self._concept_store.snapshot(),
             "terminus_runtime": terminus_runtime,
             "replay_dataset_summary": replay_dataset_summary,
+            "runtime_truth": self._runtime_truth_contract_locked(
+                terminus_runtime=terminus_runtime,
+                memory_store=memory_store,
+                replay_dataset_summary=replay_dataset_summary,
+                trace_history_size=trace_history_size,
+            ),
         }
 
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
@@ -460,6 +562,8 @@ class StatusRuntimeMixin:
     def _terminus_status_snapshot_locked(self) -> dict[str, Any]:
         terminus_runtime = self._brain_runtime_snapshot_locked()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
+        memory_store = self._trainer.model.memory_store.summary_stats()
+        trace_history_size = int(len(self._trace_history))
         return {
             "terminus_runtime": terminus_runtime,
             "dirty_state": bool(self._dirty_state),
@@ -467,6 +571,12 @@ class StatusRuntimeMixin:
             "token_count": int(self._trainer.token_count),
             "multimodal": self._multimodal_runtime_summary_locked(),
             "replay_dataset_summary": replay_dataset_summary,
+            "runtime_truth": self._runtime_truth_contract_locked(
+                terminus_runtime=terminus_runtime,
+                memory_store=memory_store,
+                replay_dataset_summary=replay_dataset_summary,
+                trace_history_size=trace_history_size,
+            ),
         }
 
     def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:

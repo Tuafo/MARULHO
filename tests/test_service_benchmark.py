@@ -28,6 +28,35 @@ def _fake_service_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    def runtime_truth() -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "generated_at": "2026-01-01T00:00:00+00:00",
+            "verdict": "alive",
+            "recommended_action": "continue_monitoring",
+            "cortex_available": True,
+            "memory_pressure": {"fill_fraction": 0.1, "size": 2, "capacity": 64, "pressure": "low"},
+            "replay_role": "preview_only_not_training",
+            "safety_flags": {"replay_dataset_preview_only": True, "training_started": False},
+            "latency_ms": {"last_tick": 1.0, "tokens_per_second": 10.0},
+            "evidence": {"configured": True, "running": True, "token_count": 12},
+        }
+
+    @app.get("/status")
+    def status() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "token_count": 12,
+            "runtime_truth": runtime_truth(),
+        }
+
+    @app.get("/terminus")
+    def terminus() -> dict[str, Any]:
+        return {
+            "terminus_runtime": {"configured": True, "running": True},
+            "runtime_truth": runtime_truth(),
+        }
+
     @app.post("/feed")
     def feed(payload: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -278,6 +307,11 @@ def _fake_service_app() -> FastAPI:
                 "approved": True,
                 "operator_id": payload.get("operator_id", "benchmark-operator"),
             },
+            "training_gate": {
+                "status": "blocked_preview_only",
+                "eligible_for_training": False,
+                "next_action": "run_offline_replay_training_eval_gate",
+            },
             "safety_flags": {
                 "preview_only": True,
                 "training_started": False,
@@ -340,6 +374,8 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["total_latency_ms"] < 5000.0
         assert [item["name"] for item in result["endpoint_timings"]] == [
             "health",
+            "status",
+            "terminus",
             "feed",
             "query",
             "respond",
@@ -358,6 +394,12 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
             assert record["success"] is True
             assert record["latency_ms"] >= 0.0
         assert result["endpoints_by_name"]["export"]["path"] == "/terminus/runtime-traces/export"
+        assert result["endpoints_by_name"]["status"]["path"] == "/status"
+        assert result["endpoints_by_name"]["terminus"]["path"] == "/terminus"
+        assert result["status_runtime_truth_summary"]["verdict"] == "alive"
+        assert result["status_runtime_truth_summary"]["recommended_action"] == "continue_monitoring"
+        assert result["status_runtime_truth_summary"]["evidence"]["token_count"] == 12
+        assert result["terminus_runtime_truth_summary"]["verdict"] == "alive"
         assert result["living_loop_benchmark_telemetry"]["endpoint_latency"]["feed"]["count"] == 1
         assert result["feed_summary"]["tokens_processed"] > 0
         assert result["living_loop_benchmark_telemetry"]["feedback"]["feedback_count"] == 2
@@ -395,6 +437,8 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
         assert result["replay_dataset_bundle_summary"]["training_role"] == "replay_dataset_bundle_preview_only_not_training_operator_approved"
         assert result["replay_dataset_bundle_summary"]["operator_approval"]["operator_id"] == "benchmark-operator"
+        assert result["replay_dataset_bundle_summary"]["training_gate"]["status"] == "blocked_preview_only"
+        assert result["replay_dataset_bundle_summary"]["training_gate"]["eligible_for_training"] is False
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["requires_separate_training_approval"] is True
         assert result["replay_dataset_candidates_summary"]["export_kind"] == "terminus_replay_dataset_candidates_preview"
@@ -427,6 +471,8 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["success"] is True
         assert result["total_latency_ms"] < 30000.0
         assert result["endpoints_by_name"]["health"]["status_code"] == 200
+        assert result["endpoints_by_name"]["status"]["status_code"] == 200
+        assert result["endpoints_by_name"]["terminus"]["status_code"] == 200
         assert result["endpoints_by_name"]["feed"]["status_code"] == 200
         assert result["endpoints_by_name"]["query"]["status_code"] == 200
         assert result["endpoints_by_name"]["respond"]["status_code"] == 200
@@ -440,6 +486,12 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["replay_dataset_candidates"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_history"]["status_code"] == 200
         assert isinstance(result["living_loop_benchmark_telemetry"], dict)
+        assert isinstance(result["status_runtime_truth_summary"], dict)
+        assert result["status_runtime_truth_summary"]["schema_version"] == 1
+        assert result["status_runtime_truth_summary"]["verdict"] in {"alive", "degraded", "partial", "failed"}
+        assert result["status_runtime_truth_summary"]["recommended_action"]
+        assert isinstance(result["terminus_runtime_truth_summary"], dict)
+        assert result["terminus_runtime_truth_summary"]["verdict"] == result["status_runtime_truth_summary"]["verdict"]
         assert isinstance(result["living_loop_benchmark_telemetry"]["feedback"], dict)
         assert result["feed_summary"]["feed_encoding_mode"] == "lexical_rolling_segments"
         assert result["feed_summary"]["concept_observation_mode"] == "sampled"
@@ -461,6 +513,8 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["replay_dataset_summary"]["safety_flags"]["training_started"] is False
         assert result["replay_dataset_bundle_summary"]["export_kind"] == "terminus_replay_dataset_bundle_preview"
         assert result["replay_dataset_bundle_summary"]["operator_approval"]["approved"] is True
+        assert result["replay_dataset_bundle_summary"]["training_gate"]["status"] == "blocked_preview_only"
+        assert result["replay_dataset_bundle_summary"]["training_gate"]["eligible_for_training"] is False
         assert result["replay_dataset_bundle_summary"]["safety_flags"]["training_started"] is False
         assert result["replay_dataset_candidates_summary"]["count"] <= 2
         assert result["replay_dataset_history_summary"]["count"] >= 0

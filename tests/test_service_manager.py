@@ -8019,6 +8019,64 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_status_exposes_runtime_truth_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="status_runtime_truth_contract")
+            try:
+                status = manager.status()
+                terminus = manager.terminus_status()
+
+                truth = status["runtime_truth"]
+                self.assertEqual(truth["schema_version"], 1)
+                self.assertEqual(truth["verdict"], "partial")
+                self.assertEqual(truth["recommended_action"], "configure_terminus_sources")
+                self.assertFalse(truth["cortex_available"])
+                self.assertIn("memory_pressure", truth)
+                self.assertIn("safety_flags", truth)
+                self.assertIn("latency_ms", truth)
+                self.assertEqual(truth["evidence"]["configured"], False)
+                self.assertEqual(truth["evidence"]["token_count"], status["token_count"])
+                self.assertEqual(terminus["runtime_truth"]["verdict"], truth["verdict"])
+            finally:
+                manager.close()
+
+    def test_runtime_truth_reports_alive_after_cortex_and_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "truth_source.txt"
+            source_path.write_text("submarine ballast pressure control " * 8, encoding="utf-8")
+            manager = _build_manager(root, test_case="status_runtime_truth_alive")
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                manager._thought_loop = ThoughtLoop(cortex=MockCortex())
+                manager._cortex_available = True
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "truth_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                manager.terminus_tick()
+
+                truth = manager.status()["runtime_truth"]
+                self.assertEqual(truth["verdict"], "alive")
+                self.assertEqual(truth["recommended_action"], "continue_monitoring")
+                self.assertTrue(truth["cortex_available"])
+                self.assertTrue(truth["evidence"]["configured"])
+                self.assertGreater(truth["evidence"]["tick_count"], 0)
+                self.assertGreaterEqual(truth["evidence"]["token_count"], 0)
+            finally:
+                manager.close()
+
     def test_status_fresh_wait_ignores_stale_cached_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

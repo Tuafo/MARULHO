@@ -118,6 +118,30 @@ def _latest_replay_dataset_history_timestamp(history_body: Any) -> str | None:
     return None
 
 
+def _summarize_runtime_truth(body: Any) -> dict[str, Any] | None:
+    if not isinstance(body, dict):
+        return None
+    runtime_truth = body.get("runtime_truth")
+    if not isinstance(runtime_truth, dict):
+        return None
+    return {
+        key: runtime_truth.get(key)
+        for key in (
+            "schema_version",
+            "generated_at",
+            "verdict",
+            "recommended_action",
+            "cortex_available",
+            "memory_pressure",
+            "replay_role",
+            "safety_flags",
+            "latency_ms",
+            "evidence",
+        )
+        if key in runtime_truth
+    }
+
+
 def _summarize_replay_sample_history(history_body: Any, fallback: Any = None) -> dict[str, Any] | None:
     if isinstance(history_body, dict):
         history = history_body.get("history")
@@ -225,6 +249,8 @@ def benchmark_service_app(
     with TestClient(app) as client:
         requests: tuple[dict[str, Any], ...] = (
             {"name": "health", "method": "GET", "path": "/health"},
+            {"name": "status", "method": "GET", "path": "/status"},
+            {"name": "terminus", "method": "GET", "path": "/terminus"},
             {
                 "name": "feed",
                 "method": "POST",
@@ -305,6 +331,8 @@ def benchmark_service_app(
 
     living_loop_telemetry: dict[str, Any] | None = None
     feedback_telemetry: dict[str, Any] | None = None
+    status_runtime_truth_summary = _summarize_runtime_truth(response_bodies.get("status"))
+    terminus_runtime_truth_summary = _summarize_runtime_truth(response_bodies.get("terminus"))
     living_body = response_bodies.get("living_loop")
     if include_living_loop_telemetry and isinstance(living_body, dict):
         living_loop = living_body.get("living_loop")
@@ -403,6 +431,7 @@ def benchmark_service_app(
                 "sft_count",
                 "split_counts",
                 "operator_approval",
+                "training_gate",
                 "safety_flags",
                 "empty_reason",
             )
@@ -527,6 +556,8 @@ def benchmark_service_app(
         "endpoints_by_name": {str(item["name"]): item for item in endpoint_timings},
         "living_loop_benchmark_telemetry": living_loop_telemetry,
         "feed_summary": feed_summary,
+        "status_runtime_truth_summary": status_runtime_truth_summary,
+        "terminus_runtime_truth_summary": terminus_runtime_truth_summary,
         "feedback_telemetry": feedback_telemetry,
         "policy_actuator_summary": policy_actuator_summary,
         "replay_plan_summary": replay_plan_summary,

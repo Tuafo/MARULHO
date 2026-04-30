@@ -97,6 +97,27 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             create_cortex.assert_not_called()
             create_embedder.assert_not_called()
 
+    def test_status_and_terminus_endpoints_expose_runtime_truth_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_runtime_truth"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                status_response = client.get("/status")
+                terminus_response = client.get("/terminus")
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(terminus_response.status_code, 200)
+        status_truth = status_response.json()["runtime_truth"]
+        terminus_truth = terminus_response.json()["runtime_truth"]
+        self.assertEqual(status_truth["schema_version"], 1)
+        self.assertEqual(status_truth["verdict"], "partial")
+        self.assertEqual(status_truth["recommended_action"], "configure_terminus_sources")
+        self.assertIn("evidence", status_truth)
+        self.assertIn("memory_pressure", status_truth)
+        self.assertIn("safety_flags", status_truth)
+        self.assertEqual(terminus_truth["verdict"], status_truth["verdict"])
+
     def test_static_ui_default_points_to_built_frontend_dist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -507,6 +528,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(replay_dataset_bundle["safety_flags"]["digital_action_executed"])
         self.assertFalse(replay_dataset_bundle["safety_flags"]["external_calls_made"])
         self.assertTrue(replay_dataset_bundle["safety_flags"]["requires_separate_training_approval"])
+        self.assertEqual(replay_dataset_bundle["training_gate"]["status"], "blocked_preview_only")
+        self.assertFalse(replay_dataset_bundle["training_gate"]["eligible_for_training"])
+        self.assertFalse(replay_dataset_bundle["training_gate"]["satisfied_conditions"]["offline_regression_benchmark"])
+        self.assertFalse(replay_dataset_bundle["training_gate"]["satisfied_conditions"]["explicit_operator_training_approval"])
         bundled_item = next(
             item
             for item in replay_dataset_bundle["splits"]["train"]

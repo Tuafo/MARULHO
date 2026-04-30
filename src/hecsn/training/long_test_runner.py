@@ -68,6 +68,7 @@ class MetricSnapshot:
     exploration_target: str = ""
     exploration_reason: str = ""
     embedder: dict[str, Any] = field(default_factory=dict)
+    runtime_truth: dict[str, Any] = field(default_factory=dict)
     ingestion_state: str = ""
     action_count: int = 0
     errors: int = 0
@@ -107,6 +108,7 @@ class TestReport:
     final_exploration_target: str = ""
     final_exploration_reason: str = ""
     final_embedder: dict[str, Any] = field(default_factory=dict)
+    final_runtime_truth: dict[str, Any] = field(default_factory=dict)
     samples_collected: int = 0
     max_background_tokens_processed: int = 0
     final_background_tokens_processed: int = 0
@@ -390,6 +392,15 @@ def classify_test_report(
     if int(report.total_errors or 0) > 0:
         warning_reasons.append(f"{int(report.total_errors)} snapshot or reporting errors were recorded.")
 
+    runtime_truth = report.final_runtime_truth if isinstance(report.final_runtime_truth, Mapping) else {}
+    runtime_truth_verdict = str(runtime_truth.get("verdict", "")).lower()
+    runtime_truth_action = str(runtime_truth.get("recommended_action", "")).strip()
+    runtime_truth_action_suffix = f" with action {runtime_truth_action}" if runtime_truth_action else ""
+    if runtime_truth_verdict == "failed":
+        fatal_reasons.append(f"Runtime truth contract reported failed{runtime_truth_action_suffix}.")
+    elif runtime_truth_verdict in {"partial", "degraded"}:
+        warning_reasons.append(f"Runtime truth contract reported {runtime_truth_verdict}{runtime_truth_action_suffix}.")
+
     acceptance_verdict = str(report.acceptance_verdict or "not_run")
     if acceptance_verdict == "failed":
         fatal_reasons.append("Acceptance harness failed.")
@@ -428,6 +439,7 @@ def _collect_snapshot(
     memory_store = status.get("memory_store") if isinstance(status.get("memory_store"), Mapping) else {}
     action_loop = terminus_runtime.get("action_loop") if isinstance(terminus_runtime.get("action_loop"), Mapping) else {}
     ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), Mapping) else {}
+    runtime_truth = status.get("runtime_truth") if isinstance(status.get("runtime_truth"), Mapping) else {}
     thoughts_data = manager.cortex_thoughts(limit=10)
 
     snapshot.token_count = int(status.get("token_count", 0) or 0)
@@ -462,6 +474,7 @@ def _collect_snapshot(
     snapshot.exploration_reason = str(active_exploration.get("reason", ""))
     episodic_memory = cortex_snapshot.get("episodic_memory") if isinstance(cortex_snapshot.get("episodic_memory"), Mapping) else {}
     snapshot.embedder = dict(episodic_memory.get("embedder", {}))
+    snapshot.runtime_truth = dict(runtime_truth)
     snapshot.ingestion_state = str(ingestion.get("startup_state", ""))
     snapshot.action_count = int(action_loop.get("actions_recorded", 0) or 0)
 
@@ -639,6 +652,7 @@ def run_long_test(
     report.final_exploration_target = str(snapshots[-1].exploration_target) if snapshots else ""
     report.final_exploration_reason = str(snapshots[-1].exploration_reason) if snapshots else ""
     report.final_embedder = dict(snapshots[-1].embedder) if snapshots else {}
+    report.final_runtime_truth = dict(snapshots[-1].runtime_truth) if snapshots else {}
     report.action_count = int(snapshots[-1].action_count) if snapshots else 0
     report.sample_thoughts = thoughts_seen[:20]
 
@@ -671,6 +685,7 @@ def run_long_test(
             "exploration_target": item.exploration_target,
             "exploration_reason": item.exploration_reason,
             "embedder": item.embedder,
+            "runtime_truth": item.runtime_truth,
             "ingestion_state": item.ingestion_state,
             "action_count": item.action_count,
             "da": item.da_level,
@@ -771,6 +786,8 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Embedder degraded | {report.final_embedder.get('degraded', False)} |",
             f"| Embedder fallback calls | {report.final_embedder.get('fallback_calls', 0)} |",
             f"| Embedder rate-limit hits | {report.final_embedder.get('rate_limit_hits', 0)} |",
+            f"| Runtime truth verdict | {report.final_runtime_truth.get('verdict', '-') if report.final_runtime_truth else '-'} |",
+            f"| Runtime truth action | {report.final_runtime_truth.get('recommended_action', '-') if report.final_runtime_truth else '-'} |",
             f"| Recorded actions | {report.action_count} |",
             f"| Errors | {report.total_errors} |",
         ]

@@ -1869,7 +1869,28 @@ class DelayedConsequenceMixin:
             score_improvement = max(0.0, current_query_score - best_query_score)
             grounded_improvement = max(0.0, current_grounded_fraction - best_grounded_fraction)
             improvement = max(score_improvement, 0.85 * grounded_improvement)
-            if improvement >= DEFAULT_DELAYED_CONSEQUENCE_DELTA_THRESHOLD:
+            current_query_text = self._normalize_action_text(query_snapshot.get("query_text", "")).lower()
+            adverse_examples = {
+                example.lower()
+                for example in self._delayed_consequence_branch_examples(record, field="adverse_query_examples")
+            }
+            supportive_recovery = (
+                unresolved_penalty_balance > 0.0
+                and current_query_text
+                and current_query_text not in adverse_examples
+                and current_grounded_fraction >= max(0.60, best_grounded_fraction - 0.05)
+                and unsupported_ratio < DEFAULT_DELAYED_CONTRADICTION_UNSUPPORTED_THRESHOLD
+            )
+            effective_improvement = max(
+                improvement,
+                max(
+                    DEFAULT_DELAYED_CONSEQUENCE_DELTA_THRESHOLD,
+                    0.15 * unresolved_penalty_balance,
+                )
+                if supportive_recovery
+                else 0.0,
+            )
+            if effective_improvement >= DEFAULT_DELAYED_CONSEQUENCE_DELTA_THRESHOLD:
                 support_multiplier = self._delayed_consequence_family_support_multiplier(record, mode="credit")
                 delayed_sample = max(
                     0.0,
@@ -1878,7 +1899,7 @@ class DelayedConsequenceMixin:
                         1.5
                         * float(record.get("outcome_score", 0.0) or 0.0)
                         * float(match_score)
-                        * float(improvement)
+                        * float(effective_improvement)
                         * float(support_multiplier),
                     ),
                 )
@@ -1899,13 +1920,13 @@ class DelayedConsequenceMixin:
                         credited_sources.update(applied_sources)
                         credited_providers.update(applied_providers)
                         summary["credited_records"] = int(summary["credited_records"]) + 1
-                        summary["max_improvement"] = max(float(summary["max_improvement"]), float(improvement))
+                        summary["max_improvement"] = max(float(summary["max_improvement"]), float(effective_improvement))
                         record["best_query_score"] = max(best_query_score, current_query_score)
                         record["best_grounded_fraction"] = max(best_grounded_fraction, current_grounded_fraction)
                         record["credit_events"] = int(record.get("credit_events", 0)) + 1
                         record["resolved_improvement"] = max(
                             float(record.get("resolved_improvement", 0.0) or 0.0),
-                            float(improvement),
+                            float(effective_improvement),
                         )
                         record["last_match_score"] = float(match_score)
                         record["last_evaluated_at"] = timestamp

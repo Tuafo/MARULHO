@@ -263,6 +263,7 @@ class StatusResponse(BaseModel):
     concept_store: dict[str, Any]
     terminus_runtime: dict[str, Any]
     replay_dataset_summary: dict[str, Any] | None = None
+    runtime_truth: dict[str, Any] | None = None
 
 
 class TerminusRuntimeResponse(BaseModel):
@@ -273,6 +274,7 @@ class TerminusRuntimeResponse(BaseModel):
     token_count: int
     multimodal: dict[str, Any] | None = None
     replay_dataset_summary: dict[str, Any] | None = None
+    runtime_truth: dict[str, Any] | None = None
 
 
 class DigitalActionResponse(BaseModel):
@@ -557,6 +559,7 @@ class ReplayDatasetBundleResponse(BaseModel):
     split_summaries: dict[str, dict[str, Any]]
     source_preview_summary: dict[str, Any]
     manifest: dict[str, Any]
+    training_gate: dict[str, Any]
     splits: dict[str, list[dict[str, Any]]]
     excluded_items: list[dict[str, Any]]
     safety_flags: dict[str, Any]

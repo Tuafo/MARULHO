@@ -12,30 +12,40 @@ The service refactor is now treated as the current implementation baseline: `HEC
 
 Current validation after the stabilization pass:
 
-- `tests/test_service_manager.py`: **123 passed**
-- `tests/test_long_test_runner.py tests/test_service_benchmark.py tests/test_trace_export_runner.py`: **16 passed**
+- `tests/test_service_manager.py`: **125 passed**
+- `tests/test_long_test_runner.py tests/test_service_benchmark.py tests/test_trace_export_runner.py`: included in the current **48 passed** focused benchmark/encoder/runner slice
 - `tests/test_service_api.py`: **44 passed**
+- `tests/test_p1_improvements.py tests/test_hypercube.py tests/test_memory_consolidation.py tests/test_query_runner.py`: **78 passed**
 - action, cortex, thought-loop, living-loop, query-runner, and memory-consolidation slices: **194 passed, 3 skipped**
 - `HECSN_UI` production build: **passed**, with the existing large `three` chunk warning still present
 - fresh in-process service benchmark: **success**, total latency **7155.884 ms**
 - post-feed-sampling service benchmark: **success**, total latency **2201.261 ms**, `/feed` **1584.017 ms**
 - post-feed-segmentation service benchmark: **success**, total latency **1070.362 ms**, `/feed` **619.942 ms**
 - post-feed-lexical/query-cache service benchmark: **success**, total latency **537.965 ms**, `/feed` **265.337 ms**, `/query` **84.106 ms**, `/respond` **93.741 ms**
-- post-feed-interval16 service benchmark: **success**, total latency **543.083 ms**, `/feed` **258.499 ms**, `/query` **83.441 ms**, `/respond` **92.068 ms**
 - post-lightweight-interaction-snapshot service benchmarks: **success**, total latency **731.940 ms** and **713.773 ms** on repeated fresh checkpoints; this keeps replay-dataset previews out of interaction trace snapshots but did **not** produce a feed-latency win, confirming `/feed` remains dominated by training/encoding work rather than replay preview construction.
-- post-hub-profile-throttle service benchmark: **success**, total latency **673.939 ms**, `/feed` **367.655 ms**, `/query` **85.875 ms**, `/respond` **102.256 ms**; feed profiling showed `HypercubeBindingLayer.bind()` dropping from about **0.061 s** to **0.047 s** for the 44-unit synthetic feed, so this is a small maintained-path improvement but not the main feed bottleneck.
+- post-delayed-recovery stability benchmark: **success**, total latency **554.481 ms**, `/feed` **310.465 ms**, `/query` **74.086 ms**, `/respond` **79.258 ms**; the priority of this slice was deterministic delayed-consequence split/remerge behavior, not endpoint speed.
+- service stabilization validation report: `reports/service_stabilization_validation.md`
+- runtime truth contract slice: `/status` and `/terminus` now expose additive `runtime_truth` objects with verdict, evidence, cortex availability, memory pressure, replay role, safety flags, latency, and recommended action; validation after this slice is `tests/test_service_manager.py` **127 passed** and `tests/test_service_api.py` **45 passed**.
+- runtime truth reporting slice: service benchmark JSON now includes `status_runtime_truth_summary` and `terminus_runtime_truth_summary`; long-test JSON/Markdown reports now preserve final `runtime_truth` and use non-alive truth verdicts as health signals; validation after this slice is `tests/test_service_benchmark.py` **2 passed**, `tests/test_long_test_runner.py` **7 passed**, and `reports/runtime_truth_benchmark_validation.json` from a synthetic checkpoint benchmark with **success**, **15 endpoint timings**, `status_runtime_truth_summary.verdict=partial`, `recommended_action=configure_terminus_sources`, and `training_gate.status=blocked_preview_only`.
+- replay-to-learning gate slice: replay dataset bundle preview now exposes `training_gate` with `status=blocked_preview_only`, `eligible_for_training=false`, required conditions for future offline learning, and explicit unsatisfied `offline_regression_benchmark` plus `explicit_operator_training_approval`; service benchmark bundle summaries preserve this gate.
 
 Important current truth:
 
 - The acceptance harness now initializes the lazy cortex before judging idle gating, so mock-cortex and live-cortex paths exercise the same initialization contract.
 - Query-conditioned retrieval focus is owned by `hecsn.service.interaction_runtime`; tests should patch that module when they need to intercept `build_query_result`.
 - Replay dataset preview and bundle APIs remain safety-gated: no training, no memory promotion, no action execution, no sleep, no external calls, and no state mutation beyond packaging metadata.
-- `/feed` remains the dominant benchmark cost, but request-time feed now uses lexical rolling segment windows instead of character windows or learned-boundary segmentation. It still preserves phrase-level concept grounding, samples runtime concept observation every 16 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 4 concept observations.
+- `/feed` remains the dominant benchmark cost, but request-time feed now uses lexical rolling segment windows instead of character windows or learned-boundary segmentation. It still preserves phrase-level concept grounding, samples runtime concept observation every 8 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 7 concept observations.
 - Query/respond now cache pure grounding term expansion and semantic unit similarity, cutting repeated memory-episode matching work without changing matching semantics.
 - Interaction traces now use lightweight service-state snapshots that omit replay-dataset previews; operator status and `/terminus/living-loop` still build the full replay preview when explicitly requested.
-- Hypercube binding now updates hub activation EMA every bind but throttles structural hub-profile refresh after initial activation, avoiding unnecessary top-k/structural refresh work while keeping repeated-binding hub behavior intact.
+- Delayed-consequence recovery now treats a well-grounded non-adverse follow-up as a bounded supportive recovery signal when an earlier related query carried unresolved penalty, making split/remerge lineage deterministic without requiring a fragile score jump.
+- Supportive delayed-consequence recovery now deterministically reaches the existing support threshold under the strict recovery conditions above, removing a flaky split/remerge edge without broadening the recovery gate.
+- Benchmark and long-test artifacts now carry the same runtime truth contract as the operator endpoints, so liveness claims can be compared against endpoint latency, replay safety, and recommended operator action in one artifact.
+- Runtime status now has a canonical `runtime_truth` contract on `/status` and `/terminus`; endpoint clients can read one additive object for liveness verdict, evidence, cortex availability, memory pressure, replay safety role, latency, and recommended next action.
+- Replay bundle packaging is now explicit about the next boundary: it may create a versioned preview bundle, but the machine-readable `training_gate` remains blocked until an offline regression benchmark and separate operator training approval exist.
 - Duplicate rolling-window pruning was tested and rejected because repeated focused evidence is still needed for concept-store growth and autonomy focus.
+- Feed concept-observation interval 16, direct/raw rolling-window memory-text shortcuts, general stream-context caching, and hub-profile throttling were tested and rejected because they weakened autonomy concept focus, delayed-consequence behavior, or lacked a stable endpoint-level win.
 - Service benchmark JSON now exposes `feed_summary`, so future performance PRs can inspect endpoint latency and feed observation pressure in the same artifact.
+- The current stabilization report records the accepted delayed-consequence recovery fix, rejected performance experiments, and the test/benchmark evidence that decides this slice.
 
 Tests worth having toward the living-brain goal:
 
@@ -43,7 +53,7 @@ Tests worth having toward the living-brain goal:
 - **Grounding tests:** query, response, and cortex thought paths must prove that source evidence influences output instead of allowing generic language drift.
 - **Safety-boundary tests:** replay sample, replay execute, replay dataset preview, and replay dataset bundle must prove they do not train, mutate memory, promote facts, post feedback, execute actions, start sleep, or make external calls.
 - **Autonomy tests:** policy actuator and delayed-consequence tests must verify proposal, contradiction, recovery, split/remerge lineage, and operator-gated execution without hiding side effects.
-- **Performance tests:** service benchmark output must keep endpoint timings and `feed_summary` visible, with `/feed` tracked as the current first optimization target rather than hidden inside total latency.
+- **Performance tests:** service benchmark output must keep endpoint timings, `feed_summary`, and runtime truth summaries visible, with `/feed` tracked as the current first optimization target rather than hidden inside total latency.
 - **Operator-surface tests:** API and UI build checks protect the dashboard as an observation/control surface, but they are secondary to runtime truth, safety, and evidence quality.
 
 ---
