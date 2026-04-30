@@ -238,6 +238,26 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_feed_trace_state_snapshot_skips_replay_dataset_preview_for_latency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_feed_light_state_snapshot")
+            try:
+                with patch.object(
+                    manager,
+                    "_replay_dataset_preview_summary_locked",
+                    side_effect=AssertionError("feed traces must not build replay dataset previews"),
+                ) as preview:
+                    result = manager.feed(text="Cats chase mice. Cats rest indoors.")
+
+                self.assertEqual(preview.call_count, 0)
+                self.assertEqual(result["runtime_episode"]["operation"], "feed")
+
+                status = manager.living_loop_status()
+                self.assertIn("replay_dataset_summary", status["living_loop"])
+            finally:
+                manager.close()
+
     def test_feed_samples_runtime_concept_observation_for_request_latency(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

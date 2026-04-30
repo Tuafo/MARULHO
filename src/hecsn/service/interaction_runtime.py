@@ -27,7 +27,7 @@ PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
 DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
-DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
+DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 16
 REQUEST_FEED_ENCODING_MODE = "lexical_rolling_segments"
 
 
@@ -101,18 +101,19 @@ class InteractionRuntimeMixin:
                     created_at=created_at,
                     trace_id=trace_id,
                 )
+                state_after = self._service_state_snapshot(include_replay_dataset_summary=False)
                 trace = {
                     "trace_id": trace_id,
                     "created_at": created_at,
                     "operation": "query",
                     "request": request,
                     "runtime_episode": episode,
-                    "state_after": self._service_state_snapshot(),
+                    "state_after": state_after,
                 }
                 trace_path = self._persist_trace_locked(trace)
                 episode["trace_path"] = str(trace_path)
                 episode = self._append_runtime_episode_trace_locked(episode)
-                result["service_state"] = self._service_state_snapshot()
+                result["service_state"] = state_after
                 result["runtime_episode"] = episode
                 return result
             except Exception as exc:
@@ -135,7 +136,7 @@ class InteractionRuntimeMixin:
                     "request": request,
                     "runtime_episode": episode,
                     "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot(),
+                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
                 }
                 trace_path = self._persist_trace_locked(trace)
                 episode["trace_path"] = str(trace_path)
@@ -243,7 +244,7 @@ class InteractionRuntimeMixin:
                     "operation": "feed",
                     "request": request,
                     "runtime_episode": episode,
-                    "state_after": self._service_state_snapshot(),
+                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
                 }
                 trace_path = self._persist_trace_locked(trace)
                 episode["trace_path"] = str(trace_path)
@@ -274,7 +275,7 @@ class InteractionRuntimeMixin:
                     "request": request,
                     "runtime_episode": episode,
                     "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot(),
+                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
                 }
                 trace_path = self._persist_trace_locked(trace)
                 episode["trace_path"] = str(trace_path)
@@ -305,7 +306,7 @@ class InteractionRuntimeMixin:
                 "max_evidence_items": int(max_evidence_items),
                 "learn_mode": learn_mode,
             }
-            state_before = self._service_state_snapshot()
+            state_before = self._service_state_snapshot(include_replay_dataset_summary=False)
             try:
                 query_result = self._build_query_locked(
                     query_text=query_text,
@@ -429,7 +430,7 @@ class InteractionRuntimeMixin:
                     action_assist=action_assist,
                     outcome_score=response_outcome_score,
                 )
-                state_after = self._service_state_snapshot()
+                state_after = self._service_state_snapshot(include_replay_dataset_summary=False)
                 episode = self._runtime_episode_payload_locked(
                     operation="respond",
                     request=request,
@@ -498,7 +499,7 @@ class InteractionRuntimeMixin:
                     "state_before": state_before,
                     "runtime_episode": episode,
                     "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot(),
+                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
                 }
                 trace_path = self._persist_trace_locked(trace)
                 episode["trace_path"] = str(trace_path)
@@ -526,7 +527,7 @@ class InteractionRuntimeMixin:
                     f"Supported policies: {', '.join(PUBLIC_ACQUISITION_POLICIES)}"
                 )
             preset_args = get_autonomy_acquisition_preset(preset)
-            state_before = self._service_state_snapshot()
+            state_before = self._service_state_snapshot(include_replay_dataset_summary=False)
             focus_plan = self._autonomy_focus_plan_locked()
             shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = self._autonomy_shortlist_settings_locked(
                 candidate_bank=list(preset_args.get("candidate_bank", [])),
@@ -578,7 +579,7 @@ class InteractionRuntimeMixin:
                 "state_before": state_before,
                 "acquisition_result": result,
                 "checkpoint_save": checkpoint_save,
-                "state_after": self._service_state_snapshot(),
+                "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
             }
             trace_path = self._persist_trace_locked(trace)
             return {

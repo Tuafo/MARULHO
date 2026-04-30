@@ -185,6 +185,31 @@ class TestSmallWorldHubTracking:
         assert hub_stats["max_hub_connection_multiplier"] >= 1.5
         assert hub_stats["hub_extra_edges"] > 0
 
+    def test_hub_profile_refresh_is_throttled_after_initial_activation(self, monkeypatch):
+        layer = HypercubeBindingLayer(
+            n_columns=32, device=torch.device("cpu"), shortcuts_per_node=1,
+        )
+        signal = torch.zeros(32)
+        signal[0] = 2.0
+        signal[1] = 1.6
+        signal[2:8] = 0.9
+        signal[8:] = 0.2
+        refresh_calls = 0
+        original_refresh = layer._refresh_hub_profile
+
+        def counted_refresh(**kwargs):
+            nonlocal refresh_calls
+            refresh_calls += 1
+            return original_refresh(**kwargs)
+
+        monkeypatch.setattr(layer, "_refresh_hub_profile", counted_refresh)
+        for _ in range(17):
+            layer.bind(signal, signal)
+
+        assert refresh_calls == 3
+        assert layer.hub_stats()["hub_count"] == 2
+        assert layer._hub_bind_steps_since_refresh == 0
+
     def test_hub_structure_adds_outgoing_edges(self):
         baseline = HypercubeBindingLayer(
             n_columns=32, device=torch.device("cpu"), shortcuts_per_node=1,

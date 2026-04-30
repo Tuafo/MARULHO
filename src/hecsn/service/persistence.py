@@ -171,7 +171,7 @@ class ServicePersistenceMixin:
                 "token_count": int(self._trainer.token_count),
             }
 
-    def _service_state_snapshot(self) -> dict[str, Any]:
+    def _service_state_snapshot(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
         return {
             "checkpoint_path": str(self._checkpoint_path),
@@ -180,7 +180,9 @@ class ServicePersistenceMixin:
             "token_count": int(self._trainer.token_count),
             "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
             "concept_count": int(self._concept_store.snapshot().get("concept_count", 0)),
-            "terminus_runtime": self._brain_runtime_snapshot_locked(),
+            "terminus_runtime": self._brain_runtime_snapshot_locked(
+                include_replay_dataset_summary=include_replay_dataset_summary,
+            ),
         }
 
     def _resolve_save_path(self, path: str | None) -> Path:

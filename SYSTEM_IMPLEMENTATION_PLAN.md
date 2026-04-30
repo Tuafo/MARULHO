@@ -21,14 +21,19 @@ Current validation after the stabilization pass:
 - post-feed-sampling service benchmark: **success**, total latency **2201.261 ms**, `/feed` **1584.017 ms**
 - post-feed-segmentation service benchmark: **success**, total latency **1070.362 ms**, `/feed` **619.942 ms**
 - post-feed-lexical/query-cache service benchmark: **success**, total latency **537.965 ms**, `/feed` **265.337 ms**, `/query` **84.106 ms**, `/respond` **93.741 ms**
+- post-feed-interval16 service benchmark: **success**, total latency **543.083 ms**, `/feed` **258.499 ms**, `/query` **83.441 ms**, `/respond` **92.068 ms**
+- post-lightweight-interaction-snapshot service benchmarks: **success**, total latency **731.940 ms** and **713.773 ms** on repeated fresh checkpoints; this keeps replay-dataset previews out of interaction trace snapshots but did **not** produce a feed-latency win, confirming `/feed` remains dominated by training/encoding work rather than replay preview construction.
+- post-hub-profile-throttle service benchmark: **success**, total latency **673.939 ms**, `/feed` **367.655 ms**, `/query` **85.875 ms**, `/respond` **102.256 ms**; feed profiling showed `HypercubeBindingLayer.bind()` dropping from about **0.061 s** to **0.047 s** for the 44-unit synthetic feed, so this is a small maintained-path improvement but not the main feed bottleneck.
 
 Important current truth:
 
 - The acceptance harness now initializes the lazy cortex before judging idle gating, so mock-cortex and live-cortex paths exercise the same initialization contract.
 - Query-conditioned retrieval focus is owned by `hecsn.service.interaction_runtime`; tests should patch that module when they need to intercept `build_query_result`.
 - Replay dataset preview and bundle APIs remain safety-gated: no training, no memory promotion, no action execution, no sleep, no external calls, and no state mutation beyond packaging metadata.
-- `/feed` remains the dominant benchmark cost, but request-time feed now uses lexical rolling segment windows instead of character windows or learned-boundary segmentation. It still preserves phrase-level concept grounding, samples runtime concept observation every 8 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 7 concept observations.
+- `/feed` remains the dominant benchmark cost, but request-time feed now uses lexical rolling segment windows instead of character windows or learned-boundary segmentation. It still preserves phrase-level concept grounding, samples runtime concept observation every 16 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 4 concept observations.
 - Query/respond now cache pure grounding term expansion and semantic unit similarity, cutting repeated memory-episode matching work without changing matching semantics.
+- Interaction traces now use lightweight service-state snapshots that omit replay-dataset previews; operator status and `/terminus/living-loop` still build the full replay preview when explicitly requested.
+- Hypercube binding now updates hub activation EMA every bind but throttles structural hub-profile refresh after initial activation, avoiding unnecessary top-k/structural refresh work while keeping repeated-binding hub behavior intact.
 - Duplicate rolling-window pruning was tested and rejected because repeated focused evidence is still needed for concept-store growth and autonomy focus.
 - Service benchmark JSON now exposes `feed_summary`, so future performance PRs can inspect endpoint latency and feed observation pressure in the same artifact.
 

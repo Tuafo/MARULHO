@@ -957,7 +957,7 @@ class BrainRuntimeMixin:
             "memory_fill": float(model.memory_store.summary_stats().get("fill_fraction", 0.0)),
         }
 
-    def _brain_runtime_snapshot_locked(self) -> dict[str, Any]:
+    def _brain_runtime_snapshot_locked(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         self._remerge_converged_delayed_consequence_families_locked()
         self._split_divergent_delayed_consequence_families_locked()
         self._compact_delayed_consequence_records_locked()
@@ -1035,7 +1035,7 @@ class BrainRuntimeMixin:
         cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
         living_loop_snapshot = self._living_loop_snapshot_locked(
             cortex_snapshot=cortex_snapshot,
-            include_replay_dataset_summary=True,
+            include_replay_dataset_summary=include_replay_dataset_summary,
         )
         return {
             "configured": bool(self._brain_config.get("source_bank")),
