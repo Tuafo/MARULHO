@@ -28,7 +28,7 @@ PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
 DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
 DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
-REQUEST_FEED_ENCODING_MODE = "semantic_segments"
+REQUEST_FEED_ENCODING_MODE = "lexical_rolling_segments"
 
 
 class InteractionRuntimeMixin:
@@ -160,7 +160,8 @@ class InteractionRuntimeMixin:
         pattern_iter = self._encoder.iter_segment_patterns(
             text,
             self._trainer.config.window_size,
-            learn=True,
+            learn=False,
+            use_learned_boundaries=False,
         )
         for raw_window, pattern in pattern_iter:
             last_metrics = self._trainer.train_step(

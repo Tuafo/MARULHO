@@ -20,13 +20,16 @@ Current validation after the stabilization pass:
 - fresh in-process service benchmark: **success**, total latency **7155.884 ms**
 - post-feed-sampling service benchmark: **success**, total latency **2201.261 ms**, `/feed` **1584.017 ms**
 - post-feed-segmentation service benchmark: **success**, total latency **1070.362 ms**, `/feed` **619.942 ms**
+- post-feed-lexical/query-cache service benchmark: **success**, total latency **537.965 ms**, `/feed` **265.337 ms**, `/query` **84.106 ms**, `/respond` **93.741 ms**
 
 Important current truth:
 
 - The acceptance harness now initializes the lazy cortex before judging idle gating, so mock-cortex and live-cortex paths exercise the same initialization contract.
 - Query-conditioned retrieval focus is owned by `hecsn.service.interaction_runtime`; tests should patch that module when they need to intercept `build_query_result`.
 - Replay dataset preview and bundle APIs remain safety-gated: no training, no memory promotion, no action execution, no sleep, no external calls, and no state mutation beyond packaging metadata.
-- `/feed` remains the dominant benchmark cost, but request-time feed now uses rolling semantic segment windows instead of character windows. It still preserves phrase-level concept grounding, samples runtime concept observation every 8 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 7 concept observations.
+- `/feed` remains the dominant benchmark cost, but request-time feed now uses lexical rolling segment windows instead of character windows or learned-boundary segmentation. It still preserves phrase-level concept grounding, samples runtime concept observation every 8 feed units plus the final pending unit, and the current synthetic benchmark processed 44 feed units with 7 concept observations.
+- Query/respond now cache pure grounding term expansion and semantic unit similarity, cutting repeated memory-episode matching work without changing matching semantics.
+- Duplicate rolling-window pruning was tested and rejected because repeated focused evidence is still needed for concept-store growth and autonomy focus.
 - Service benchmark JSON now exposes `feed_summary`, so future performance PRs can inspect endpoint latency and feed observation pressure in the same artifact.
 
 Tests worth having toward the living-brain goal:

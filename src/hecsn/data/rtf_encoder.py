@@ -549,6 +549,28 @@ class RTFEncoder:
             return current
         return _normalize(context + current)
 
+    @staticmethod
+    def _lexical_segments(text: str) -> list[str]:
+        segments: list[str] = []
+        chunk: list[str] = []
+        for ch in str(text):
+            is_separator = ch.isspace() or ch in ",.;:!?()[]{}<>\""
+            if is_separator:
+                if chunk:
+                    if ch in ".!?":
+                        chunk.append(ch)
+                    segment = "".join(chunk).strip()
+                    if segment:
+                        segments.append(segment)
+                    chunk = []
+                continue
+            chunk.append(ch)
+        if chunk:
+            segment = "".join(chunk).strip()
+            if segment:
+                segments.append(segment)
+        return segments
+
     def iter_char_patterns(
         self,
         chars: Iterable[str],
@@ -610,25 +632,7 @@ class RTFEncoder:
         if not text:
             return []
         if self.learned_chunking is None:
-            segments: list[str] = []
-            chunk: list[str] = []
-            for ch in str(text):
-                is_separator = ch.isspace() or ch in ",.;:!?()[]{}<>\""
-                if is_separator:
-                    if chunk:
-                        if ch in ".!?":
-                            chunk.append(ch)
-                        segment = "".join(chunk).strip()
-                        if segment:
-                            segments.append(segment)
-                        chunk = []
-                    continue
-                chunk.append(ch)
-            if chunk:
-                segment = "".join(chunk).strip()
-                if segment:
-                    segments.append(segment)
-            return segments
+            return self._lexical_segments(str(text))
 
         segments: list[str] = []
         chunk_codes: list[int] = []
@@ -681,11 +685,17 @@ class RTFEncoder:
         *,
         learn: bool = False,
         context_segments: int = 5,
+        use_learned_boundaries: bool = True,
     ) -> Iterator[tuple[str, torch.Tensor]]:
         maxlen = max(1, int(window_size))
         segment_window: list[str] = []
         max_segments = max(1, int(context_segments))
-        for segment in self.segment_text(str(text), learn=learn):
+        segments = (
+            self.segment_text(str(text), learn=learn)
+            if use_learned_boundaries
+            else self._lexical_segments(str(text))
+        )
+        for segment in segments:
             segment_window.append(segment)
             if len(segment_window) > max_segments:
                 segment_window.pop(0)
@@ -695,7 +705,7 @@ class RTFEncoder:
                 continue
             chunk_state = (
                 self.learned_chunking.detector_activations(codes)
-                if self.learned_chunking is not None
+                if self.learned_chunking is not None and use_learned_boundaries
                 else None
             )
             yield raw_window, self.blended_feature_vector(

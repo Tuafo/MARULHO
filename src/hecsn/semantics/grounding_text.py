@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from difflib import SequenceMatcher
+from functools import lru_cache
 import math
 import re
 from collections import Counter
@@ -212,6 +213,7 @@ def _compound_stream_units(
     return _dedupe_keep_order(compounds)
 
 
+@lru_cache(maxsize=8192)
 def stream_matching_units(
     text: str,
     *,
@@ -313,6 +315,7 @@ def _inflection_variants(value: str) -> tuple[str, ...]:
     return tuple(variants)
 
 
+@lru_cache(maxsize=8192)
 def token_forms(token: str) -> tuple[str, ...]:
     normalized = normalize_text(token)
     if not normalized:
@@ -354,6 +357,7 @@ def _char_ngrams(value: str, *, min_n: int = 3, max_n: int = 5) -> set[str]:
     return grams
 
 
+@lru_cache(maxsize=32768)
 def semantic_unit_similarity(left: str, right: str) -> float:
     left_forms = set(token_forms(left))
     right_forms = set(token_forms(right))

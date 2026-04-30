@@ -441,7 +441,7 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["replay_dataset_history"]["status_code"] == 200
         assert isinstance(result["living_loop_benchmark_telemetry"], dict)
         assert isinstance(result["living_loop_benchmark_telemetry"]["feedback"], dict)
-        assert result["feed_summary"]["feed_encoding_mode"] == "semantic_segments"
+        assert result["feed_summary"]["feed_encoding_mode"] == "lexical_rolling_segments"
         assert result["feed_summary"]["concept_observation_mode"] == "sampled"
         assert result["feed_summary"]["concept_observations"] < result["feed_summary"]["tokens_processed"]
         assert isinstance(result["feedback_telemetry"], dict)
