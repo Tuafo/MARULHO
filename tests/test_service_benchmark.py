@@ -403,6 +403,8 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         assert result["status_runtime_truth_summary"]["recommended_action"] == "continue_monitoring"
         assert result["status_runtime_truth_summary"]["evidence"]["token_count"] == 12
         assert result["terminus_runtime_truth_summary"]["verdict"] == "alive"
+        assert result["source_configuration_evidence"]["terminus"]["configured"] is True
+        assert "Long-test calls quick_start_terminus" in result["source_configuration_evidence"]["semantics"]["long_test_difference"]
         assert result["living_loop_benchmark_telemetry"]["endpoint_latency"]["feed"]["count"] == 1
         assert result["feed_summary"]["tokens_processed"] > 0
         assert result["living_loop_benchmark_telemetry"]["feedback"]["feedback_count"] == 2
@@ -494,6 +496,8 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["status_runtime_truth_summary"]["schema_version"] == 1
         assert result["status_runtime_truth_summary"]["verdict"] in {"alive", "degraded", "partial", "failed"}
         assert result["status_runtime_truth_summary"]["recommended_action"]
+        assert isinstance(result["source_configuration_evidence"], dict)
+        assert "semantics" in result["source_configuration_evidence"]
         assert isinstance(result["terminus_runtime_truth_summary"], dict)
         assert result["terminus_runtime_truth_summary"]["verdict"] == result["status_runtime_truth_summary"]["verdict"]
         assert isinstance(result["living_loop_benchmark_telemetry"]["feedback"], dict)

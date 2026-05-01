@@ -531,6 +531,7 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
     assert "## Health Verdict" in md_text
     assert "Memory capacity" in md_text
     assert "## Acceptance Harness" in md_text
+    assert "## Source Configuration" in md_text
     assert "## Liveness Diagnosis" in md_text
     assert "## Memory Pressure" in md_text
     assert "## Global Workspace" in md_text

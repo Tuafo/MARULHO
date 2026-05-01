@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import hashlib
+import json
 import os
 import time
 from typing import Any, Mapping
@@ -35,6 +37,54 @@ class StatusRuntimeMixin:
             return None
         summary = living_loop.get("replay_dataset_summary")
         return deepcopy(dict(summary)) if isinstance(summary, Mapping) else None
+
+    @staticmethod
+    def _runtime_source_configuration_evidence(terminus_runtime: Mapping[str, Any]) -> dict[str, Any]:
+        source_bank = [
+            deepcopy(dict(item))
+            for item in list(terminus_runtime.get("source_bank") or [])
+            if isinstance(item, Mapping)
+        ]
+        sensory = terminus_runtime.get("sensory") if isinstance(terminus_runtime.get("sensory"), Mapping) else {}
+        sensory_source_bank = [
+            deepcopy(dict(item))
+            for item in list(sensory.get("source_bank") or [])
+            if isinstance(item, Mapping)
+        ]
+        ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), Mapping) else {}
+        payload = {
+            "source_bank": source_bank,
+            "sensory_source_bank": sensory_source_bank,
+            "tick_tokens": int(terminus_runtime.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS) or DEFAULT_BRAIN_TICK_TOKENS),
+            "sleep_interval_seconds": float(terminus_runtime.get("sleep_interval_seconds", 0.0) or 0.0),
+            "repeat_sources": bool(terminus_runtime.get("repeat_sources", True)),
+            "ingestion": {
+                "enabled": bool(ingestion.get("enabled", True)),
+                "queue_target_tokens": int(ingestion.get("queue_target_tokens", 0) or 0),
+                "prewarm_on_startup": bool(ingestion.get("prewarm_on_startup", False)),
+                "prewarm_max_seconds": float(ingestion.get("prewarm_max_seconds", 0.0) or 0.0),
+            },
+        }
+        encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+        return {
+            "configured": bool(terminus_runtime.get("configured")),
+            "source_count": int(len(source_bank)),
+            "source_names": [str(item.get("name", "")) for item in source_bank],
+            "source_types": [str(item.get("source_type", "auto")) for item in source_bank],
+            "sensory_source_count": int(len(sensory_source_bank)),
+            "sensory_source_names": [str(item.get("name", "")) for item in sensory_source_bank],
+            "tick_tokens": payload["tick_tokens"],
+            "sleep_interval_seconds": payload["sleep_interval_seconds"],
+            "repeat_sources": payload["repeat_sources"],
+            "ingestion": payload["ingestion"],
+            "configuration_hash": hashlib.sha256(encoded).hexdigest(),
+            "configuration_payload": payload,
+            "operator_action": (
+                "configure_terminus_sources"
+                if not bool(terminus_runtime.get("configured"))
+                else "use_configuration_hash_and_payload_to_reproduce_run"
+            ),
+        }
 
     def _runtime_truth_contract_locked(
         self,
@@ -117,6 +167,7 @@ class StatusRuntimeMixin:
             "last_tick": None if last_tick_duration is None else float(last_tick_duration),
             "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
         }
+        source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
 
         return {
             "schema_version": 1,
@@ -124,6 +175,7 @@ class StatusRuntimeMixin:
             "verdict": verdict,
             "recommended_action": recommended_action,
             "cortex_available": cortex_available,
+            "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
             "safety_flags": {
@@ -143,6 +195,7 @@ class StatusRuntimeMixin:
                 "last_error": last_error or None,
                 "cortex_enabled": cortex_available,
                 "replay_endpoint": replay_endpoint,
+                "source_configuration_hash": source_configuration["configuration_hash"],
             },
         }
 

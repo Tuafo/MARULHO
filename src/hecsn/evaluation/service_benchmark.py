@@ -134,6 +134,7 @@ def _summarize_runtime_truth(body: Any) -> dict[str, Any] | None:
             "verdict",
             "recommended_action",
             "cortex_available",
+            "source_configuration",
             "memory_pressure",
             "replay_role",
             "safety_flags",
@@ -141,6 +142,28 @@ def _summarize_runtime_truth(body: Any) -> dict[str, Any] | None:
             "evidence",
         )
         if key in runtime_truth
+    }
+
+
+def _summarize_source_configuration(body: Any) -> dict[str, Any] | None:
+    if not isinstance(body, dict):
+        return None
+    runtime_truth = body.get("runtime_truth")
+    if isinstance(runtime_truth, dict) and isinstance(runtime_truth.get("source_configuration"), dict):
+        return dict(runtime_truth["source_configuration"])
+    terminus_runtime = body.get("terminus_runtime")
+    if not isinstance(terminus_runtime, dict):
+        return None
+    source_bank = [dict(item) for item in list(terminus_runtime.get("source_bank") or []) if isinstance(item, dict)]
+    ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), dict) else {}
+    return {
+        "configured": bool(terminus_runtime.get("configured")),
+        "source_count": int(len(source_bank)),
+        "source_names": [str(item.get("name", "")) for item in source_bank],
+        "source_types": [str(item.get("source_type", "auto")) for item in source_bank],
+        "tick_tokens": int(terminus_runtime.get("tick_tokens", 0) or 0),
+        "repeat_sources": bool(terminus_runtime.get("repeat_sources", True)),
+        "ingestion": dict(ingestion),
     }
 
 
@@ -335,6 +358,8 @@ def benchmark_service_app(
     feedback_telemetry: dict[str, Any] | None = None
     status_runtime_truth_summary = _summarize_runtime_truth(response_bodies.get("status"))
     terminus_runtime_truth_summary = _summarize_runtime_truth(response_bodies.get("terminus"))
+    status_source_configuration = _summarize_source_configuration(response_bodies.get("status"))
+    terminus_source_configuration = _summarize_source_configuration(response_bodies.get("terminus"))
     living_body = response_bodies.get("living_loop")
     if include_living_loop_telemetry and isinstance(living_body, dict):
         living_loop = living_body.get("living_loop")
@@ -560,6 +585,17 @@ def benchmark_service_app(
         "feed_summary": feed_summary,
         "status_runtime_truth_summary": status_runtime_truth_summary,
         "terminus_runtime_truth_summary": terminus_runtime_truth_summary,
+        "source_configuration_evidence": {
+            "status": status_source_configuration,
+            "terminus": terminus_source_configuration,
+            "semantics": {
+                "benchmark_runtime_configuration": "in_process_service_app_current_manager_state",
+                "long_test_difference": (
+                    "Long-test calls quick_start_terminus before sampling; service benchmark reports the app state it was given. "
+                    "If configured=false here, configure_terminus_sources is an actionable benchmark setup instruction, not a contradiction with a separately configured long-test run."
+                ),
+            },
+        },
         "feedback_telemetry": feedback_telemetry,
         "policy_actuator_summary": policy_actuator_summary,
         "replay_plan_summary": replay_plan_summary,

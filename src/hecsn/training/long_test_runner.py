@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass, field
+import hashlib
 import json
 import logging
 import sys
@@ -133,6 +134,7 @@ class TestReport:
     thought_lifecycle_summary: dict[str, Any] = field(default_factory=dict)
     memory_pressure_report: dict[str, Any] = field(default_factory=dict)
     global_workspace_report: dict[str, Any] = field(default_factory=dict)
+    source_configuration: dict[str, Any] = field(default_factory=dict)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
     sample_thoughts: list[str] = field(default_factory=list)
 
@@ -189,6 +191,11 @@ def _summarize_acceptance_checks(checks: list[dict[str, Any]]) -> tuple[str, int
 
 
 def _acceptance_failure_details(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    actions = {
+        "idle_gating": "inspect_thought_loop_wake_policy_and_startup_quiet_state",
+        "grounded_source_influence": "verify_workspace_action_assist_and_preserved_source_evidence",
+        "runtime_progress": "check_terminus_source_configuration_and_tick_path",
+    }
     failures: list[dict[str, Any]] = []
     for item in checks:
         if bool(item.get("passed", False)):
@@ -198,10 +205,54 @@ def _acceptance_failure_details(checks: list[dict[str, Any]]) -> list[dict[str, 
                 "name": str(item.get("name", "")),
                 "summary": str(item.get("summary", "")),
                 "details": dict(item.get("details") or {}) if isinstance(item.get("details"), Mapping) else {},
-                "recommended_action": "inspect_acceptance_path",
+                "recommended_action": actions.get(str(item.get("name", "")), "inspect_acceptance_path"),
             }
         )
     return failures
+
+
+def _source_configuration_evidence(
+    terminus_runtime: Mapping[str, Any],
+    *,
+    preset: str,
+    configuration_surface: str,
+) -> dict[str, Any]:
+    source_bank = [
+        dict(item)
+        for item in list(terminus_runtime.get("source_bank") or [])
+        if isinstance(item, Mapping)
+    ]
+    sensory = terminus_runtime.get("sensory") if isinstance(terminus_runtime.get("sensory"), Mapping) else {}
+    sensory_source_bank = [
+        dict(item)
+        for item in list(sensory.get("source_bank") or [])
+        if isinstance(item, Mapping)
+    ]
+    ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), Mapping) else {}
+    payload = {
+        "preset": str(preset),
+        "configuration_surface": str(configuration_surface),
+        "source_bank": source_bank,
+        "sensory_source_bank": sensory_source_bank,
+        "tick_tokens": int(terminus_runtime.get("tick_tokens", 0) or 0),
+        "sleep_interval_seconds": float(terminus_runtime.get("sleep_interval_seconds", 0.0) or 0.0),
+        "repeat_sources": bool(terminus_runtime.get("repeat_sources", True)),
+        "ingestion": dict(ingestion),
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return {
+        "configured": bool(terminus_runtime.get("configured")),
+        "preset": str(preset),
+        "configuration_surface": str(configuration_surface),
+        "source_count": int(len(source_bank)),
+        "source_names": [str(item.get("name", "")) for item in source_bank],
+        "source_types": [str(item.get("source_type", "auto")) for item in source_bank],
+        "sensory_source_count": int(len(sensory_source_bank)),
+        "sensory_source_names": [str(item.get("name", "")) for item in sensory_source_bank],
+        "configuration_hash": hashlib.sha256(encoded).hexdigest(),
+        "configuration_payload": payload,
+        "reproduction_hint": "Use the configuration_payload with /terminus/configure or quick_start_terminus using the recorded preset.",
+    }
 
 
 def _memory_pressure_band(fill_fraction: float) -> str:
@@ -808,6 +859,11 @@ def run_long_test(
             terminus_runtime = config_result.get("terminus_runtime") if isinstance(config_result.get("terminus_runtime"), Mapping) else {}
             report.terminus_configured = bool(terminus_runtime.get("configured", False))
             report.terminus_running = bool(terminus_runtime.get("running", False))
+            report.source_configuration = _source_configuration_evidence(
+                terminus_runtime,
+                preset=preset,
+                configuration_surface="quick_start_terminus",
+            )
 
         time.sleep(2.0)
         cortex_snapshot = manager.cortex_snapshot()
@@ -930,6 +986,18 @@ def run_long_test(
     report.final_exploration_reason = str(snapshots[-1].exploration_reason) if snapshots else ""
     report.final_embedder = dict(snapshots[-1].embedder) if snapshots else {}
     report.final_runtime_truth = dict(snapshots[-1].runtime_truth) if snapshots else {}
+    if snapshots:
+        final_source_config = snapshots[-1].runtime_truth.get("source_configuration") if isinstance(snapshots[-1].runtime_truth, Mapping) else None
+        if isinstance(final_source_config, Mapping) and final_source_config:
+            report.source_configuration = {
+                **dict(report.source_configuration),
+                "final_runtime_truth_source_configuration": dict(final_source_config),
+                "benchmark_semantics_note": (
+                    "Long-test configures and starts Terminus with quick_start_terminus. "
+                    "Service benchmark reports whatever source configuration the benchmark app has at /status and /terminus; "
+                    "a partial configure_terminus_sources action is expected only when the benchmark app was not quick-started."
+                ),
+            }
     report.action_count = int(snapshots[-1].action_count) if snapshots else 0
     report.thought_lifecycle_summary = _summarize_thought_lifecycle(snapshots)
     report.memory_pressure_report = _summarize_memory_pressure(snapshots)
@@ -1048,8 +1116,31 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
         )
         for failure in report.acceptance_failure_details:
             lines.append(
-                f"- {failure.get('name', '-')}: {str(failure.get('summary', '')).replace('|', '/')}"
+                f"- {failure.get('name', '-')}: {str(failure.get('summary', '')).replace('|', '/')} "
+                f"(action: {failure.get('recommended_action', '-')})"
             )
+
+    source_config = report.source_configuration if isinstance(report.source_configuration, Mapping) else {}
+    lines.extend(
+        [
+            "",
+            "## Source Configuration",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Configured | {source_config.get('configured', report.terminus_configured)} |",
+            f"| Preset | {source_config.get('preset', report.preset)} |",
+            f"| Surface | {source_config.get('configuration_surface', '-')} |",
+            f"| Source count | {source_config.get('source_count', 0)} |",
+            f"| Source names | {', '.join(str(item) for item in list(source_config.get('source_names') or [])) or '-'} |",
+            f"| Source types | {', '.join(str(item) for item in list(source_config.get('source_types') or [])) or '-'} |",
+            f"| Sensory source count | {source_config.get('sensory_source_count', 0)} |",
+            f"| Config hash | {source_config.get('configuration_hash', '-')} |",
+            f"| Reproduction hint | {str(source_config.get('reproduction_hint', '-')).replace('|', '/')} |",
+        ]
+    )
+    if source_config.get("benchmark_semantics_note"):
+        lines.extend(["", str(source_config.get("benchmark_semantics_note"))])
 
     lines.extend(
         [
