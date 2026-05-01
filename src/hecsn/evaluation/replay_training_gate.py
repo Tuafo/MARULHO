@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from hecsn.reporting.readme_reports import write_json_report_with_readme
+
 
 REPLAY_TRAINING_GATE_SCHEMA_VERSION = 1
 OFFLINE_REPLAY_TRAINING_GATE_NAME = "offline_replay_to_learning_gate"
@@ -228,9 +230,11 @@ def evaluate_replay_training_gate_file(input_path: str | Path, *, output_path: s
     report = evaluate_replay_training_gate(bundle)
     report["input_path"] = str(bundle_path)
     if output_path is not None:
-        output = Path(output_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        output = write_json_report_with_readme(
+            output_path,
+            report,
+            title="Replay Training Gate",
+        )
         report["output_path"] = str(output)
     return report
 

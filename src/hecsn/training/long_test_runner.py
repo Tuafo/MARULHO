@@ -35,6 +35,9 @@ DEFAULT_HEALTH_THRESHOLDS: dict[str, int] = {
     "min_runtime_progress_tokens": 1,
     "min_total_thoughts_alive": 1,
 }
+DEFAULT_CORTEX_INIT_WAIT_S = 15.0
+DEFAULT_FINAL_THOUGHT_WAIT_S = 90.0
+DEFAULT_LONG_TEST_MEMORY_CAPACITY = 16_384
 
 
 @dataclass
@@ -69,6 +72,9 @@ class MetricSnapshot:
     exploration_reason: str = ""
     embedder: dict[str, Any] = field(default_factory=dict)
     runtime_truth: dict[str, Any] = field(default_factory=dict)
+    thought_lifecycle: dict[str, Any] = field(default_factory=dict)
+    memory_pressure: dict[str, Any] = field(default_factory=dict)
+    global_workspace: dict[str, Any] = field(default_factory=dict)
     ingestion_state: str = ""
     action_count: int = 0
     errors: int = 0
@@ -83,6 +89,7 @@ class TestReport:
     duration_minutes: float = 0.0
     sample_interval_s: float = 0.0
     preset: str = ""
+    memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY
     cortex_model: str = ""
     cortex_available: bool = False
     terminus_configured: bool = False
@@ -122,6 +129,10 @@ class TestReport:
     acceptance_passed: int = 0
     acceptance_failed: int = 0
     acceptance_skipped: int = 0
+    acceptance_failure_details: list[dict[str, Any]] = field(default_factory=list)
+    thought_lifecycle_summary: dict[str, Any] = field(default_factory=dict)
+    memory_pressure_report: dict[str, Any] = field(default_factory=dict)
+    global_workspace_report: dict[str, Any] = field(default_factory=dict)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
     sample_thoughts: list[str] = field(default_factory=list)
 
@@ -177,12 +188,201 @@ def _summarize_acceptance_checks(checks: list[dict[str, Any]]) -> tuple[str, int
     return verdict, passed, failed, skipped
 
 
+def _acceptance_failure_details(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    failures: list[dict[str, Any]] = []
+    for item in checks:
+        if bool(item.get("passed", False)):
+            continue
+        failures.append(
+            {
+                "name": str(item.get("name", "")),
+                "summary": str(item.get("summary", "")),
+                "details": dict(item.get("details") or {}) if isinstance(item.get("details"), Mapping) else {},
+                "recommended_action": "inspect_acceptance_path",
+            }
+        )
+    return failures
+
+
+def _memory_pressure_band(fill_fraction: float) -> str:
+    fill = max(0.0, min(1.0, float(fill_fraction)))
+    if fill >= 0.85:
+        return "high"
+    if fill >= 0.50:
+        return "medium"
+    return "low"
+
+
+def _memory_pressure_snapshot(
+    memory_store: Mapping[str, Any],
+    runtime_truth: Mapping[str, Any],
+) -> dict[str, Any]:
+    fill = float(memory_store.get("fill_fraction", 0.0) or 0.0)
+    size = int(memory_store.get("size", 0) or 0)
+    capacity = int(memory_store.get("capacity", 0) or 0)
+    pressure = _memory_pressure_band(fill)
+    runtime_pressure = runtime_truth.get("memory_pressure") if isinstance(runtime_truth.get("memory_pressure"), Mapping) else {}
+    action = "continue_monitoring"
+    if pressure == "high":
+        action = "throttle_ingestion_and_prioritize_consolidation"
+    elif pressure == "medium":
+        action = "watch_working_set_growth"
+    return {
+        "fill_fraction": fill,
+        "size": size,
+        "capacity": capacity,
+        "pressure": pressure,
+        "runtime_pressure": dict(runtime_pressure),
+        "working_set_policy": {
+            "high_threshold": 0.85,
+            "target_fill": 0.70,
+            "capacity_increase_recommended": False,
+            "replay_fact_promotion_allowed": False,
+            "decision": action,
+        },
+        "consolidation_mean": float(memory_store.get("mean_consolidation_level", 0.0) or 0.0),
+        "mean_fragility": float(memory_store.get("mean_fragility", 0.0) or 0.0),
+        "max_fragility": float(memory_store.get("max_fragility", 0.0) or 0.0),
+        "n_seen": int(memory_store.get("n_seen", 0) or 0),
+    }
+
+
+def _thought_lifecycle_snapshot(
+    cortex_snapshot: Mapping[str, Any],
+    thoughts_data: Mapping[str, Any],
+) -> dict[str, Any]:
+    gating = cortex_snapshot.get("gating") if isinstance(cortex_snapshot.get("gating"), Mapping) else {}
+    lifecycle = cortex_snapshot.get("thought_lifecycle") if isinstance(cortex_snapshot.get("thought_lifecycle"), Mapping) else {}
+    recent = list(thoughts_data.get("thoughts") or []) if isinstance(thoughts_data, Mapping) else []
+    successful = int(thoughts_data.get("thoughts_generated", cortex_snapshot.get("thoughts_generated", 0)) or 0)
+    attempts = int(lifecycle.get("attempts", successful) or 0)
+    blocked_ticks = int(lifecycle.get("blocked_ticks", 0) or 0)
+    last_blocked = dict(lifecycle.get("last_blocked") or {}) if isinstance(lifecycle.get("last_blocked"), Mapping) else {}
+    if successful <= 0 and attempts <= 0:
+        rejected_reason = str(last_blocked.get("reason") or gating.get("inhibition_reason") or gating.get("last_gate_reason") or "no_deliberation_attempt")
+    elif attempts > successful:
+        rejected_reason = str(last_blocked.get("reason") or "some_attempts_blocked_or_rejected")
+    else:
+        rejected_reason = ""
+    return {
+        "enabled": bool(cortex_snapshot.get("enabled", False)),
+        "running": bool(cortex_snapshot.get("running", False)),
+        "mode": str(cortex_snapshot.get("current_mode", "")),
+        "attempts": attempts,
+        "successful": successful,
+        "dreams": int(cortex_snapshot.get("dreams_generated", 0) or 0),
+        "blocked_ticks": blocked_ticks,
+        "recent_thought_count": len(recent),
+        "wake_triggers": {
+            "pending_grounded_observations": int(gating.get("pending_grounded_observations", 0) or 0),
+            "pending_substrate_wakes": int(gating.get("pending_substrate_wakes", 0) or 0),
+            "active_tension_count": int(gating.get("active_tension_count", 0) or 0),
+            "last_gate_reason": str(gating.get("last_gate_reason", "")),
+            "inhibition_reason": str(gating.get("inhibition_reason", "")),
+            "startup_quiet": bool(gating.get("startup_quiet", False)),
+        },
+        "depth_policy": dict(cortex_snapshot.get("depth_policy") or {}) if isinstance(cortex_snapshot.get("depth_policy"), Mapping) else {},
+        "last_attempt": dict(lifecycle.get("last_attempt") or {}) if isinstance(lifecycle.get("last_attempt"), Mapping) else {},
+        "last_blocked": last_blocked,
+        "rejected_or_blocked_reason": rejected_reason,
+    }
+
+
+def _global_workspace_snapshot(cortex_snapshot: Mapping[str, Any]) -> dict[str, Any]:
+    working_memory = cortex_snapshot.get("working_memory") if isinstance(cortex_snapshot.get("working_memory"), Mapping) else {}
+    items = [
+        dict(item)
+        for item in list(working_memory.get("items") or [])[:5]
+        if isinstance(item, Mapping)
+    ]
+    active_exploration = cortex_snapshot.get("active_exploration") if isinstance(cortex_snapshot.get("active_exploration"), Mapping) else {}
+    narrative = cortex_snapshot.get("narrative_self") if isinstance(cortex_snapshot.get("narrative_self"), Mapping) else {}
+    return {
+        "capacity": int(working_memory.get("capacity", 0) or 0),
+        "size": int(working_memory.get("size", 0) or 0),
+        "selected_context_items": items,
+        "broadcast": str(working_memory.get("broadcast", ""))[:300],
+        "has_tension": bool(working_memory.get("has_tension", False)),
+        "has_question": bool(working_memory.get("has_question", False)),
+        "active_exploration": dict(active_exploration),
+        "narrative_summary": str(narrative.get("summary", "")),
+        "evidence_boundary": {
+            "grounded_items": sum(1 for item in items if str(item.get("type", "")) in {"observation", "insight"}),
+            "hypothesis_items": sum(1 for item in items if str(item.get("type", "")) == "hypothesis"),
+            "hypotheses_promoted_to_fact": 0,
+        },
+    }
+
+
+def _summarize_memory_pressure(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
+    if not snapshots:
+        return {}
+    fills = [float(item.memory_pressure.get("fill_fraction", item.memory_fill) or 0.0) for item in snapshots]
+    pressures = [str(item.memory_pressure.get("pressure") or _memory_pressure_band(item.memory_fill)) for item in snapshots]
+    high_indices = [idx for idx, pressure in enumerate(pressures) if pressure == "high"]
+    recovered = bool(high_indices and pressures[-1] != "high")
+    unrecovered = bool(high_indices and pressures[-1] == "high")
+    return {
+        "first_fill": fills[0],
+        "final_fill": fills[-1],
+        "max_fill": max(fills),
+        "high_samples": len(high_indices),
+        "medium_samples": sum(1 for pressure in pressures if pressure == "medium"),
+        "low_samples": sum(1 for pressure in pressures if pressure == "low"),
+        "recovered_from_high": recovered,
+        "unrecovered_high_pressure": unrecovered,
+        "final_policy": dict(snapshots[-1].memory_pressure.get("working_set_policy") or {}),
+        "recommended_action": (
+            "reduce_memory_fill_before_extending_runtime"
+            if unrecovered
+            else "continue_monitoring" if not high_indices else "confirm_pressure_recovery"
+        ),
+    }
+
+
+def _summarize_thought_lifecycle(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
+    if not snapshots:
+        return {}
+    final = snapshots[-1].thought_lifecycle
+    blocked_reasons = [
+        str(item.thought_lifecycle.get("rejected_or_blocked_reason", ""))
+        for item in snapshots
+        if str(item.thought_lifecycle.get("rejected_or_blocked_reason", "")).strip()
+    ]
+    return {
+        "attempts": int(final.get("attempts", 0) or 0),
+        "successful": int(final.get("successful", snapshots[-1].thoughts_total) or 0),
+        "dreams": int(final.get("dreams", 0) or 0),
+        "blocked_ticks": int(final.get("blocked_ticks", 0) or 0),
+        "last_blocked": dict(final.get("last_blocked") or {}),
+        "wake_triggers": dict(final.get("wake_triggers") or {}),
+        "rejected_or_blocked_reasons": sorted(set(blocked_reasons))[:8],
+    }
+
+
+def _summarize_global_workspace(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
+    if not snapshots:
+        return {}
+    final = snapshots[-1].global_workspace
+    max_size = max(int(item.global_workspace.get("size", 0) or 0) for item in snapshots)
+    return {
+        "final_size": int(final.get("size", 0) or 0),
+        "capacity": int(final.get("capacity", 0) or 0),
+        "max_size": max_size,
+        "final_selected_context_items": list(final.get("selected_context_items") or []),
+        "final_broadcast": str(final.get("broadcast", "")),
+        "active_exploration": dict(final.get("active_exploration") or {}),
+        "evidence_boundary": dict(final.get("evidence_boundary") or {}),
+    }
+
+
 def run_acceptance_harness(
     *,
     output_dir: str = "reports",
     env_root: str | Path | None = None,
     idle_wait_s: float = 0.35,
     tick_steps: int = 2,
+    cortex_wait_s: float = DEFAULT_CORTEX_INIT_WAIT_S,
 ) -> dict[str, Any]:
     """Run a small deterministic acceptance harness on maintained runtime paths."""
 
@@ -219,7 +419,7 @@ def run_acceptance_harness(
             env_root=root,
         )
         try:
-            manager._ensure_cortex_initialized()
+            manager._ensure_cortex_initialized(wait_seconds=max(0.0, float(cortex_wait_s)))
             cortex_snapshot = manager.cortex_snapshot()
             if not bool(cortex_snapshot.get("enabled", False)) or getattr(manager, "_thought_loop", None) is None:
                 checks.append(
@@ -401,6 +601,10 @@ def classify_test_report(
     elif runtime_truth_verdict in {"partial", "degraded"}:
         warning_reasons.append(f"Runtime truth contract reported {runtime_truth_verdict}{runtime_truth_action_suffix}.")
 
+    memory_pressure_report = report.memory_pressure_report if isinstance(report.memory_pressure_report, Mapping) else {}
+    if bool(memory_pressure_report.get("unrecovered_high_pressure", False)):
+        warning_reasons.append("Memory pressure reached the high band and did not recover before the run ended.")
+
     acceptance_verdict = str(report.acceptance_verdict or "not_run")
     if acceptance_verdict == "failed":
         fatal_reasons.append("Acceptance harness failed.")
@@ -475,6 +679,9 @@ def _collect_snapshot(
     episodic_memory = cortex_snapshot.get("episodic_memory") if isinstance(cortex_snapshot.get("episodic_memory"), Mapping) else {}
     snapshot.embedder = dict(episodic_memory.get("embedder", {}))
     snapshot.runtime_truth = dict(runtime_truth)
+    snapshot.thought_lifecycle = _thought_lifecycle_snapshot(cortex_snapshot, thoughts_data)
+    snapshot.memory_pressure = _memory_pressure_snapshot(memory_store, runtime_truth)
+    snapshot.global_workspace = _global_workspace_snapshot(cortex_snapshot)
     snapshot.ingestion_state = str(ingestion.get("startup_state", ""))
     snapshot.action_count = int(action_loop.get("actions_recorded", 0) or 0)
 
@@ -493,11 +700,51 @@ def _collect_snapshot(
     return snapshot, last_thoughts_count
 
 
+def _snapshot_has_inflight_thought(snapshot: MetricSnapshot) -> bool:
+    lifecycle = snapshot.thought_lifecycle if isinstance(snapshot.thought_lifecycle, Mapping) else {}
+    attempts = int(lifecycle.get("attempts", 0) or 0)
+    successful = int(lifecycle.get("successful", snapshot.thoughts_total) or 0)
+    mode = str(lifecycle.get("mode", "")).lower()
+    return attempts > successful and mode == "thinking"
+
+
+def _await_final_thought_settle(
+    manager: Any,
+    *,
+    start_perf: float,
+    last_thoughts_count: int,
+    all_topics: set[str],
+    thoughts_seen: list[str],
+    seen_thought_texts: set[str],
+    wait_seconds: float,
+) -> tuple[MetricSnapshot | None, int]:
+    deadline = time.time() + max(0.0, float(wait_seconds))
+    last_snapshot: MetricSnapshot | None = None
+    while time.time() < deadline:
+        snapshot, last_thoughts_count = _collect_snapshot(
+            manager,
+            start_perf=start_perf,
+            last_thoughts_count=last_thoughts_count,
+            all_topics=all_topics,
+            thoughts_seen=thoughts_seen,
+            seen_thought_texts=seen_thought_texts,
+            fresh_wait_seconds=min(10.0, max(1.0, float(wait_seconds))),
+        )
+        last_snapshot = snapshot
+        if not _snapshot_has_inflight_thought(snapshot):
+            return snapshot, last_thoughts_count
+        remaining = max(0.0, deadline - time.time())
+        time.sleep(min(1.0, max(0.1, remaining / 2.0)))
+    return last_snapshot, last_thoughts_count
+
+
 def run_long_test(
     duration_minutes: float = 20.0,
     sample_interval_s: float = 30.0,
     preset: str = "curriculum",
     output_dir: str = "reports",
+    final_thought_wait_s: float = DEFAULT_FINAL_THOUGHT_WAIT_S,
+    memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY,
 ) -> TestReport:
     """Run a full Terminus brain test for the specified duration."""
 
@@ -513,6 +760,7 @@ def run_long_test(
         duration_minutes=float(duration_minutes),
         sample_interval_s=float(sample_interval_s),
         preset=str(preset),
+        memory_capacity=max(1, int(memory_capacity)),
     )
 
     acceptance = run_acceptance_harness(output_dir=output_dir, env_root=Path.cwd())
@@ -521,6 +769,7 @@ def run_long_test(
     report.acceptance_passed = int(acceptance.get("passed", 0) or 0)
     report.acceptance_failed = int(acceptance.get("failed", 0) or 0)
     report.acceptance_skipped = int(acceptance.get("skipped", 0) or 0)
+    report.acceptance_failure_details = _acceptance_failure_details(report.acceptance_checks)
 
     tmpdir = output_root / ".long_test_tmp" / datetime.now().strftime("%Y%m%d_%H%M%S")
     tmpdir.mkdir(parents=True, exist_ok=True)
@@ -529,7 +778,7 @@ def run_long_test(
         test_name="long_run",
         n_columns=64,
         column_latent_dim=32,
-        memory_capacity=256,
+        memory_capacity=report.memory_capacity,
     )
 
     manager: Any | None = None
@@ -580,8 +829,9 @@ def run_long_test(
             )
             start_perf = time.time()
             last_thoughts_count = 0
-            next_sample_at = min(float(sample_interval_s), duration_s)
-            while next_sample_at <= duration_s + 1e-6:
+            interval_s = max(0.1, float(sample_interval_s))
+            next_sample_at = min(interval_s, duration_s)
+            while time.time() - start_perf < duration_s - 1e-6:
                 sleep_time = max(0.0, start_perf + next_sample_at - time.time())
                 if sleep_time > 0:
                     time.sleep(sleep_time)
@@ -620,7 +870,34 @@ def run_long_test(
                 )
                 if next_sample_at >= duration_s:
                     break
-                next_sample_at = min(duration_s, next_sample_at + float(sample_interval_s))
+                elapsed_after_sample = max(0.0, time.time() - start_perf)
+                if elapsed_after_sample >= duration_s:
+                    break
+                # If a snapshot overruns its scheduled slot, skip missed slots instead
+                # of trying to catch up with back-to-back expensive snapshots.
+                next_sample_at = min(duration_s, elapsed_after_sample + interval_s)
+            if snapshots and _snapshot_has_inflight_thought(snapshots[-1]) and final_thought_wait_s > 0:
+                logger.info(
+                    "Final sample caught an in-flight cortex thought; waiting up to %.1fs for post-processing",
+                    float(final_thought_wait_s),
+                )
+                try:
+                    final_snapshot, last_thoughts_count = _await_final_thought_settle(
+                        manager,
+                        start_perf=start_perf,
+                        last_thoughts_count=last_thoughts_count,
+                        all_topics=all_topics,
+                        thoughts_seen=thoughts_seen,
+                        seen_thought_texts=seen_thought_texts,
+                        wait_seconds=float(final_thought_wait_s),
+                    )
+                    if final_snapshot is not None:
+                        snapshots.append(final_snapshot)
+                except Exception as exc:
+                    snapshot = MetricSnapshot(timestamp=time.time(), errors=1)
+                    snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
+                    snapshots.append(snapshot)
+                    logger.warning("Final thought-settle snapshot error: %s", exc)
     except KeyboardInterrupt:
         logger.info("Test interrupted by user")
     finally:
@@ -654,6 +931,9 @@ def run_long_test(
     report.final_embedder = dict(snapshots[-1].embedder) if snapshots else {}
     report.final_runtime_truth = dict(snapshots[-1].runtime_truth) if snapshots else {}
     report.action_count = int(snapshots[-1].action_count) if snapshots else 0
+    report.thought_lifecycle_summary = _summarize_thought_lifecycle(snapshots)
+    report.memory_pressure_report = _summarize_memory_pressure(snapshots)
+    report.global_workspace_report = _summarize_global_workspace(snapshots)
     report.sample_thoughts = thoughts_seen[:20]
 
     if latencies:
@@ -686,6 +966,9 @@ def run_long_test(
             "exploration_reason": item.exploration_reason,
             "embedder": item.embedder,
             "runtime_truth": item.runtime_truth,
+            "thought_lifecycle": item.thought_lifecycle,
+            "memory_pressure": item.memory_pressure,
+            "global_workspace": item.global_workspace,
             "ingestion_state": item.ingestion_state,
             "action_count": item.action_count,
             "da": item.da_level,
@@ -711,6 +994,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     json_path = out / f"long_test_{timestamp}.json"
     md_path = out / f"long_test_{timestamp}.md"
+    readme_path = out / "README.md"
 
     json_path.write_text(json.dumps(asdict(report), indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -721,8 +1005,9 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
         f"**End:** {report.end_time}",
         f"**Duration:** {report.duration_minutes:.1f} minutes",
         f"**Sampling interval:** {report.sample_interval_s:.1f} s",
-        f"**Preset:** {report.preset}",
-        f"**Cortex:** {report.cortex_model or '-'}",
+            f"**Preset:** {report.preset}",
+            f"**Memory capacity:** {report.memory_capacity}",
+            f"**Cortex:** {report.cortex_model or '-'}",
         "",
         "## Health Verdict",
         "",
@@ -753,6 +1038,19 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| {check.get('name', '-')} | {'yes' if check.get('passed', False) else 'no'} | {str(check.get('summary', '')).replace('|', '/')} |"
         )
 
+    if report.acceptance_failure_details:
+        lines.extend(
+            [
+                "",
+                "### Acceptance Failures",
+                "",
+            ]
+        )
+        for failure in report.acceptance_failure_details:
+            lines.append(
+                f"- {failure.get('name', '-')}: {str(failure.get('summary', '')).replace('|', '/')}"
+            )
+
     lines.extend(
         [
             "",
@@ -775,6 +1073,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| P95 latency | {report.p95_latency_ms:.0f} ms |",
             f"| Max latency | {report.max_latency_ms:.0f} ms |",
             f"| Final memory fill | {report.final_memory_fill:.1%} |",
+            f"| Memory capacity | {report.memory_capacity} |",
             f"| Final consolidation | {report.final_consolidation:.3f} |",
             f"| Ripple-tagged memories | {report.final_ripple_tagged} |",
             f"| Prediction error (mean/max) | {report.final_prediction_error_mean:.3f} / {report.final_prediction_error_max:.3f} |",
@@ -790,6 +1089,48 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Runtime truth action | {report.final_runtime_truth.get('recommended_action', '-') if report.final_runtime_truth else '-'} |",
             f"| Recorded actions | {report.action_count} |",
             f"| Errors | {report.total_errors} |",
+        ]
+    )
+
+    thought_summary = report.thought_lifecycle_summary if isinstance(report.thought_lifecycle_summary, Mapping) else {}
+    memory_summary = report.memory_pressure_report if isinstance(report.memory_pressure_report, Mapping) else {}
+    workspace_summary = report.global_workspace_report if isinstance(report.global_workspace_report, Mapping) else {}
+    lines.extend(
+        [
+            "",
+            "## Liveness Diagnosis",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Thought attempts | {thought_summary.get('attempts', 0)} |",
+            f"| Successful thoughts | {thought_summary.get('successful', report.total_thoughts)} |",
+            f"| Dreams | {thought_summary.get('dreams', 0)} |",
+            f"| Blocked ticks | {thought_summary.get('blocked_ticks', 0)} |",
+            f"| Wake triggers | {thought_summary.get('wake_triggers', {})} |",
+            f"| Rejected / blocked reasons | {', '.join(str(item) for item in list(thought_summary.get('rejected_or_blocked_reasons') or [])) or '-'} |",
+            "",
+            "## Memory Pressure",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| First fill | {float(memory_summary.get('first_fill', 0.0) or 0.0):.1%} |",
+            f"| Final fill | {float(memory_summary.get('final_fill', report.final_memory_fill) or 0.0):.1%} |",
+            f"| Max fill | {float(memory_summary.get('max_fill', report.final_memory_fill) or 0.0):.1%} |",
+            f"| High-pressure samples | {memory_summary.get('high_samples', 0)} |",
+            f"| Recovered from high | {memory_summary.get('recovered_from_high', False)} |",
+            f"| Unrecovered high pressure | {memory_summary.get('unrecovered_high_pressure', False)} |",
+            f"| Recommended action | {memory_summary.get('recommended_action', '-')} |",
+            f"| Working-set policy | {memory_summary.get('final_policy', {})} |",
+            "",
+            "## Global Workspace",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Final size / capacity | {workspace_summary.get('final_size', 0)} / {workspace_summary.get('capacity', 0)} |",
+            f"| Max size | {workspace_summary.get('max_size', 0)} |",
+            f"| Active exploration | {workspace_summary.get('active_exploration', {})} |",
+            f"| Evidence boundary | {workspace_summary.get('evidence_boundary', {})} |",
+            f"| Final broadcast | {str(workspace_summary.get('final_broadcast', '')).replace('|', '/')} |",
         ]
     )
 
@@ -826,7 +1167,9 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
         for index, thought in enumerate(report.sample_thoughts[:10], 1):
             lines.append(f"{index}. {thought}")
 
-    md_path.write_text("\n".join(lines), encoding="utf-8")
+    markdown = "\n".join(lines)
+    md_path.write_text(markdown, encoding="utf-8")
+    readme_path.write_text(markdown, encoding="utf-8")
     return str(json_path), str(md_path)
 
 
@@ -847,6 +1190,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--interval", type=float, default=30.0, help="Sampling interval in seconds (default: 30)")
     parser.add_argument("--preset", type=str, default="curriculum", help="Terminus preset to use (default: curriculum)")
     parser.add_argument("--output", type=str, default="reports", help="Output directory for report (default: reports)")
+    parser.add_argument(
+        "--memory-capacity",
+        type=int,
+        default=DEFAULT_LONG_TEST_MEMORY_CAPACITY,
+        help=f"Checkpoint memory capacity for the validation run (default: {DEFAULT_LONG_TEST_MEMORY_CAPACITY})",
+    )
+    parser.add_argument(
+        "--final-thought-wait",
+        type=float,
+        default=DEFAULT_FINAL_THOUGHT_WAIT_S,
+        help="Seconds to wait when the final sample catches an in-flight thought (default: 90)",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args(argv)
 
@@ -863,6 +1218,8 @@ def main(argv: list[str] | None = None) -> int:
         sample_interval_s=args.interval,
         preset=args.preset,
         output_dir=args.output,
+        final_thought_wait_s=args.final_thought_wait,
+        memory_capacity=args.memory_capacity,
     )
     json_path, md_path = write_report(report, output_dir=args.output)
 

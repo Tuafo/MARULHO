@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from hecsn.reporting.readme_reports import write_json_report_with_readme
+
 
 APPROVAL_SCHEMA_VERSION = 1
 ALLOWED_APPROVAL_SCOPE = "dry_run_training_plan_only"
@@ -232,9 +234,11 @@ def create_replay_training_approval_file(
         created_at=created_at,
         expires_at=expires_at,
     )
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(approval, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_report_with_readme(
+        output_path,
+        approval,
+        title="Replay Training Operator Approval",
+    )
     return approval
 
 

@@ -6,19 +6,21 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
-from .replay_training_approval import (
-    APPROVAL_ARTIFACT_KIND,
-    EXPERIMENTAL_ADAPTER_PROMOTION_SCOPE,
-    REQUIRED_SAFETY_ACKNOWLEDGEMENTS,
-    _sha256_json,
-    load_json_object,
-)
+from hecsn.reporting.readme_reports import write_json_report_with_readme
 from hecsn.training.replay_adapter_experiment import (
     COMPARISON_REPORT_NAME,
     ISOLATED_EXPERIMENT_ARTIFACT_KIND,
     _replay_safety_flags,
     _runtime_truth_verdict,
     _unsafe_flags_increased,
+)
+
+from .replay_training_approval import (
+    APPROVAL_ARTIFACT_KIND,
+    EXPERIMENTAL_ADAPTER_PROMOTION_SCOPE,
+    REQUIRED_SAFETY_ACKNOWLEDGEMENTS,
+    _sha256_json,
+    load_json_object,
 )
 
 
@@ -175,9 +177,11 @@ def evaluate_replay_adapter_promotion_gate_files(
         approval=_load_required_report(approval_path, label="Promotion approval"),
         useful_behavior_note=useful_behavior_note,
     )
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_report_with_readme(
+        output_path,
+        report,
+        title="Replay Adapter Promotion Gate",
+    )
     return report
 
 

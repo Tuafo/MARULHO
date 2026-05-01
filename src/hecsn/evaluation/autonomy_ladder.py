@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from hecsn.reporting.readme_reports import write_json_report_with_readme
+
 from .replay_training_approval import load_json_object
 
 
@@ -255,9 +257,11 @@ def evaluate_autonomy_ladder_file(
         evaluation_report=_bool_mapping(payload.get("evaluation_report")),
     )
     if output_path is not None:
-        output = Path(output_path)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        write_json_report_with_readme(
+            output_path,
+            report,
+            title="Terminus Autonomy Ladder Evaluation",
+        )
     return report
 
 

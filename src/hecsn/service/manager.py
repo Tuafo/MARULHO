@@ -544,6 +544,12 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
                 else:
                     self._thought_loop_actual = thought_loop
                     self._cortex_available = True
+                    if bool(getattr(self, "_brain_running", False)) and not thought_loop.is_running:
+                        try:
+                            thought_loop.start()
+                            _cortex_logger.info("ThoughtLoop started after delayed cortex initialization")
+                        except Exception as exc:
+                            _cortex_logger.warning("ThoughtLoop failed to start after delayed initialization: %s", exc)
                 finally:
                     self._cortex_init_finished = True
                     self._cortex_init_event.set()

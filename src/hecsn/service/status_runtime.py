@@ -89,11 +89,27 @@ class StatusRuntimeMixin:
             replay_role = str(replay_dataset_summary.get("training_role") or "preview_export_only")
 
         fill_fraction = float(memory_store.get("fill_fraction", 0.0) or 0.0)
+        pressure = "high" if fill_fraction >= 0.85 else "medium" if fill_fraction >= 0.50 else "low"
+        working_set_policy = {
+            "high_threshold": 0.85,
+            "target_fill": 0.70,
+            "capacity_increase_recommended": False,
+            "replay_fact_promotion_allowed": False,
+            "decision": (
+                "throttle_ingestion_and_prioritize_consolidation"
+                if pressure == "high"
+                else "watch_working_set_growth" if pressure == "medium" else "continue_monitoring"
+            ),
+        }
+        if verdict == "alive" and pressure == "high":
+            verdict = "degraded"
+            recommended_action = "reduce_memory_pressure_before_extending_runtime"
         memory_pressure = {
             "fill_fraction": fill_fraction,
             "size": int(memory_store.get("size", 0) or 0),
             "capacity": int(memory_store.get("capacity", 0) or 0),
-            "pressure": "high" if fill_fraction >= 0.85 else "medium" if fill_fraction >= 0.50 else "low",
+            "pressure": pressure,
+            "working_set_policy": working_set_policy,
         }
 
         last_tick_duration = terminus_runtime.get("last_tick_duration_ms")

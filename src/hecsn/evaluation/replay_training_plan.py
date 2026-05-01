@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from hecsn.reporting.readme_reports import write_json_report_with_readme
+
 from .replay_training_approval import (
     ALLOWED_APPROVAL_SCOPE,
     load_json_object,
@@ -152,9 +154,11 @@ def create_replay_training_plan_file(
     gate_report = load_json_object(gate_report_path, label="Replay gate report")
     approval = load_json_object(approval_path, label="Replay training approval")
     plan = build_replay_training_plan(bundle, gate_report, approval)
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_report_with_readme(
+        output_path,
+        plan,
+        title="Replay Training Dry-Run Plan",
+    )
     return plan
 
 

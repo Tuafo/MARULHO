@@ -85,7 +85,7 @@ class LearnedChunkingTests(unittest.TestCase):
                 "river stream water current river stream water current "
                 "loan credit money bank loan credit money bank "
                 "ballast submarine depth buoyancy ballast submarine depth buoyancy "
-            ) * 4,
+            ) * 16,
         )
 
         winners = {

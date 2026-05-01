@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hecsn.config.model_config import HECSNConfig
+from hecsn.reporting.readme_reports import write_json_report_with_readme
 from hecsn.service.api import create_app
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
@@ -96,10 +97,11 @@ def _measure_endpoint(
 
 
 def _write_json(output_path: str | Path, payload: dict[str, Any]) -> Path:
-    path = Path(output_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return path
+    return write_json_report_with_readme(
+        output_path,
+        payload,
+        title="HECSN Service Benchmark",
+    )
 
 
 def _latest_replay_dataset_history_timestamp(history_body: Any) -> str | None:

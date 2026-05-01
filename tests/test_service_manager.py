@@ -8330,6 +8330,45 @@ class CortexIntegrationTests(unittest.TestCase):
                     pass
                 manager.close()
 
+    def test_delayed_cortex_initialization_starts_loop_when_runtime_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            source_path = root / "stream.txt"
+            source_path.write_text("delayed cortex startup validation " * 16, encoding="utf-8")
+            manager = _build_manager(root, test_case="delayed_cortex_init_starts_loop")
+            try:
+                from hecsn.cortex.core import MockCortex
+                from hecsn.cortex.episodic_memory import EpisodicMemory
+                from hecsn.cortex.thought_loop import ThoughtLoop
+
+                thought_loop = ThoughtLoop(cortex=MockCortex(), memory=EpisodicMemory())
+                manager._cortex_factory_refs = (
+                    ThoughtLoop,
+                    lambda: MockCortex(),
+                    lambda allow_fallback=False: thought_loop.memory.embedder,
+                    EpisodicMemory,
+                )
+                manager._build_cortex_thought_loop = lambda action_history: thought_loop
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "stream",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                )
+                manager._brain_running = True
+                manager._start_cortex_initialization()
+                self.assertTrue(manager._cortex_init_event.wait(timeout=1.0))
+                self.assertIs(manager._thought_loop_actual, thought_loop)
+                self.assertTrue(thought_loop.is_running)
+            finally:
+                manager.close()
+
     def test_telemetry_includes_cortex(self) -> None:
         """Telemetry snapshot includes cortex key from runtime."""
         with tempfile.TemporaryDirectory() as tmpdir:

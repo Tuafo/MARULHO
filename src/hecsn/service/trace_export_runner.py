@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from hecsn.reporting.readme_reports import write_json_report_with_readme
 from hecsn.service.manager import (
     DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT,
     HECSNServiceManager,
@@ -117,8 +118,12 @@ def _write_json(payload: Mapping[str, Any], output: Path | None, *, indent: int,
         stream.write(encoded)
         return
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(encoded, encoding="utf-8")
+    write_json_report_with_readme(
+        output,
+        payload,
+        title="Runtime Trace Export",
+        indent=indent,
+    )
 
 
 def main(argv: Sequence[str] | None = None, *, stdout: TextIO | None = None) -> int:

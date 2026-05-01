@@ -367,7 +367,10 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         )
 
         loaded = json.loads(output_path.read_text(encoding="utf-8"))
+        readme = output_path.parent / "README.md"
         assert loaded == result
+        assert readme.exists()
+        assert "HECSN Service Benchmark" in readme.read_text(encoding="utf-8")
         assert result["benchmark"] == "hecsn_service_endpoint_latency"
         assert result["schema_version"] == 1
         assert result["success"] is True
@@ -468,6 +471,7 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         )
 
         assert output_path.exists()
+        assert (output_path.parent / "README.md").exists()
         assert result["success"] is True
         assert result["total_latency_ms"] < 30000.0
         assert result["endpoints_by_name"]["health"]["status_code"] == 200

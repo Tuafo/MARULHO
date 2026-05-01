@@ -165,9 +165,11 @@ def test_plan_file_has_no_runtime_side_effects() -> None:
         before = sorted(path.name for path in root.iterdir())
         plan = create_replay_training_plan_file(bundle_path, report_path, approval_path, output_path=plan_path)
         after = sorted(path.name for path in root.iterdir())
+        readme_text = (root / "README.md").read_text(encoding="utf-8")
 
     assert before == ["approval.json", "bundle.json", "gate.json"]
-    assert after == ["approval.json", "bundle.json", "gate.json", "training_plan.json"]
+    assert after == ["README.md", "approval.json", "bundle.json", "gate.json", "training_plan.json"]
+    assert "Replay Training Dry-Run Plan" in readme_text
     assert plan["side_effects"]["training_started"] is False
     assert plan["side_effects"]["memory_mutated"] is False
     assert plan["side_effects"]["feedback_posted"] is False

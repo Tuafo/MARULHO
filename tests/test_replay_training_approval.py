@@ -212,9 +212,11 @@ def test_approval_file_has_no_runtime_side_effects() -> None:
             created_at=datetime(2026, 4, 30, 0, 0, tzinfo=timezone.utc),
         )
         after = sorted(path.name for path in root.iterdir())
+        readme_text = (root / "README.md").read_text(encoding="utf-8")
 
     assert before == ["bundle.json", "gate.json"]
-    assert after == ["approval.json", "bundle.json", "gate.json"]
+    assert after == ["README.md", "approval.json", "bundle.json", "gate.json"]
+    assert "Replay Training Operator Approval" in readme_text
     assert approval["feedback_posted"] is False
     assert approval["digital_action_executed"] is False
     assert approval["external_calls_made"] is False

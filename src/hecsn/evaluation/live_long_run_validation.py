@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
+from hecsn.reporting.readme_reports import write_json_report_with_readme
+
 from .replay_training_approval import load_json_object
 
 
@@ -151,9 +153,11 @@ def validate_live_long_run_files(
         else None,
         trace_report=load_json_object(trace_report_path, label="Trace report") if trace_report_path is not None else None,
     )
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_json_report_with_readme(
+        output_path,
+        report,
+        title="Terminus Live Long-Run Validation",
+    )
     return report
 
 

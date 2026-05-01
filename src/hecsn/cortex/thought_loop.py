@@ -328,6 +328,14 @@ class ThoughtLoop:
         self._last_sleep_cycle_summary: dict[str, Any] | None = None
         self._sleep_requests = 0
         self._requested_sleep_cycles = 0
+        self._thought_attempts = 0
+        self._thought_blocked_ticks = 0
+        self._last_blocked_thought: dict[str, Any] = {
+            "reason": "startup",
+            "tick": 0,
+            "time": 0.0,
+        }
+        self._last_thought_attempt: dict[str, Any] = {}
 
         # Thought history (bounded deque — append is CPython-atomic)
         from collections import deque
@@ -444,6 +452,14 @@ class ThoughtLoop:
                     "substrate_hysteresis_updates": int(self.drives.substrate_hysteresis_updates),
                     "last_gate_reason": self.drives.last_gate_reason,
                     "inhibition_reason": self.drives._inhibition_reason(),
+                },
+                "thought_lifecycle": {
+                    "attempts": int(self._thought_attempts),
+                    "successful": int(s.thoughts_generated),
+                    "blocked_ticks": int(self._thought_blocked_ticks),
+                    "last_blocked": dict(self._last_blocked_thought),
+                    "last_attempt": dict(self._last_thought_attempt),
+                    "recent_success_count": len(self._thought_history),
                 },
                 "cognitive_signals": {
                     "prediction_error_mean": round(self._cognitive_signals.prediction_error_mean, 3),
@@ -709,8 +725,28 @@ class ThoughtLoop:
             has_tension=has_tension,
         )
         if should_think and interval_ok:
+            with self._lock:
+                self._record_thought_attempt_locked(
+                    trigger="step",
+                    query_pending=query_pending,
+                    grounded_pending=grounded_pending,
+                    substrate_pending=substrate_pending,
+                    should_answer=should_answer,
+                    has_tension=has_tension,
+                )
             return self._deliberate()
 
+        with self._lock:
+            self._record_blocked_thought_locked(
+                query_pending=query_pending,
+                grounded_pending=grounded_pending,
+                substrate_pending=substrate_pending,
+                should_answer=should_answer,
+                has_tension=has_tension,
+                interval_ok=interval_ok,
+                should_think=should_think,
+                should_sleep=False,
+            )
         return None
 
     def _effective_thought_interval(self) -> float:
@@ -794,17 +830,98 @@ class ThoughtLoop:
                 elif should_think:
                     with self._lock:
                         self.stats.current_mode = "thinking"
+                        self._record_thought_attempt_locked(
+                            trigger="loop",
+                            query_pending=query_pending,
+                            grounded_pending=grounded_pending,
+                            substrate_pending=substrate_pending,
+                            should_answer=should_answer,
+                            has_tension=has_tension,
+                        )
                     result = self._deliberate()
                     with self._lock:
                         self.stats.current_mode = "idle"
                     if self._on_thought and result:
                         self._on_thought(result)
+                else:
+                    with self._lock:
+                        self._record_blocked_thought_locked(
+                            query_pending=query_pending,
+                            grounded_pending=grounded_pending,
+                            substrate_pending=substrate_pending,
+                            should_answer=should_answer,
+                            has_tension=has_tension,
+                            interval_ok=interval_ok,
+                            should_think=should_think,
+                            should_sleep=should_sleep,
+                        )
 
             except Exception:
                 logger.exception("ThoughtLoop error")
                 time.sleep(1.0)
 
             self._stop_event.wait(self.tick_interval_s)
+
+    def _record_thought_attempt_locked(
+        self,
+        *,
+        trigger: str,
+        query_pending: bool,
+        grounded_pending: bool,
+        substrate_pending: bool,
+        should_answer: bool,
+        has_tension: bool,
+    ) -> None:
+        self._thought_attempts += 1
+        self._last_thought_attempt = {
+            "trigger": str(trigger),
+            "tick": int(self.stats.ticks),
+            "time": time.time(),
+            "query_pending": bool(query_pending),
+            "grounded_pending": bool(grounded_pending),
+            "substrate_pending": bool(substrate_pending),
+            "should_answer": bool(should_answer),
+            "has_tension": bool(has_tension),
+            "gate_reason": str(self.drives.last_gate_reason),
+            "inhibition_reason": str(self.drives._inhibition_reason()),
+        }
+
+    def _record_blocked_thought_locked(
+        self,
+        *,
+        query_pending: bool,
+        grounded_pending: bool,
+        substrate_pending: bool,
+        should_answer: bool,
+        has_tension: bool,
+        interval_ok: bool,
+        should_think: bool,
+        should_sleep: bool,
+    ) -> None:
+        self._thought_blocked_ticks += 1
+        if should_sleep:
+            reason = "sleep_gate"
+        elif not interval_ok:
+            reason = "interval_cooldown"
+        elif not should_think:
+            reason = str(self.drives._inhibition_reason() or self.drives.last_gate_reason or "idle_no_trigger")
+        else:
+            reason = "blocked_unknown"
+        self._last_blocked_thought = {
+            "reason": reason,
+            "tick": int(self.stats.ticks),
+            "time": time.time(),
+            "query_pending": bool(query_pending),
+            "grounded_pending": bool(grounded_pending),
+            "substrate_pending": bool(substrate_pending),
+            "should_answer": bool(should_answer),
+            "has_tension": bool(has_tension),
+            "interval_ok": bool(interval_ok),
+            "should_think": bool(should_think),
+            "should_sleep": bool(should_sleep),
+            "gate_reason": str(self.drives.last_gate_reason),
+            "inhibition_reason": str(self.drives._inhibition_reason()),
+        }
 
     def _refresh_cognitive_signals(self) -> CognitiveSignalState:
         """Refresh predictive/surprise signals from the SNN side."""
