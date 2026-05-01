@@ -118,6 +118,43 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("safety_flags", status_truth)
         self.assertEqual(terminus_truth["verdict"], status_truth["verdict"])
 
+    def test_validation_report_endpoints_list_and_read_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            report_dir = root / "reports" / "phase15"
+            report_dir.mkdir(parents=True)
+            report_path = report_dir / "phase15.json"
+            readme_path = report_dir / "README.md"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "terminus_bounded_self_improvement_readiness",
+                        "status": "ready_for_bounded_level_5_experiment",
+                        "passed": True,
+                        "operator_visible_report": {"summary": "ready"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            readme_path.write_text("# Phase 15\n", encoding="utf-8")
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_validation_reports"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            with TestClient(app) as client:
+                list_response = client.get("/terminus/validation/reports")
+                read_response = client.get("/terminus/validation/report", params={"path": "phase15/README.md"})
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(list_response.status_code, 200)
+        listed = list_response.json()
+        self.assertEqual(listed["phase_status"]["phase15"]["status"], "ready_for_bounded_level_5_experiment")
+        self.assertEqual(listed["reports"][0]["readme_path"], "phase15/README.md")
+        self.assertEqual(read_response.status_code, 200)
+        self.assertEqual(read_response.json()["media_type"], "text/markdown")
+        self.assertIn("Phase 15", read_response.json()["content"])
+
     def test_static_ui_default_points_to_built_frontend_dist(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -51,12 +51,83 @@ from .terminus_hf_sources import current_runtime_datasets
 
 
 DEFAULT_WEB_DIST_DIR = Path("HECSN_UI") / "dist"
+REPORT_SUMMARY_KINDS = {
+    "terminus_multi_hour_live_validation",
+    "terminus_bounded_self_improvement_readiness",
+    "terminus_live_long_run_validation",
+    "terminus_replay_adapter_promotion_gate",
+    "terminus_approved_action_level2",
+    "terminus_replay_adaptation_experiment_1",
+    "terminus_service_benchmark",
+}
 
 
 def _model_to_dict(model: object) -> dict:
     if hasattr(model, "model_dump"):
         return getattr(model, "model_dump")()
     return getattr(model, "dict")()
+
+
+def _report_root(manager: HECSNServiceManager) -> Path:
+    env_root = getattr(manager, "_env_root", None)
+    return ((Path(env_root) if env_root is not None else Path.cwd()) / "reports").resolve()
+
+
+def _safe_report_path(manager: HECSNServiceManager, path_value: str) -> Path:
+    root = _report_root(manager)
+    candidate = (root / path_value).resolve()
+    if root != candidate and root not in candidate.parents:
+        raise HTTPException(status_code=400, detail="Report path must stay inside the reports directory.")
+    if candidate.suffix.lower() not in {".json", ".md"}:
+        raise HTTPException(status_code=400, detail="Only JSON and Markdown reports can be read.")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Report not found.")
+    return candidate
+
+
+def _summarize_report(path: Path, root: Path) -> dict[str, Any]:
+    relative_path = path.relative_to(root).as_posix()
+    stat = path.stat()
+    summary: dict[str, Any] = {
+        "path": relative_path,
+        "file_name": path.name,
+        "modified_at": datetime_from_timestamp(stat.st_mtime),
+        "size_bytes": stat.st_size,
+    }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        summary["artifact_kind"] = "unreadable_json_report"
+        summary["status"] = "unreadable"
+        return summary
+    if not isinstance(payload, dict):
+        summary["artifact_kind"] = "unknown_json_report"
+        summary["status"] = "unknown"
+        return summary
+    summary.update(
+        {
+            "artifact_kind": payload.get("artifact_kind", ""),
+            "status": payload.get("status", payload.get("health_verdict", "")),
+            "passed": payload.get("passed", payload.get("approved", None)),
+            "generated_at": payload.get("generated_at", payload.get("end_time", "")),
+            "health_verdict": payload.get("health_verdict", ""),
+            "runtime_truth_verdict": payload.get("runtime_truth_verdict", payload.get("final_runtime_truth", {}).get("verdict", "") if isinstance(payload.get("final_runtime_truth"), dict) else ""),
+            "recommended_operator_action": payload.get("recommended_operator_action", ""),
+            "readme_path": (path.parent / "README.md").relative_to(root).as_posix()
+            if (path.parent / "README.md").exists()
+            else "",
+        }
+    )
+    operator_report = payload.get("operator_visible_report")
+    if isinstance(operator_report, dict):
+        summary["summary"] = operator_report.get("summary", "")
+    return summary
+
+
+def datetime_from_timestamp(timestamp: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
 
 
 def _cors_origins() -> list[str]:
@@ -352,6 +423,50 @@ def create_app(
     @app.get("/terminus/actions", response_model=ActionHistoryResponse)
     def terminus_actions(limit: int = Query(20, ge=1, le=100)) -> ActionHistoryResponse:
         return ActionHistoryResponse(**manager.action_history(limit=limit))
+
+    @app.get("/terminus/validation/reports")
+    def terminus_validation_reports(limit: int = Query(40, ge=1, le=200)) -> dict[str, Any]:
+        root = _report_root(manager)
+        reports: list[dict[str, Any]] = []
+        if root.exists():
+            candidates = sorted(root.rglob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+            for path in candidates:
+                summary = _summarize_report(path, root)
+                if summary.get("artifact_kind") in REPORT_SUMMARY_KINDS or str(summary.get("status", "")):
+                    reports.append(summary)
+                if len(reports) >= limit:
+                    break
+        phase_status = {
+            "phase14": next(
+                (item for item in reports if item.get("artifact_kind") == "terminus_multi_hour_live_validation"),
+                None,
+            ),
+            "phase15": next(
+                (item for item in reports if item.get("artifact_kind") == "terminus_bounded_self_improvement_readiness"),
+                None,
+            ),
+        }
+        return {
+            "root": str(root),
+            "reports": reports,
+            "phase_status": phase_status,
+            "latest": reports[0] if reports else None,
+        }
+
+    @app.get("/terminus/validation/report")
+    def terminus_validation_report(path: str = Query(..., min_length=1, max_length=512)) -> dict[str, Any]:
+        report_path = _safe_report_path(manager, path)
+        if report_path.suffix.lower() == ".md":
+            return {
+                "path": report_path.relative_to(_report_root(manager)).as_posix(),
+                "media_type": "text/markdown",
+                "content": report_path.read_text(encoding="utf-8"),
+            }
+        return {
+            "path": report_path.relative_to(_report_root(manager)).as_posix(),
+            "media_type": "application/json",
+            "content": json.loads(report_path.read_text(encoding="utf-8")),
+        }
 
     @app.post("/terminus/action", response_model=DigitalActionResponse)
     def terminus_action(request: DigitalActionRequest) -> DigitalActionResponse:
