@@ -6,7 +6,7 @@
     "sandcastle": "npx tsx .sandcastle/main.mts"
   },
   "devDependencies": {
-    "@ai-hero/sandcastle": "latest",
-    "tsx": "latest"
+    "@ai-hero/sandcastle": "0.5.7",
+    "tsx": "^4.19"
   }
 }

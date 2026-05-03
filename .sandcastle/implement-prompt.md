@@ -35,7 +35,7 @@ If applicable, use RGR to complete the task.
 
 # FEEDBACK LOOPS
 
-Before committing, run `python -m pyright src/hecsn` and `python -m pytest` to ensure the tests pass.
+Before committing, run `.venv/Scripts/python -m pyright src/hecsn` and `.venv/Scripts/python -m pytest` to ensure the tests pass.
 
 # COMMIT
 
