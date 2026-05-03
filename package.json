@@ -1,0 +1,12 @@
+{
+  "name": "hecsn-sandcastle",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sandcastle": "npx tsx .sandcastle/main.mts"
+  },
+  "devDependencies": {
+    "@ai-hero/sandcastle": "latest",
+    "tsx": "latest"
+  }
+}
