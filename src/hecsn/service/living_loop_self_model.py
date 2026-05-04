@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from hecsn.service.living_loop_helpers import (
+    _as_mapping,
     _clean_text,
     _clamp01,
     _coerce_world_model_lite,
@@ -45,6 +46,14 @@ from hecsn.service.living_loop_replay import (
     _coerce_replay_sample_summary,
 )
 
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_MAX_RECENT_FAILURES = 6
+_MAX_UNCERTAIN_DOMAINS = 8
+_MAX_SUPPORTED_ACTIONS = 64
 
 # ---------------------------------------------------------------------------
 # Telemetry helpers
@@ -124,8 +133,9 @@ def _extract_nim_summary(cortex: Mapping[str, Any] | None) -> dict[str, Any]:
     )
     embedding_calls = int(embedder.get("nim_calls", 0) or 0)
     rate_limit_hits = int(embedder.get("rate_limit_hits", 0) or 0)
+    cortex_enabled = cortex_data.get("enabled", False) or embedder.get("available", False)
     return {
-        "available": bool(cortex_data.get("enabled", False) or embedder.get("available", False)),
+        "available": bool(cortex_enabled),
         "chat_generations_observed": int(chat_generations),
         "embedding_nim_calls": int(embedding_calls),
         "observed_call_count": int(chat_generations + embedding_calls),
@@ -408,23 +418,16 @@ class OperationalSelfModel:
             for item in list(data.get("skill_memories") or [])
             if isinstance(item, Mapping)
         )
-        provenance = ProvenanceState.from_payload(
-            data.get("provenance")
-            if isinstance(data.get("provenance"), Mapping)
-            else {}
-        )
+        provenance = ProvenanceState.from_payload(_as_mapping(data.get("provenance")))
+        world_model_lite_payload = data.get("world_model_lite")
         world_model_lite = (
-            WorldModelLiteSummary.from_payload(data.get("world_model_lite"))
-            if isinstance(data.get("world_model_lite"), Mapping)
+            WorldModelLiteSummary.from_payload(world_model_lite_payload)
+            if isinstance(world_model_lite_payload, Mapping)
             else WorldModelLiteSummary.from_records(
                 predictions=predictions,
                 actions=actions,
                 consolidations=consolidations,
-                action_loop=(
-                    data.get("action_loop")
-                    if isinstance(data.get("action_loop"), Mapping)
-                    else {}
-                ),
+                action_loop=_as_mapping(data.get("action_loop")),
             )
         )
         return cls(
@@ -545,7 +548,7 @@ class OperationalSelfModel:
                             *[memory.tool for memory in skill_memories],
                             *[action.action_type for action in self.actions],
                         ],
-                        limit=64,
+                        limit=_MAX_SUPPORTED_ACTIONS,
                         lower=True,
                     )
                 )
@@ -575,7 +578,7 @@ class OperationalSelfModel:
             capabilities.append("delayed_consequence_consolidation_tracking")
         if self.memory:
             capabilities.append("episodic_memory_snapshot")
-        if bool(self.cortex.get("enabled", False)):
+        if self.cortex.get("enabled", False):
             capabilities.append("cortex_loop_snapshot")
         capabilities.append("world_model_lite_policy_scoring")
         return capabilities
@@ -599,17 +602,21 @@ class OperationalSelfModel:
             )
         return tools
 
+    def _actions_recorded_count(self) -> int:
+        """Number of actions recorded in the action loop, with safe fallback."""
+        try:
+            return max(
+                0, int(self.action_loop.get("actions_recorded", len(self.actions)) or 0)
+            )
+        except (TypeError, ValueError):
+            return len(self.actions)
+
     def _surface_limits(
         self, skill_memories: Sequence[SkillMemoryRecord]
     ) -> dict[str, Any]:
         memory_capacity = self.memory.get("capacity")
         memory_fill_ratio = self.memory.get("fill_ratio")
-        try:
-            actions_recorded = max(
-                0, int(self.action_loop.get("actions_recorded", len(self.actions)) or 0)
-            )
-        except (TypeError, ValueError):
-            actions_recorded = len(self.actions)
+        actions_recorded = self._actions_recorded_count()
         return {
             "supported_actions": list(self._supported_action_names(skill_memories)),
             "snapshot_action_count": int(len(self.actions)),
@@ -628,14 +635,11 @@ class OperationalSelfModel:
         }
 
     def _surface_budgets(self, world_model_lite: WorldModelLiteSummary) -> dict[str, Any]:
-        try:
-            actions_recorded = max(
-                0, int(self.action_loop.get("actions_recorded", len(self.actions)) or 0)
-            )
-        except (TypeError, ValueError):
-            actions_recorded = len(self.actions)
+        actions_recorded = self._actions_recorded_count()
         memory_size = self.memory.get("size", self.memory.get("memory_count"))
         memory_capacity = self.memory.get("capacity")
+        fill_ratio = self.memory.get("fill_ratio")
+        fill_value = float(fill_ratio) if isinstance(fill_ratio, (int, float)) else None
         return {
             "action_history_used": int(actions_recorded),
             "action_snapshot_used": int(len(self.actions)),
@@ -648,15 +652,11 @@ class OperationalSelfModel:
             "memory_capacity": (
                 memory_capacity if isinstance(memory_capacity, (int, float)) else None
             ),
-            "memory_fill_ratio": (
-                float(fill_ratio_value)
-                if (fill_ratio_value := self.memory.get("fill_ratio")) is not None
-                and isinstance(fill_ratio_value, (int, float))
-                else None
-            ),
+            "memory_fill_ratio": fill_value,
         }
 
     def _surface_recent_failures(self) -> list[dict[str, Any]]:
+        """Return up to _MAX_RECENT_FAILURES failed actions and episodes."""
         failures: list[dict[str, Any]] = []
         for action in self.actions:
             if not (
@@ -677,9 +677,9 @@ class OperationalSelfModel:
                     "topics": list(action.topics or action.prediction.topics),
                 }
             )
-            if len(failures) >= 6:
+            if len(failures) >= _MAX_RECENT_FAILURES:
                 break
-        if len(failures) < 6:
+        if len(failures) < _MAX_RECENT_FAILURES:
             for episode in self.runtime_episodes:
                 if episode.status != "failed" and not episode.failure:
                     continue
@@ -697,11 +697,12 @@ class OperationalSelfModel:
                         ),
                     }
                 )
-                if len(failures) >= 6:
+                if len(failures) >= _MAX_RECENT_FAILURES:
                     break
         return failures
 
     def _surface_uncertain_domains(self) -> list[dict[str, Any]]:
+        """Return up to _MAX_UNCERTAIN_DOMAINS domains ranked by uncertain-signal count."""
         domains: dict[str, dict[str, int]] = {}
 
         def _domain_bucket(name: str) -> dict[str, int]:
@@ -755,7 +756,7 @@ class OperationalSelfModel:
                 **counts,
                 "total_uncertain_signals": int(sum(counts.values())),
             }
-            for domain, counts in ranked[:8]
+            for domain, counts in ranked[:_MAX_UNCERTAIN_DOMAINS]
             if sum(counts.values()) > 0
         ]
 
