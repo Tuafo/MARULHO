@@ -13,7 +13,7 @@ from the Self-Model module.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
@@ -149,15 +149,14 @@ def replay_candidate_safety_flags(candidate: Mapping[str, Any]) -> dict[str, Any
         for item in candidate.get("reason_codes", [])
         if _clean_text(item)
     }
-    feedback = candidate.get("feedback") if isinstance(candidate.get("feedback"), Mapping) else {}
-    provenance = candidate.get("provenance") if isinstance(candidate.get("provenance"), Mapping) else {}
+    feedback = _policy_mapping(candidate.get("feedback"))
+    provenance = _policy_mapping(candidate.get("provenance"))
     provenance_text = " ".join(
         _clean_text(value).lower()
         for value in (
             provenance.get("provenance"),
             provenance.get("source"),
             provenance.get("kind"),
-            candidate.get("provenance"),
         )
         if _clean_text(value)
     )
@@ -211,10 +210,10 @@ def _default_replay_sample_safety_flags() -> dict[str, Any]:
 
 def _coerce_replay_sample_summary(summary: Mapping[str, Any] | None) -> dict[str, Any]:
     data = dict(summary or {}) if isinstance(summary, Mapping) else {}
-    mode_counts = data.get("mode_counts") if isinstance(data.get("mode_counts"), Mapping) else {}
-    status_counts = data.get("status_counts") if isinstance(data.get("status_counts"), Mapping) else {}
+    mode_counts = _policy_mapping(data.get("mode_counts"))
+    status_counts = _policy_mapping(data.get("status_counts"))
     latest = data.get("latest_history_item") if isinstance(data.get("latest_history_item"), Mapping) else None
-    safety_flags = data.get("safety_flags") if isinstance(data.get("safety_flags"), Mapping) else {}
+    safety_flags = _policy_mapping(data.get("safety_flags"))
     if not safety_flags and isinstance(latest, Mapping) and isinstance(latest.get("safety_flags"), Mapping):
         safety_flags = latest["safety_flags"]
     normalized_safety_flags = {**_default_replay_sample_safety_flags(), **dict(safety_flags)}
@@ -554,23 +553,13 @@ def _replay_rank_candidates(candidates: Sequence[ReplayCandidate], *, limit: int
         ),
     )
     return tuple(
-        ReplayCandidate(
-            **{
-                **candidate.__dict__,
-                "rank": index + 1,
-            }
-        )
+        replace(candidate, rank=index + 1)
         for index, candidate in enumerate(ranked[:limit])
     )
 
 
 def _replay_prediction_status(data: Mapping[str, Any]) -> str:
     return _clean_text(data.get("status") or data.get("prediction_status")).lower()
-
-
-def _replay_verification_status(data: Mapping[str, Any]) -> str:
-    verification = _policy_mapping(data.get("verification"))
-    return _clean_text(verification.get("status")).lower()
 
 
 def _replay_target_summary(data: Mapping[str, Any], *keys: str, default: str = "") -> str:
@@ -586,6 +575,33 @@ def _replay_target_summary(data: Mapping[str, Any], *keys: str, default: str = "
             if text:
                 return text
     return default
+
+
+def _feedback_signal(feedback: Mapping[str, Any]) -> float:
+    """Compute a 0-1 signal from feedback counts (contradicted + unverified + corrected) / 3."""
+    corrected_flag = 1 if feedback["has_corrected_output"] else 0
+    return _clamp01((feedback["contradicted_count"] + feedback["unverified_count"] + corrected_flag) / 3.0)
+
+
+def _effective_uncertainty(world_uncertainty: float, confidence: float, default_uncertainty: float = 0.35) -> float:
+    """Compute clamped uncertainty from world uncertainty and confidence."""
+    base = max(world_uncertainty, 1.0 - confidence if confidence else default_uncertainty)
+    return _clamp01(base)
+
+
+def _memory_pressure_component(memory_pressure: float, memory_reason_codes: Sequence[str]) -> float:
+    """Return memory_pressure when there are memory-related reason codes, else 0.0."""
+    return memory_pressure if memory_reason_codes else 0.0
+
+
+def _is_unverified_status(status: str) -> bool:
+    """Check whether a verification/prediction status indicates unverified state."""
+    return status in {"unverified", "unknown", ""}
+
+
+def _is_pending_prediction(status: str) -> bool:
+    """Check whether a prediction status is pending or unverified."""
+    return status in {"pending", "unverified", "unknown"}
 
 
 # ---------------------------------------------------------------------------
@@ -657,7 +673,7 @@ def build_replay_plan(
             reasons.append("contradicted_runtime_episode")
         if target_feedback["unverified_count"] > 0:
             reasons.append("unverified_feedback")
-        if verification_status in {"unverified", "unknown", ""} or prediction_status in {"pending", "unverified", "unknown"}:
+        if _is_unverified_status(verification_status) or _is_pending_prediction(prediction_status):
             reasons.append("pending_prediction")
         if confidence and confidence < 0.40:
             reasons.append("high_uncertainty")
@@ -668,16 +684,16 @@ def build_replay_plan(
         if not reasons:
             continue
         safety = 1.0 if set(reasons) & {"contradicted_feedback", "contradicted_runtime_episode", "failed_runtime_episode"} else 0.0
-        uncertainty = _clamp01(max(world_uncertainty, 1.0 - confidence if confidence else 0.35))
-        feedback_signal = _clamp01((target_feedback["contradicted_count"] + target_feedback["unverified_count"] + (1 if target_feedback["has_corrected_output"] else 0)) / 3.0)
+        uncertainty = _effective_uncertainty(world_uncertainty, confidence)
+        feedback_signal = _feedback_signal(target_feedback)
         components = {
             "safety": safety,
             "feedback": feedback_signal,
             "uncertainty": uncertainty if set(reasons) & {"pending_prediction", "unverified_feedback", "high_uncertainty"} else uncertainty * 0.4,
-            "memory_pressure": memory_pressure if memory_reason_codes else 0.0,
+            "memory_pressure": _memory_pressure_component(memory_pressure, memory_reason_codes),
             "latency_pressure": latency_pressure,
             "policy_pressure": policy_pressure,
-            "provenance_gap": 1.0 if verification_status in {"unverified", "unknown", ""} else 0.0,
+            "provenance_gap": 1.0 if _is_unverified_status(verification_status) else 0.0,
             "recency_rank": recency_by_id.get(target_id, 0.0),
         }
         candidates.append(
@@ -719,7 +735,7 @@ def build_replay_plan(
             reasons.append("contradicted_action")
         if target_feedback["unverified_count"] > 0:
             reasons.append("unverified_feedback")
-        if verification_status in {"unverified", "unknown", ""}:
+        if _is_unverified_status(verification_status):
             reasons.append("unverified_action")
         if confidence and confidence < 0.40:
             reasons.append("high_uncertainty")
@@ -728,15 +744,15 @@ def build_replay_plan(
         if not reasons:
             continue
         safety = 1.0 if set(reasons) & {"contradicted_feedback", "contradicted_action"} else 0.0
-        uncertainty = _clamp01(max(world_uncertainty, 1.0 - confidence if confidence else 0.35))
+        uncertainty = _effective_uncertainty(world_uncertainty, confidence)
         components = {
             "safety": safety,
-            "feedback": _clamp01((target_feedback["contradicted_count"] + target_feedback["unverified_count"] + (1 if target_feedback["has_corrected_output"] else 0)) / 3.0),
+            "feedback": _feedback_signal(target_feedback),
             "uncertainty": uncertainty if set(reasons) & {"unverified_action", "unverified_feedback", "high_uncertainty"} else uncertainty * 0.4,
-            "memory_pressure": memory_pressure if memory_reason_codes else 0.0,
+            "memory_pressure": _memory_pressure_component(memory_pressure, memory_reason_codes),
             "latency_pressure": 0.0,
             "policy_pressure": policy_pressure,
-            "provenance_gap": 1.0 if verification_status in {"unverified", "unknown", ""} else 0.0,
+            "provenance_gap": 1.0 if _is_unverified_status(verification_status) else 0.0,
             "recency_rank": recency_by_id.get(target_id, 0.0),
         }
         candidates.append(
@@ -766,14 +782,14 @@ def build_replay_plan(
         reasons: list[str] = []
         if status == "contradicted":
             reasons.append("contradicted_runtime_episode" if _clean_text(prediction.get("source_kind")).startswith("runtime_") else "contradicted_action")
-        if status in {"pending", "unverified", "unknown"}:
+        if _is_pending_prediction(status):
             reasons.append("pending_prediction")
         if confidence and confidence < 0.40:
             reasons.append("high_uncertainty")
         if not reasons:
             continue
         safety = 1.0 if any(code.startswith("contradicted") for code in reasons) else 0.0
-        uncertainty = _clamp01(max(world_uncertainty, 1.0 - confidence if confidence else 0.50))
+        uncertainty = _effective_uncertainty(world_uncertainty, confidence, default_uncertainty=0.50)
         candidates.append(
             _replay_candidate(
                 target_type="prediction",
@@ -786,7 +802,7 @@ def build_replay_plan(
                     "safety": safety,
                     "feedback": 0.0,
                     "uncertainty": uncertainty,
-                    "memory_pressure": memory_pressure if memory_reason_codes else 0.0,
+                    "memory_pressure": _memory_pressure_component(memory_pressure, memory_reason_codes),
                     "latency_pressure": 0.0,
                     "policy_pressure": policy_pressure,
                     "provenance_gap": 1.0 if status in {"pending", "unknown"} else 0.0,
@@ -817,7 +833,7 @@ def build_replay_plan(
                     "safety": 0.0,
                     "feedback": 0.0,
                     "uncertainty": _clamp01(max(world_uncertainty, min(1.0, signal_count / 4.0))),
-                    "memory_pressure": memory_pressure if memory_reason_codes else 0.0,
+                    "memory_pressure": _memory_pressure_component(memory_pressure, memory_reason_codes),
                     "latency_pressure": 0.0,
                     "policy_pressure": policy_pressure,
                     "provenance_gap": 0.5,
@@ -877,7 +893,7 @@ def build_replay_plan(
                     "safety": 1.0 if "contradicted_feedback" in policy_reasons else 0.0,
                     "feedback": 0.5 if "contradicted_feedback" in policy_reasons or "unverified_feedback" in policy_reasons else 0.0,
                     "uncertainty": _policy_float(policy_decision.get("uncertainty")),
-                    "memory_pressure": memory_pressure if memory_reason_codes else 0.0,
+                    "memory_pressure": _memory_pressure_component(memory_pressure, memory_reason_codes),
                     "latency_pressure": 1.0 if "high_latency" in policy_reasons else 0.0,
                     "policy_pressure": policy_pressure,
                     "provenance_gap": 0.25,
