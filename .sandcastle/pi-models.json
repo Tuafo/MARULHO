@@ -6,11 +6,11 @@
       "apiKey": "NVIDIA_API_KEY",
       "models": [
         {
-          "id": "z-ai/glm-5.1",
-          "name": "GLM 5.1 (NVIDIA NIM)",
+          "id": "moonshotai/kimi-k2.6",
+          "name": "Kimi K2.6 (NVIDIA NIM)",
           "reasoning": true,
           "input": ["text"],
-          "contextWindow": 128000,
+          "contextWindow": 131072,
           "maxTokens": 16384,
           "cost": {
             "input": 0,
