@@ -32,6 +32,14 @@ from hecsn.service.living_loop_helpers import (
 )
 
 
+def _safe_int(value: Any, minimum: int = 0) -> int:
+    """Convert a value to a non-negative int, returning *minimum* on failure."""
+    try:
+        return max(minimum, int(value or 0))
+    except (TypeError, ValueError):
+        return minimum
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -323,10 +331,10 @@ class RuntimeEpisodeTrace:
         if self.status == "failed" or self.failure:
             status = PredictionStatus.CONTRADICTED
             provenance = Provenance.CONTRADICTED
-        elif bool(self.verification.get("success")) or verification_status == VerificationStatus.VERIFIED:
+        elif self.verification.get("success") or verification_status == VerificationStatus.VERIFIED:
             status = PredictionStatus.FULFILLED
             provenance = Provenance.VERIFIED
-        elif bool(self.verification.get("contradiction")) or verification_status == VerificationStatus.CONTRADICTED:
+        elif self.verification.get("contradiction") or verification_status == VerificationStatus.CONTRADICTED:
             status = PredictionStatus.CONTRADICTED
             provenance = Provenance.CONTRADICTED
         elif verification_status == VerificationStatus.UNVERIFIED:
@@ -419,9 +427,9 @@ class SkillMemoryRecord:
             skill_id=_clean_text(data.get("skill_id")) or _stable_id("skill", action_type, tool),
             action_type=action_type,
             tool=tool,
-            action_count=max(0, int(data.get("action_count", 0) or 0)),
-            success_count=max(0, int(data.get("success_count", 0) or 0)),
-            failure_count=max(0, int(data.get("failure_count", 0) or 0)),
+            action_count=_safe_int(data.get("action_count", 0)),
+            success_count=_safe_int(data.get("success_count", 0)),
+            failure_count=_safe_int(data.get("failure_count", 0)),
             success_rate=_clamp01(data.get("success_rate", 0.0)),
             preconditions=dict(data.get("preconditions") or {}),
             trigger_context=dict(data.get("trigger_context") or {}),
@@ -602,17 +610,17 @@ class ProvenanceState:
         if isinstance(distribution, Mapping):
             data = {**dict(distribution), **data}
         values = {
-            provenance.value: max(0, int(data.get(provenance.value, 0) or 0))
+            provenance.value: _safe_int(data.get(provenance.value, 0))
             for provenance in Provenance
         }
-        total = int(data.get("total", sum(values.values())) or sum(values.values()))
+        total = _safe_int(data.get("total")) or sum(values.values())
         return cls(
             observed=values[Provenance.OBSERVED.value],
             inferred=values[Provenance.INFERRED.value],
             dreamed=values[Provenance.DREAMED.value],
             verified=values[Provenance.VERIFIED.value],
             contradicted=values[Provenance.CONTRADICTED.value],
-            total=max(0, total),
+            total=total,
         )
 
     @classmethod
@@ -656,11 +664,11 @@ class ConsolidationRecord:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "ConsolidationRecord":
         data = dict(payload or {})
-        credit_events = max(0, int(data.get("credit_events", 0) or 0))
-        penalty_events = max(0, int(data.get("penalty_events", 0) or 0))
-        forgiveness_events = max(0, int(data.get("forgiveness_events", 0) or 0))
-        cooling_events = max(0, int(data.get("cooling_events", 0) or 0))
-        aggregate_count = max(1, int(data.get("aggregate_count", 1) or 1))
+        credit_events = _safe_int(data.get("credit_events", 0))
+        penalty_events = _safe_int(data.get("penalty_events", 0))
+        forgiveness_events = _safe_int(data.get("forgiveness_events", 0))
+        cooling_events = _safe_int(data.get("cooling_events", 0))
+        aggregate_count = _safe_int(data.get("aggregate_count", 1), minimum=1)
 
         if _clean_text(data.get("status")):
             status = _enum_value(ConsolidationStatus, data.get("status"), ConsolidationStatus.RAW)
@@ -698,14 +706,8 @@ class ConsolidationRecord:
             lower=True,
         )
 
-        try:
-            replay_count = max(0, int(data.get("replay_count", 0) or 0))
-        except (TypeError, ValueError):
-            replay_count = 0
-        try:
-            aggregation_events = max(0, int(data.get("aggregation_events", 0) or 0))
-        except (TypeError, ValueError):
-            aggregation_events = 0
+        replay_count = _safe_int(data.get("replay_count", 0))
+        aggregation_events = _safe_int(data.get("aggregation_events", 0))
 
         state_candidates: list[str] = list(explicit_states)
         if query_text or source_weights or provider_weights:
