@@ -58,7 +58,7 @@ def _limited_unique_clean_text(values: Sequence[Any], *, limit: int = 8, lower: 
 
 
 def _latest_text(values: Sequence[Any]) -> str:
-    candidates = tuple(_clean_text(value) for value in values if _clean_text(value))
+    candidates = tuple(text for value in values if (text := _clean_text(value)))
     return max(candidates) if candidates else ""
 
 
@@ -93,14 +93,8 @@ def _provenance_value(value: Any, default: Provenance = Provenance.INFERRED) -> 
 
 
 def _verification_status_from_payload(value: Any) -> VerificationStatus:
-    """Convert a payload value to a VerificationStatus enum member.
-
-    Uses a lazy import to avoid circular dependency with living_loop.py,
-    where VerificationStatus is defined. The circular import is necessary
-    because VerificationStatus lives in the Records layer which depends on
-    this helpers module.
-    """
-    from hecsn.service.living_loop import VerificationStatus
+    """Convert a payload value to a VerificationStatus enum member."""
+    from hecsn.service.living_loop import VerificationStatus  # lazy: avoids circular import
 
     status = _clean_text(value).lower()
     if status == VerificationStatus.VERIFIED.value:
@@ -122,15 +116,9 @@ def _safe_float(value: Any) -> float | None:
     return result
 
 
-def _coerce_world_model_lite(value: Any) -> WorldModelLiteSummary:
-    """Coerce a value to a WorldModelLiteSummary instance.
-
-    Uses a lazy import to avoid circular dependency with living_loop.py,
-    where WorldModelLiteSummary is defined. The circular import is necessary
-    because WorldModelLiteSummary lives in the Policy layer which depends on
-    this helpers module.
-    """
-    from hecsn.service.living_loop import WorldModelLiteSummary
+def _coerce_world_model_lite(value: WorldModelLiteSummary | Mapping[str, Any] | None) -> WorldModelLiteSummary:
+    """Coerce a value to a WorldModelLiteSummary instance."""
+    from hecsn.service.living_loop import WorldModelLiteSummary  # lazy: avoids circular import
 
     if isinstance(value, WorldModelLiteSummary):
         return value

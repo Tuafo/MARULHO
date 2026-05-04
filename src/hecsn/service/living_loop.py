@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from hecsn.cortex.episodic_memory import Provenance
 from hecsn.service.action_loop import ActionVerification, DigitalActionResult
-from hecsn.service.living_loop_helpers import (  # re-exported below
+from hecsn.service.living_loop_helpers import (  # used throughout this module
     _as_mapping,
     _clean_text,
     _clamp01,
