@@ -1,4 +1,4 @@
-"""Runtime Records module for the Living Loop.
+"""Runtime Records module for the Living Loop (Layer A).
 
 This module contains all enums and frozen dataclasses that represent
 the runtime record types used throughout the Living Loop. It is the

@@ -7,8 +7,6 @@ docstrings satisfy the acceptance criteria for the Living Loop deepening split.
 from __future__ import annotations
 
 import importlib
-import os
-import re
 import unittest
 from pathlib import Path
 
@@ -18,27 +16,12 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0001-living-loop-depth-aligned-module-split.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 
-_MODULE_NAMES = {
-    "living_loop_helpers": "hecsn.service.living_loop_helpers",
-    "living_loop_records": "hecsn.service.living_loop_records",
-    "living_loop_policy": "hecsn.service.living_loop_policy",
-    "living_loop_replay": "hecsn.service.living_loop_replay",
-    "living_loop_self_model": "hecsn.service.living_loop_self_model",
-}
-
 _DEPTH_LAYER_TERMS = {
     "living_loop_helpers": ["Foundation", "Layer 0"],
     "living_loop_records": ["Layer A"],
     "living_loop_policy": ["Layer B"],
     "living_loop_replay": ["Layer C"],
     "living_loop_self_model": ["Layer D"],
-}
-
-_DOMAIN_VOCAB_MAPPINGS = {
-    "living_loop_records": "Living Loop records",
-    "living_loop_policy": "Policy Actuator",
-    "living_loop_replay": "Replay Pipeline planning stage",
-    "living_loop_self_model": "Runtime Truth",
 }
 
 
@@ -107,7 +90,7 @@ class TestADRDependencyConstraintAndShimStrategy(unittest.TestCase):
         text = _ADR_PATH.read_text(encoding="utf-8")
         # Should mention __all__ or re-export of every symbol
         self.assertTrue(
-            "__all__" in text or "every" in text.lower() and "symbol" in text.lower(),
+            "__all__" in text or ("every" in text.lower() and "symbol" in text.lower()),
             "ADR must document that every previously available symbol is re-exported",
         )
 
@@ -293,7 +276,14 @@ class TestModuleDocstrings(unittest.TestCase):
 
     def test_all_modules_have_dependency_direction_chain(self):
         """Every module docstring must include the full dependency direction chain."""
-        for mod_name in _MODULE_NAMES.values():
+        module_fqns = [
+            "hecsn.service.living_loop_helpers",
+            "hecsn.service.living_loop_records",
+            "hecsn.service.living_loop_policy",
+            "hecsn.service.living_loop_replay",
+            "hecsn.service.living_loop_self_model",
+        ]
+        for mod_name in module_fqns:
             doc = self._get_docstring(mod_name)
             self.assertIn(
                 "Helpers",
