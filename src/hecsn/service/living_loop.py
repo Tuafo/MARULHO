@@ -4,95 +4,24 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-import hashlib
-import json
 from typing import Any, Mapping, Sequence
 
 from hecsn.cortex.episodic_memory import Provenance
 from hecsn.service.action_loop import ActionVerification, DigitalActionResult
-
-
-def _stable_id(prefix: str, *parts: Any) -> str:
-    seed = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
-    return f"{prefix}-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
-
-
-def _clean_text(value: Any) -> str:
-    return " ".join(str(value or "").split()).strip()
-
-
-def _clamp01(value: Any) -> float:
-    try:
-        return max(0.0, min(1.0, float(value)))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _safe_ratio(numerator: float, denominator: float) -> float:
-    return 0.0 if denominator <= 0.0 else float(numerator) / float(denominator)
-
-
-def _limited_unique_clean_text(values: Sequence[Any], *, limit: int = 8, lower: bool = False) -> tuple[str, ...]:
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = _clean_text(value)
-        if lower:
-            text = text.lower()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        cleaned.append(text)
-        if len(cleaned) >= max(1, int(limit)):
-            break
-    return tuple(cleaned)
-
-
-def _latest_text(values: Sequence[Any]) -> str:
-    candidates = tuple(_clean_text(value) for value in values if _clean_text(value))
-    return max(candidates) if candidates else ""
-
-
-def _as_mapping(value: Any) -> Mapping[str, Any]:
-    if isinstance(value, Mapping):
-        return value
-    if hasattr(value, "to_payload"):
-        payload = value.to_payload()
-        if isinstance(payload, Mapping):
-            return payload
-    return {}
-
-
-def _enum_value(enum_cls: type[Enum], value: Any, default: Enum) -> Enum:
-    if isinstance(value, enum_cls):
-        return value
-    normalized = _clean_text(value).lower()
-    for item in enum_cls:
-        if str(item.value).lower() == normalized or item.name.lower() == normalized:
-            return item
-    return default
-
-
-def _provenance_value(value: Any, default: Provenance = Provenance.INFERRED) -> Provenance:
-    if isinstance(value, Provenance):
-        return value
-    normalized = _clean_text(value).lower()
-    for provenance in Provenance:
-        if provenance.value == normalized or provenance.name.lower() == normalized:
-            return provenance
-    return default
-
-
-def _verification_status_from_payload(value: Any) -> "VerificationStatus":
-    status = _clean_text(value).lower()
-    if status == VerificationStatus.VERIFIED.value:
-        return VerificationStatus.VERIFIED
-    if status == VerificationStatus.CONTRADICTED.value:
-        return VerificationStatus.CONTRADICTED
-    if status in {"unverified", "pending"}:
-        return VerificationStatus.UNVERIFIED
-    return VerificationStatus.UNKNOWN
-
+from hecsn.service.living_loop_helpers import (  # used throughout this module
+    _as_mapping,
+    _clean_text,
+    _clamp01,
+    _coerce_world_model_lite,
+    _enum_value,
+    _latest_text,
+    _limited_unique_clean_text,
+    _provenance_value,
+    _safe_float,
+    _safe_ratio,
+    _stable_id,
+    _verification_status_from_payload,
+)
 
 class PredictionStatus(str, Enum):
     PENDING = "pending"
@@ -1098,16 +1027,6 @@ class WorldModelLiteSummary:
         }
 
 
-def _safe_float(value: Any) -> float | None:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    if result < 0.0:
-        return None
-    return result
-
-
 def _endpoint_latency_empty() -> dict[str, Any]:
     return {
         "count": 0,
@@ -1142,14 +1061,6 @@ def _latency_summary(count: int, success_count: int, failure_count: int, latenci
         "max_ms": max(latency_values) if latency_values else None,
         "success_rate": _safe_ratio(success_count, count),
     }
-
-
-def _coerce_world_model_lite(value: WorldModelLiteSummary | Mapping[str, Any] | None) -> WorldModelLiteSummary:
-    if isinstance(value, WorldModelLiteSummary):
-        return value
-    if isinstance(value, Mapping):
-        return WorldModelLiteSummary.from_payload(value)
-    return WorldModelLiteSummary()
 
 
 def _extract_cache_summary(stats: Mapping[str, Any]) -> dict[str, Any]:
