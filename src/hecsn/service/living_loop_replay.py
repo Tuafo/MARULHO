@@ -451,29 +451,31 @@ def _replay_action_for_reasons(reason_codes: Sequence[str]) -> str:
     reason_set = set(reason_codes)
     if reason_set & {"contradicted_feedback", "contradicted_runtime_episode", "contradicted_action", "failed_runtime_episode", "corrected_output_available"}:
         return "review_contradiction"
-    if reason_set & {"unverified_feedback", "pending_prediction", "unverified_action"}:
+    elif reason_set & {"unverified_feedback", "pending_prediction", "unverified_action"}:
         return "verify_pending_evidence"
-    if reason_set & {"memory_capacity_pressure", "fatigue_sleep_pressure"}:
+    elif reason_set & {"memory_capacity_pressure", "fatigue_sleep_pressure"}:
         return "sleep_consolidation_advisory"
-    if reason_set & {"high_latency", "high_cost", "high_budget_use"}:
+    elif reason_set & {"high_latency", "high_cost", "high_budget_use"}:
         return "reduce_scope_or_wait"
-    if reason_set & {"high_uncertainty", "uncertain_domain"}:
+    elif reason_set & {"high_uncertainty", "uncertain_domain"}:
         return "collect_more_evidence"
-    if "healthy_grounded_state" in reason_set:
+    elif "healthy_grounded_state" in reason_set:
         return "continue_observing"
-    return "replay_episode_for_grounding"
+    else:
+        return "replay_episode_for_grounding"
 
 
 def _replay_endpoint_for_action(action: str) -> str:
     if action in {"review_contradiction", "verify_pending_evidence"}:
         return "/terminus/runtime-feedback"
-    if action == "sleep_consolidation_advisory":
+    elif action == "sleep_consolidation_advisory":
         return "/terminus/cortex/sleep"
-    if action == "replay_episode_for_grounding":
+    elif action == "replay_episode_for_grounding":
         return "/terminus/runtime-traces/export"
-    if action == "reduce_scope_or_wait":
+    elif action == "reduce_scope_or_wait":
         return "/terminus"
-    return "/terminus/living-loop"
+    else:
+        return "/terminus/living-loop"
 
 
 def _replay_priority_score(components: Mapping[str, float]) -> float:
