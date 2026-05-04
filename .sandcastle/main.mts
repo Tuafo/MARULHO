@@ -33,11 +33,18 @@ import { hostDirect } from "./host-direct.mts";
 const MAX_ITERATIONS = 10;
 
 const PI_MODEL = "nvidia-nim/z-ai/glm-5.1";
+const IDLE_TIMEOUT = 1800;
 
 // Sandbox provider — runs agents directly on the host, no Docker needed.
 // Requires: git, pi, python (in .venv), gh
 // Set SANDCASTLE_SHELL to override the shell (default: Git Bash on Windows, sh elsewhere).
-const sandbox = hostDirect();
+const sandbox = hostDirect({
+  env: {
+    PYTHONUNBUFFERED: "1",
+    FORCE_COLOR: "0",
+    NO_COLOR: "1",
+  },
+});
 
 // Hooks run on the host before the agent starts each iteration.
 // Uses the host's .venv so pyright and pytest resolve correctly.
@@ -68,16 +75,15 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
-  const plan = await sandcastle.run({
-    hooks,
-    sandbox,
-    name: "planner",
-    // One iteration is enough: the planner just needs to read and reason,
-    // not write code.
-    maxIterations: 1,
-    agent: sandcastle.pi(PI_MODEL),
-    promptFile: "./.sandcastle/plan-prompt.md",
-  });
+const plan = await sandcastle.run({
+  hooks,
+  sandbox,
+  name: "planner",
+  maxIterations: 1,
+  idleTimeoutSeconds: IDLE_TIMEOUT,
+  agent: sandcastle.pi(PI_MODEL),
+  promptFile: "./.sandcastle/plan-prompt.md",
+});
 
   // Extract the <plan>…</plan> block from the agent's stdout.
   // matchAll handles cases where the model outputs multiple <plan> tags or
@@ -129,6 +135,7 @@ const settled = await Promise.allSettled(
       const implement = await sb.run({
         name: "implementer",
         maxIterations: 100,
+        idleTimeoutSeconds: IDLE_TIMEOUT,
         agent: sandcastle.pi(PI_MODEL),
         promptFile: "./.sandcastle/implement-prompt.md",
         promptArgs: {
@@ -140,11 +147,12 @@ const settled = await Promise.allSettled(
 
       // Only review if the implementer produced commits
       if (implement.commits.length > 0) {
-        const review = await sb.run({
-          name: "reviewer",
-          maxIterations: 1,
-          agent: sandcastle.pi(PI_MODEL),
-          promptFile: "./.sandcastle/review-prompt.md",
+      const review = await sb.run({
+        name: "reviewer",
+        maxIterations: 1,
+        idleTimeoutSeconds: IDLE_TIMEOUT,
+        agent: sandcastle.pi(PI_MODEL),
+        promptFile: "./.sandcastle/review-prompt.md",
           promptArgs: {
             BRANCH: issue.branch,
           },
@@ -209,12 +217,13 @@ const settled = await Promise.allSettled(
   // The {{BRANCHES}} and {{ISSUES}} prompt arguments are lists that the agent
   // uses to know which branches to merge and which issues to close.
   // -------------------------------------------------------------------------
-  await sandcastle.run({
-    hooks,
-    sandbox,
-    name: "merger",
-    maxIterations: 1,
-    agent: sandcastle.pi(PI_MODEL),
+await sandcastle.run({
+  hooks,
+  sandbox,
+  name: "merger",
+  maxIterations: 1,
+  idleTimeoutSeconds: IDLE_TIMEOUT,
+  agent: sandcastle.pi(PI_MODEL),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       // A markdown list of branch names, one per line.
