@@ -1,4 +1,4 @@
-"""Replay Planning module for the Living Loop.
+"""Replay Planning module for the Living Loop (Layer C).
 
 This module contains ReplayCandidate, ReplayPlan, build_replay_plan,
 replay_candidate_safety_flags, and all replay-specific constants and private
@@ -6,8 +6,8 @@ helpers used by the replay planning logic.
 
 Dependency direction: Helpers → Records → Policy → Replay → Self-Model
 
-This module imports from Policy, Records, and Helpers only; it never imports
-from the Self-Model module.
+This module imports from Policy, Records, and Helpers only; it never imports from
+the Self-Model module.
 """
 
 from __future__ import annotations

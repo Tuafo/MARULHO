@@ -1,4 +1,4 @@
-"""Policy Scoring module for the Living Loop.
+"""Policy Scoring module for the Living Loop (Layer B).
 
 This module contains PolicyScore, WorldModelLiteSummary,
 PolicyActuatorRecommendation, build_policy_actuator_status,
@@ -7,8 +7,8 @@ decision logic.
 
 Dependency direction: Helpers → Records → Policy → Replay → Self-Model
 
-This module imports from Records and Helpers only; it never imports
-from Replay or Self-Model modules.
+This module imports from Records and Helpers only; it never imports from
+Replay or Self-Model modules.
 """
 
 from __future__ import annotations

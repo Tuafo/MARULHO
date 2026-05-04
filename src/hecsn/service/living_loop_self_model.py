@@ -1,4 +1,4 @@
-"""Operational Self-Model and telemetry module for the Living Loop.
+"""Operational Self-Model and telemetry module for the Living Loop (Layer D).
 
 This module contains OperationalSelfModel (build, from_payload, to_payload,
 all _surface_* methods), build_runtime_benchmark_telemetry, and all
@@ -7,7 +7,7 @@ telemetry-specific private helpers.
 Dependency direction: Helpers → Records → Policy → Replay → Self-Model
 
 This module imports from Replay, Policy, Records, and Helpers only;
-it never imports upward from any consumer module.
+it never imports from any consumer module.
 """
 
 from __future__ import annotations

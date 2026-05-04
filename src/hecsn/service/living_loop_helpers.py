@@ -1,4 +1,4 @@
-"""Shared cross-layer helper functions for the Living Loop.
+"""Shared cross-layer helper functions for the Living Loop (Layer 0 / Foundation).
 
 This module houses the 12 private helper functions that are used across
 all depth layers of the Living Loop (Records, Policy, Replay, Self-Model).
