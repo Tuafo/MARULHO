@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 from hecsn.cortex.episodic_memory import Provenance
 
 if TYPE_CHECKING:
-    from hecsn.service.living_loop import VerificationStatus, WorldModelLiteSummary
+    from hecsn.service.living_loop_records import VerificationStatus
+    from hecsn.service.living_loop import WorldModelLiteSummary
 
 
 def _stable_id(prefix: str, *parts: Any) -> str:
@@ -94,7 +95,7 @@ def _provenance_value(value: Any, default: Provenance = Provenance.INFERRED) -> 
 
 def _verification_status_from_payload(value: Any) -> VerificationStatus:
     """Convert a payload value to a VerificationStatus enum member."""
-    from hecsn.service.living_loop import VerificationStatus  # lazy: avoids circular import
+    from hecsn.service.living_loop_records import VerificationStatus  # lazy: avoids circular import
 
     status = _clean_text(value).lower()
     if status == VerificationStatus.VERIFIED.value:
