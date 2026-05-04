@@ -19,7 +19,7 @@ from hecsn.cortex.episodic_memory import Provenance
 
 if TYPE_CHECKING:
     from hecsn.service.living_loop_records import VerificationStatus
-    from hecsn.service.living_loop import WorldModelLiteSummary
+    from hecsn.service.living_loop_policy import WorldModelLiteSummary
 
 
 def _stable_id(prefix: str, *parts: Any) -> str:
@@ -119,7 +119,7 @@ def _safe_float(value: Any) -> float | None:
 
 def _coerce_world_model_lite(value: WorldModelLiteSummary | Mapping[str, Any] | None) -> WorldModelLiteSummary:
     """Coerce a value to a WorldModelLiteSummary instance."""
-    from hecsn.service.living_loop import WorldModelLiteSummary  # lazy: avoids circular import
+    from hecsn.service.living_loop_policy import WorldModelLiteSummary  # lazy: avoids circular import
 
     if isinstance(value, WorldModelLiteSummary):
         return value
