@@ -1,14 +1,16 @@
 """Policy Scoring module for the Living Loop.
 
-This module contains PolicyScore, WorldModelLiteSummary, PolicyActuatorRecommendation,
-build_policy_actuator_status, and the policy-specific private helpers used by
-the policy actuator decision logic.
+This module contains PolicyScore, WorldModelLiteSummary,
+PolicyActuatorRecommendation, build_policy_actuator_status,
+and the policy-specific private helpers used by the policy actuator
+decision logic.
 
 Dependency direction: Helpers → Records → Policy → Replay → Self-Model
 
-This module imports from Records and Helpers only; it never imports from
-Replay or Self-Model modules.
+This module imports from Records and Helpers only; it never imports
+from Replay or Self-Model modules.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,7 +31,6 @@ from hecsn.service.living_loop_records import (
     VerificationStatus,
 )
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -38,10 +39,10 @@ POLICY_ACTUATOR_SCHEMA_VERSION = 1
 POLICY_ACTUATOR_HIGH_LATENCY_AVG_MS = 1000.0
 POLICY_ACTUATOR_HIGH_LATENCY_MAX_MS = 1500.0
 
-
 # ---------------------------------------------------------------------------
 # PolicyScore
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class PolicyScore:
@@ -64,7 +65,8 @@ class PolicyScore:
             risk=_clamp01(data.get("risk", 0.0)),
             budget_use=_clamp01(data.get("budget_use", 0.0)),
             uncertainty=_clamp01(data.get("uncertainty", 1.0)),
-            recommended_next_action=_clean_text(data.get("recommended_next_action")) or "observe_or_execute_grounded_action",
+            recommended_next_action=_clean_text(data.get("recommended_next_action"))
+            or "observe_or_execute_grounded_action",
             components=dict(data.get("components") or {}),
         )
 
@@ -84,6 +86,7 @@ class PolicyScore:
 # ---------------------------------------------------------------------------
 # WorldModelLiteSummary
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class WorldModelLiteSummary:
@@ -113,20 +116,21 @@ class WorldModelLiteSummary:
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any] | None) -> "WorldModelLiteSummary":
         data = dict(payload or {})
-        policy_payload = data.get("policy_score") if isinstance(data.get("policy_score"), Mapping) else data
+        raw_policy_score = data.get("policy_score")
+        policy_payload = raw_policy_score if isinstance(raw_policy_score, Mapping) else data
         policy_score = PolicyScore.from_payload(policy_payload)
         return cls(
-            prediction_count=max(0, int(data.get("prediction_count", 0) or 0)),
-            fulfilled_count=max(0, int(data.get("fulfilled_count", 0) or 0)),
-            contradicted_count=max(0, int(data.get("contradicted_count", 0) or 0)),
-            pending_count=max(0, int(data.get("pending_count", 0) or 0)),
-            unknown_count=max(0, int(data.get("unknown_count", 0) or 0)),
-            evaluated_prediction_count=max(0, int(data.get("evaluated_prediction_count", 0) or 0)),
+            prediction_count=_safe_int(data.get("prediction_count", 0)),
+            fulfilled_count=_safe_int(data.get("fulfilled_count", 0)),
+            contradicted_count=_safe_int(data.get("contradicted_count", 0)),
+            pending_count=_safe_int(data.get("pending_count", 0)),
+            unknown_count=_safe_int(data.get("unknown_count", 0)),
+            evaluated_prediction_count=_safe_int(data.get("evaluated_prediction_count", 0)),
             prediction_accuracy=_clamp01(data.get("prediction_accuracy", 0.0)),
-            verification_count=max(0, int(data.get("verification_count", 0) or 0)),
-            verified_action_count=max(0, int(data.get("verified_action_count", 0) or 0)),
-            contradicted_action_count=max(0, int(data.get("contradicted_action_count", 0) or 0)),
-            unverified_action_count=max(0, int(data.get("unverified_action_count", 0) or 0)),
+            verification_count=_safe_int(data.get("verification_count", 0)),
+            verified_action_count=_safe_int(data.get("verified_action_count", 0)),
+            contradicted_action_count=_safe_int(data.get("contradicted_action_count", 0)),
+            unverified_action_count=_safe_int(data.get("unverified_action_count", 0)),
             verification_success_rate=_clamp01(data.get("verification_success_rate", 0.0)),
             contradiction_rate=_clamp01(data.get("contradiction_rate", 0.0)),
             information_gain=policy_score.information_gain,
@@ -154,6 +158,7 @@ class WorldModelLiteSummary:
             unique_predictions[prediction.prediction_id] = prediction
         for action in actions:
             unique_predictions.setdefault(action.prediction.prediction_id, action.prediction)
+
         prediction_records = tuple(unique_predictions.values())
         action_records = tuple(actions)
         consolidation_records = tuple(consolidations)
@@ -174,16 +179,13 @@ class WorldModelLiteSummary:
         )
         verification_count = len(verification_records)
         verified_action_count = sum(
-            1 for item in verification_records
-            if item.success or item.status == VerificationStatus.VERIFIED
+            1 for item in verification_records if item.success or item.status == VerificationStatus.VERIFIED
         )
         contradicted_action_count = sum(
-            1 for item in verification_records
-            if item.contradiction or item.status == VerificationStatus.CONTRADICTED
+            1 for item in verification_records if item.contradiction or item.status == VerificationStatus.CONTRADICTED
         )
         unverified_action_count = sum(
-            1 for item in verification_records
-            if item.status == VerificationStatus.UNVERIFIED
+            1 for item in verification_records if item.status == VerificationStatus.UNVERIFIED
         )
         verification_success_rate = _safe_ratio(verified_action_count, verification_count)
 
@@ -367,11 +369,17 @@ class WorldModelLiteSummary:
 # Shared policy helpers (also used by Replay/Self-Model; re-exported)
 # ---------------------------------------------------------------------------
 
-def _policy_count(data: Mapping[str, Any], key: str) -> int:
+
+def _safe_int(value: Any) -> int:
+    """Safely convert a value to a non-negative int, returning 0 on failure."""
     try:
-        return max(0, int(data.get(key, 0) or 0))
+        return max(0, int(value or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _policy_count(data: Mapping[str, Any], key: str) -> int:
+    return _safe_int(data.get(key, 0))
 
 
 def _policy_mapping(value: Any) -> dict[str, Any]:
@@ -389,6 +397,7 @@ def _policy_float(*values: Any) -> float:
 # ---------------------------------------------------------------------------
 # Policy-specific private helpers (only used within this module)
 # ---------------------------------------------------------------------------
+
 
 def _policy_max_float(*values: Any) -> float:
     return max((_safe_float(value) or 0.0 for value in values), default=0.0)
@@ -481,14 +490,20 @@ def _policy_suggested_endpoint_and_input(
     target_episode_id: str | None,
     target_action_id: str | None,
 ) -> tuple[str, dict[str, Any]]:
-    target_type = "action" if target_action_id else ("runtime_episode" if target_episode_id else "")
+    if target_action_id:
+        target_type = "action"
+    elif target_episode_id:
+        target_type = "runtime_episode"
+    else:
+        target_type = ""
     target_id = target_action_id or target_episode_id or ""
+
     if action == "investigate_contradictions":
         return (
             "/terminus/living-loop",
             {"focus": "contradictions", "target_type": target_type, "target_id": target_id},
         )
-    if action == "verify_pending_evidence":
+    elif action == "verify_pending_evidence":
         return (
             "/terminus/runtime-feedback",
             {
@@ -498,62 +513,61 @@ def _policy_suggested_endpoint_and_input(
                 "note": "operator_review_required",
             },
         )
-    if action == "consolidate_or_sleep":
+    elif action == "consolidate_or_sleep":
         return (
             "/terminus/cortex/sleep",
             {"reason": "policy_actuator_advisory_memory_or_fatigue_pressure"},
         )
-    if action == "reduce_scope_or_wait":
+    elif action == "reduce_scope_or_wait":
         return (
             "/terminus",
             {"operator_note": "reduce source scope, defer new requests, or wait for pressure to clear"},
         )
-    if action == "collect_more_evidence":
+    elif action == "collect_more_evidence":
         return (
             "/terminus/living-loop",
             {"focus": "uncertain_domains", "operator_note": "collect evidence before changing policy"},
         )
-    return "/terminus", {"operator_note": "healthy grounded state; continue observing current policy"}
+    else:
+        return "/terminus", {"operator_note": "healthy grounded state; continue observing current policy"}
 
 
 # ---------------------------------------------------------------------------
 # _coerce_feedback_telemetry (also used by Self-Model; re-exported)
 # ---------------------------------------------------------------------------
 
+
 def _coerce_feedback_telemetry(feedback_summary: Mapping[str, Any] | None) -> dict[str, Any]:
     data = dict(feedback_summary or {})
-    status_counts = data.get("status_counts") if isinstance(data.get("status_counts"), Mapping) else {}
-    verdict_counts = data.get("verdict_counts") if isinstance(data.get("verdict_counts"), Mapping) else {}
-    target_counts = data.get("target_counts") if isinstance(data.get("target_counts"), Mapping) else {}
+
+    raw_status_counts = data.get("status_counts")
+    status_counts: Mapping[str, Any] = raw_status_counts if isinstance(raw_status_counts, Mapping) else {}
+
+    raw_verdict_counts = data.get("verdict_counts")
+    verdict_counts: Mapping[str, Any] = raw_verdict_counts if isinstance(raw_verdict_counts, Mapping) else {}
+
+    raw_target_counts = data.get("target_counts")
+    target_counts: Mapping[str, Any] = raw_target_counts if isinstance(raw_target_counts, Mapping) else {}
+
+    raw_recent_feedback = data.get("recent_feedback")
     recent_feedback = (
-        [dict(item) for item in list(data.get("recent_feedback") or []) if isinstance(item, Mapping)]
-        if isinstance(data.get("recent_feedback"), Sequence) and not isinstance(data.get("recent_feedback"), (str, bytes))
+        [dict(item) for item in list(raw_recent_feedback or []) if isinstance(item, Mapping)]
+        if isinstance(raw_recent_feedback, Sequence)
+        and not isinstance(raw_recent_feedback, (str, bytes))
         else []
     )
 
     def _count(key: str) -> int:
-        try:
-            return max(0, int(data.get(f"{key}_count", status_counts.get(key, 0)) or 0))
-        except (TypeError, ValueError):
-            return 0
+        return _safe_int(data.get(f"{key}_count", status_counts.get(key, 0)))
 
     def _verdict_count(key: str) -> int:
-        try:
-            return max(0, int(verdict_counts.get(key, 0) or 0))
-        except (TypeError, ValueError):
-            return 0
+        return _safe_int(verdict_counts.get(key, 0))
 
     def _target_count(key: str) -> int:
-        try:
-            return max(0, int(target_counts.get(key, 0) or 0))
-        except (TypeError, ValueError):
-            return 0
+        return _safe_int(target_counts.get(key, 0))
 
     feedback_count = data.get("feedback_count", data.get("count"))
-    try:
-        total = max(0, int(feedback_count or 0))
-    except (TypeError, ValueError):
-        total = 0
+    total = _safe_int(feedback_count)
 
     return {
         "feedback_count": int(total),
@@ -583,6 +597,7 @@ def _coerce_feedback_telemetry(feedback_summary: Mapping[str, Any] | None) -> di
 # ---------------------------------------------------------------------------
 # PolicyActuatorRecommendation
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class PolicyActuatorRecommendation:
@@ -630,6 +645,7 @@ class PolicyActuatorRecommendation:
 # build_policy_actuator_status
 # ---------------------------------------------------------------------------
 
+
 def build_policy_actuator_status(
     living_loop: Mapping[str, Any],
     *,
@@ -640,7 +656,9 @@ def build_policy_actuator_status(
     loop = dict(living_loop or {})
     world = _policy_mapping(loop.get("world_model_lite"))
     policy_score = _policy_mapping(world.get("policy_score"))
-    feedback = _coerce_feedback_telemetry(loop.get("feedback_summary") if isinstance(loop.get("feedback_summary"), Mapping) else {})
+    feedback = _coerce_feedback_telemetry(
+        loop.get("feedback_summary") if isinstance(loop.get("feedback_summary"), Mapping) else {}
+    )
     benchmark = _policy_mapping(loop.get("benchmark_telemetry"))
     memory_health = _policy_mapping(loop.get("memory_health"))
     benchmark_memory = _policy_mapping(benchmark.get("memory"))
@@ -652,11 +670,15 @@ def build_policy_actuator_status(
     information_gain = _clamp01(_policy_max_float(world.get("information_gain"), policy_score.get("information_gain")))
     goal_progress = _clamp01(_policy_max_float(world.get("goal_progress"), policy_score.get("goal_progress")))
     policy_cost = _clamp01(_policy_max_float(world.get("cost"), policy_score.get("cost"), budgets.get("policy_cost")))
-    budget_use = _clamp01(_policy_max_float(world.get("budget_use"), policy_score.get("budget_use"), budgets.get("policy_budget_use")))
+    budget_use = _clamp01(
+        _policy_max_float(world.get("budget_use"), policy_score.get("budget_use"), budgets.get("policy_budget_use"))
+    )
     risk = _clamp01(_policy_max_float(world.get("risk"), policy_score.get("risk"), budgets.get("policy_risk")))
     uncertainty = _clamp01(
         max(
-            _policy_max_float(world.get("uncertainty"), policy_score.get("uncertainty"), budgets.get("policy_uncertainty")),
+            _policy_max_float(
+                world.get("uncertainty"), policy_score.get("uncertainty"), budgets.get("policy_uncertainty")
+            ),
             _policy_float(drives.get("uncertainty")),
         )
     )
@@ -677,10 +699,24 @@ def build_policy_actuator_status(
     contradicted_feedback = _policy_count(feedback, "contradicted_count")
     contradicted_predictions = _policy_count(world, "contradicted_count")
     contradicted_actions = _policy_count(world, "contradicted_action_count")
-    grounding_contradicted = _clean_text(grounding_health.get("status")).lower() == "contradictions_present"
+    grounding_contradicted = (
+        _clean_text(grounding_health.get("status")).lower() == "contradictions_present"
+    )
     failed_episode_id = _policy_first_episode_target(loop, {"contradicted"})
 
-    if contradicted_feedback > 0 or contradicted_predictions > 0 or contradicted_actions > 0 or grounding_contradicted or failed_episode_id:
+    cortex_sleeping = (
+        fatigue >= 0.70
+        or bool(cortex.get("is_sleeping", False))
+        or _clean_text(cortex.get("current_mode")).lower() == "sleeping"
+    )
+
+    if (
+        contradicted_feedback > 0
+        or contradicted_predictions > 0
+        or contradicted_actions > 0
+        or grounding_contradicted
+        or failed_episode_id
+    ):
         target_episode_id, target_action_id = _policy_recent_feedback_target(feedback, {"contradicted"})
         target_action_id = target_action_id or _policy_first_action_target(loop, {"contradicted"})
         target_episode_id = target_episode_id or failed_episode_id
@@ -751,7 +787,7 @@ def build_policy_actuator_status(
                     }
                 )
             action = "verify_pending_evidence"
-        elif memory_fill >= 0.90 or fatigue >= 0.70 or bool(cortex.get("is_sleeping", False)) or _clean_text(cortex.get("current_mode")).lower() == "sleeping":
+        elif memory_fill >= 0.90 or cortex_sleeping:
             if memory_fill >= 0.90:
                 reasons.append(
                     {
@@ -759,7 +795,7 @@ def build_policy_actuator_status(
                         "detail": f"Memory fill is {memory_fill:.2f}, at or above 0.90.",
                     }
                 )
-            if fatigue >= 0.70 or bool(cortex.get("is_sleeping", False)) or _clean_text(cortex.get("current_mode")).lower() == "sleeping":
+            if cortex_sleeping:
                 reasons.append(
                     {
                         "code": "fatigue_sleep_pressure",
@@ -782,7 +818,8 @@ def build_policy_actuator_status(
             action = "reduce_scope_or_wait"
         else:
             uncertain_domains = [
-                item for item in list(loop.get("uncertain_domains") or [])
+                item
+                for item in list(loop.get("uncertain_domains") or [])
                 if isinstance(item, Mapping) and int(item.get("total_uncertain_signals", 0) or 0) > 0
             ]
             unknown_predictions = _policy_count(world, "unknown_count")
@@ -817,7 +854,8 @@ def build_policy_actuator_status(
         "collect_more_evidence": "Collect more evidence for uncertain domains before acting.",
         "continue_current_policy": "Continue the current grounded policy without executing a new action.",
     }
-    expected_by_action = {
+    # Expected outcomes per action: (information_gain, goal_progress, cost, risk)
+    expected_by_action: dict[str, tuple[float, float, float, float]] = {
         "investigate_contradictions": (0.80, 0.60, 0.35, 0.75),
         "verify_pending_evidence": (0.72, 0.55, 0.25, 0.45),
         "consolidate_or_sleep": (0.45, 0.45, 0.20, 0.30),
@@ -825,8 +863,8 @@ def build_policy_actuator_status(
         "collect_more_evidence": (0.70, 0.50, 0.30, 0.40),
         "continue_current_policy": (0.30, max(0.50, goal_progress), 0.10, risk),
     }
-
     base_information, base_progress, base_cost, base_risk = expected_by_action[action]
+
     suggested_endpoint, suggested_input = _policy_suggested_endpoint_and_input(
         action,
         target_episode_id=target_episode_id,
