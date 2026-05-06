@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 from hecsn.config.runtime_env import load_runtime_env
@@ -226,6 +226,5 @@ class ServicePersistenceMixin:
         return str(value)
 
     def _record_brain_event_locked(self, event: dict[str, Any]) -> None:
-        payload = cast(dict[str, Any], self._json_safe(event))
-        self._runtime_state.record_event(payload)
+        self._runtime_state.record_event(event)
 

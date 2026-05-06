@@ -5,7 +5,7 @@ from copy import deepcopy
 from contextlib import nullcontext
 from pathlib import Path
 from threading import RLock
-from typing import Any, Mapping, cast
+from typing import Any, Mapping
 
 
 DEFAULT_BRAIN_EVENT_HISTORY = 16
@@ -35,13 +35,15 @@ class RuntimeState:
             return value
         if isinstance(value, Path):
             return str(value)
-        if isinstance(value, dict):
-            return {str(key): RuntimeState._json_safe(item) for key, item in value.items()}
         if isinstance(value, Mapping):
             return {str(key): RuntimeState._json_safe(item) for key, item in value.items()}
         if isinstance(value, (list, tuple, deque)):
             return [RuntimeState._json_safe(item) for item in value]
         return str(value)
+
+    @classmethod
+    def _json_safe_event(cls, event: Mapping[str, Any]) -> dict[str, Any]:
+        return {str(key): cls._json_safe(item) for key, item in event.items()}
 
     @property
     def dirty_state(self) -> bool:
@@ -93,11 +95,10 @@ class RuntimeState:
 
     def record_event(self, event: Mapping[str, Any]) -> dict[str, Any]:
         with self._guard():
-            payload = cast(dict[str, Any], self._json_safe(dict(event)))
-            normalized = deepcopy(payload)
-            self._brain_last_event = deepcopy(normalized)
-            self._brain_event_history.appendleft(deepcopy(normalized))
-            return deepcopy(normalized)
+            payload = self._json_safe_event(event)
+            self._brain_last_event = deepcopy(payload)
+            self._brain_event_history.appendleft(deepcopy(payload))
+            return deepcopy(payload)
 
     def snapshot(self) -> dict[str, Any]:
         with self._guard():

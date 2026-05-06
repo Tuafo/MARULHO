@@ -65,14 +65,20 @@ class RuntimeStateTests(unittest.TestCase):
         recorded = state.record_event(payload)
         payload[1]["items"].append("mutated")
         recorded["1"]["items"].append("mutated_again")
+        last_event = state.last_event
+        snapshot_last_event = state.snapshot()["last_event"]
 
         self.assertEqual(Path(recorded["1"]["path"]).as_posix(), "reports/runtime/event.json")
         self.assertEqual(recorded["1"]["items"][0], "alpha")
         self.assertEqual(Path(recorded["1"]["items"][1]).as_posix(), "nested/item.txt")
         self.assertEqual(recorded["1"]["items"][2], "mutated_again")
-        self.assertEqual(Path(state.last_event["1"]["path"]).as_posix(), "reports/runtime/event.json")
-        self.assertEqual(state.last_event["1"]["items"], ["alpha", str(Path("nested/item.txt"))])
-        self.assertEqual(Path(state.snapshot()["last_event"]["1"]["path"]).as_posix(), "reports/runtime/event.json")
+        self.assertIsNotNone(last_event)
+        self.assertIsNotNone(snapshot_last_event)
+        assert last_event is not None
+        assert snapshot_last_event is not None
+        self.assertEqual(Path(last_event["1"]["path"]).as_posix(), "reports/runtime/event.json")
+        self.assertEqual(last_event["1"]["items"], ["alpha", str(Path("nested/item.txt"))])
+        self.assertEqual(Path(snapshot_last_event["1"]["path"]).as_posix(), "reports/runtime/event.json")
 
     def test_record_event_history_is_newest_first_and_bounded_to_sixteen(self) -> None:
         state = RuntimeState()
@@ -83,5 +89,8 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertEqual(len(state.recent_events), 16)
         self.assertEqual(state.recent_events[0]["type"], "event-19")
         self.assertEqual(state.recent_events[-1]["type"], "event-4")
-        self.assertEqual(state.last_event["type"], "event-19")
+        last_event = state.last_event
+        self.assertIsNotNone(last_event)
+        assert last_event is not None
+        self.assertEqual(last_event["type"], "event-19")
         self.assertEqual(state.snapshot()["recent_events"][0]["type"], "event-19")
