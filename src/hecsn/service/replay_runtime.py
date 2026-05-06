@@ -162,7 +162,7 @@ class ReplayRuntimeMixin:
             }
             normalized_record = self._normalize_replay_sample_record(record) or record
             self._replay_sample_history.appendleft(normalized_record)
-            self._dirty_state = True
+            self._runtime_state.mark_dirty_without_revision()
             return deepcopy(normalized_record)
 
     def replay_sample_history(self, *, limit: int = 20) -> dict[str, Any]:

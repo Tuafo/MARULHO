@@ -62,7 +62,7 @@ class ServicePersistenceMixin:
             self._checkpoint_path = saved_path
             self._checkpoint_dir = saved_path.parent
             self._metadata = metadata
-            self._dirty_state = False
+            self._runtime_state.mark_clean()
             return {
                 "path": str(saved_path),
                 "dirty_state": bool(self._dirty_state),
@@ -162,8 +162,7 @@ class ServicePersistenceMixin:
             self._brain_last_acquisition_summary = None
             self._brain_last_acquisition_token_count = int(self._trainer.token_count)
             self._rebuild_brain_sources_locked()
-            self._dirty_state = False
-            self._state_revision += 1
+            self._runtime_state.restore_clean()
             return {
                 "path": str(checkpoint_path),
                 "dirty_state": bool(self._dirty_state),
@@ -228,6 +227,5 @@ class ServicePersistenceMixin:
 
     def _record_brain_event_locked(self, event: dict[str, Any]) -> None:
         payload = cast(dict[str, Any], self._json_safe(event))
-        self._brain_last_event = deepcopy(payload)
-        self._brain_event_history.appendleft(deepcopy(payload))
+        self._runtime_state.record_event(payload)
 

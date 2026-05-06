@@ -685,8 +685,7 @@ class InteractionRuntimeMixin:
         }
 
     def _mark_mutated(self) -> None:
-        self._dirty_state = True
-        self._state_revision += 1
+        self._runtime_state.mark_mutated()
 
     def _observe_concepts_locked(
         self,

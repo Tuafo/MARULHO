@@ -2,6 +2,7 @@
 
 Module structure:
 - manager.py:          HECSNServiceManager facade and live runtime orchestration
+- runtime_state.py:    Shared dirty-state, revision, and brain event container
 - runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports
 - runtime_feedback.py: Operator feedback normalization and application
 - action_assist.py:   Query action-assist and audited action evidence injection
