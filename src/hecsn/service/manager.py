@@ -473,30 +473,6 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             for ref in refs
         )
 
-    @property
-    def _dirty_state(self) -> bool:
-        return self._runtime_state.dirty_state
-
-    @_dirty_state.setter
-    def _dirty_state(self, value: bool) -> None:
-        self._runtime_state.dirty_state = bool(value)
-
-    @property
-    def _state_revision(self) -> int:
-        return self._runtime_state.state_revision
-
-    @_state_revision.setter
-    def _state_revision(self, value: int) -> None:
-        self._runtime_state.state_revision = int(value)
-
-    @property
-    def _brain_last_event(self) -> dict[str, Any] | None:
-        return self._runtime_state.last_event
-
-    @property
-    def _brain_event_history(self) -> tuple[dict[str, Any], ...]:
-        return tuple(self._runtime_state.recent_events)
-
     def _cortex_unavailable_snapshot(self) -> dict[str, Any]:
         return {
             "enabled": False,

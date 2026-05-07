@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from contextlib import ExitStack
 from functools import partial
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
@@ -100,29 +99,6 @@ def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) 
         trace_dir=root / "traces",
         env_root=env_root,
     )
-
-
-def _forbidden_runtime_state_proxy_property(field_name: str) -> property:
-    def _raise(_self: object) -> object:
-        raise AssertionError(f"{field_name} should be read from RuntimeState directly")
-
-    return property(_raise)
-
-
-def _forbid_runtime_state_proxy_reads(manager: HECSNServiceManager, stack: ExitStack) -> None:
-    for field_name in (
-        "_dirty_state",
-        "_state_revision",
-        "_brain_last_event",
-        "_brain_event_history",
-    ):
-        stack.enter_context(
-            patch.object(
-                type(manager),
-                field_name,
-                new=_forbidden_runtime_state_proxy_property(field_name),
-            )
-        )
 
 
 class ServiceManagerBootstrapTests(unittest.TestCase):
@@ -441,27 +417,23 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
                 episode_id = feed_result["runtime_episode"]["episode_id"]
                 expected_state_revision = int(manager._runtime_state.state_revision) + 1
-                stale_event = {"type": "stale_manager_event"}
-
-                with (
-                    patch.object(HECSNServiceManager, "_dirty_state", new=property(lambda _self: False)),
-                    patch.object(HECSNServiceManager, "_state_revision", new=property(lambda _self: 999)),
-                    patch.object(HECSNServiceManager, "_brain_last_event", new=property(lambda _self: stale_event)),
-                    patch.object(
-                        HECSNServiceManager,
-                        "_brain_event_history",
-                        new=property(lambda _self: (stale_event,)),
-                    ),
+                for field_name in (
+                    "_dirty_state",
+                    "_state_revision",
+                    "_brain_last_event",
+                    "_brain_event_history",
                 ):
-                    feedback = manager.record_runtime_feedback(
-                        {
-                            "target_type": "runtime_episode",
-                            "target_id": episode_id,
-                            "verdict": "contradicted",
-                            "confidence": 0.82,
-                            "summary": "Operator corrected the feed trace outcome.",
-                        }
-                    )
+                    self.assertFalse(hasattr(HECSNServiceManager, field_name))
+
+                feedback = manager.record_runtime_feedback(
+                    {
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "verdict": "contradicted",
+                        "confidence": 0.82,
+                        "summary": "Operator corrected the feed trace outcome.",
+                    }
+                )
 
                 self.assertTrue(feedback["accepted"])
                 self.assertTrue(feedback["dirty_state"])
@@ -8182,11 +8154,9 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.__dict__.pop("_cached_status", None)
                 manager.__dict__.pop("_cached_terminus_status", None)
 
-                with ExitStack() as stack:
-                    _forbid_runtime_state_proxy_reads(manager, stack)
-                    status = manager.status()
-                    terminus = manager.terminus_status()
-                    living_loop = manager.living_loop_status()
+                status = manager.status()
+                terminus = manager.terminus_status()
+                living_loop = manager.living_loop_status()
 
                 runtime_snapshot = manager._runtime_state.snapshot()
                 status_runtime = status["terminus_runtime"]

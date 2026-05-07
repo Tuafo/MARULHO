@@ -2838,8 +2838,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             def _fake_start(self):
                 return {
                     "terminus_runtime": self._brain_runtime_snapshot_locked(),
-                    "dirty_state": bool(self._dirty_state),
-                    "state_revision": int(self._state_revision),
+                    **self._runtime_state.mutation_summary(),
                     "token_count": int(self._trainer.token_count),
                 }
 
