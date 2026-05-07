@@ -599,7 +599,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
-                client.post(
+                feedback_response = client.post(
                     "/terminus/runtime-feedback",
                     json={
                         "target_type": "runtime_episode",
@@ -612,13 +612,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 plan_response = client.get("/terminus/replay-plan?limit=5")
                 candidate = plan_response.json()["candidates"][0]
+                candidate_id = candidate["candidate_id"]
                 manager.save_checkpoint()
                 before_state = manager.status()
                 sample_response = client.post(
                     "/terminus/replay-sample",
                     json={
                         "mode": "sample",
-                        "candidate_id": candidate["candidate_id"],
+                        "candidate_id": candidate_id,
                         "target_type": "runtime_episode",
                         "target_id": episode_id,
                         "operator_id": "operator-a",
@@ -630,6 +631,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 after_state = manager.status()
 
         self.assertEqual(feed_response.status_code, 200)
+        self.assertEqual(feedback_response.status_code, 200)
         self.assertEqual(plan_response.status_code, 200)
         self.assertFalse(before_state["dirty_state"])
         self.assertEqual(before_state["state_revision"], after_state["state_revision"])
