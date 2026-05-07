@@ -339,6 +339,29 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_restore_checkpoint_marks_clean_and_increments_revision_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_restore_checkpoint_revision")
+            try:
+                manager.feed(text="river bank water current\nmoney bank credit loan\n")
+                manager.query(query_text="river bank current", top_k_memories=6)
+                before_restore = manager.status()["state_revision"]
+
+                saved = manager.save_checkpoint(str(root / "service.pt"))
+                self.assertFalse(saved["dirty_state"])
+                self.assertEqual(saved["state_revision"], before_restore)
+
+                restored = manager.restore_checkpoint(saved["path"])
+                after_restore = manager.status()
+
+                self.assertFalse(restored["dirty_state"])
+                self.assertEqual(restored["state_revision"], before_restore + 1)
+                self.assertFalse(after_restore["dirty_state"])
+                self.assertEqual(after_restore["state_revision"], before_restore + 1)
+            finally:
+                manager.close()
+
 
 class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
     def test_record_runtime_feedback_updates_and_persists_runtime_episode_trace(self) -> None:

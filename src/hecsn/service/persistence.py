@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from hecsn.config.runtime_env import load_runtime_env
