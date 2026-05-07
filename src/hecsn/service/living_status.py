@@ -70,7 +70,7 @@ class LivingStatusMixin:
         }
         model = OperationalSelfModel.build(
             token_count=int(self._trainer.token_count),
-            state_revision=int(self._state_revision),
+            state_revision=int(self._runtime_state.state_revision),
             configured=bool(self._brain_config.get("source_bank")),
             running=bool(self._brain_runtime_active_locked()),
             provenance=provenance,
@@ -164,8 +164,8 @@ class LivingStatusMixin:
                     cortex_snapshot=cortex_snapshot,
                     include_replay_dataset_summary=True,
                 ),
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                "dirty_state": bool(self._runtime_state.dirty_state),
+                "state_revision": int(self._runtime_state.state_revision),
                 "token_count": int(self._trainer.token_count),
             }
 

@@ -1072,8 +1072,8 @@ class BrainRuntimeMixin:
             ),
             "last_work_at": self._brain_last_work_at,
             "last_error": self._brain_last_error,
-            "last_event": deepcopy(self._brain_last_event),
-            "recent_events": [deepcopy(event) for event in list(self._brain_event_history)],
+            "last_event": self._runtime_state.last_event,
+            "recent_events": self._runtime_state.recent_events,
             "source_bank": deepcopy(self._brain_config.get("source_bank", [])),
             "ingestion": self._ingestion_runtime_summary_locked(),
             "background_source_routing": {

@@ -200,7 +200,9 @@ class RuntimePrewarmMixin:
         return not thread.is_alive()
 
     def _record_remote_warm_promotion_completed_locked(self) -> None:
-        last_event = self._brain_last_event if isinstance(self._brain_last_event, Mapping) else {}
+        last_event = self._runtime_state.last_event
+        if not isinstance(last_event, Mapping):
+            last_event = {}
         if str(last_event.get("type", "")) == "remote_warm_promotion_completed":
             return
         self._record_brain_event_locked(

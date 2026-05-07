@@ -409,6 +409,46 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 restored.close()
 
+    def test_record_runtime_feedback_uses_runtime_state_for_mutation_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_runtime_feedback_runtime_state")
+            try:
+                feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
+                episode_id = feed_result["runtime_episode"]["episode_id"]
+                expected_revision = int(manager._runtime_state.state_revision) + 1
+
+                with patch.object(HECSNServiceManager, "_dirty_state", new=property(lambda self: False)), patch.object(
+                    HECSNServiceManager,
+                    "_state_revision",
+                    new=property(lambda self: 999),
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_brain_last_event",
+                    new=property(lambda self: {"type": "stale_manager_event"}),
+                ), patch.object(
+                    HECSNServiceManager,
+                    "_brain_event_history",
+                    new=property(lambda self: ({"type": "stale_manager_event"},)),
+                ):
+                    feedback = manager.record_runtime_feedback(
+                        {
+                            "target_type": "runtime_episode",
+                            "target_id": episode_id,
+                            "verdict": "contradicted",
+                            "confidence": 0.82,
+                            "summary": "Operator corrected the feed trace outcome.",
+                        }
+                    )
+
+                self.assertTrue(feedback["accepted"])
+                self.assertTrue(feedback["dirty_state"])
+                self.assertEqual(feedback["state_revision"], expected_revision)
+                self.assertEqual(feedback["terminus_runtime"]["last_event"]["type"], "runtime_feedback_recorded")
+                self.assertEqual(feedback["terminus_runtime"]["recent_events"][0]["type"], "runtime_feedback_recorded")
+            finally:
+                manager.close()
+
     def test_terminus_tick_trains_from_configured_file_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
