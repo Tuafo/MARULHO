@@ -512,7 +512,8 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
         content = " ".join(str(record.get("episode_text", "")).split()).strip()
         if not content:
             return
-        verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
+        verification_raw = record.get("verification")
+        verification: Mapping[str, Any] = verification_raw if isinstance(verification_raw, Mapping) else {}
         thought_loop.inject_action_result(
             content=content,
             topics=tuple(str(item) for item in list(record.get("topics") or []) if str(item).strip()),
