@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from functools import partial
+from contextlib import ExitStack
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import os
@@ -99,6 +100,13 @@ def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) 
         trace_dir=root / "traces",
         env_root=env_root,
     )
+
+
+def _forbidden_runtime_truth_property(field_name: str) -> property:
+    def _raise(_self: object) -> object:
+        raise AssertionError(f"{field_name} should be read from RuntimeState directly")
+
+    return property(_raise)
 
 
 class ServiceManagerBootstrapTests(unittest.TestCase):
@@ -8100,6 +8108,72 @@ class CortexIntegrationTests(unittest.TestCase):
                 self.assertEqual(truth["evidence"]["configured"], False)
                 self.assertEqual(truth["evidence"]["token_count"], status["token_count"])
                 self.assertEqual(terminus["runtime_truth"]["verdict"], truth["verdict"])
+            finally:
+                manager.close()
+
+    def test_status_and_terminus_status_read_runtime_state_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="status_runtime_state_seam")
+            try:
+                manager._runtime_state.dirty_state = True
+                manager._runtime_state.state_revision = 7
+                manager._runtime_state.record_event(
+                    {
+                        "type": "runtime-state-seam",
+                        "path": Path("reports/runtime/event.json"),
+                        "items": ["alpha", Path("nested/item.txt")],
+                    }
+                )
+                manager.__dict__.pop("_cached_status", None)
+                manager.__dict__.pop("_cached_terminus_status", None)
+
+                with ExitStack() as stack:
+                    stack.enter_context(
+                        patch.object(
+                            type(manager),
+                            "_dirty_state",
+                            new=_forbidden_runtime_truth_property("_dirty_state"),
+                        )
+                    )
+                    stack.enter_context(
+                        patch.object(
+                            type(manager),
+                            "_state_revision",
+                            new=_forbidden_runtime_truth_property("_state_revision"),
+                        )
+                    )
+                    stack.enter_context(
+                        patch.object(
+                            type(manager),
+                            "_brain_last_event",
+                            new=_forbidden_runtime_truth_property("_brain_last_event"),
+                        )
+                    )
+                    stack.enter_context(
+                        patch.object(
+                            type(manager),
+                            "_brain_event_history",
+                            new=_forbidden_runtime_truth_property("_brain_event_history"),
+                        )
+                    )
+                    status = manager.status()
+                    terminus = manager.terminus_status()
+
+                runtime_snapshot = manager._runtime_state.snapshot()
+                self.assertTrue(status["dirty_state"])
+                self.assertEqual(status["state_revision"], 7)
+                self.assertEqual(status["terminus_runtime"]["last_event"], runtime_snapshot["last_event"])
+                self.assertEqual(status["terminus_runtime"]["recent_events"], runtime_snapshot["recent_events"])
+                self.assertEqual(status["terminus_runtime"]["last_event"]["type"], "runtime-state-seam")
+                self.assertEqual(Path(status["terminus_runtime"]["last_event"]["path"]).as_posix(), "reports/runtime/event.json")
+                self.assertEqual(status["terminus_runtime"]["last_event"]["items"][0], "alpha")
+                self.assertEqual(Path(status["terminus_runtime"]["last_event"]["items"][1]).as_posix(), "nested/item.txt")
+                self.assertEqual(status["terminus_runtime"]["recent_events"][0], status["terminus_runtime"]["last_event"])
+                self.assertTrue(terminus["dirty_state"])
+                self.assertEqual(terminus["state_revision"], 7)
+                self.assertEqual(terminus["terminus_runtime"]["last_event"], runtime_snapshot["last_event"])
+                self.assertEqual(terminus["terminus_runtime"]["recent_events"], runtime_snapshot["recent_events"])
             finally:
                 manager.close()
 

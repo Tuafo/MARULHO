@@ -54,6 +54,7 @@ class LivingStatusMixin:
             if isinstance(item, Mapping)
         ]
         narrative = cortex_data.get("narrative_self") if isinstance(cortex_data.get("narrative_self"), Mapping) else {}
+        runtime_state_revision = int(self._runtime_state.state_revision)
         cortex_summary = {
             "enabled": bool(cortex_data.get("enabled", False)),
             "running": bool(cortex_data.get("running", False)),
@@ -70,7 +71,7 @@ class LivingStatusMixin:
         }
         model = OperationalSelfModel.build(
             token_count=int(self._trainer.token_count),
-            state_revision=int(self._state_revision),
+            state_revision=runtime_state_revision,
             configured=bool(self._brain_config.get("source_bank")),
             running=bool(self._brain_runtime_active_locked()),
             provenance=provenance,
@@ -159,13 +160,14 @@ class LivingStatusMixin:
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
             cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            runtime_state_snapshot = self._runtime_state.snapshot()
             return {
                 "living_loop": self._living_loop_snapshot_locked(
                     cortex_snapshot=cortex_snapshot,
                     include_replay_dataset_summary=True,
                 ),
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                "dirty_state": bool(runtime_state_snapshot["dirty_state"]),
+                "state_revision": int(runtime_state_snapshot["state_revision"]),
                 "token_count": int(self._trainer.token_count),
             }
 

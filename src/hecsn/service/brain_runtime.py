@@ -1021,6 +1021,7 @@ class BrainRuntimeMixin:
         if self._remote_warm_promotion_running and not self._remote_warm_promotion_text_needed_locked() and not self._remote_warm_promotion_sensory_needed_locked():
             self._record_remote_warm_promotion_completed_locked()
         thread_alive = self._brain_runtime_active_locked()
+        runtime_state_snapshot = self._runtime_state.snapshot()
         total_text_learning_tokens = int(self._brain_background_tokens + self._brain_autonomy_tokens)
         autonomy_share_of_text_learning = float(
             0.0
@@ -1072,8 +1073,8 @@ class BrainRuntimeMixin:
             ),
             "last_work_at": self._brain_last_work_at,
             "last_error": self._brain_last_error,
-            "last_event": deepcopy(self._brain_last_event),
-            "recent_events": [deepcopy(event) for event in list(self._brain_event_history)],
+            "last_event": runtime_state_snapshot["last_event"],
+            "recent_events": runtime_state_snapshot["recent_events"],
             "source_bank": deepcopy(self._brain_config.get("source_bank", [])),
             "ingestion": self._ingestion_runtime_summary_locked(),
             "background_source_routing": {
