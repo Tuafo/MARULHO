@@ -417,13 +417,6 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
                 episode_id = feed_result["runtime_episode"]["episode_id"]
                 expected_state_revision = int(manager._runtime_state.state_revision) + 1
-                for field_name in (
-                    "_dirty_state",
-                    "_state_revision",
-                    "_brain_last_event",
-                    "_brain_event_history",
-                ):
-                    self.assertFalse(hasattr(HECSNServiceManager, field_name))
 
                 feedback = manager.record_runtime_feedback(
                     {

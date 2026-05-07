@@ -13,6 +13,22 @@ _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0002-runtime-state-ownership.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 _RUNTIME_STATE_FIELDS = ("dirty_state", "state_revision", "last_event", "recent_events")
 _RUNTIME_STATE_PRIVATE_FIELDS = ("_dirty_state", "_state_revision", "_brain_last_event", "_brain_event_history")
+_RUNTIME_STATE_PRIVATE_FIELD_SET = frozenset(_RUNTIME_STATE_PRIVATE_FIELDS)
+_DYNAMIC_ATTRIBUTE_ACCESSORS = frozenset({"getattr", "setattr", "delattr"})
+
+
+def _runtime_state_private_field_reference(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Attribute) and node.attr in _RUNTIME_STATE_PRIVATE_FIELD_SET:
+        return node.attr
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in _RUNTIME_STATE_PRIVATE_FIELD_SET:
+        return node.name
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _DYNAMIC_ATTRIBUTE_ACCESSORS:
+        if len(node.args) < 2 or not isinstance(node.args[1], ast.Constant):
+            return None
+        attr_name = node.args[1].value
+        if isinstance(attr_name, str) and attr_name in _RUNTIME_STATE_PRIVATE_FIELD_SET:
+            return f"{node.func.id}({attr_name})"
+    return None
 
 
 def _iter_runtime_state_private_field_violations() -> list[str]:
@@ -22,18 +38,11 @@ def _iter_runtime_state_private_field_violations() -> list[str]:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr in _RUNTIME_STATE_PRIVATE_FIELDS:
+            field_reference = _runtime_state_private_field_reference(node)
+            if field_reference is not None:
                 violations.append(
-                    f"{path.relative_to(_REPO_ROOT)}:{node.lineno}:{node.col_offset + 1} {node.attr}"
+                    f"{path.relative_to(_REPO_ROOT)}:{node.lineno}:{node.col_offset + 1} {field_reference}"
                 )
-            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"getattr", "setattr", "delattr"}:
-                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
-                    attr_name = node.args[1].value
-                    if isinstance(attr_name, str) and attr_name in _RUNTIME_STATE_PRIVATE_FIELDS:
-                        violations.append(
-                            f"{path.relative_to(_REPO_ROOT)}:{node.lineno}:{node.col_offset + 1} "
-                            f"{node.func.id}({attr_name})"
-                        )
     return violations
 
 
@@ -100,11 +109,12 @@ class TestContextMdUpdated(unittest.TestCase):
 class TestRuntimeStateArchitectureGuard(unittest.TestCase):
     """Service runtime modules must not reopen the removed manager compatibility seam."""
 
-    def test_no_service_runtime_module_accesses_runtime_state_private_fields(self) -> None:
+    def test_no_service_runtime_module_defines_or_accesses_runtime_state_private_fields(self) -> None:
         violations = _iter_runtime_state_private_field_violations()
         self.assertFalse(
             violations,
-            "Found direct runtime-truth private-field access outside RuntimeState:\n" + "\n".join(violations),
+            "Found direct runtime-truth private-field definition or access outside RuntimeState:\n"
+            + "\n".join(violations),
         )
 
 
