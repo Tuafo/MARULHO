@@ -304,12 +304,18 @@ def live_nim_cortex():
     api_key = os.environ.get("NVIDIA_API_KEY", "")
     if not api_key:
         pytest.skip("NVIDIA_API_KEY not set")
-    cortex = NIMCortex(api_key=api_key, timeout_seconds=30.0)
+    cortex = NIMCortex(api_key=api_key, timeout_seconds=60.0)
     if not cortex.is_available():
         cortex.close()
         pytest.skip("NIM API not reachable")
     yield cortex
     cortex.close()
+
+
+def _skip_if_live_nim_unavailable(result: ThoughtResult) -> None:
+    raw_text = str(result.raw_text or "").lower()
+    if result.thought == "[nim unavailable]" and "timed out" in raw_text:
+        pytest.skip(f"NIM timed out during live integration call: {result.raw_text}")
 
 
 class TestNIMCortexIntegration:
@@ -321,6 +327,7 @@ class TestNIMCortexIntegration:
             mode=ThinkingMode.THINK,
         )
         result = live_nim_cortex.generate(ctx)
+        _skip_if_live_nim_unavailable(result)
         assert result.thought
         assert len(result.thought) > 10
         assert result.latency_ms > 0
@@ -335,6 +342,7 @@ class TestNIMCortexIntegration:
             ],
         )
         result = live_nim_cortex.generate(ctx)
+        _skip_if_live_nim_unavailable(result)
         assert result.thought
         assert result.parse_success
 
@@ -348,6 +356,7 @@ class TestNIMCortexIntegration:
             ],
         )
         result = live_nim_cortex.generate(ctx)
+        _skip_if_live_nim_unavailable(result)
         assert result.thought
 
 

@@ -1834,6 +1834,12 @@ class DelayedConsequenceMixin:
         current_token = int(self._trainer.token_count)
         current_query_score = max(0.0, min(1.0, float(query_snapshot.get("query_score", 0.0) or 0.0)))
         current_grounded_fraction = max(0.0, min(1.0, float(query_snapshot.get("grounded_fraction", 0.0) or 0.0)))
+        current_top_similarity = max(0.0, min(1.0, float(query_snapshot.get("top_similarity", 0.0) or 0.0)))
+        current_top_query_overlap_ratio = max(
+            0.0,
+            min(1.0, float(query_snapshot.get("top_query_overlap_ratio", 0.0) or 0.0)),
+        )
+        current_supported_episode_hits = max(0, int(query_snapshot.get("supported_episode_hits", 0) or 0))
         query_terms = list(query_snapshot.get("query_terms") or [])
         unsupported_terms = list(query_snapshot.get("unsupported_terms") or [])
         unsupported_ratio = min(1.0, float(len(unsupported_terms)) / float(max(1, len(query_terms))))
@@ -1881,13 +1887,28 @@ class DelayedConsequenceMixin:
             grounded_improvement = max(0.0, current_grounded_fraction - best_grounded_fraction)
             improvement = max(score_improvement, 0.85 * grounded_improvement)
             split_branch = " ".join(str(record.get("split_branch", "")).split()).strip().lower()
+            primary_query_text = self._normalize_action_text(record.get("query_text", "")).lower()
+            primary_query_recovery = (
+                unresolved_penalty_balance > 0.0
+                and current_query_text
+                and current_query_text == primary_query_text
+                and current_query_text not in adverse_examples
+                and current_top_similarity >= 0.90
+                and current_top_query_overlap_ratio >= 0.40
+                and current_supported_episode_hits >= 2
+            )
             supportive_recovery = (
                 unresolved_penalty_balance > 0.0
                 and current_query_text
                 and current_query_text not in adverse_examples
                 and (split_branch != "supportive" or not supportive_examples or current_query_text in supportive_examples)
-                and current_grounded_fraction >= max(0.60, best_grounded_fraction - 0.05)
-                and unsupported_ratio < DEFAULT_DELAYED_CONTRADICTION_UNSUPPORTED_THRESHOLD
+                and (
+                    (
+                        current_grounded_fraction >= max(0.60, best_grounded_fraction - 0.05)
+                        and unsupported_ratio < DEFAULT_DELAYED_CONTRADICTION_UNSUPPORTED_THRESHOLD
+                    )
+                    or primary_query_recovery
+                )
             )
             effective_improvement = max(
                 improvement,
