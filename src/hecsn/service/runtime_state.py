@@ -5,7 +5,7 @@ from copy import deepcopy
 from contextlib import nullcontext
 from pathlib import Path
 from threading import RLock
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
 DEFAULT_BRAIN_EVENT_HISTORY = 16
@@ -100,6 +100,37 @@ class RuntimeState:
             self._brain_last_event = deepcopy(payload)
             self._brain_event_history.appendleft(deepcopy(payload))
             return deepcopy(payload)
+
+    def restore_event_history(
+        self,
+        *,
+        last_event: Mapping[str, Any] | None = None,
+        recent_events: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        with self._state_guard():
+            history_limit = max(1, int(self._brain_event_history.maxlen or DEFAULT_BRAIN_EVENT_HISTORY))
+            normalized_events = [
+                self._json_safe_event(event)
+                for event in list(recent_events or [])
+                if isinstance(event, Mapping)
+            ][:history_limit]
+            normalized_last_event = self._json_safe_event(last_event) if isinstance(last_event, Mapping) else None
+
+            if normalized_last_event is not None:
+                if normalized_events:
+                    normalized_events[0] = deepcopy(normalized_last_event)
+                else:
+                    normalized_events = [deepcopy(normalized_last_event)]
+                self._brain_last_event = deepcopy(normalized_last_event)
+            elif normalized_events:
+                self._brain_last_event = deepcopy(normalized_events[0])
+            else:
+                self._brain_last_event = None
+
+            self._brain_event_history = deque(
+                (deepcopy(event) for event in normalized_events),
+                maxlen=history_limit,
+            )
 
     def snapshot(self) -> dict[str, Any]:
         with self._state_guard():
