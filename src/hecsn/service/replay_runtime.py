@@ -98,6 +98,7 @@ class ReplayRuntimeMixin:
             selected_candidates = [self._replay_sample_candidate_payload(candidate) for candidate in selected]
             created_at = datetime.now(timezone.utc).isoformat()
             replay_sample_id = f"replay-{normalized_mode}-{uuid4()}"
+            self._runtime_state.mark_dirty_without_revision()
             after = self._replay_sample_state_counts_locked()
             safety_flags = {
                 "audit_only": True,
@@ -162,7 +163,6 @@ class ReplayRuntimeMixin:
             }
             normalized_record = self._normalize_replay_sample_record(record) or record
             self._replay_sample_history.appendleft(normalized_record)
-            self._runtime_state.mark_dirty_without_revision()
             return deepcopy(normalized_record)
 
     def replay_sample_history(self, *, limit: int = 20) -> dict[str, Any]:
@@ -281,7 +281,7 @@ class ReplayRuntimeMixin:
         feedback_summary = self._runtime_feedback_summary_locked()
         return {
             "token_count": int(self._trainer.token_count),
-            "state_revision": int(self._state_revision),
+            "state_revision": int(self._runtime_state.state_revision),
             "action_history_count": int(len(self._action_history)),
             "feedback_count": int(feedback_summary.get("feedback_count", 0) or 0),
         }
