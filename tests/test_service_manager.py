@@ -8182,6 +8182,18 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_manager_does_not_expose_runtime_truth_compatibility_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="status_runtime_state_no_compat_aliases")
+            try:
+                for field in ("dirty_state", "state_revision", "last_event", "recent_events"):
+                    with self.subTest(field=field):
+                        self.assertFalse(hasattr(manager, field), f"manager unexpectedly exposes {field}")
+                        self.assertNotIn(field, manager.__dict__)
+            finally:
+                manager.close()
+
     def test_runtime_truth_reports_alive_after_cortex_and_progress(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
