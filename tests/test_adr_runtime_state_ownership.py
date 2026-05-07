@@ -9,10 +9,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0002-runtime-state-ownership.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
-_FIELDS = ["dirty_state", "state_revision", "last_event", "recent_events"]
+_RUNTIME_STATE_FIELDS = ("dirty_state", "state_revision", "last_event", "recent_events")
 
 
-class TestADRExists(unittest.TestCase):
+class TestRuntimeStateOwnershipADR(unittest.TestCase):
     """ADR 0002 must exist and describe Runtime State ownership."""
 
     def test_adr_file_exists(self) -> None:
@@ -34,7 +34,7 @@ class TestADRExists(unittest.TestCase):
         self.assertIn("Service Manager", text)
         self.assertIn("shallow", text.lower())
         self.assertIn("implicit", text.lower())
-        for field in _FIELDS:
+        for field in _RUNTIME_STATE_FIELDS:
             self.assertIn(field, text)
 
     def test_adr_documents_payload_compatibility_and_replay_exception(self) -> None:
@@ -58,7 +58,7 @@ class TestContextMdUpdated(unittest.TestCase):
 
     def test_context_mentions_runtime_state_fields(self) -> None:
         self.assertIn("Runtime State", self.context_text)
-        for field in _FIELDS:
+        for field in _RUNTIME_STATE_FIELDS:
             self.assertIn(field, self.context_text)
 
     def test_context_removes_interaction_pipeline_revision_ownership(self) -> None:
