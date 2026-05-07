@@ -587,6 +587,64 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             {"runtime_episode", "action"},
         )
 
+    def test_replay_sample_endpoint_marks_clean_runtime_dirty_without_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_replay_sample_clean_state"),
+                trace_dir=root / "traces",
+                env_root=root,
+            )
+            manager = app.state.hecsn_manager
+            with TestClient(app) as client:
+                feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
+                episode_id = feed_response.json()["runtime_episode"]["episode_id"]
+                feedback_response = client.post(
+                    "/terminus/runtime-feedback",
+                    json={
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "verdict": "contradicted",
+                        "confidence": 0.91,
+                        "summary": "Manual review contradicted this episode.",
+                        "corrected_output": {"summary": "Cats chase mice at night."},
+                    },
+                )
+                plan_response = client.get("/terminus/replay-plan?limit=5")
+                candidate = plan_response.json()["candidates"][0]
+                candidate_id = candidate["candidate_id"]
+                manager.save_checkpoint()
+                before_state = manager.status()
+                sample_response = client.post(
+                    "/terminus/replay-sample",
+                    json={
+                        "mode": "sample",
+                        "candidate_id": candidate_id,
+                        "target_type": "runtime_episode",
+                        "target_id": episode_id,
+                        "operator_id": "operator-a",
+                        "operator_note": "Audit contradicted replay candidate only.",
+                        "confirmation": True,
+                        "seed": 123,
+                    },
+                )
+                after_state = manager.status()
+
+        self.assertEqual(feed_response.status_code, 200)
+        self.assertEqual(feedback_response.status_code, 200)
+        self.assertEqual(plan_response.status_code, 200)
+        self.assertFalse(before_state["dirty_state"])
+        self.assertEqual(before_state["state_revision"], after_state["state_revision"])
+        self.assertTrue(after_state["dirty_state"])
+        self.assertEqual(sample_response.status_code, 200)
+        sample_body = sample_response.json()
+        self.assertFalse(sample_body["safety_flags"]["state_revision_mutated"])
+        self.assertEqual(sample_body["before"]["state_revision"], sample_body["after"]["state_revision"])
+        self.assertEqual(sample_body["before"]["state_revision"], before_state["state_revision"])
+        self.assertEqual(sample_body["after"]["state_revision"], after_state["state_revision"])
+        self.assertEqual(sample_body["mode"], "sample")
+        self.assertTrue(sample_body["safety_flags"]["audit_only"])
+
     def test_terminus_action_endpoint_executes_workspace_read_and_records_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
