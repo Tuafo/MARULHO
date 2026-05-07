@@ -1179,6 +1179,7 @@ class BrainRuntimeMixin:
         }
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:
+        runtime_state_snapshot = self._runtime_state.snapshot()
         return {
             "source_bank": deepcopy(self._brain_config.get("source_bank", [])),
             "tick_tokens": int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)),
@@ -1200,7 +1201,7 @@ class BrainRuntimeMixin:
             "action_history": [deepcopy(item) for item in list(self._action_history)],
             "runtime_episode_traces": [deepcopy(item) for item in list(self._runtime_episode_traces)],
             "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
-            "last_event": self._runtime_state.last_event,
-            "recent_events": self._runtime_state.recent_events,
+            "last_event": runtime_state_snapshot["last_event"],
+            "recent_events": runtime_state_snapshot["recent_events"],
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
         }
