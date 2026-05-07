@@ -1199,5 +1199,7 @@ class BrainRuntimeMixin:
             "action_history": [deepcopy(item) for item in list(self._action_history)],
             "runtime_episode_traces": [deepcopy(item) for item in list(self._runtime_episode_traces)],
             "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
+            "last_event": self._runtime_state.last_event,
+            "recent_events": self._runtime_state.recent_events,
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
         }

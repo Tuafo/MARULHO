@@ -7771,6 +7771,44 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_save_restore_round_trips_recent_brain_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_brain_event_checkpoint")
+            source_path = root / "brain_source.txt"
+            source_path.write_text("brain event persistence signal " * 32, encoding="utf-8")
+            try:
+                manager.configure_terminus(
+                    source_bank=[
+                        {
+                            "name": "brain_source",
+                            "source": str(source_path),
+                            "source_type": "file",
+                        }
+                    ],
+                    tick_tokens=8,
+                    sleep_interval_seconds=0.01,
+                    repeat_sources=False,
+                    ingestion={"queue_target_tokens": 16, "prewarm_on_startup": False},
+                )
+                manager.terminus_tick(steps=2)
+                before_runtime = manager.status()["terminus_runtime"]
+                self.assertGreater(len(before_runtime["recent_events"]), 0)
+                self.assertEqual(before_runtime["recent_events"][0], before_runtime["last_event"])
+
+                saved = manager.save_checkpoint(str(root / "brain_events.pt"))
+            finally:
+                manager.close()
+
+            restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+            try:
+                after_runtime = restored.status()["terminus_runtime"]
+
+                self.assertEqual(after_runtime["last_event"], before_runtime["last_event"])
+                self.assertEqual(after_runtime["recent_events"], before_runtime["recent_events"])
+            finally:
+                restored.close()
+
     def test_save_restore_round_trips_catalog_candidate_bank_configuration(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

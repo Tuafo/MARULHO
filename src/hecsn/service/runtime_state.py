@@ -5,7 +5,7 @@ from copy import deepcopy
 from contextlib import nullcontext
 from pathlib import Path
 from threading import RLock
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 
 DEFAULT_BRAIN_EVENT_HISTORY = 16
@@ -100,6 +100,44 @@ class RuntimeState:
             self._brain_last_event = deepcopy(payload)
             self._brain_event_history.appendleft(deepcopy(payload))
             return deepcopy(payload)
+
+    def restore_event_history(
+        self,
+        *,
+        last_event: Mapping[str, Any] | None = None,
+        recent_events: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        with self._state_guard():
+            history_limit = max(1, int(self._brain_event_history.maxlen or DEFAULT_BRAIN_EVENT_HISTORY))
+            restored_events = self._restored_event_history(recent_events, limit=history_limit)
+            restored_last_event = self._json_safe_event(last_event) if isinstance(last_event, Mapping) else None
+
+            if restored_last_event is not None:
+                if restored_events:
+                    restored_events[0] = deepcopy(restored_last_event)
+                else:
+                    restored_events.append(deepcopy(restored_last_event))
+                self._brain_last_event = deepcopy(restored_last_event)
+            elif restored_events:
+                self._brain_last_event = deepcopy(restored_events[0])
+            else:
+                self._brain_last_event = None
+
+            self._brain_event_history = deque(
+                (deepcopy(event) for event in restored_events),
+                maxlen=history_limit,
+            )
+
+    @classmethod
+    def _restored_event_history(
+        cls,
+        recent_events: Sequence[Mapping[str, Any]] | None,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if recent_events is None:
+            return []
+        return [cls._json_safe_event(event) for event in recent_events if isinstance(event, Mapping)][:limit]
 
     def snapshot(self) -> dict[str, Any]:
         with self._state_guard():

@@ -408,6 +408,11 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
         self._brain_stream_epoch = 0
         self._sensory_stream_epoch = 0
         self._rebuild_brain_sources_locked()
+        self._runtime_state.restore_event_history(
+            last_event=terminus_state.get("last_event"),
+            recent_events=terminus_state.get("recent_events"),
+        )
+        self._runtime_state.restore_clean()
         self._load_persisted_traces_locked()
 
         # --- Cortex / ThoughtLoop (requires NVIDIA_API_KEY) ---

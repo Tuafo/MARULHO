@@ -164,6 +164,10 @@ class ServicePersistenceMixin:
             self._brain_last_acquisition_summary = None
             self._brain_last_acquisition_token_count = int(self._trainer.token_count)
             self._rebuild_brain_sources_locked()
+            self._runtime_state.restore_event_history(
+                last_event=terminus_state.get("last_event"),
+                recent_events=terminus_state.get("recent_events"),
+            )
             self._runtime_state.restore_clean()
             return {
                 "path": str(checkpoint_path),

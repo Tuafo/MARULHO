@@ -94,3 +94,27 @@ class RuntimeStateTests(unittest.TestCase):
         assert last_event is not None
         self.assertEqual(last_event["type"], "event-19")
         self.assertEqual(state.snapshot()["recent_events"][0]["type"], "event-19")
+
+    def test_restore_event_history_normalizes_payload_and_preserves_last_event_head(self) -> None:
+        state = RuntimeState(history_limit=2)
+        recent_events = [
+            {"type": "older", "path": Path("older/event.json")},
+            {"type": "oldest"},
+            {"type": "trimmed"},
+        ]
+        last_event = {"type": "latest", "path": Path("latest/event.json")}
+
+        state.restore_event_history(last_event=last_event, recent_events=recent_events)
+        recent_events[0]["type"] = "mutated"
+        last_event["type"] = "mutated"
+
+        restored_events = state.recent_events
+        restored_last_event = state.last_event
+
+        self.assertEqual(len(restored_events), 2)
+        self.assertEqual(restored_events[0]["type"], "latest")
+        self.assertEqual(Path(restored_events[0]["path"]).as_posix(), "latest/event.json")
+        self.assertEqual(restored_events[1]["type"], "oldest")
+        self.assertIsNotNone(restored_last_event)
+        assert restored_last_event is not None
+        self.assertEqual(restored_last_event, restored_events[0])
