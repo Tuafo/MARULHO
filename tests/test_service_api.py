@@ -613,7 +613,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 plan_response = client.get("/terminus/replay-plan?limit=5")
                 candidate = plan_response.json()["candidates"][0]
                 candidate_id = candidate["candidate_id"]
-                saved = manager.save_checkpoint()
+                saved_checkpoint = manager.save_checkpoint()
                 before_state = manager.status()
                 sample_response = client.post(
                     "/terminus/replay-sample",
@@ -629,7 +629,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 after_state = manager.status()
-                restored = manager.restore_checkpoint(saved["path"])
+                restore_result = manager.restore_checkpoint(saved_checkpoint["path"])
                 restored_state = manager.status()
 
         self.assertEqual(feed_response.status_code, 200)
@@ -646,26 +646,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(sample_body["after"]["state_revision"], after_state["state_revision"])
         self.assertEqual(sample_body["mode"], "sample")
         self.assertTrue(sample_body["safety_flags"]["audit_only"])
-        self.assertEqual(
-            after_state["terminus_runtime"]["last_event"],
-            before_state["terminus_runtime"]["last_event"],
-        )
-        self.assertEqual(
-            after_state["terminus_runtime"]["recent_events"],
-            before_state["terminus_runtime"]["recent_events"],
-        )
-        self.assertFalse(restored["dirty_state"])
-        self.assertEqual(restored["state_revision"], before_state["state_revision"] + 1)
+        before_runtime = before_state["terminus_runtime"]
+        after_runtime = after_state["terminus_runtime"]
+        restored_runtime = restored_state["terminus_runtime"]
+        expected_restored_revision = before_state["state_revision"] + 1
+        self.assertEqual(after_runtime["last_event"], before_runtime["last_event"])
+        self.assertEqual(after_runtime["recent_events"], before_runtime["recent_events"])
+        self.assertFalse(restore_result["dirty_state"])
+        self.assertEqual(restore_result["state_revision"], expected_restored_revision)
         self.assertFalse(restored_state["dirty_state"])
-        self.assertEqual(restored_state["state_revision"], before_state["state_revision"] + 1)
-        self.assertEqual(
-            restored_state["terminus_runtime"]["last_event"],
-            before_state["terminus_runtime"]["last_event"],
-        )
-        self.assertEqual(
-            restored_state["terminus_runtime"]["recent_events"],
-            before_state["terminus_runtime"]["recent_events"],
-        )
+        self.assertEqual(restored_state["state_revision"], expected_restored_revision)
+        self.assertEqual(restored_runtime["last_event"], before_runtime["last_event"])
+        self.assertEqual(restored_runtime["recent_events"], before_runtime["recent_events"])
 
     def test_terminus_action_endpoint_executes_workspace_read_and_records_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
