@@ -386,7 +386,7 @@ class RuntimePrewarmMixin:
                 "token_count": int(len(examples)),
             }
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return int(len(examples))
 
     def _remote_sensory_bootstrap_candidates_locked(self) -> list[tuple[_SensorySourceRuntime, dict[str, Any], int, int, torch.device]]:
@@ -500,7 +500,7 @@ class RuntimePrewarmMixin:
                 "item_count": int(len(applied)),
             }
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return int(len(applied))
 
     def _promote_ready_remote_brain_items_locked(self) -> int:
@@ -566,7 +566,7 @@ class RuntimePrewarmMixin:
                         "warm_trigger": "remote_promotion",
                     }
                 )
-                self._mark_mutated()
+                self._runtime_state.mark_mutated()
             promoted_total += promoted
         return promoted_total
 
@@ -637,7 +637,7 @@ class RuntimePrewarmMixin:
                         "warm_trigger": "remote_promotion",
                     }
                 )
-                self._mark_mutated()
+                self._runtime_state.mark_mutated()
             promoted_total += promoted
         return promoted_total
 

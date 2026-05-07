@@ -64,7 +64,7 @@ class RuntimeControlMixin:
             self._rebuild_brain_sources_locked()
             self._start_ingestion_prewarm_locked(trigger="configure")
             self._start_remote_warm_promotion_locked(trigger="configure")
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
             return {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
                 "dirty_state": bool(self._dirty_state),

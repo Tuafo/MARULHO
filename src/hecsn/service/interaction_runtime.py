@@ -217,7 +217,7 @@ class InteractionRuntimeMixin:
                     allow_sleep_maintenance=False,
                     on_step=self._runtime_concept_callback_locked(),
                 )
-                self._mark_mutated()
+                self._runtime_state.mark_mutated()
                 actual_output = self._feed_runtime_actual_output(summary)
                 tokens_processed = int(summary.get("tokens_processed", 0) or 0)
                 verification = {
@@ -559,7 +559,7 @@ class InteractionRuntimeMixin:
                 on_train_step=self._runtime_concept_callback_locked(),
             )
             if int(result.get("tokens_trained_total", 0)) > 0:
-                self._mark_mutated()
+                self._runtime_state.mark_mutated()
 
             checkpoint_save = None
             if save_checkpoint_path is not None:
@@ -676,16 +676,13 @@ class InteractionRuntimeMixin:
         elif learn_mode != "user_only":
             raise ValueError(f"Unsupported learn_mode: {learn_mode}")
 
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return {
             "learn_mode": learn_mode,
             "user_feed": user_feed,
             "evidence_feed": evidence_feed,
             "selected_evidence_count": int(len(selected_texts)),
         }
-
-    def _mark_mutated(self) -> None:
-        self._runtime_state.mark_mutated()
 
     def _observe_concepts_locked(
         self,

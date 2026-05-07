@@ -744,7 +744,7 @@ class SensoryRuntimeMixin:
             self._real_sensory_episodes_completed += episodes_run
             self._last_real_sensory_episode_time = now
             self._last_real_sensory_episode_token_count = int(self._trainer.token_count)
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
             return {
                 "type": "real_sensory_episode",
                 "episodes_completed": int(self._real_sensory_episodes_completed),

@@ -259,7 +259,7 @@ class BrainRuntimeMixin:
                 if sub:
                     self._observe_runtime_concepts_locked(raw_window=sub[-1][0], metrics=last_metrics)
                 total_trained += len(sub)
-                self._mark_mutated()
+                self._runtime_state.mark_mutated()
             if pause_seconds > 0.0:
                 time.sleep(pause_seconds)
         return total_trained, last_metrics, list(evidence_windows)
@@ -672,7 +672,7 @@ class BrainRuntimeMixin:
             self._brain_background_tokens += total_trained
             self._brain_tick_count += 1
             self._brain_source_index = (idx + 1) % source_count
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
             source_summary = {
                 "did_work": True,
                 "source_name": runtime.name,
@@ -879,9 +879,9 @@ class BrainRuntimeMixin:
         self._brain_last_acquisition_token_count = int(self._trainer.token_count)
         self._brain_autonomy_tokens += tokens_trained_total
         if curriculum_before != autonomy.get("provider_curriculum"):
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
         if tokens_trained_total > 0:
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
         summary = {
             "executed_at": datetime.now(timezone.utc).isoformat(),
             "trigger_reason": trigger_reason,

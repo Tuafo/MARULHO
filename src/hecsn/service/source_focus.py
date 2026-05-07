@@ -325,7 +325,7 @@ class SourceFocusMixin:
             previous = max(0.0, min(1.0, float(entry.get(key, 0.0) or 0.0)))
             entry[key] = float(sample if int(entry["selections"]) <= 1 else (1.0 - alpha) * previous + alpha * float(sample))
         entry["last_selected_at"] = datetime.now(timezone.utc).isoformat()
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
 
     @staticmethod
     def _selected_evidence_weight_map(

@@ -58,7 +58,7 @@ class RuntimeFeedbackMixin:
                     "evaluator_id": str(entry.get("evaluator_id", "")),
                 }
             )
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
             return {
                 "accepted": True,
                 "target_type": target_type,

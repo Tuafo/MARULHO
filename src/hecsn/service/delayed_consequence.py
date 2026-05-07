@@ -769,7 +769,7 @@ class DelayedConsequenceMixin:
                 "max_branch_overlap": float(max_branch_overlap),
             }
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return {
             "split_records": int(split_records),
             "max_branch_overlap": float(max_branch_overlap),
@@ -899,7 +899,7 @@ class DelayedConsequenceMixin:
                 "record_ids": remerged_record_ids[:8],
             }
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return {
             "remerged_records": int(len(remerge_map)),
             "record_ids": remerged_record_ids[:8],
@@ -1349,7 +1349,7 @@ class DelayedConsequenceMixin:
                 [cast(dict[str, Any], candidate), *existing_records][:DEFAULT_DELAYED_CONSEQUENCE_RECORDS],
                 maxlen=DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
             )
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
             return cast(dict[str, Any], candidate)
         merged = self._merge_delayed_consequence_records_locked(candidate, existing_records[best_index])
         self._delayed_consequence_records = deque(
@@ -1366,7 +1366,7 @@ class DelayedConsequenceMixin:
                 "record_id": str(merged.get("record_id", "")),
             }
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return merged
 
     def _compact_delayed_consequence_records_locked(self) -> dict[str, Any]:
@@ -1412,7 +1412,7 @@ class DelayedConsequenceMixin:
                 "max_aggregate_count": int(max_aggregate_count),
             }
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
         return {
             "compacted_records": int(compacted_records),
             "max_aggregate_count": int(max_aggregate_count),
@@ -1514,7 +1514,7 @@ class DelayedConsequenceMixin:
                         "record_ids": retired_record_ids[:8],
                     }
                 )
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
         return {
             "cooled_records": int(cooled_records),
             "retired_records": int(retired_records),
@@ -2179,7 +2179,7 @@ class DelayedConsequenceMixin:
                 float(split_post.get("max_branch_overlap", 1.0) or 1.0),
             )
             summary["record_count"] = int(len(self._delayed_consequence_records))
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
         return summary
 
     def _record_response_consequence_candidate_locked(
@@ -2265,7 +2265,7 @@ class DelayedConsequenceMixin:
             )
             applied = True
         if applied:
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
         return applied
 
     def _apply_background_source_outcome_calibration_locked(
@@ -2318,7 +2318,7 @@ class DelayedConsequenceMixin:
             if previous_utility <= 0.0
             else 0.75 * previous_utility + 0.25 * reinforced_utility
         )
-        self._mark_mutated()
+        self._runtime_state.mark_mutated()
 
     def _delayed_consequence_summary_locked(self, limit: int = 4) -> dict[str, Any]:
         records = list(self._delayed_consequence_records)

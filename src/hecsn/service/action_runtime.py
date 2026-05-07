@@ -101,7 +101,7 @@ class ActionRuntimeMixin:
                     "contradiction": bool((normalized.get("verification") or {}).get("contradiction", False)),
                 }
             )
-            self._mark_mutated()
+            self._runtime_state.mark_mutated()
             runtime = self._brain_runtime_snapshot_locked()
         return {
             "accepted": True,
