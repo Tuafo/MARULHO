@@ -346,19 +346,20 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             try:
                 manager.feed(text="river bank water current\nmoney bank credit loan\n")
                 manager.query(query_text="river bank current", top_k_memories=6)
-                before_restore = manager.status()["state_revision"]
+                revision_before_restore = manager.status()["state_revision"]
+                revision_after_restore = revision_before_restore + 1
 
                 saved = manager.save_checkpoint(str(root / "service.pt"))
                 self.assertFalse(saved["dirty_state"])
-                self.assertEqual(saved["state_revision"], before_restore)
+                self.assertEqual(saved["state_revision"], revision_before_restore)
 
                 restored = manager.restore_checkpoint(saved["path"])
                 after_restore = manager.status()
 
                 self.assertFalse(restored["dirty_state"])
-                self.assertEqual(restored["state_revision"], before_restore + 1)
+                self.assertEqual(restored["state_revision"], revision_after_restore)
                 self.assertFalse(after_restore["dirty_state"])
-                self.assertEqual(after_restore["state_revision"], before_restore + 1)
+                self.assertEqual(after_restore["state_revision"], revision_after_restore)
             finally:
                 manager.close()
 

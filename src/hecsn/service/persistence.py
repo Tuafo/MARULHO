@@ -87,13 +87,15 @@ class ServicePersistenceMixin:
             terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
             concept_state = service_state.get("concept_store")
             self._concept_store = ConceptStore.from_state_dict(concept_state)
+            geometric_curiosity_state = cast(
+                dict[str, Any] | None,
+                terminus_state.get("geometric_curiosity"),
+            )
             self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
                 self._trainer.model.abstraction_layer,
-                cast(dict[str, Any] | None, terminus_state.get("geometric_curiosity")),
+                geometric_curiosity_state,
             )
-            self._brain_config = self._normalize_brain_config(
-                terminus_state
-            )
+            self._brain_config = self._normalize_brain_config(terminus_state)
             self._brain_source_utility = self._normalize_background_source_utility_state(
                 terminus_state.get("background_source_utility")
             )
