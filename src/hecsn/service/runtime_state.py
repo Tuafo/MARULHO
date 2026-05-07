@@ -26,7 +26,8 @@ class RuntimeState:
         self._brain_last_event: dict[str, Any] | None = None
         self._brain_event_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(history_limit)))
 
-    def _guard(self):
+    def _state_guard(self):
+        """Return the shared runtime lock, or a no-op guard for standalone use."""
         return self._lock if self._lock is not None else nullcontext()
 
     @staticmethod
@@ -47,61 +48,61 @@ class RuntimeState:
 
     @property
     def dirty_state(self) -> bool:
-        with self._guard():
+        with self._state_guard():
             return bool(self._dirty_state)
 
     @dirty_state.setter
     def dirty_state(self, value: bool) -> None:
-        with self._guard():
+        with self._state_guard():
             self._dirty_state = bool(value)
 
     @property
     def state_revision(self) -> int:
-        with self._guard():
+        with self._state_guard():
             return int(self._state_revision)
 
     @state_revision.setter
     def state_revision(self, value: int) -> None:
-        with self._guard():
+        with self._state_guard():
             self._state_revision = max(0, int(value))
 
     @property
     def last_event(self) -> dict[str, Any] | None:
-        with self._guard():
+        with self._state_guard():
             return None if self._brain_last_event is None else deepcopy(self._brain_last_event)
 
     @property
     def recent_events(self) -> list[dict[str, Any]]:
-        with self._guard():
+        with self._state_guard():
             return [deepcopy(event) for event in list(self._brain_event_history)]
 
     def mark_mutated(self) -> None:
-        with self._guard():
+        with self._state_guard():
             self._dirty_state = True
             self._state_revision += 1
 
     def mark_dirty_without_revision(self) -> None:
-        with self._guard():
+        with self._state_guard():
             self._dirty_state = True
 
     def mark_clean(self) -> None:
-        with self._guard():
+        with self._state_guard():
             self._dirty_state = False
 
     def restore_clean(self) -> None:
-        with self._guard():
+        with self._state_guard():
             self._dirty_state = False
             self._state_revision += 1
 
     def record_event(self, event: Mapping[str, Any]) -> dict[str, Any]:
-        with self._guard():
+        with self._state_guard():
             payload = self._json_safe_event(event)
             self._brain_last_event = deepcopy(payload)
             self._brain_event_history.appendleft(deepcopy(payload))
             return deepcopy(payload)
 
     def snapshot(self) -> dict[str, Any]:
-        with self._guard():
+        with self._state_guard():
             return {
                 "dirty_state": bool(self._dirty_state),
                 "state_revision": int(self._state_revision),
