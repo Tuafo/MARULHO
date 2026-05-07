@@ -138,7 +138,6 @@ class RuntimeState:
         if recent_events is None:
             return []
         return [cls._json_safe_event(event) for event in recent_events if isinstance(event, Mapping)][:limit]
-
     def snapshot(self) -> dict[str, Any]:
         with self._state_guard():
             return {

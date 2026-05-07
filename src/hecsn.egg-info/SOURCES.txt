@@ -110,6 +110,7 @@ src/hecsn/service/runtime_evidence.py
 src/hecsn/service/runtime_feedback.py
 src/hecsn/service/runtime_prewarm.py
 src/hecsn/service/runtime_sources.py
+src/hecsn/service/runtime_state.py
 src/hecsn/service/schemas.py
 src/hecsn/service/sensory_preview.py
 src/hecsn/service/sensory_runtime.py
@@ -142,6 +143,7 @@ tests/test_action_loop.py
 tests/test_adaptive_context.py
 tests/test_adex.py
 tests/test_adr_living_loop_deepening.py
+tests/test_adr_runtime_state_ownership.py
 tests/test_approved_action_level2.py
 tests/test_arc_agi.py
 tests/test_autonomy_ladder.py
@@ -198,6 +200,7 @@ tests/test_replay_training_gate.py
 tests/test_replay_training_plan.py
 tests/test_responder.py
 tests/test_routing_index.py
+tests/test_runtime_state.py
 tests/test_self_improvement_readiness.py
 tests/test_semantic_encoder.py
 tests/test_service_api.py
