@@ -65,8 +65,7 @@ class ServicePersistenceMixin:
             self._runtime_state.mark_clean()
             return {
                 "path": str(saved_path),
-                "dirty_state": bool(self._runtime_state.dirty_state),
-                "state_revision": int(self._runtime_state.state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
 
@@ -171,8 +170,7 @@ class ServicePersistenceMixin:
             self._runtime_state.restore_clean()
             return {
                 "path": str(checkpoint_path),
-                "dirty_state": bool(self._runtime_state.dirty_state),
-                "state_revision": int(self._runtime_state.state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
 
@@ -180,8 +178,7 @@ class ServicePersistenceMixin:
         last_trace = self._trace_history[0] if self._trace_history else None
         return {
             "checkpoint_path": str(self._checkpoint_path),
-            "dirty_state": bool(self._runtime_state.dirty_state),
-            "state_revision": int(self._runtime_state.state_revision),
+            **self._runtime_state.mutation_summary(),
             "token_count": int(self._trainer.token_count),
             "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
             "concept_count": int(self._concept_store.snapshot().get("concept_count", 0)),

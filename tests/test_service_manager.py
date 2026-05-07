@@ -416,20 +416,18 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
                 episode_id = feed_result["runtime_episode"]["episode_id"]
-                expected_revision = int(manager._runtime_state.state_revision) + 1
+                expected_state_revision = int(manager._runtime_state.state_revision) + 1
+                stale_event = {"type": "stale_manager_event"}
 
-                with patch.object(HECSNServiceManager, "_dirty_state", new=property(lambda self: False)), patch.object(
-                    HECSNServiceManager,
-                    "_state_revision",
-                    new=property(lambda self: 999),
-                ), patch.object(
-                    HECSNServiceManager,
-                    "_brain_last_event",
-                    new=property(lambda self: {"type": "stale_manager_event"}),
-                ), patch.object(
-                    HECSNServiceManager,
-                    "_brain_event_history",
-                    new=property(lambda self: ({"type": "stale_manager_event"},)),
+                with (
+                    patch.object(HECSNServiceManager, "_dirty_state", new=property(lambda _self: False)),
+                    patch.object(HECSNServiceManager, "_state_revision", new=property(lambda _self: 999)),
+                    patch.object(HECSNServiceManager, "_brain_last_event", new=property(lambda _self: stale_event)),
+                    patch.object(
+                        HECSNServiceManager,
+                        "_brain_event_history",
+                        new=property(lambda _self: (stale_event,)),
+                    ),
                 ):
                     feedback = manager.record_runtime_feedback(
                         {
@@ -443,7 +441,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
                 self.assertTrue(feedback["accepted"])
                 self.assertTrue(feedback["dirty_state"])
-                self.assertEqual(feedback["state_revision"], expected_revision)
+                self.assertEqual(feedback["state_revision"], expected_state_revision)
                 self.assertEqual(feedback["terminus_runtime"]["last_event"]["type"], "runtime_feedback_recorded")
                 self.assertEqual(feedback["terminus_runtime"]["recent_events"][0]["type"], "runtime_feedback_recorded")
             finally:

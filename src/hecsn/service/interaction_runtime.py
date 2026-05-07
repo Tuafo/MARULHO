@@ -252,8 +252,7 @@ class InteractionRuntimeMixin:
                 return {
                     "feed_summary": summary,
                     "runtime_episode": episode,
-                    "dirty_state": bool(self._runtime_state.dirty_state),
-                    "state_revision": int(self._runtime_state.state_revision),
+                    **self._runtime_state.mutation_summary(),
                 }
             except Exception as exc:
                 episode = self._runtime_episode_payload_locked(
@@ -465,8 +464,7 @@ class InteractionRuntimeMixin:
                     "response": response,
                     "learning": learning,
                     "runtime_episode": episode,
-                    "dirty_state": bool(self._runtime_state.dirty_state),
-                    "state_revision": int(self._runtime_state.state_revision),
+                    **self._runtime_state.mutation_summary(),
                 }
             except Exception as exc:
                 prediction = {
@@ -590,8 +588,7 @@ class InteractionRuntimeMixin:
                 "policy": policy,
                 "acquisition_result": result,
                 "checkpoint_save": checkpoint_save,
-                "dirty_state": bool(self._runtime_state.dirty_state),
-                "state_revision": int(self._runtime_state.state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
 
