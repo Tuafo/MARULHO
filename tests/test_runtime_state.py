@@ -26,6 +26,19 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertTrue(state.dirty_state)
         self.assertEqual(state.state_revision, 1)
 
+    def test_mutation_summary_reports_dirty_state_and_revision(self) -> None:
+        state = RuntimeState()
+
+        state.mark_mutated()
+
+        self.assertEqual(
+            state.mutation_summary(),
+            {
+                "dirty_state": True,
+                "state_revision": 1,
+            },
+        )
+
     def test_dirty_without_revision_preserves_revision(self) -> None:
         state = RuntimeState()
 

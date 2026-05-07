@@ -160,14 +160,13 @@ class LivingStatusMixin:
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
             cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
-            runtime_state_snapshot = self._runtime_state.snapshot()
+            runtime_mutation = self._runtime_state.mutation_summary()
             return {
                 "living_loop": self._living_loop_snapshot_locked(
                     cortex_snapshot=cortex_snapshot,
                     include_replay_dataset_summary=True,
                 ),
-                "dirty_state": bool(runtime_state_snapshot["dirty_state"]),
-                "state_revision": int(runtime_state_snapshot["state_revision"]),
+                **runtime_mutation,
                 "token_count": int(self._trainer.token_count),
             }
 

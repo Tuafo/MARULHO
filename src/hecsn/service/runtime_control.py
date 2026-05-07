@@ -67,8 +67,7 @@ class RuntimeControlMixin:
             self._runtime_state.mark_mutated()
             return {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
 
@@ -94,8 +93,7 @@ class RuntimeControlMixin:
             if self._brain_runtime_active_locked():
                 return {
                     "terminus_runtime": self._brain_runtime_snapshot_locked(),
-                    "dirty_state": bool(self._dirty_state),
-                    "state_revision": int(self._state_revision),
+                    **self._runtime_state.mutation_summary(),
                     "token_count": int(self._trainer.token_count),
                 }
             self._brain_stop_event = Event()
@@ -113,8 +111,7 @@ class RuntimeControlMixin:
 
             result = {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
         # Start cortex thought loop alongside brain, but do not let NIM startup
@@ -149,8 +146,7 @@ class RuntimeControlMixin:
         with self._lock:
             return {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
 
@@ -167,8 +163,7 @@ class RuntimeControlMixin:
             if self._brain_runtime_active_locked():
                 return {
                     "terminus_runtime": self._brain_runtime_snapshot_locked(),
-                    "dirty_state": bool(self._dirty_state),
-                    "state_revision": int(self._state_revision),
+                    **self._runtime_state.mutation_summary(),
                     "token_count": int(self._trainer.token_count),
                     "already_running": True,
                 }
@@ -255,8 +250,7 @@ class RuntimeControlMixin:
             return {
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
                 "tick_summaries": tick_summaries,
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
 

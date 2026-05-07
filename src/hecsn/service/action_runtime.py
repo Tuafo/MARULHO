@@ -107,7 +107,7 @@ class ActionRuntimeMixin:
             "accepted": True,
             "result": deepcopy(normalized),
             "terminus_runtime": runtime,
-            "state_revision": int(self._state_revision),
+            "state_revision": int(self._runtime_state.state_revision),
         }
 
     def _action_history_memory_metadata(self, record: Mapping[str, Any]) -> dict[str, Any]:

@@ -202,14 +202,13 @@ class StatusRuntimeMixin:
     def _status_snapshot_locked(self) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
         terminus_runtime = self._brain_runtime_snapshot_locked()
-        runtime_state_snapshot = self._runtime_state.snapshot()
+        runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size = int(len(self._trace_history))
         return {
             "checkpoint_path": str(self._checkpoint_path),
-            "dirty_state": bool(runtime_state_snapshot["dirty_state"]),
-            "state_revision": int(runtime_state_snapshot["state_revision"]),
+            **runtime_mutation,
             "token_count": int(self._trainer.token_count),
             "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
             "context_supported": bool(self._trainer.model.context_layer is not None),
@@ -281,7 +280,8 @@ class StatusRuntimeMixin:
 
     def _telemetry_snapshot_locked(self) -> dict[str, Any]:
         """Build the telemetry dict. Caller MUST hold self._lock."""
-        current_rev = int(self._runtime_state.state_revision)
+        runtime_mutation = self._runtime_state.mutation_summary()
+        current_rev = int(runtime_mutation["state_revision"])
         cortex_active = self._thought_loop_actual is not None and self._thought_loop_actual.is_running
         cached = getattr(self, "_cached_telemetry", None)
         cached_rev = getattr(self, "_cached_telemetry_rev", -1)
@@ -302,7 +302,8 @@ class StatusRuntimeMixin:
         snapshot = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "checkpoint_path": str(self._checkpoint_path),
-            "dirty_state": bool(self._runtime_state.dirty_state),
+            "dirty_state": bool(runtime_mutation["dirty_state"]),
+            "dirty_state": bool(runtime_mutation["dirty_state"]),
             "state_revision": current_rev,
             "token_count": int(self._trainer.token_count),
             "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
@@ -631,14 +632,13 @@ class StatusRuntimeMixin:
 
     def _terminus_status_snapshot_locked(self) -> dict[str, Any]:
         terminus_runtime = self._brain_runtime_snapshot_locked()
-        runtime_state_snapshot = self._runtime_state.snapshot()
+        runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size = int(len(self._trace_history))
         return {
             "terminus_runtime": terminus_runtime,
-            "dirty_state": bool(runtime_state_snapshot["dirty_state"]),
-            "state_revision": int(runtime_state_snapshot["state_revision"]),
+            **runtime_mutation,
             "token_count": int(self._trainer.token_count),
             "multimodal": self._multimodal_runtime_summary_locked(),
             "replay_dataset_summary": replay_dataset_summary,

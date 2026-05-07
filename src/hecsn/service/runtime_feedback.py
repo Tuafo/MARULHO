@@ -65,8 +65,7 @@ class RuntimeFeedbackMixin:
                 "target_id": target_id,
                 "feedback": deepcopy(entry),
                 "target": updated_target,
-                "dirty_state": bool(self._dirty_state),
-                "state_revision": int(self._state_revision),
+                **self._runtime_state.mutation_summary(),
                 "terminus_runtime": self._brain_runtime_snapshot_locked(),
             }
 

@@ -138,6 +138,14 @@ class RuntimeState:
         if recent_events is None:
             return []
         return [cls._json_safe_event(event) for event in recent_events if isinstance(event, Mapping)][:limit]
+
+    def mutation_summary(self) -> dict[str, Any]:
+        with self._state_guard():
+            return {
+                "dirty_state": bool(self._dirty_state),
+                "state_revision": int(self._state_revision),
+            }
+
     def snapshot(self) -> dict[str, Any]:
         with self._state_guard():
             return {
