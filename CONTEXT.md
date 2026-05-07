@@ -44,11 +44,11 @@
 
 **Service Manager** — the composition root through which the FastAPI layer reaches the runtime. Wires and exposes the following deep modules but owns no business logic itself:
 
-- **Runtime State** — owns the shared mutation flag (`dirty_state`), revision counter, and brain event log. Every other deep module receives it as a dependency.
+- **Runtime State** — owns the shared mutation flag (`dirty_state`), revision counter, brain event history, and the externally visible `last_event` / `recent_events` payloads. Every other deep module receives it as a dependency.
 - **Delayed Consequence Tracker** — long-horizon utility learning for sources and providers. Owns consequence records and the cooling/compaction/splitting/remerging state machines.
 - **Autonomy Planner** — gap-based focus planning, provider curriculum prioritization, autonomy candidate selection, and query family scoring.
 - **Brain Runtime** — source rebuilding, tick collection/training, grounded source observation injection, autonomy scheduling. Owns brain source runtimes, source utility, tick counters, and ingestion/sensory thread state.
-- **Interaction Pipeline** — query/feed/respond/acquire behaviour and the evidence capture that turns live interactions into runtime traces. Owns query gap history and the dirty-state revision counter.
+- **Interaction Pipeline** — query/feed/respond/acquire behaviour and the evidence capture that turns live interactions into runtime traces. Owns query gap history.
 - **Feedback Applier** — verdict state machine, feedback normalization, and feedback application with provenance tracking.
 - **Source Focus Scorer** — multi-factor selection scoring, semantic match scoring, utility EMA updates, and evidence weight mapping.
 - **Runtime Controller** — runtime lifecycle state machine (configure/start/stop/tick), brain loop orchestration, thread lifecycle, and prewarm management.
@@ -58,7 +58,7 @@
 - **Runtime Persistence** — checkpoint save/restore, trace persistence, brain event recording.
 - **Runtime Config** — input validation and normalization gate for all operator configs. Stateless.
 - **Runtime Sources** — stream construction, cache I/O, serialization, window reconstruction.
-- **Replay Controller** — advisory replay planning, operator-gated sampling, dataset bundling with decontamination and splitting.
+- **Replay Controller** — advisory replay planning, operator-gated sampling, dataset bundling with decontamination and splitting. Replay sampling intentionally uses Runtime State's dirty-without-revision path so audit-only samples stay dirty without advancing `state_revision`.
 
 **Autonomy Ladder** — levels 0–5 of measured autonomy: observe → propose → execute approved → recurring constrained → evaluated policy → bounded self-improvement.
 

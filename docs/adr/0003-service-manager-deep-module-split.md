@@ -1,4 +1,4 @@
-# ADR 0002: Dissolve Service Manager God class into deep modules with real seams
+# ADR 0003: Dissolve Service Manager God class into deep modules with real seams
 
 ## Status
 
