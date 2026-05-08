@@ -162,6 +162,7 @@ from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
 from hecsn.service.runtime_sources import RuntimeSourcesMixin, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.sensory_runtime import SensoryRuntimeMixin
 from hecsn.service.status_runtime import StatusRuntimeMixin
+from hecsn.service.status_read_model import StatusReadModel
 from hecsn.service.sensory_preview import SensoryPreviewMixin
 from hecsn.service.source_focus import SourceFocusMixin
 from hecsn.service.living_loop import (
@@ -448,6 +449,20 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             self._cortex_init_event.set()
             _cortex_logger.info("Cortex module unavailable: %s", exc)
 
+        # --- Status Read Model (ADR 0003 deep module extraction) ---
+        self._status_read_model = StatusReadModel(
+            lock=self._lock,
+            runtime_state=self._runtime_state,
+            trainer=self._trainer,
+            trace_history=self._trace_history,
+            metadata=self._metadata,
+            checkpoint_path_str=str(self._checkpoint_path),
+            trace_dir_str=str(self._trace_dir),
+            concept_store_snapshot_fn=lambda: self._concept_store.snapshot(),
+            brain_runtime_snapshot_fn=lambda: self._brain_runtime_snapshot_locked(),
+            multimodal_runtime_summary_fn=lambda: self._multimodal_runtime_summary_locked(),
+        )
+
     @property
     def _thought_loop(self) -> Any:
         if self._thought_loop_actual is not None:
@@ -465,6 +480,15 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             self._cortex_init_finished = True
             self._cortex_init_error = None
             self._cortex_init_event.set()
+
+    # --- Status Read Model delegation (ADR 0003) ---
+    def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
+        """Delegate to StatusReadModel for status snapshots."""
+        return self._status_read_model.status(fresh_wait_seconds=fresh_wait_seconds)
+
+    def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
+        """Delegate to StatusReadModel for terminus status snapshots."""
+        return self._status_read_model.terminus_status(fresh_wait_seconds=fresh_wait_seconds)
 
     def _cortex_factories_are_mocked(self) -> bool:
         refs = self._cortex_factory_refs or ()
