@@ -23,7 +23,6 @@ import time
 
 import torch
 
-from hecsn.data.corpus_loader import huggingface_token_from_env
 from hecsn.service.runtime_state import RuntimeState
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -212,20 +211,19 @@ class StatusReadModel:
             replay_role = str(replay_dataset_summary.get("training_role") or "preview_export_only")
 
         fill_fraction = float(memory_store.get("fill_fraction", 0.0) or 0.0)
-        pressure = "high" if fill_fraction >= 0.85 else "medium" if fill_fraction >= 0.50 else "low"
+        if fill_fraction >= 0.85:
+            pressure = "high"
+        elif fill_fraction >= 0.50:
+            pressure = "medium"
+        else:
+            pressure = "low"
 
         working_set_policy = {
             "high_threshold": 0.85,
             "target_fill": 0.70,
             "capacity_increase_recommended": False,
             "replay_fact_promotion_allowed": False,
-            "decision": (
-                "throttle_ingestion_and_prioritize_consolidation"
-                if pressure == "high"
-                else "watch_working_set_growth"
-                if pressure == "medium"
-                else "continue_monitoring"
-            ),
+            "decision": self._working_set_decision(pressure),
         }
         if verdict == "alive" and pressure == "high":
             verdict = "degraded"
@@ -276,6 +274,14 @@ class StatusReadModel:
                 "source_configuration_hash": source_configuration["configuration_hash"],
             },
         }
+
+    @staticmethod
+    def _working_set_decision(pressure: str) -> str:
+        if pressure == "high":
+            return "throttle_ingestion_and_prioritize_consolidation"
+        if pressure == "medium":
+            return "watch_working_set_growth"
+        return "continue_monitoring"
 
     # ------------------------------------------------------------------
     # Internal snapshot builders (must be called under self._lock)
@@ -359,6 +365,35 @@ class StatusReadModel:
     # Public surfaces
     # ------------------------------------------------------------------
 
+    def _read_snapshot(
+        self,
+        *,
+        fresh_wait_seconds: float | None,
+        cached_snapshot: dict[str, Any] | None,
+        snapshot_fn: Callable[[], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return a snapshot with non-blocking cached fallback semantics."""
+        if fresh_wait_seconds is None:
+            acquired = self._lock.acquire(timeout=0.15)
+            if not acquired:
+                if cached_snapshot is not None:
+                    return cached_snapshot
+                self._lock.acquire()
+        else:
+            deadline = time.perf_counter() + max(0.0, float(fresh_wait_seconds))
+            acquired = False
+            while time.perf_counter() < deadline:
+                remaining = max(0.0, deadline - time.perf_counter())
+                if self._lock.acquire(timeout=min(0.15, remaining)):
+                    acquired = True
+                    break
+            if not acquired:
+                self._lock.acquire()
+        try:
+            return snapshot_fn()
+        finally:
+            self._lock.release()
+
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         """Return the status snapshot (non-blocking by default).
 
@@ -368,29 +403,13 @@ class StatusReadModel:
         requests a fresh snapshot, the method retries until the deadline
         and then blocks rather than silently serving stale data.
         """
-        if fresh_wait_seconds is None:
-            acquired = self._lock.acquire(timeout=0.15)
-            if not acquired:
-                cached = self._cached_status
-                if cached is not None:
-                    return cached
-                self._lock.acquire()
-        else:
-            deadline = time.perf_counter() + max(0.0, float(fresh_wait_seconds))
-            acquired = False
-            while time.perf_counter() < deadline:
-                remaining = max(0.0, deadline - time.perf_counter())
-                if self._lock.acquire(timeout=min(0.15, remaining)):
-                    acquired = True
-                    break
-            if not acquired:
-                self._lock.acquire()
-        try:
-            result = self._status_snapshot_locked()
-            self._cached_status = result
-            return result
-        finally:
-            self._lock.release()
+        result = self._read_snapshot(
+            fresh_wait_seconds=fresh_wait_seconds,
+            cached_snapshot=self._cached_status,
+            snapshot_fn=self._status_snapshot_locked,
+        )
+        self._cached_status = result
+        return result
 
     def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         """Return the terminus status snapshot (non-blocking by default).
@@ -399,26 +418,10 @@ class StatusReadModel:
         cached fallback, and blocking retry when an explicit freshness
         deadline is requested.
         """
-        if fresh_wait_seconds is None:
-            acquired = self._lock.acquire(timeout=0.15)
-            if not acquired:
-                cached = self._cached_terminus_status
-                if cached is not None:
-                    return cached
-                self._lock.acquire()
-        else:
-            deadline = time.perf_counter() + max(0.0, float(fresh_wait_seconds))
-            acquired = False
-            while time.perf_counter() < deadline:
-                remaining = max(0.0, deadline - time.perf_counter())
-                if self._lock.acquire(timeout=min(0.15, remaining)):
-                    acquired = True
-                    break
-            if not acquired:
-                self._lock.acquire()
-        try:
-            result = self._terminus_status_snapshot_locked()
-            self._cached_terminus_status = result
-            return result
-        finally:
-            self._lock.release()
+        result = self._read_snapshot(
+            fresh_wait_seconds=fresh_wait_seconds,
+            cached_snapshot=self._cached_terminus_status,
+            snapshot_fn=self._terminus_status_snapshot_locked,
+        )
+        self._cached_terminus_status = result
+        return result
