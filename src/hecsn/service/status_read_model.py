@@ -342,6 +342,12 @@ class StatusReadModel:
             None if last_trace is None else str(last_trace.get("created_at")),
         )
 
+    def _runtime_mutation_payload(self) -> dict[str, Any]:
+        return {
+            **self._runtime_state.mutation_summary(),
+            "token_count": int(self._trainer.token_count),
+        }
+
     # ------------------------------------------------------------------
     # Internal snapshot builders (must be called under self._lock)
     # ------------------------------------------------------------------
@@ -610,19 +616,15 @@ class StatusReadModel:
         if self._living_loop_status_fn is None:
             return {
                 "living_loop": {},
-                "state_revision": self._runtime_state.state_revision,
-                "dirty_state": self._runtime_state.dirty_state,
-                "token_count": int(self._trainer.token_count),
+                **self._runtime_mutation_payload(),
             }
         living_loop_status_fn = self._living_loop_status_fn
 
         def _build_locked() -> dict[str, Any]:
-            runtime_mutation = self._runtime_state.mutation_summary()
             payload = living_loop_status_fn()
             return {
                 **payload,
-                **runtime_mutation,
-                "token_count": int(self._trainer.token_count),
+                **self._runtime_mutation_payload(),
             }
 
         result = self._read_snapshot(

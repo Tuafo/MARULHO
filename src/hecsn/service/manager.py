@@ -242,7 +242,30 @@ class _LazyThoughtLoop:
 from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
 
 
-class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, RuntimeFeedbackMixin, ActionAssistMixin, ActionRuntimeMixin, BrainRuntimeMixin, DelayedConsequenceMixin, ServicePersistenceMixin, CortexRuntimeMixin, ServiceReportingMixin, ReplayRuntimeMixin, InteractionRuntimeMixin, LivingStatusMixin, RuntimeConfigMixin, RuntimeControlMixin, RuntimePrewarmMixin, RuntimeSourcesMixin, SensoryRuntimeMixin, SourceFocusMixin, StatusRuntimeMixin, SensoryPreviewMixin, TerminusAutonomyMixin):
+class HECSNServiceManager(
+    ReplayDatasetBundleMixin,
+    RuntimeEvidenceMixin,
+    RuntimeFeedbackMixin,
+    ActionAssistMixin,
+    ActionRuntimeMixin,
+    BrainRuntimeMixin,
+    DelayedConsequenceMixin,
+    ServicePersistenceMixin,
+    CortexRuntimeMixin,
+    ServiceReportingMixin,
+    ReplayRuntimeMixin,
+    InteractionRuntimeMixin,
+    LivingStatusMixin,
+    RuntimeConfigMixin,
+    RuntimeControlMixin,
+    RuntimePrewarmMixin,
+    RuntimeSourcesMixin,
+    SensoryRuntimeMixin,
+    SourceFocusMixin,
+    StatusRuntimeMixin,
+    SensoryPreviewMixin,
+    TerminusAutonomyMixin,
+):
     """Main service orchestrator for HECSN/Terminus.
 
     Manages the SNN model, cortex integration, brain loop,
@@ -450,25 +473,7 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             _cortex_logger.info("Cortex module unavailable: %s", exc)
 
         # --- Status Read Model (ADR 0003 deep module extraction) ---
-        self._status_read_model = StatusReadModel(
-            lock=self._lock,
-            runtime_state=self._runtime_state,
-            trainer=self._trainer,
-            trace_history=self._trace_history,
-            metadata=self._metadata,
-            checkpoint_path_str=str(self._checkpoint_path),
-            trace_dir_str=str(self._trace_dir),
-            concept_store_snapshot_fn=lambda: self._concept_store.snapshot(),
-            brain_runtime_snapshot_fn=lambda: self._brain_runtime_snapshot_locked(),
-            multimodal_runtime_summary_fn=lambda: self._multimodal_runtime_summary_locked(),
-            sensory_preview_history=self._sensory_preview_history,
-            architecture_snapshot_fn=lambda: self._architecture_summary_impl(),
-            cortex_active_fn=lambda: self._thought_loop_actual is not None and self._thought_loop_actual.is_running,
-            animation_snapshot_fn=lambda: self._animation_snapshot_locked(),
-            living_loop_status_fn=lambda: self._living_loop_status_impl(),
-            policy_actuator_status_fn=lambda: self._policy_actuator_status_impl(),
-            cortex_signal_state_fn=lambda: self._cortex_signal_state_impl(),
-        )
+        self._status_read_model = self._build_status_read_model()
 
     @property
     def _thought_loop(self) -> Any:
@@ -487,6 +492,30 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             self._cortex_init_finished = True
             self._cortex_init_error = None
             self._cortex_init_event.set()
+
+    def _build_status_read_model(self) -> StatusReadModel:
+        return StatusReadModel(
+            lock=self._lock,
+            runtime_state=self._runtime_state,
+            trainer=self._trainer,
+            trace_history=self._trace_history,
+            metadata=self._metadata,
+            checkpoint_path_str=str(self._checkpoint_path),
+            trace_dir_str=str(self._trace_dir),
+            concept_store_snapshot_fn=self._concept_store.snapshot,
+            brain_runtime_snapshot_fn=self._brain_runtime_snapshot_locked,
+            multimodal_runtime_summary_fn=self._multimodal_runtime_summary_locked,
+            sensory_preview_history=self._sensory_preview_history,
+            architecture_snapshot_fn=self._architecture_summary_impl,
+            cortex_active_fn=self._cortex_active,
+            animation_snapshot_fn=self._animation_snapshot_locked,
+            living_loop_status_fn=self._living_loop_status_impl,
+            policy_actuator_status_fn=self._policy_actuator_status_impl,
+            cortex_signal_state_fn=self._cortex_signal_state_impl,
+        )
+
+    def _cortex_active(self) -> bool:
+        return self._thought_loop_actual is not None and self._thought_loop_actual.is_running
 
     # --- Status Read Model delegation (ADR 0003) ---
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
