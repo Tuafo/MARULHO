@@ -30,6 +30,7 @@ from hecsn.service.sensory_preview import SensoryPreviewMixin
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
+DEFAULT_CORTEX_SIGNAL_LOCK_TIMEOUT_SECONDS = 0.05
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -613,10 +614,11 @@ class StatusReadModel:
                 "dirty_state": self._runtime_state.dirty_state,
                 "token_count": int(self._trainer.token_count),
             }
+        living_loop_status_fn = self._living_loop_status_fn
 
         def _build_locked() -> dict[str, Any]:
             runtime_mutation = self._runtime_state.mutation_summary()
-            payload = self._living_loop_status_fn()  # type: ignore[misc]
+            payload = living_loop_status_fn()
             return {
                 **payload,
                 **runtime_mutation,
@@ -648,9 +650,10 @@ class StatusReadModel:
                 "advisory": True,
                 "executable": False,
             }
+        policy_actuator_status_fn = self._policy_actuator_status_fn
 
         def _build_locked() -> dict[str, Any]:
-            return self._policy_actuator_status_fn()  # type: ignore[misc]
+            return policy_actuator_status_fn()
 
         result = self._read_snapshot(
             fresh_wait_seconds=None,
@@ -678,14 +681,15 @@ class StatusReadModel:
         """
         if self._cortex_signal_state_fn is None:
             return {}
+        cortex_signal_state_fn = self._cortex_signal_state_fn
 
-        acquired = self._lock.acquire(timeout=0.05)
+        acquired = self._lock.acquire(timeout=DEFAULT_CORTEX_SIGNAL_LOCK_TIMEOUT_SECONDS)
         if not acquired:
             if self._cached_cortex_signal_state is not None:
                 return self._cached_cortex_signal_state
             self._lock.acquire()
         try:
-            payload = self._cortex_signal_state_fn()
+            payload = cortex_signal_state_fn()
             self._cached_cortex_signal_state = payload
             return payload
         finally:
