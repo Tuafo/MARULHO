@@ -3,7 +3,7 @@
 Module structure:
 - manager.py: HECSNServiceManager facade and live runtime orchestration
 - runtime_state.py: Shared dirty-state, revision, and brain event container
-- status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry snapshots
+- status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cortex-signal snapshots
 - runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports
 - runtime_feedback.py: Operator feedback normalization and application
 - action_assist.py: Query action-assist and audited action evidence injection
@@ -15,7 +15,7 @@ Module structure:
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_runtime.py: Query/feed/respond/acquire operator interaction flow
-- living_status.py: Living-loop and policy-actuator read-only status helpers
+- living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
 - runtime_config.py: Operator runtime/source configuration normalization
 - runtime_control.py: Terminus configure/start/stop/tick runtime control
 - runtime_prewarm.py: Remote warm promotion and ingestion prewarm loops
