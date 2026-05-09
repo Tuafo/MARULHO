@@ -465,6 +465,9 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             architecture_snapshot_fn=lambda: self._architecture_summary_impl(),
             cortex_active_fn=lambda: self._thought_loop_actual is not None and self._thought_loop_actual.is_running,
             animation_snapshot_fn=lambda: self._animation_snapshot_locked(),
+            living_loop_status_fn=lambda: self._living_loop_status_impl(),
+            policy_actuator_status_fn=lambda: self._policy_actuator_status_impl(),
+            cortex_signal_state_fn=lambda: self._cortex_signal_state_impl(),
         )
 
     @property
@@ -509,6 +512,30 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
     def telemetry_snapshot(self) -> dict[str, Any]:
         """Delegate to StatusReadModel for telemetry snapshots."""
         return self._status_read_model.telemetry_snapshot()
+
+    def living_loop_status(self) -> dict[str, Any]:
+        """Delegate to StatusReadModel for living loop status snapshots."""
+        return self._status_read_model.living_loop_status()
+
+    def _living_loop_status_impl(self) -> dict[str, Any]:
+        """Build living loop status under lock (called by read model callback)."""
+        return LivingStatusMixin.living_loop_status(self)
+
+    def policy_actuator_status(self) -> dict[str, Any]:
+        """Delegate to StatusReadModel for policy actuator status snapshots."""
+        return self._status_read_model.policy_actuator_status()
+
+    def _policy_actuator_status_impl(self) -> dict[str, Any]:
+        """Build policy actuator status under lock (called by read model callback)."""
+        return LivingStatusMixin.policy_actuator_status(self)
+
+    def _cortex_signal_state(self) -> dict[str, Any]:
+        """Delegate to StatusReadModel for cortex signal state."""
+        return self._status_read_model.cortex_signal_state()
+
+    def _cortex_signal_state_impl(self) -> dict[str, Any]:
+        """Build cortex signal state under lock (called by read model callback)."""
+        return LivingStatusMixin._cortex_signal_state(self)
 
     def _cortex_factories_are_mocked(self) -> bool:
         refs = self._cortex_factory_refs or ()

@@ -1,7 +1,8 @@
-"""Status Read Model — read-only projection of runtime state into status, terminus, and telemetry snapshots.
+"""Status Read Model — read-only projection of runtime state into status, terminus, telemetry, living-loop, policy-actuator, and cortex-signal snapshots.
 
-This module owns the ``status()``, ``terminus_status()``, and
-``telemetry_snapshot()`` public surfaces and their associated cache state. It
+This module owns the ``status()``, ``terminus_status()``, ``telemetry_snapshot()``,
+``living_loop_status()``, ``policy_actuator_status()``, and ``cortex_signal_state()``
+public surfaces and their associated cache state. It
 is the first real object-style extraction from ADR 0003: the Service Manager
 delegates to it, and direct object-level tests exercise the seam through
 injected adapter callbacks instead of requiring the full manager composition
@@ -73,6 +74,14 @@ class StatusReadModel:
         for revision-keyed cache reuse decisions.
     animation_snapshot_fn: Callable that returns the current animation snapshot
         dict. Called under lock. Used by ``telemetry_snapshot()`` only.
+    living_loop_status_fn: Callable that returns the current living loop status
+        dict. Called under lock. Used by ``living_loop_status()`` delegation.
+    policy_actuator_status_fn: Callable that returns the current policy actuator
+        status dict. Called under lock. Used by ``policy_actuator_status()``
+        delegation.
+    cortex_signal_state_fn: Callable that returns the current cortex signal state
+        dict. Called under lock with short-timeout fallback. Used by
+        ``cortex_signal_state()`` delegation.
     """
 
     def __init__(
@@ -92,6 +101,9 @@ class StatusReadModel:
         architecture_snapshot_fn: Callable[[], dict[str, Any]] | None = None,
         cortex_active_fn: Callable[[], bool] | None = None,
         animation_snapshot_fn: Callable[[], dict[str, Any]] | None = None,
+        living_loop_status_fn: Callable[[], dict[str, Any]] | None = None,
+        policy_actuator_status_fn: Callable[[], dict[str, Any]] | None = None,
+        cortex_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
@@ -111,12 +123,18 @@ class StatusReadModel:
         )
         self._cortex_active_fn = cortex_active_fn
         self._animation_snapshot_fn = animation_snapshot_fn
+        self._living_loop_status_fn = living_loop_status_fn
+        self._policy_actuator_status_fn = policy_actuator_status_fn
+        self._cortex_signal_state_fn = cortex_signal_state_fn
 
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
         self._cached_terminus_status: dict[str, Any] | None = None
         self._cached_telemetry: dict[str, Any] | None = None
         self._cached_telemetry_rev: int = -1
+        self._cached_cortex_signal_state: dict[str, Any] | None = None
+        self._cached_living_loop_status: dict[str, Any] | None = None
+        self._cached_policy_actuator_status: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Static helpers reused from StatusRuntimeMixin
@@ -575,3 +593,100 @@ class StatusReadModel:
             cached_snapshot=self._cached_telemetry,
             snapshot_fn=self._telemetry_snapshot_locked,
         )
+
+    # ------------------------------------------------------------------
+    # Living Loop and Policy Actuator snapshots
+    # ------------------------------------------------------------------
+
+    def living_loop_status(self) -> dict[str, Any]:
+        """Return the living loop status snapshot (non-blocking with lock-contention fallback).
+
+        Delegates to the injected ``living_loop_status_fn`` callback so the
+        read model stays decoupled from the full manager surface. The callback
+        is called under the shared lock; when the lock is contended the
+        previously cached result is returned.
+        """
+        if self._living_loop_status_fn is None:
+            return {
+                "living_loop": {},
+                "state_revision": self._runtime_state.state_revision,
+                "dirty_state": self._runtime_state.dirty_state,
+                "token_count": int(self._trainer.token_count),
+            }
+
+        def _build_locked() -> dict[str, Any]:
+            runtime_mutation = self._runtime_state.mutation_summary()
+            payload = self._living_loop_status_fn()  # type: ignore[misc]
+            return {
+                **payload,
+                **runtime_mutation,
+                "token_count": int(self._trainer.token_count),
+            }
+
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_living_loop_status,
+            snapshot_fn=_build_locked,
+        )
+        self._cached_living_loop_status = result
+        return result
+
+    def policy_actuator_status(self) -> dict[str, Any]:
+        """Return the policy actuator status snapshot (non-blocking with lock-contention fallback).
+
+        Delegates to the injected ``policy_actuator_status_fn`` callback so
+        the read model stays decoupled from the full manager surface. The
+        callback is called under the shared lock; when the lock is contended
+        the previously cached result is returned.
+        """
+        if self._policy_actuator_status_fn is None:
+            return {
+                "schema_version": 1,
+                "recommendation": "no_policy_actuator_configured",
+                "action": "none",
+                "reasons": [],
+                "advisory": True,
+                "executable": False,
+            }
+
+        def _build_locked() -> dict[str, Any]:
+            return self._policy_actuator_status_fn()  # type: ignore[misc]
+
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_policy_actuator_status,
+            snapshot_fn=_build_locked,
+        )
+        self._cached_policy_actuator_status = result
+        return result
+
+    # ------------------------------------------------------------------
+    # Cortex signal state (cached with short-timeout fallback)
+    # ------------------------------------------------------------------
+
+    def cortex_signal_state(self) -> dict[str, Any]:
+        """Expose recent SNN predictive/surprise signals to the ThoughtLoop.
+
+        Uses a short lock timeout (50 ms) to avoid blocking the cortex
+        thought loop. When the lock is contended, the cached result is
+        returned. On first call with no cache, blocks until the lock is
+        available.
+
+        The injected ``cortex_signal_state_fn`` callback is called under
+        lock to build the fresh payload, and the result is cached for
+        lock-contention fallback.
+        """
+        if self._cortex_signal_state_fn is None:
+            return {}
+
+        acquired = self._lock.acquire(timeout=0.05)
+        if not acquired:
+            if self._cached_cortex_signal_state is not None:
+                return self._cached_cortex_signal_state
+            self._lock.acquire()
+        try:
+            payload = self._cortex_signal_state_fn()
+            self._cached_cortex_signal_state = payload
+            return payload
+        finally:
+            self._lock.release()
