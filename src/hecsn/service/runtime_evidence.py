@@ -402,6 +402,40 @@ class RuntimeEvidenceMixin:
         self._runtime_episode_traces.appendleft(deepcopy(normalized))
         return deepcopy(normalized)
 
+    def _runtime_episode_trace_locked(self, episode_id: str) -> dict[str, Any] | None:
+        target_id = str(episode_id)
+        if not target_id:
+            return None
+        for episode in list(self._runtime_episode_traces):
+            if str(episode.get("episode_id", "")) == target_id:
+                return deepcopy(episode)
+        return None
+
+    def _replace_runtime_episode_trace_locked(
+        self,
+        episode_id: str,
+        episode: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        target_id = str(episode_id)
+        if not target_id:
+            return None
+        replacement = deepcopy(dict(episode))
+        if str(replacement.get("episode_id", "")) != target_id:
+            return None
+        existing = list(self._runtime_episode_traces)
+        replaced = False
+        updated: list[dict[str, Any]] = []
+        for item in existing:
+            if not replaced and str(item.get("episode_id", "")) == target_id:
+                updated.append(deepcopy(replacement))
+                replaced = True
+            else:
+                updated.append(item)
+        if not replaced:
+            return None
+        self._runtime_episode_traces = deque(updated, maxlen=self._runtime_episode_traces.maxlen)
+        return deepcopy(replacement)
+
     @staticmethod
     def _normalize_runtime_trace_export_filter(endpoint: str | None) -> str | None:
         if endpoint is None:

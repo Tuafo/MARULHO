@@ -533,6 +533,11 @@ class HECSNServiceManager(
             runtime_episode_payload_fn=lambda **kwargs: self._runtime_episode_payload_locked(**kwargs),
             persist_trace_fn=lambda trace: self._persist_trace_locked(trace),
             append_runtime_episode_trace_fn=lambda episode: self._append_runtime_episode_trace_locked(episode),
+            runtime_episode_trace_fn=lambda episode_id: self._runtime_episode_trace_locked(episode_id),
+            replace_runtime_episode_trace_fn=lambda episode_id, episode: self._replace_runtime_episode_trace_locked(
+                episode_id,
+                episode,
+            ),
             service_state_snapshot_fn=lambda **kwargs: self._service_state_snapshot(**kwargs),
         )
 

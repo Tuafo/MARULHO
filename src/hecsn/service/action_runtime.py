@@ -24,6 +24,38 @@ class ActionRuntimeMixin:
                 "actions": history,
             }
 
+    def action_record(self, action_id: str) -> dict[str, Any] | None:
+        target_id = str(action_id)
+        if not target_id:
+            return None
+        with self._lock:
+            for item in list(self._action_history):
+                if str(item.get("action_id", "")) == target_id:
+                    return deepcopy(item)
+        return None
+
+    def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None:
+        target_id = str(action_id)
+        if not target_id:
+            return None
+        replacement = deepcopy(dict(record))
+        if str(replacement.get("action_id", "")) != target_id:
+            return None
+        with self._lock:
+            existing = list(self._action_history)
+            updated: list[dict[str, Any]] = []
+            replaced = False
+            for item in existing:
+                if not replaced and str(item.get("action_id", "")) == target_id:
+                    updated.append(deepcopy(replacement))
+                    replaced = True
+                else:
+                    updated.append(item)
+            if not replaced:
+                return None
+            self._action_history = deque(updated, maxlen=self._action_history.maxlen)
+            return deepcopy(replacement)
+
     def execute_digital_action(
         self,
         action: Mapping[str, Any],

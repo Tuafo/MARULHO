@@ -119,6 +119,8 @@ class InteractionPipeline:
         persist_trace_fn: Callable[[dict[str, Any]], Path],
         append_runtime_episode_trace_fn: Callable[[Mapping[str, Any]], dict[str, Any]],
         service_state_snapshot_fn: Callable[..., dict[str, Any]],
+        runtime_episode_trace_fn: Callable[[str], dict[str, Any] | None] | None = None,
+        replace_runtime_episode_trace_fn: Callable[[str, Mapping[str, Any]], dict[str, Any] | None] | None = None,
     ) -> None:
         self._lock = lock
         self._trainer = trainer
@@ -134,6 +136,8 @@ class InteractionPipeline:
         self._runtime_episode_payload_fn = runtime_episode_payload_fn
         self._persist_trace_fn = persist_trace_fn
         self._append_runtime_episode_trace_fn = append_runtime_episode_trace_fn
+        self._runtime_episode_trace_fn = runtime_episode_trace_fn
+        self._replace_runtime_episode_trace_fn = replace_runtime_episode_trace_fn
         self._service_state_snapshot_fn = service_state_snapshot_fn
 
     def _query_runtime_actual_output(self, result: Mapping[str, Any]) -> dict[str, Any]:
@@ -201,6 +205,22 @@ class InteractionPipeline:
         finalized_episode = dict(episode)
         finalized_episode["trace_path"] = str(trace_path)
         return self._append_runtime_episode_trace_fn(finalized_episode)
+
+    def runtime_episode_trace(self, episode_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            if self._runtime_episode_trace_fn is None:
+                return None
+            return self._runtime_episode_trace_fn(episode_id)
+
+    def replace_runtime_episode_trace(
+        self,
+        episode_id: str,
+        episode: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            if self._replace_runtime_episode_trace_fn is None:
+                return None
+            return self._replace_runtime_episode_trace_fn(episode_id, episode)
 
     @staticmethod
     def _build_request(
