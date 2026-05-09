@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence, cast
 from uuid import uuid4
 
 DEFAULT_RUNTIME_FEEDBACK_HISTORY = 8
@@ -12,8 +11,30 @@ DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT = 12
 DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS = 2000
 
 
+class _RuntimeEpisodeFeedbackStore(Protocol):
+    def runtime_episode_trace(self, episode_id: str) -> dict[str, Any] | None: ...
+
+    def replace_runtime_episode_trace(
+        self,
+        episode_id: str,
+        episode: Mapping[str, Any],
+    ) -> dict[str, Any] | None: ...
+
+
+class _ActionFeedbackStore(Protocol):
+    def action_record(self, action_id: str) -> dict[str, Any] | None: ...
+
+    def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None: ...
+
+
 class RuntimeFeedbackMixin:
     """Operator feedback normalization and application helpers."""
+
+    def _runtime_episode_feedback_store(self) -> _RuntimeEpisodeFeedbackStore:
+        return cast(_RuntimeEpisodeFeedbackStore, self._interaction_pipeline)
+
+    def _action_feedback_store(self) -> _ActionFeedbackStore:
+        return cast(_ActionFeedbackStore, self)
 
     def record_runtime_feedback(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
         entry = self._normalize_runtime_feedback_request(feedback)
@@ -22,25 +43,19 @@ class RuntimeFeedbackMixin:
         with self._lock:
             updated_target: dict[str, Any] | None = None
             if target_type == "runtime_episode":
-                episodes = list(self._runtime_episode_traces)
-                for index, episode in enumerate(episodes):
-                    if str(episode.get("episode_id", "")) == target_id:
-                        updated = deepcopy(episode)
-                        self._apply_runtime_feedback_to_target(updated, entry)
-                        episodes[index] = updated
-                        self._runtime_episode_traces = deque(episodes, maxlen=self._runtime_episode_traces.maxlen)
-                        updated_target = deepcopy(updated)
-                        break
+                interaction_pipeline = self._runtime_episode_feedback_store()
+                episode = interaction_pipeline.runtime_episode_trace(target_id)
+                if episode is not None:
+                    updated = deepcopy(episode)
+                    self._apply_runtime_feedback_to_target(updated, entry)
+                    updated_target = interaction_pipeline.replace_runtime_episode_trace(target_id, updated)
             elif target_type == "action":
-                actions = list(self._action_history)
-                for index, action in enumerate(actions):
-                    if str(action.get("action_id", "")) == target_id:
-                        updated = deepcopy(action)
-                        self._apply_runtime_feedback_to_target(updated, entry)
-                        actions[index] = updated
-                        self._action_history = deque(actions, maxlen=self._action_history.maxlen)
-                        updated_target = deepcopy(updated)
-                        break
+                action_store = self._action_feedback_store()
+                action = action_store.action_record(target_id)
+                if action is not None:
+                    updated = deepcopy(action)
+                    self._apply_runtime_feedback_to_target(updated, entry)
+                    updated_target = action_store.replace_action_record(target_id, updated)
             else:
                 raise ValueError(f"Unsupported runtime feedback target_type: {target_type}")
 

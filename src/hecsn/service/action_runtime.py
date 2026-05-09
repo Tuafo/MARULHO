@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from hecsn.service.action_loop import execute_digital_action
+from hecsn.service.history_store import read_history_record, replace_history_record
 
 DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = 0.25
 
@@ -23,6 +24,20 @@ class ActionRuntimeMixin:
                 "supported_actions": ["workspace_search", "workspace_read", "web_fetch", "api_request"],
                 "actions": history,
             }
+
+    def action_record(self, action_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return read_history_record(self._action_history, record_id=action_id, id_field="action_id")
+
+    def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None:
+        with self._lock:
+            self._action_history, replaced = replace_history_record(
+                self._action_history,
+                record_id=action_id,
+                replacement=record,
+                id_field="action_id",
+            )
+            return replaced
 
     def execute_digital_action(
         self,

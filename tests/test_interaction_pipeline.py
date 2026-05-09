@@ -35,6 +35,8 @@ def _build_pipeline(
         "runtime_episode_payload": [],
         "persist_trace": [],
         "append_runtime_episode_trace": [],
+        "runtime_episode_trace": [],
+        "replace_runtime_episode_trace": [],
         "service_state_snapshot": [],
     }
     episodes: list[dict[str, Any]] = []
@@ -126,8 +128,25 @@ def _build_pipeline(
 
     def append_runtime_episode_trace_fn(episode: Mapping[str, Any]) -> dict[str, Any]:
         calls["append_runtime_episode_trace"].append(episode)
-        episodes.append(dict(episode))
-        return dict(episode)
+        stored = deepcopy(dict(episode))
+        episodes.append(stored)
+        return deepcopy(stored)
+
+    def runtime_episode_trace_fn(episode_id: str) -> dict[str, Any] | None:
+        calls["runtime_episode_trace"].append(episode_id)
+        for episode in episodes:
+            if str(episode.get("episode_id", "")) == str(episode_id):
+                return deepcopy(episode)
+        return None
+
+    def replace_runtime_episode_trace_fn(episode_id: str, episode: Mapping[str, Any]) -> dict[str, Any] | None:
+        calls["replace_runtime_episode_trace"].append({"episode_id": episode_id, "episode": deepcopy(dict(episode))})
+        for index, current in enumerate(episodes):
+            if str(current.get("episode_id", "")) == str(episode_id):
+                stored = deepcopy(dict(episode))
+                episodes[index] = stored
+                return deepcopy(stored)
+        return None
 
     def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         calls["service_state_snapshot"].append(include_replay_dataset_summary)
@@ -158,6 +177,8 @@ def _build_pipeline(
         runtime_episode_payload_fn=runtime_episode_payload_fn,
         persist_trace_fn=persist_trace_fn,
         append_runtime_episode_trace_fn=append_runtime_episode_trace_fn,
+        runtime_episode_trace_fn=runtime_episode_trace_fn,
+        replace_runtime_episode_trace_fn=replace_runtime_episode_trace_fn,
         service_state_snapshot_fn=service_state_snapshot_fn,
     )
     calls["episodes"] = episodes
@@ -769,6 +790,42 @@ class InteractionPipelineQueryTests(unittest.TestCase):
             self.assertEqual(stored_trace["runtime_episode"]["status"], "failed")
             self.assertEqual(stored_trace["runtime_episode"]["failure"]["error_type"], "RuntimeError")
             self.assertFalse(calls["service_state_snapshot"][0])
+
+
+class InteractionPipelineTraceSeamTests(unittest.TestCase):
+    def test_runtime_episode_trace_read_and_replace_use_injected_seam(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_dir = Path(tmpdir) / "traces"
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            pipeline, calls = _build_pipeline(trace_dir)
+            calls["episodes"].append(
+                {
+                    "episode_id": "episode-1",
+                    "trace_id": "trace-1",
+                    "operation": "query",
+                    "feedback": [],
+                    "verification": {"status": "verified"},
+                }
+            )
+
+            episode = pipeline.runtime_episode_trace("episode-1")
+            self.assertIsNotNone(episode)
+            assert episode is not None
+            self.assertEqual(episode["episode_id"], "episode-1")
+            episode["feedback"].append({"feedback_id": "fb-1"})
+
+            stored_before_replace = calls["episodes"][0]
+            self.assertEqual(stored_before_replace["feedback"], [])
+
+            replaced = pipeline.replace_runtime_episode_trace("episode-1", episode)
+            self.assertIsNotNone(replaced)
+            assert replaced is not None
+            self.assertEqual(replaced["feedback"][0]["feedback_id"], "fb-1")
+            self.assertEqual(len(calls["runtime_episode_trace"]), 1)
+            self.assertEqual(calls["runtime_episode_trace"][0], "episode-1")
+            self.assertEqual(len(calls["replace_runtime_episode_trace"]), 1)
+            self.assertEqual(calls["replace_runtime_episode_trace"][0]["episode_id"], "episode-1")
+            self.assertEqual(calls["episodes"][0]["feedback"][0]["feedback_id"], "fb-1")
 
 
 class InteractionPipelineFeedTests(unittest.TestCase):

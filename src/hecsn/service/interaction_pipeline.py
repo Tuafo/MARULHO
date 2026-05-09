@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 import time
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 from uuid import uuid4
 
 from hecsn.semantics.grounding_text import salient_query_terms
@@ -22,6 +22,7 @@ from hecsn.semantics.grounding_text import salient_query_terms
 
 DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
 REQUEST_FEED_ENCODING_MODE = "lexical_rolling_segments"
+_RespondCallbackT = TypeVar("_RespondCallbackT")
 
 
 def _mapping_or_empty(value: Any) -> Mapping[str, Any]:
@@ -214,6 +215,8 @@ class InteractionPipeline:
         apply_provider_response_outcome_calibration_fn: Callable[..., bool] | None = None,
         learn_from_turn_fn: Callable[..., dict[str, Any] | None] | None = None,
         record_response_consequence_candidate_fn: Callable[..., dict[str, Any] | None] | None = None,
+        runtime_episode_trace_fn: Callable[[str], dict[str, Any] | None] | None = None,
+        replace_runtime_episode_trace_fn: Callable[[str, Mapping[str, Any]], dict[str, Any] | None] | None = None,
     ) -> None:
         self._lock = lock
         self._trainer = trainer
@@ -229,6 +232,8 @@ class InteractionPipeline:
         self._runtime_episode_payload_fn = runtime_episode_payload_fn
         self._persist_trace_fn = persist_trace_fn
         self._append_runtime_episode_trace_fn = append_runtime_episode_trace_fn
+        self._runtime_episode_trace_fn = runtime_episode_trace_fn
+        self._replace_runtime_episode_trace_fn = replace_runtime_episode_trace_fn
         self._service_state_snapshot_fn = service_state_snapshot_fn
         self._build_response_fn = build_response_fn
         self._maybe_auto_action_assist_fn = maybe_auto_action_assist_fn
@@ -342,6 +347,22 @@ class InteractionPipeline:
         finalized_episode = dict(episode)
         finalized_episode["trace_path"] = str(trace_path)
         return self._append_runtime_episode_trace_fn(finalized_episode)
+
+    def runtime_episode_trace(self, episode_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            if self._runtime_episode_trace_fn is None:
+                return None
+            return self._runtime_episode_trace_fn(episode_id)
+
+    def replace_runtime_episode_trace(
+        self,
+        episode_id: str,
+        episode: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            if self._replace_runtime_episode_trace_fn is None:
+                return None
+            return self._replace_runtime_episode_trace_fn(episode_id, episode)
 
     @staticmethod
     def _build_request(
@@ -715,23 +736,20 @@ class InteractionPipeline:
             outcome_score=outcome_score,
         )
 
+    def _require_respond_callback(self, callback: _RespondCallbackT | None) -> _RespondCallbackT:
+        if callback is None:
+            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
+        return callback
+
     def _require_respond_callbacks(self) -> None:
-        if self._build_response_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._maybe_auto_action_assist_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._response_grounded_outcome_score_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._apply_background_source_response_provenance_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._apply_background_source_outcome_calibration_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._apply_provider_response_outcome_calibration_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._learn_from_turn_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
-        if self._record_response_consequence_candidate_fn is None:
-            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
+        self._require_respond_callback(self._build_response_fn)
+        self._require_respond_callback(self._maybe_auto_action_assist_fn)
+        self._require_respond_callback(self._response_grounded_outcome_score_fn)
+        self._require_respond_callback(self._apply_background_source_response_provenance_fn)
+        self._require_respond_callback(self._apply_background_source_outcome_calibration_fn)
+        self._require_respond_callback(self._apply_provider_response_outcome_calibration_fn)
+        self._require_respond_callback(self._learn_from_turn_fn)
+        self._require_respond_callback(self._record_response_consequence_candidate_fn)
 
     def _build_response_payload(
         self,
@@ -862,32 +880,48 @@ class InteractionPipeline:
                     response=response,
                     max_evidence_items=max_evidence_items,
                 )
-                response_outcome_score = self._response_grounded_outcome_score_fn(
+                response_grounded_outcome_score_fn = self._require_respond_callback(
+                    self._response_grounded_outcome_score_fn
+                )
+                apply_background_source_response_provenance_fn = self._require_respond_callback(
+                    self._apply_background_source_response_provenance_fn
+                )
+                apply_background_source_outcome_calibration_fn = self._require_respond_callback(
+                    self._apply_background_source_outcome_calibration_fn
+                )
+                apply_provider_response_outcome_calibration_fn = self._require_respond_callback(
+                    self._apply_provider_response_outcome_calibration_fn
+                )
+                learn_from_turn_fn = self._require_respond_callback(self._learn_from_turn_fn)
+                record_response_consequence_candidate_fn = self._require_respond_callback(
+                    self._record_response_consequence_candidate_fn
+                )
+                response_outcome_score = response_grounded_outcome_score_fn(
                     query_result=query_result,
                     response=response,
                     action_assist=action_assist,
                 )
                 applied_background_provenance = bool(
-                    self._apply_background_source_response_provenance_fn(
+                    apply_background_source_response_provenance_fn(
                         response=response,
                         outcome_score=response_outcome_score,
                     )
                 )
                 if not applied_background_provenance:
-                    self._apply_background_source_outcome_calibration_fn(
+                    apply_background_source_outcome_calibration_fn(
                         query_text=query_text,
                         outcome_score=response_outcome_score,
                     )
-                self._apply_provider_response_outcome_calibration_fn(
+                apply_provider_response_outcome_calibration_fn(
                     response=response,
                     outcome_score=response_outcome_score,
                 )
-                learning = self._learn_from_turn_fn(
+                learning = learn_from_turn_fn(
                     query_text=query_text,
                     response=response,
                     learn_mode=learn_mode,
                 )
-                delayed_candidate = self._record_response_consequence_candidate_fn(
+                delayed_candidate = record_response_consequence_candidate_fn(
                     query_result=query_result,
                     response=response,
                     outcome_score=response_outcome_score,
