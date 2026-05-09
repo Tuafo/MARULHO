@@ -148,6 +148,60 @@ class InteractionPipeline:
     def _feed_runtime_verification(self, summary: Mapping[str, Any]) -> dict[str, Any]:
         return build_feed_runtime_verification(summary)
 
+    def _build_runtime_episode(
+        self,
+        *,
+        operation: str,
+        request: Mapping[str, Any],
+        prediction: Mapping[str, Any],
+        action: Mapping[str, Any],
+        actual_output: Mapping[str, Any] | None,
+        verification: Mapping[str, Any] | None,
+        started_perf: float,
+        created_at: str,
+        trace_id: str,
+        error: BaseException | None = None,
+    ) -> dict[str, Any]:
+        return self._runtime_episode_payload_fn(
+            operation=operation,
+            request=request,
+            prediction=prediction,
+            action=action,
+            actual_output=actual_output,
+            verification=verification,
+            started_perf=started_perf,
+            created_at=created_at,
+            trace_id=trace_id,
+            error=error,
+        )
+
+    def _finalize_trace(
+        self,
+        *,
+        operation: str,
+        trace_id: str,
+        created_at: str,
+        request: Mapping[str, Any],
+        episode: Mapping[str, Any],
+        state_after: Mapping[str, Any],
+        state_before: Mapping[str, Any] | None = None,
+        error: BaseException | None = None,
+    ) -> dict[str, Any]:
+        trace = self._build_trace(
+            trace_id=trace_id,
+            created_at=created_at,
+            operation=operation,
+            request=request,
+            runtime_episode=episode,
+            state_after=state_after,
+            state_before=state_before,
+            error=error,
+        )
+        trace_path = self._persist_trace_fn(trace)
+        finalized_episode = dict(episode)
+        finalized_episode["trace_path"] = str(trace_path)
+        return self._append_runtime_episode_trace_fn(finalized_episode)
+
     @staticmethod
     def _build_request(
         *,
@@ -313,7 +367,7 @@ class InteractionPipeline:
                 self._runtime_state_mark_mutated_fn()
                 actual_output = self._feed_runtime_actual_output(summary)
                 verification = self._feed_runtime_verification(summary)
-                episode = self._runtime_episode_payload_fn(
+                episode = self._build_runtime_episode(
                     operation="feed",
                     request=request,
                     prediction=prediction,
@@ -325,24 +379,21 @@ class InteractionPipeline:
                     trace_id=trace_id,
                 )
                 state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
-                trace = self._build_trace(
+                episode = self._finalize_trace(
+                    operation="feed",
                     trace_id=trace_id,
                     created_at=created_at,
-                    operation="feed",
                     request=request,
-                    runtime_episode=episode,
+                    episode=episode,
                     state_after=state_after,
                 )
-                trace_path = self._persist_trace_fn(trace)
-                episode["trace_path"] = str(trace_path)
-                episode = self._append_runtime_episode_trace_fn(episode)
                 return {
                     "feed_summary": summary,
                     "runtime_episode": episode,
                     **self._runtime_state_mutation_summary_fn(),
                 }
             except Exception as exc:
-                episode = self._runtime_episode_payload_fn(
+                episode = self._build_runtime_episode(
                     operation="feed",
                     request=request,
                     prediction=prediction,
@@ -354,18 +405,15 @@ class InteractionPipeline:
                     trace_id=trace_id,
                     error=exc,
                 )
-                trace = self._build_trace(
+                self._finalize_trace(
+                    operation="feed",
                     trace_id=trace_id,
                     created_at=created_at,
-                    operation="feed",
                     request=request,
-                    runtime_episode=episode,
+                    episode=episode,
                     state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
                     error=exc,
                 )
-                trace_path = self._persist_trace_fn(trace)
-                episode["trace_path"] = str(trace_path)
-                self._append_runtime_episode_trace_fn(episode)
                 raise
 
     def query(
@@ -420,7 +468,7 @@ class InteractionPipeline:
                 )
                 actual_output = self._query_runtime_actual_output(result)
                 verification = self._query_runtime_verification(result)
-                episode = self._runtime_episode_payload_fn(
+                episode = self._build_runtime_episode(
                     operation="query",
                     request=request,
                     prediction=prediction,
@@ -432,22 +480,19 @@ class InteractionPipeline:
                     trace_id=trace_id,
                 )
                 state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
-                trace = self._build_trace(
+                episode = self._finalize_trace(
+                    operation="query",
                     trace_id=trace_id,
                     created_at=created_at,
-                    operation="query",
                     request=request,
-                    runtime_episode=episode,
+                    episode=episode,
                     state_after=state_after,
                 )
-                trace_path = self._persist_trace_fn(trace)
-                episode["trace_path"] = str(trace_path)
-                episode = self._append_runtime_episode_trace_fn(episode)
                 result["service_state"] = state_after
                 result["runtime_episode"] = episode
                 return result
             except Exception as exc:
-                episode = self._runtime_episode_payload_fn(
+                episode = self._build_runtime_episode(
                     operation="query",
                     request=request,
                     prediction=prediction,
@@ -459,16 +504,13 @@ class InteractionPipeline:
                     trace_id=trace_id,
                     error=exc,
                 )
-                trace = self._build_trace(
+                self._finalize_trace(
+                    operation="query",
                     trace_id=trace_id,
                     created_at=created_at,
-                    operation="query",
                     request=request,
-                    runtime_episode=episode,
+                    episode=episode,
                     state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
                     error=exc,
                 )
-                trace_path = self._persist_trace_fn(trace)
-                episode["trace_path"] = str(trace_path)
-                self._append_runtime_episode_trace_fn(episode)
                 raise
