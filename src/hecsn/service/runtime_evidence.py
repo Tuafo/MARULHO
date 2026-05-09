@@ -7,6 +7,10 @@ import time
 from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
+from hecsn.service.interaction_pipeline import (
+    build_query_runtime_actual_output,
+    build_query_runtime_verification,
+)
 from hecsn.service.living_loop import RuntimeEpisodeTrace, build_replay_plan
 
 DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT = 20
@@ -1042,46 +1046,10 @@ class RuntimeEvidenceMixin:
         }
 
     def _query_runtime_actual_output(self, result: Mapping[str, Any]) -> dict[str, Any]:
-        query_summary = result.get("query_summary") if isinstance(result.get("query_summary"), Mapping) else {}
-        gap_plan = result.get("gap_plan") if isinstance(result.get("gap_plan"), Mapping) else {}
-        concept_summary = result.get("concept_summary") if isinstance(result.get("concept_summary"), Mapping) else {}
-        memory_matches = list(query_summary.get("memory_matches") or [])
-        memory_episodes = list(query_summary.get("memory_episodes") or [])
-        return {
-            "summary": f"Retrieved {len(memory_matches)} memory matches and {len(memory_episodes)} memory episodes.",
-            "query_text": str(query_summary.get("query_text", "")),
-            "winner_column": query_summary.get("winner_column"),
-            "reconstruction_error": query_summary.get("reconstruction_error"),
-            "top_candidate_count": int(len(list(query_summary.get("top_candidates") or []))),
-            "memory_match_count": int(len(memory_matches)),
-            "memory_episode_count": int(len(memory_episodes)),
-            "gap_plan": {
-                "planner_mode": gap_plan.get("planner_mode"),
-                "grounded_fraction": float(gap_plan.get("grounded_fraction", 0.0) or 0.0),
-                "unsupported_terms": list(gap_plan.get("unsupported_terms") or []),
-                "retrieval_queries": list(gap_plan.get("retrieval_queries") or [])[:3],
-            },
-            "concept_summary": {
-                "concept_count": concept_summary.get("concept_count"),
-                "observations": concept_summary.get("observations"),
-                "top_concepts": list(concept_summary.get("top_concepts") or [])[:3],
-            },
-        }
+        return build_query_runtime_actual_output(result)
 
     def _query_runtime_verification(self, result: Mapping[str, Any]) -> dict[str, Any]:
-        actual = self._query_runtime_actual_output(result)
-        gap_plan = actual.get("gap_plan") if isinstance(actual.get("gap_plan"), Mapping) else {}
-        confidence = max(
-            0.20 if int(actual.get("memory_match_count", 0) or 0) > 0 else 0.05,
-            min(1.0, float(gap_plan.get("grounded_fraction", 0.0) or 0.0)),
-        )
-        return {
-            "status": "verified",
-            "success": True,
-            "confidence": confidence,
-            "contradiction": False,
-            "summary": str(actual.get("summary", "")),
-        }
+        return build_query_runtime_verification(result)
 
     def _respond_runtime_actual_output(
         self,

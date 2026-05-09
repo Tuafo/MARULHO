@@ -1,9 +1,8 @@
-"""Operator interaction runtime for Terminus.
+"""Compatibility mixin for operator interaction runtime.
 
-This mixin owns query/feed/respond/acquire behavior and the evidence capture
-that turns live interactions into runtime traces. It preserves the safety line:
-interaction traces may inform feedback and replay exports, but they do not train
-adapters or promote replay datasets into memory by themselves.
+Query now delegates through the constructor-injected InteractionPipeline seam.
+Feed/respond/acquire remain here for now, along with the shared helpers that
+those public methods still use.
 """
 
 from __future__ import annotations
@@ -41,107 +40,13 @@ class InteractionRuntimeMixin:
         top_k_memories: int = 5,
         top_chars: int = 6,
     ) -> dict[str, Any]:
-        with self._lock:
-            started_perf = time.perf_counter()
-            created_at = datetime.now(timezone.utc).isoformat()
-            trace_id = str(uuid4())
-            request = {
-                "query_text": query_text,
-                "context_text": context_text,
-                "top_k_candidates": int(top_k_candidates),
-                "top_k_memories": int(top_k_memories),
-                "top_chars": int(top_chars),
-            }
-            prediction = {
-                "kind": "retrieval_prediction",
-                "predicted_output": f"Query should produce memory evidence and a semantic gap plan for: {query_text}",
-                "proposed_action": "build_query_result",
-                "topics": salient_query_terms(query_text)[:8],
-            }
-            action = {
-                "action_type": "query",
-                "top_k_candidates": int(top_k_candidates),
-                "top_k_memories": int(top_k_memories),
-                "top_chars": int(top_chars),
-            }
-            try:
-                result = self._build_query_locked(
-                    query_text=query_text,
-                    context_text=context_text,
-                    top_k_candidates=top_k_candidates,
-                    top_k_memories=top_k_memories,
-                    top_chars=top_chars,
-                )
-                result["concept_summary"] = self._observe_concepts_locked(
-                    query_text=query_text,
-                    query_result=result,
-                )
-                result["gap_plan"] = self._plan_gaps_locked(
-                    query_text=query_text,
-                    query_result=result,
-                )
-                result["delayed_consequence"] = self._apply_delayed_query_consequence_locked(
-                    query_result=result,
-                )
-                self._record_recent_query_gap_locked(
-                    query_text=query_text,
-                    gap_plan=result["gap_plan"],
-                    source="query",
-                )
-                actual_output = self._query_runtime_actual_output(result)
-                verification = self._query_runtime_verification(result)
-                episode = self._runtime_episode_payload_locked(
-                    operation="query",
-                    request=request,
-                    prediction=prediction,
-                    action=action,
-                    actual_output=actual_output,
-                    verification=verification,
-                    started_perf=started_perf,
-                    created_at=created_at,
-                    trace_id=trace_id,
-                )
-                state_after = self._service_state_snapshot(include_replay_dataset_summary=False)
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "query",
-                    "request": request,
-                    "runtime_episode": episode,
-                    "state_after": state_after,
-                }
-                trace_path = self._persist_trace_locked(trace)
-                episode["trace_path"] = str(trace_path)
-                episode = self._append_runtime_episode_trace_locked(episode)
-                result["service_state"] = state_after
-                result["runtime_episode"] = episode
-                return result
-            except Exception as exc:
-                episode = self._runtime_episode_payload_locked(
-                    operation="query",
-                    request=request,
-                    prediction=prediction,
-                    action=action,
-                    actual_output=None,
-                    verification=None,
-                    started_perf=started_perf,
-                    created_at=created_at,
-                    trace_id=trace_id,
-                    error=exc,
-                )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "query",
-                    "request": request,
-                    "runtime_episode": episode,
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
-                }
-                trace_path = self._persist_trace_locked(trace)
-                episode["trace_path"] = str(trace_path)
-                self._append_runtime_episode_trace_locked(episode)
-                raise
+        return self._interaction_pipeline.query(
+            query_text=query_text,
+            context_text=context_text,
+            top_k_candidates=top_k_candidates,
+            top_k_memories=top_k_memories,
+            top_chars=top_chars,
+        )
 
     def _feed_text_for_request_locked(
         self,

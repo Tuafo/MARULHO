@@ -143,6 +143,7 @@ from hecsn.service.terminus_autonomy import (  # noqa: E402
 )
 
 from hecsn.service.replay_dataset_bundle import ReplayDatasetBundleMixin
+from hecsn.service.interaction_pipeline import InteractionPipeline
 from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
 from hecsn.service.runtime_feedback import RuntimeFeedbackMixin
 from hecsn.service.action_assist import ActionAssistMixin
@@ -474,6 +475,8 @@ class HECSNServiceManager(
 
         # --- Status Read Model (ADR 0003 deep module extraction) ---
         self._status_read_model = self._build_status_read_model()
+        # --- Interaction Pipeline (ADR 0003 query-turn extraction) ---
+        self._interaction_pipeline = self._build_interaction_pipeline()
 
     @property
     def _thought_loop(self) -> Any:
@@ -512,6 +515,20 @@ class HECSNServiceManager(
             living_loop_status_fn=self._living_loop_status_impl,
             policy_actuator_status_fn=self._policy_actuator_status_impl,
             cortex_signal_state_fn=self._cortex_signal_state_impl,
+        )
+
+    def _build_interaction_pipeline(self) -> InteractionPipeline:
+        return InteractionPipeline(
+            lock=self._lock,
+            build_query_result_fn=self._build_query_locked,
+            observe_concepts_fn=self._observe_concepts_locked,
+            plan_gaps_fn=self._plan_gaps_locked,
+            apply_delayed_query_consequence_fn=self._apply_delayed_query_consequence_locked,
+            record_recent_query_gap_fn=self._record_recent_query_gap_locked,
+            runtime_episode_payload_fn=self._runtime_episode_payload_locked,
+            persist_trace_fn=self._persist_trace_locked,
+            append_runtime_episode_trace_fn=self._append_runtime_episode_trace_locked,
+            service_state_snapshot_fn=self._service_state_snapshot,
         )
 
     def _cortex_active(self) -> bool:
