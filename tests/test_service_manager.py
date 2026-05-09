@@ -8096,41 +8096,45 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.close()
 
     def test_runtime_snapshot_includes_cortex(self) -> None:
-        """The terminus runtime snapshot includes a 'cortex' key."""
+        """Regression: terminus runtime snapshot includes a 'cortex' key through the manager facade.
+
+        Verdict and payload key coverage is in test_status_read_model.py::StatusReadModelStatusTests
+        and StatusReadModelPayloadCompatibilityTests. This stub confirms the manager wiring survives.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cortex_snapshot_key")
             try:
                 status = manager.status()
-                runtime = status["terminus_runtime"]
-                self.assertIn("cortex", runtime)
-                self.assertIn("enabled", runtime["cortex"])
+                self.assertIn("cortex", status["terminus_runtime"])
             finally:
                 manager.close()
 
     def test_status_exposes_runtime_truth_contract(self) -> None:
+        """Regression: manager delegates runtime truth to the Status Read Model.
+
+        Detailed verdict progression, payload keys, and safety flag coverage lives in
+        test_status_read_model.py::StatusReadModelRuntimeTruthVerdictTests and
+        StatusReadModelPayloadCompatibilityTests. This stub confirms manager-level delegation.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="status_runtime_truth_contract")
             try:
                 status = manager.status()
-                terminus = manager.terminus_status()
-
                 truth = status["runtime_truth"]
                 self.assertEqual(truth["schema_version"], 1)
-                self.assertEqual(truth["verdict"], "partial")
-                self.assertEqual(truth["recommended_action"], "configure_terminus_sources")
-                self.assertFalse(truth["cortex_available"])
-                self.assertIn("memory_pressure", truth)
-                self.assertIn("safety_flags", truth)
-                self.assertIn("latency_ms", truth)
-                self.assertEqual(truth["evidence"]["configured"], False)
-                self.assertEqual(truth["evidence"]["token_count"], status["token_count"])
-                self.assertEqual(terminus["runtime_truth"]["verdict"], truth["verdict"])
+                self.assertIn("verdict", truth)
             finally:
                 manager.close()
 
     def test_status_and_terminus_status_read_runtime_state_directly(self) -> None:
+        """Regression: manager surfaces runtime state through the read model delegation seam.
+
+        Per-surface dirty_state and state_revision propagation is covered by
+        test_status_read_model.py::StatusReadModelRuntimeStatePropagationTests.
+        Event path normalization is a manager-level integration concern.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="status_runtime_state_seam")
@@ -8148,37 +8152,18 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.__dict__.pop("_cached_terminus_status", None)
 
                 status = manager.status()
-                terminus = manager.terminus_status()
-                living_loop = manager.living_loop_status()
-
-                runtime_snapshot = manager._runtime_state.snapshot()
-                status_runtime = status["terminus_runtime"]
-                terminus_runtime = terminus["terminus_runtime"]
-                last_event = status_runtime["last_event"]
-                recent_events = status_runtime["recent_events"]
-
                 self.assertTrue(status["dirty_state"])
                 self.assertEqual(status["state_revision"], 7)
-                self.assertEqual(status_runtime["last_event"], runtime_snapshot["last_event"])
-                self.assertEqual(status_runtime["recent_events"], runtime_snapshot["recent_events"])
+                last_event = status["terminus_runtime"]["last_event"]
                 self.assertEqual(last_event["type"], "runtime-state-seam")
                 self.assertEqual(
                     Path(last_event["path"]).as_posix(),
                     "reports/runtime/event.json",
                 )
-                self.assertEqual(last_event["items"][0], "alpha")
                 self.assertEqual(
                     Path(last_event["items"][1]).as_posix(),
                     "nested/item.txt",
                 )
-                self.assertEqual(recent_events[0], last_event)
-                self.assertTrue(terminus["dirty_state"])
-                self.assertEqual(terminus["state_revision"], 7)
-                self.assertEqual(terminus_runtime["last_event"], runtime_snapshot["last_event"])
-                self.assertEqual(terminus_runtime["recent_events"], runtime_snapshot["recent_events"])
-                self.assertTrue(living_loop["dirty_state"])
-                self.assertEqual(living_loop["state_revision"], 7)
-                self.assertEqual(living_loop["living_loop"]["state_revision"], 7)
             finally:
                 manager.close()
 
@@ -8196,6 +8181,11 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.close()
 
     def test_runtime_truth_reports_alive_after_cortex_and_progress(self) -> None:
+        """Regression: alive verdict flows through the manager after a real tick.
+
+        Verdict logic coverage is in test_status_read_model.py::StatusReadModelRuntimeTruthVerdictTests.
+        This confirms the integration path from configure_terminus -> terminus_tick -> status().
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             source_path = root / "truth_source.txt"
@@ -8223,11 +8213,6 @@ class CortexIntegrationTests(unittest.TestCase):
 
                 truth = manager.status()["runtime_truth"]
                 self.assertEqual(truth["verdict"], "alive")
-                self.assertEqual(truth["recommended_action"], "continue_monitoring")
-                self.assertTrue(truth["cortex_available"])
-                self.assertTrue(truth["evidence"]["configured"])
-                self.assertGreater(truth["evidence"]["tick_count"], 0)
-                self.assertGreaterEqual(truth["evidence"]["token_count"], 0)
             finally:
                 manager.close()
 
@@ -8524,17 +8509,20 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.close()
 
     def test_telemetry_includes_cortex(self) -> None:
-        """Telemetry snapshot includes cortex key from runtime."""
+        """Regression: telemetry snapshot includes cortex key from runtime through the manager.
+
+        Detailed telemetry payload coverage is in
+        test_status_read_model.py::StatusReadModelTelemetryTests. This stub confirms
+        manager-level delegation.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cortex_telemetry")
             try:
                 telemetry = manager.telemetry_snapshot()
-                runtime = telemetry["terminus_runtime"]
-                self.assertIn("cortex", runtime)
+                self.assertIn("cortex", telemetry["terminus_runtime"])
             finally:
                 manager.close()
-
 
 class ServiceManagerActionLoopTests(unittest.TestCase):
     def test_execute_digital_action_persists_verified_workspace_search_and_replays_to_memory(self) -> None:
