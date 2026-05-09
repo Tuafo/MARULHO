@@ -343,7 +343,7 @@ class StatusReadModelCacheTests(unittest.TestCase):
         first = model.status()
         # Hold the lock in another thread and verify we get the cached result
         barrier = threading.Barrier(2, timeout=5.0)
-        cached_result: dict[str, Any] | None = [None]
+        cached_result: list[dict[str, Any] | None] = [None]
 
         def _hold_lock_and_read():
             with lock:
@@ -362,6 +362,7 @@ class StatusReadModelCacheTests(unittest.TestCase):
         holder.join(timeout=5.0)
         reader.join(timeout=5.0)
         self.assertIsNotNone(cached_result[0])
+        assert cached_result[0] is not None  # narrowing for type checkers
         self.assertEqual(cached_result[0]["checkpoint_path"], first["checkpoint_path"])
 
     def test_terminus_status_returns_cached_result_when_lock_contended(self) -> None:
@@ -369,7 +370,7 @@ class StatusReadModelCacheTests(unittest.TestCase):
         model, _, lock, _ = _build_read_model()
         first = model.terminus_status()
         barrier = threading.Barrier(2, timeout=5.0)
-        cached_result: dict[str, Any] | None = [None]
+        cached_result: list[dict[str, Any] | None] = [None]
 
         def _hold_lock_and_read():
             with lock:
@@ -388,6 +389,7 @@ class StatusReadModelCacheTests(unittest.TestCase):
         holder.join(timeout=5.0)
         reader.join(timeout=5.0)
         self.assertIsNotNone(cached_result[0])
+        assert cached_result[0] is not None  # narrowing for type checkers
         self.assertEqual(cached_result[0]["token_count"], first["token_count"])
 
 

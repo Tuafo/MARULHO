@@ -26,6 +26,7 @@ import { hostDirect } from "./host-direct.mts";
 const MAX_ITERATIONS = 10;
 
 const PI_MODEL = "nvidia-nim/z-ai/glm-5.1";
+
 const IDLE_TIMEOUT = 1800;
 
 const sandbox = hostDirect({
@@ -45,6 +46,60 @@ const hooks = {
   },
 };
 
+const extractTextParts = (content: unknown): string[] => {
+  if (!Array.isArray(content)) return [];
+
+  return content.flatMap((part) => {
+    if (
+      typeof part === "object" &&
+      part !== null &&
+      (part as { type?: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
+    ) {
+      return [(part as { text: string }).text];
+    }
+    return [];
+  });
+};
+
+const extractAssistantOutput = (stdout: string): string => {
+  const assistantTexts: string[] = [];
+
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.startsWith("{")) continue;
+
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      const message =
+        typeof event.message === "object" && event.message !== null
+          ? (event.message as Record<string, unknown>)
+          : undefined;
+
+      if (
+        (event.type === "message_start" || event.type === "message_end") &&
+        message?.role === "assistant"
+      ) {
+        assistantTexts.push(...extractTextParts(message.content));
+        if (typeof message.errorMessage === "string") {
+          assistantTexts.push(message.errorMessage);
+        }
+        continue;
+      }
+
+      if (event.type === "turn_end" && message?.role === "assistant") {
+        assistantTexts.push(...extractTextParts(message.content));
+        if (typeof message.errorMessage === "string") {
+          assistantTexts.push(message.errorMessage);
+        }
+      }
+    } catch {
+      // Ignore malformed JSON lines and non-event output.
+    }
+  }
+
+  return assistantTexts.join("\n");
+};
+
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
@@ -54,14 +109,17 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "planner",
     maxIterations: 1,
     idleTimeoutSeconds: IDLE_TIMEOUT,
-    agent: sandcastle.codex("gpt-5.4", { effort: "high" }),
+    agent: sandcastle.pi(PI_MODEL),
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
-  const planMatches = [...plan.stdout.matchAll(/<plan>([\s\S]*?)<\/plan>/g)];
+  const plannerOutput = extractAssistantOutput(plan.stdout) || plan.stdout;
+  const planMatches = [
+    ...plannerOutput.matchAll(/^\s*<plan>\s*\r?\n([\s\S]*?)\r?\n\s*<\/plan>\s*$/gm),
+  ];
   if (planMatches.length === 0) {
     throw new Error(
-      "Planning agent did not produce a <plan> tag.\n\n" + plan.stdout,
+      "Planning agent did not produce a <plan> tag.\n\n" + plannerOutput,
     );
   }
   const planRaw = planMatches[planMatches.length - 1]![1]!;
@@ -94,7 +152,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           name: "implementer",
           maxIterations: 100,
           idleTimeoutSeconds: IDLE_TIMEOUT,
-          agent: sandcastle.codex("gpt-5.4-mini", { effort: "xhigh" }),
+          agent: sandcastle.codex("gpt-5.4-mini", { effort: "high" }),
           promptFile: "./.sandcastle/implement-prompt.md",
           promptArgs: {
             TASK_ID: issue.id,
@@ -108,7 +166,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             name: "reviewer",
             maxIterations: 1,
             idleTimeoutSeconds: IDLE_TIMEOUT,
-            agent: sandcastle.codex("gpt-5.5", { effort: "high" }),
+            agent: sandcastle.codex("gpt-5.4", { effort: "medium" }),
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
               BRANCH: issue.branch,
@@ -165,7 +223,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "merger",
     maxIterations: 1,
     idleTimeoutSeconds: IDLE_TIMEOUT,
-    agent: sandcastle.codex("gpt-5.4", { effort: "high" }),
+    agent: sandcastle.pi(PI_MODEL),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),

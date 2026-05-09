@@ -116,6 +116,7 @@ src/hecsn/service/sensory_preview.py
 src/hecsn/service/sensory_runtime.py
 src/hecsn/service/server.py
 src/hecsn/service/source_focus.py
+src/hecsn/service/status_read_model.py
 src/hecsn/service/status_runtime.py
 src/hecsn/service/terminus_autonomy.py
 src/hecsn/service/terminus_hf_sources.py
@@ -209,6 +210,7 @@ tests/test_service_manager.py
 tests/test_sfa_correction.py
 tests/test_source_catalog.py
 tests/test_sparsity.py
+tests/test_status_read_model.py
 tests/test_surprise.py
 tests/test_terminus_sensory.py
 tests/test_thought_loop.py

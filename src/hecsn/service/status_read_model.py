@@ -491,7 +491,7 @@ class StatusReadModel:
         limit:
             Maximum number of preview items to return.  Defaults to 6.
         """
-        return SensoryPreviewMixin.sensory_previews(self, limit=limit)
+        return SensoryPreviewMixin.sensory_previews(self, limit=limit)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
     # Architecture summary
