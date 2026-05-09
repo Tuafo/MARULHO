@@ -502,7 +502,7 @@ class HECSNServiceManager(
             metadata=self._metadata,
             checkpoint_path_str=str(self._checkpoint_path),
             trace_dir_str=str(self._trace_dir),
-            concept_store_snapshot_fn=self._concept_store.snapshot,
+            concept_store_snapshot_fn=lambda: self._concept_store.snapshot(),
             brain_runtime_snapshot_fn=self._brain_runtime_snapshot_locked,
             multimodal_runtime_summary_fn=self._multimodal_runtime_summary_locked,
             sensory_preview_history=self._sensory_preview_history,
