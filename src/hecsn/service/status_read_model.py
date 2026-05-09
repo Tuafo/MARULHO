@@ -27,6 +27,7 @@ import torch
 from hecsn.service.runtime_state import RuntimeState
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
+DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
 
 
 class StatusReadModel:
@@ -291,18 +292,28 @@ class StatusReadModel:
             return "watch_working_set_growth"
         return "continue_monitoring"
 
+    def _state_norm(self) -> float:
+        return float(torch.linalg.norm(self._trainer.context_state().float()).item())
+
+    def _last_trace_fields(self) -> tuple[int, str | None, str | None]:
+        last_trace = self._trace_history[0] if self._trace_history else None
+        return (
+            int(len(self._trace_history)),
+            None if last_trace is None else str(last_trace.get("trace_id")),
+            None if last_trace is None else str(last_trace.get("created_at")),
+        )
+
     # ------------------------------------------------------------------
     # Internal snapshot builders (must be called under self._lock)
     # ------------------------------------------------------------------
 
     def _status_snapshot_locked(self) -> dict[str, Any]:
         """Build the full status snapshot. Caller MUST hold self._lock."""
-        last_trace = self._trace_history[0] if self._trace_history else None
         terminus_runtime = self._brain_runtime_snapshot_fn()
         runtime_mutation = self._runtime_state.mutation_summary()
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
-        trace_history_size = int(len(self._trace_history))
+        trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
 
         return {
             "checkpoint_path": str(self._checkpoint_path_str),
@@ -312,17 +323,11 @@ class StatusReadModel:
                 None if self._trainer.last_winner is None else int(self._trainer.last_winner)
             ),
             "context_supported": bool(self._trainer.model.context_layer is not None),
-            "context_state_norm": float(
-                torch.linalg.norm(self._trainer.context_state().float()).item()
-            ),
+            "context_state_norm": self._state_norm(),
             "trace_history_size": trace_history_size,
             "trace_storage_dir": str(self._trace_dir_str),
-            "last_trace_id": (
-                None if last_trace is None else str(last_trace.get("trace_id"))
-            ),
-            "last_trace_created_at": (
-                None if last_trace is None else str(last_trace.get("created_at"))
-            ),
+            "last_trace_id": last_trace_id,
+            "last_trace_created_at": last_trace_created_at,
             "checkpoint_metadata": deepcopy(self._metadata),
             "dopamine": float(self._trainer.model.surprise.dopamine),
             "serotonin": float(self._trainer.model.surprise.serotonin),
@@ -378,7 +383,7 @@ class StatusReadModel:
             return self._cached_telemetry
 
         memory_store = self._trainer.model.memory_store.summary_stats()
-        last_trace = self._trace_history[0] if self._trace_history else None
+        trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
         drift_value = (
             self._trainer._cached_drift
             if self._trainer._cached_drift is not None
@@ -400,10 +405,10 @@ class StatusReadModel:
             "state_revision": current_rev,
             "token_count": int(self._trainer.token_count),
             "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
-            "context_state_norm": float(torch.linalg.norm(self._trainer.context_state().float()).item()),
-            "trace_history_size": int(len(self._trace_history)),
-            "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
-            "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
+            "context_state_norm": self._state_norm(),
+            "trace_history_size": trace_history_size,
+            "last_trace_id": last_trace_id,
+            "last_trace_created_at": last_trace_created_at,
             "memory_fill_fraction": float(memory_store.get("fill_fraction", 0.0)),
             "memory_buffer_size": int(memory_store.get("size", 0)),
             "sleep_events": int(self._trainer.sleep_events),
@@ -455,7 +460,7 @@ class StatusReadModel:
     ) -> dict[str, Any]:
         """Return a snapshot with non-blocking cached fallback semantics."""
         if fresh_wait_seconds is None:
-            acquired = self._lock.acquire(timeout=0.15)
+            acquired = self._lock.acquire(timeout=DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS)
             if not acquired:
                 if cached_snapshot is not None:
                     return cached_snapshot
@@ -465,7 +470,7 @@ class StatusReadModel:
             acquired = False
             while time.perf_counter() < deadline:
                 remaining = max(0.0, deadline - time.perf_counter())
-                if self._lock.acquire(timeout=min(0.15, remaining)):
+                if self._lock.acquire(timeout=min(DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS, remaining)):
                     acquired = True
                     break
             if not acquired:
@@ -515,13 +520,8 @@ class StatusReadModel:
         the cortex is inactive and the state revision hasn't changed, the
         previously cached telemetry snapshot is reused instead of rebuilding.
         """
-        acquired = self._lock.acquire(timeout=0.15)
-        if not acquired:
-            if self._cached_telemetry is not None:
-                return self._cached_telemetry
-            # No cache yet (first call) — must block
-            self._lock.acquire()
-        try:
-            return self._telemetry_snapshot_locked()
-        finally:
-            self._lock.release()
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_telemetry,
+            snapshot_fn=self._telemetry_snapshot_locked,
+        )

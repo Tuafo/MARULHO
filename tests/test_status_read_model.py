@@ -16,13 +16,14 @@ from collections import deque
 from copy import deepcopy
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.status_read_model import StatusReadModel
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
+
 
 def _build_config() -> HECSNConfig:
     return HECSNConfig(
@@ -93,6 +94,45 @@ def _build_read_model(
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
     )
     return model, trainer, lock, runtime_state
+
+
+def _run_under_lock_contention(
+    lock: threading.RLock,
+    read_fn: Callable[[], Any],
+) -> Any:
+    barrier = threading.Barrier(2, timeout=5.0)
+    result: list[Any | None] = [None]
+
+    def _hold_lock() -> None:
+        with lock:
+            barrier.wait()
+            time.sleep(0.3)
+
+    def _read() -> None:
+        barrier.wait()
+        time.sleep(0.05)
+        result[0] = read_fn()
+
+    holder = threading.Thread(target=_hold_lock, daemon=True)
+    reader = threading.Thread(target=_read, daemon=True)
+    holder.start()
+    reader.start()
+    holder.join(timeout=5.0)
+    reader.join(timeout=5.0)
+    return result[0]
+
+
+def _build_manager(root: Path, *, test_case: str):
+    from hecsn.service.manager import HECSNServiceManager
+
+    cfg = _build_config()
+    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+    checkpoint_path = save_trainer_checkpoint(
+        root / "initial.pt",
+        trainer,
+        metadata={"test_case": test_case},
+    )
+    return HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
 
 
 class StatusReadModelConstructionTests(unittest.TestCase):
@@ -211,56 +251,18 @@ class StatusReadModelCacheTests(unittest.TestCase):
     def test_status_returns_cached_result_when_lock_contended(self) -> None:
         """When the lock is held, status() returns cached data instead of blocking."""
         model, _, lock, _ = _build_read_model()
-        # First call populates cache
         first = model.status()
-        # Hold the lock in another thread and verify we get the cached result
-        barrier = threading.Barrier(2, timeout=5.0)
-        cached_result: dict[str, Any] | None = [None]
-
-        def _hold_lock_and_read():
-            with lock:
-                barrier.wait()  # signal that we hold the lock
-                time.sleep(0.3)  # hold it long enough for the other thread to time out
-
-        def _read_status():
-            barrier.wait()  # wait until the lock is held
-            time.sleep(0.05)  # small delay to ensure lock contention
-            cached_result[0] = model.status()
-
-        holder = threading.Thread(target=_hold_lock_and_read, daemon=True)
-        reader = threading.Thread(target=_read_status, daemon=True)
-        holder.start()
-        reader.start()
-        holder.join(timeout=5.0)
-        reader.join(timeout=5.0)
-        self.assertIsNotNone(cached_result[0])
-        self.assertEqual(cached_result[0]["checkpoint_path"], first["checkpoint_path"])
+        cached_result = _run_under_lock_contention(lock, model.status)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["checkpoint_path"], first["checkpoint_path"])
 
     def test_terminus_status_returns_cached_result_when_lock_contended(self) -> None:
         """When the lock is held, terminus_status() returns cached data instead of blocking."""
         model, _, lock, _ = _build_read_model()
         first = model.terminus_status()
-        barrier = threading.Barrier(2, timeout=5.0)
-        cached_result: dict[str, Any] | None = [None]
-
-        def _hold_lock_and_read():
-            with lock:
-                barrier.wait()
-                time.sleep(0.3)
-
-        def _read_status():
-            barrier.wait()
-            time.sleep(0.05)
-            cached_result[0] = model.terminus_status()
-
-        holder = threading.Thread(target=_hold_lock_and_read, daemon=True)
-        reader = threading.Thread(target=_read_status, daemon=True)
-        holder.start()
-        reader.start()
-        holder.join(timeout=5.0)
-        reader.join(timeout=5.0)
-        self.assertIsNotNone(cached_result[0])
-        self.assertEqual(cached_result[0]["token_count"], first["token_count"])
+        cached_result = _run_under_lock_contention(lock, model.terminus_status)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["token_count"], first["token_count"])
 
 
 class StatusReadModelReadonlyTests(unittest.TestCase):
@@ -370,30 +372,10 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
     def test_telemetry_snapshot_returns_cached_result_when_lock_contended(self) -> None:
         """When the lock is held, telemetry_snapshot() returns cached data."""
         model, _, lock, _ = _build_read_model()
-        # First call populates cache
         first = model.telemetry_snapshot()
-        # Hold the lock in another thread and verify we get the cached result
-        barrier = threading.Barrier(2, timeout=5.0)
-        cached_result: dict[str, Any] | None = [None]
-
-        def _hold_lock_and_read():
-            with lock:
-                barrier.wait()  # signal that we hold the lock
-                time.sleep(0.3)  # hold it long enough for the other thread to time out
-
-        def _read_telemetry():
-            barrier.wait()  # wait until the lock is held
-            time.sleep(0.05)  # small delay to ensure lock contention
-            cached_result[0] = model.telemetry_snapshot()
-
-        holder = threading.Thread(target=_hold_lock_and_read, daemon=True)
-        reader = threading.Thread(target=_read_telemetry, daemon=True)
-        holder.start()
-        reader.start()
-        holder.join(timeout=5.0)
-        reader.join(timeout=5.0)
-        self.assertIsNotNone(cached_result[0])
-        self.assertEqual(cached_result[0]["checkpoint_path"], first["checkpoint_path"])
+        cached_result = _run_under_lock_contention(lock, model.telemetry_snapshot)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["checkpoint_path"], first["checkpoint_path"])
 
     def test_telemetry_snapshot_reuses_cache_at_same_revision_when_cortex_inactive(self) -> None:
         """When cortex is inactive and revision is the same, telemetry returns the cached snapshot."""
@@ -490,17 +472,10 @@ class ServiceManagerDelegationTests(unittest.TestCase):
         """The manager's status() method delegates to its StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
-            cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
-            checkpoint_path = save_trainer_checkpoint(
-                root / "initial.pt", trainer, metadata={"test_case": "delegation"},
-            )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = _build_manager(root, test_case="delegation")
             try:
                 self.assertIsNotNone(manager._status_read_model)
                 self.assertIsInstance(manager._status_read_model, StatusReadModel)
-                # Calling status() through the manager should work
                 result = manager.status()
                 self.assertIn("runtime_truth", result)
                 self.assertIn("checkpoint_path", result)
@@ -511,18 +486,11 @@ class ServiceManagerDelegationTests(unittest.TestCase):
         """The manager's terminus_status() method delegates to its StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
-            cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
-            checkpoint_path = save_trainer_checkpoint(
-                root / "initial.pt", trainer, metadata={"test_case": "delegation"},
-            )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = _build_manager(root, test_case="delegation")
             try:
                 result = manager.terminus_status()
                 self.assertIn("runtime_truth", result)
                 self.assertIn("terminus_runtime", result)
-                # Multimodal is now populated through the read model seam
                 self.assertIn("multimodal", result)
                 self.assertIn("enabled", result["multimodal"])
             finally:
@@ -532,18 +500,10 @@ class ServiceManagerDelegationTests(unittest.TestCase):
         """terminus_status() preserves the full multimodal payload through the read model."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
-            cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
-            checkpoint_path = save_trainer_checkpoint(
-                root / "initial.pt", trainer, metadata={"test_case": "multimodal_preserved"},
-            )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = _build_manager(root, test_case="multimodal_preserved")
             try:
                 result = manager.terminus_status()
                 multimodal = result["multimodal"]
-                # The multimodal payload must have the same keys as the mixin's
-                # _multimodal_runtime_summary_locked produces
                 expected_keys = {
                     "enabled", "mode", "episodes_completed",
                     "focus_terms", "source_names",
@@ -559,14 +519,7 @@ class ServiceManagerDelegationTests(unittest.TestCase):
         """The manager's telemetry_snapshot() method delegates to its StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
-
-            cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
-            checkpoint_path = save_trainer_checkpoint(
-                root / "initial.pt", trainer, metadata={"test_case": "telemetry_delegation"},
-            )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = _build_manager(root, test_case="telemetry_delegation")
             try:
                 result = manager.telemetry_snapshot()
                 self.assertIn("animation", result)
