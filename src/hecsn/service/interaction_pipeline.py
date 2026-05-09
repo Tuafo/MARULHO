@@ -19,10 +19,14 @@ from uuid import uuid4
 from hecsn.semantics.grounding_text import salient_query_terms
 
 
+def _mapping_or_empty(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
 def build_query_runtime_actual_output(result: Mapping[str, Any]) -> dict[str, Any]:
-    query_summary = result.get("query_summary") if isinstance(result.get("query_summary"), Mapping) else {}
-    gap_plan = result.get("gap_plan") if isinstance(result.get("gap_plan"), Mapping) else {}
-    concept_summary = result.get("concept_summary") if isinstance(result.get("concept_summary"), Mapping) else {}
+    query_summary = _mapping_or_empty(result.get("query_summary"))
+    gap_plan = _mapping_or_empty(result.get("gap_plan"))
+    concept_summary = _mapping_or_empty(result.get("concept_summary"))
     memory_matches = list(query_summary.get("memory_matches") or [])
     memory_episodes = list(query_summary.get("memory_episodes") or [])
     return {
@@ -97,6 +101,68 @@ class InteractionPipeline:
     def _query_runtime_verification(self, result: Mapping[str, Any]) -> dict[str, Any]:
         return build_query_runtime_verification(result)
 
+    @staticmethod
+    def _build_request(
+        *,
+        query_text: str,
+        context_text: str | None,
+        top_k_candidates: int,
+        top_k_memories: int,
+        top_chars: int,
+    ) -> dict[str, Any]:
+        return {
+            "query_text": query_text,
+            "context_text": context_text,
+            "top_k_candidates": int(top_k_candidates),
+            "top_k_memories": int(top_k_memories),
+            "top_chars": int(top_chars),
+        }
+
+    @staticmethod
+    def _build_prediction(query_text: str) -> dict[str, Any]:
+        return {
+            "kind": "retrieval_prediction",
+            "predicted_output": f"Query should produce memory evidence and a semantic gap plan for: {query_text}",
+            "proposed_action": "build_query_result",
+            "topics": salient_query_terms(query_text)[:8],
+        }
+
+    @staticmethod
+    def _build_action(
+        *,
+        top_k_candidates: int,
+        top_k_memories: int,
+        top_chars: int,
+    ) -> dict[str, Any]:
+        return {
+            "action_type": "query",
+            "top_k_candidates": int(top_k_candidates),
+            "top_k_memories": int(top_k_memories),
+            "top_chars": int(top_chars),
+        }
+
+    @staticmethod
+    def _build_trace(
+        *,
+        trace_id: str,
+        created_at: str,
+        request: Mapping[str, Any],
+        runtime_episode: Mapping[str, Any],
+        state_after: Mapping[str, Any],
+        error: BaseException | None = None,
+    ) -> dict[str, Any]:
+        trace = {
+            "trace_id": trace_id,
+            "created_at": created_at,
+            "operation": "query",
+            "request": dict(request),
+            "runtime_episode": dict(runtime_episode),
+            "state_after": dict(state_after),
+        }
+        if error is not None:
+            trace["error"] = {"type": type(error).__name__, "message": str(error)}
+        return trace
+
     def query(
         self,
         *,
@@ -110,25 +176,19 @@ class InteractionPipeline:
             started_perf = time.perf_counter()
             created_at = datetime.now(timezone.utc).isoformat()
             trace_id = str(uuid4())
-            request = {
-                "query_text": query_text,
-                "context_text": context_text,
-                "top_k_candidates": int(top_k_candidates),
-                "top_k_memories": int(top_k_memories),
-                "top_chars": int(top_chars),
-            }
-            prediction = {
-                "kind": "retrieval_prediction",
-                "predicted_output": f"Query should produce memory evidence and a semantic gap plan for: {query_text}",
-                "proposed_action": "build_query_result",
-                "topics": salient_query_terms(query_text)[:8],
-            }
-            action = {
-                "action_type": "query",
-                "top_k_candidates": int(top_k_candidates),
-                "top_k_memories": int(top_k_memories),
-                "top_chars": int(top_chars),
-            }
+            request = self._build_request(
+                query_text=query_text,
+                context_text=context_text,
+                top_k_candidates=top_k_candidates,
+                top_k_memories=top_k_memories,
+                top_chars=top_chars,
+            )
+            prediction = self._build_prediction(query_text)
+            action = self._build_action(
+                top_k_candidates=top_k_candidates,
+                top_k_memories=top_k_memories,
+                top_chars=top_chars,
+            )
             try:
                 result = self._build_query_result_fn(
                     query_text=query_text,
@@ -167,14 +227,13 @@ class InteractionPipeline:
                     trace_id=trace_id,
                 )
                 state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "query",
-                    "request": request,
-                    "runtime_episode": episode,
-                    "state_after": state_after,
-                }
+                trace = self._build_trace(
+                    trace_id=trace_id,
+                    created_at=created_at,
+                    request=request,
+                    runtime_episode=episode,
+                    state_after=state_after,
+                )
                 trace_path = self._persist_trace_fn(trace)
                 episode["trace_path"] = str(trace_path)
                 episode = self._append_runtime_episode_trace_fn(episode)
@@ -194,15 +253,14 @@ class InteractionPipeline:
                     trace_id=trace_id,
                     error=exc,
                 )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "query",
-                    "request": request,
-                    "runtime_episode": episode,
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot_fn(include_replay_dataset_summary=False),
-                }
+                trace = self._build_trace(
+                    trace_id=trace_id,
+                    created_at=created_at,
+                    request=request,
+                    runtime_episode=episode,
+                    state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
+                    error=exc,
+                )
                 trace_path = self._persist_trace_fn(trace)
                 episode["trace_path"] = str(trace_path)
                 self._append_runtime_episode_trace_fn(episode)
