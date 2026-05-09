@@ -251,6 +251,41 @@ class InteractionPipeline:
     def _feed_runtime_verification(self, summary: Mapping[str, Any]) -> dict[str, Any]:
         return build_feed_runtime_verification(summary)
 
+    def _enrich_query_result(
+        self,
+        *,
+        query_text: str,
+        context_text: str | None,
+        top_k_candidates: int,
+        top_k_memories: int,
+        top_chars: int,
+        gap_source: str,
+    ) -> dict[str, Any]:
+        result = self._build_query_result_fn(
+            query_text=query_text,
+            context_text=context_text,
+            top_k_candidates=top_k_candidates,
+            top_k_memories=top_k_memories,
+            top_chars=top_chars,
+        )
+        result["concept_summary"] = self._observe_concepts_fn(
+            query_text=query_text,
+            query_result=result,
+        )
+        result["gap_plan"] = self._plan_gaps_fn(
+            query_text=query_text,
+            query_result=result,
+        )
+        result["delayed_consequence"] = self._apply_delayed_query_consequence_fn(
+            query_result=result,
+        )
+        self._record_recent_query_gap_fn(
+            query_text=query_text,
+            gap_plan=result["gap_plan"],
+            source=gap_source,
+        )
+        return result
+
     def _build_runtime_episode(
         self,
         *,
@@ -549,28 +584,13 @@ class InteractionPipeline:
                 top_chars=top_chars,
             )
             try:
-                result = self._build_query_result_fn(
+                result = self._enrich_query_result(
                     query_text=query_text,
                     context_text=context_text,
                     top_k_candidates=top_k_candidates,
                     top_k_memories=top_k_memories,
                     top_chars=top_chars,
-                )
-                result["concept_summary"] = self._observe_concepts_fn(
-                    query_text=query_text,
-                    query_result=result,
-                )
-                result["gap_plan"] = self._plan_gaps_fn(
-                    query_text=query_text,
-                    query_result=result,
-                )
-                result["delayed_consequence"] = self._apply_delayed_query_consequence_fn(
-                    query_result=result,
-                )
-                self._record_recent_query_gap_fn(
-                    query_text=query_text,
-                    gap_plan=result["gap_plan"],
-                    source="query",
+                    gap_source="query",
                 )
                 actual_output = self._query_runtime_actual_output(result)
                 verification = self._query_runtime_verification(result)
@@ -695,17 +715,7 @@ class InteractionPipeline:
             outcome_score=outcome_score,
         )
 
-    def respond(
-        self,
-        *,
-        query_text: str,
-        context_text: str | None = None,
-        top_k_candidates: int = 5,
-        top_k_memories: int = 5,
-        top_chars: int = 6,
-        max_evidence_items: int = 3,
-        learn_mode: str = "user_and_selected_evidence",
-    ) -> dict[str, Any]:
+    def _require_respond_callbacks(self) -> None:
         if self._build_response_fn is None:
             raise RuntimeError("InteractionPipeline respond callbacks are not configured")
         if self._maybe_auto_action_assist_fn is None:
@@ -723,6 +733,100 @@ class InteractionPipeline:
         if self._record_response_consequence_candidate_fn is None:
             raise RuntimeError("InteractionPipeline respond callbacks are not configured")
 
+    def _build_response_payload(
+        self,
+        *,
+        query_text: str,
+        query_result: Mapping[str, Any],
+        max_evidence_items: int,
+    ) -> dict[str, Any]:
+        build_response_fn = self._build_response_fn
+        if build_response_fn is None:
+            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
+        response = build_response_fn(
+            query_text=query_text,
+            query_summary=query_result.get("query_summary") or {},
+            concept_summary=query_result.get("concept_summary"),
+            max_evidence_items=max_evidence_items,
+        )
+        if not isinstance(response, dict):
+            raise TypeError("build_response_fn must return a dict")
+        return response
+
+    def _apply_action_assist(
+        self,
+        *,
+        query_text: str,
+        query_result: dict[str, Any],
+        response: dict[str, Any],
+        max_evidence_items: int,
+    ) -> tuple[dict[str, Any], Mapping[str, Any] | None]:
+        maybe_auto_action_assist_fn = self._maybe_auto_action_assist_fn
+        if maybe_auto_action_assist_fn is None:
+            raise RuntimeError("InteractionPipeline respond callbacks are not configured")
+        action_assist = maybe_auto_action_assist_fn(
+            query_text=query_text,
+            query_result=query_result,
+            response=response,
+        )
+        if action_assist is not None and not isinstance(action_assist, Mapping):
+            raise TypeError("maybe_auto_action_assist_fn must return a mapping or None")
+        if action_assist is None:
+            return response, None
+
+        if int(action_assist.get("response_episode_count", 0) or 0) > 0:
+            response = self._build_response_payload(
+                query_text=query_text,
+                query_result=query_result,
+                max_evidence_items=max_evidence_items,
+            )
+            action_assist["used_in_response"] = True
+
+        response_note = _normalize_action_text(action_assist.get("response_note", ""))
+        if response_note:
+            base_text = _normalize_action_text(response.get("response_text", ""))
+            if response_note.strip() not in base_text:
+                response["response_text"] = (base_text + response_note).strip()
+                action_assist["used_in_response"] = True
+
+        query_result["action_assist"] = deepcopy(action_assist)
+        response["action_assist"] = deepcopy(action_assist)
+        return response, action_assist
+
+    @staticmethod
+    def _apply_action_assist_to_action(
+        action: dict[str, Any],
+        action_assist: Mapping[str, Any] | None,
+    ) -> None:
+        if not isinstance(action_assist, Mapping):
+            return
+        record_value = action_assist.get("result")
+        record = record_value if isinstance(record_value, Mapping) else {}
+        action["action_assist"] = {
+            "triggered": bool(action_assist.get("triggered", False)),
+            "executed": bool(action_assist.get("executed", False)),
+            "reused_recent_action": bool(action_assist.get("reused_recent_action", False)),
+            "reason": _normalize_action_text(action_assist.get("reason", "")),
+            "action_type": _normalize_action_text(record.get("action_type", "")),
+            "action_id": _normalize_action_text(record.get("action_id", "")),
+        }
+        predicted_action = _normalize_action_text(record.get("predicted_outcome", ""))
+        if predicted_action:
+            action["proposed_action"] = predicted_action
+
+    def respond(
+        self,
+        *,
+        query_text: str,
+        context_text: str | None = None,
+        top_k_candidates: int = 5,
+        top_k_memories: int = 5,
+        top_chars: int = 6,
+        max_evidence_items: int = 3,
+        learn_mode: str = "user_and_selected_evidence",
+    ) -> dict[str, Any]:
+        self._require_respond_callbacks()
+
         with self._lock:
             started_perf = time.perf_counter()
             created_at = datetime.now(timezone.utc).isoformat()
@@ -738,66 +842,26 @@ class InteractionPipeline:
             )
             state_before = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
             try:
-                query_result = self._build_query_result_fn(
+                query_result = self._enrich_query_result(
                     query_text=query_text,
                     context_text=context_text,
                     top_k_candidates=top_k_candidates,
                     top_k_memories=top_k_memories,
                     top_chars=top_chars,
+                    gap_source="respond",
                 )
-                query_result["concept_summary"] = self._observe_concepts_fn(
+                response = self._build_response_payload(
                     query_text=query_text,
                     query_result=query_result,
-                )
-                query_result["gap_plan"] = self._plan_gaps_fn(
-                    query_text=query_text,
-                    query_result=query_result,
-                )
-                query_result["delayed_consequence"] = self._apply_delayed_query_consequence_fn(
-                    query_result=query_result,
-                )
-                self._record_recent_query_gap_fn(
-                    query_text=query_text,
-                    gap_plan=query_result["gap_plan"],
-                    source="respond",
-                )
-                query_summary = query_result.get("query_summary") or {}
-                response = self._build_response_fn(
-                    query_text=query_text,
-                    query_summary=query_summary,
-                    concept_summary=query_result.get("concept_summary"),
                     max_evidence_items=max_evidence_items,
                 )
-                if not isinstance(response, dict):
-                    raise TypeError("build_response_fn must return a dict")
                 proposed_response = deepcopy(response)
-                action_assist = self._maybe_auto_action_assist_fn(
+                response, action_assist = self._apply_action_assist(
                     query_text=query_text,
                     query_result=query_result,
                     response=response,
+                    max_evidence_items=max_evidence_items,
                 )
-                if action_assist is not None and not isinstance(action_assist, Mapping):
-                    raise TypeError("maybe_auto_action_assist_fn must return a mapping or None")
-                if action_assist is not None:
-                    if int(action_assist.get("response_episode_count", 0) or 0) > 0:
-                        query_summary = query_result.get("query_summary") or {}
-                        response = self._build_response_fn(
-                            query_text=query_text,
-                            query_summary=query_summary,
-                            concept_summary=query_result.get("concept_summary"),
-                            max_evidence_items=max_evidence_items,
-                        )
-                        if not isinstance(response, dict):
-                            raise TypeError("build_response_fn must return a dict")
-                        action_assist["used_in_response"] = True
-                    response_note = _normalize_action_text(action_assist.get("response_note", ""))
-                    if response_note:
-                        base_text = _normalize_action_text(response.get("response_text", ""))
-                        if response_note.strip() not in base_text:
-                            response["response_text"] = (base_text + response_note).strip()
-                            action_assist["used_in_response"] = True
-                    query_result["action_assist"] = deepcopy(action_assist)
-                    response["action_assist"] = deepcopy(action_assist)
                 response_outcome_score = self._response_grounded_outcome_score_fn(
                     query_result=query_result,
                     response=response,
@@ -834,20 +898,7 @@ class InteractionPipeline:
                     max_evidence_items=max_evidence_items,
                     learn_mode=learn_mode,
                 )
-                if isinstance(action_assist, Mapping):
-                    record_value = action_assist.get("result")
-                    record = record_value if isinstance(record_value, Mapping) else {}
-                    action["action_assist"] = {
-                        "triggered": bool(action_assist.get("triggered", False)),
-                        "executed": bool(action_assist.get("executed", False)),
-                        "reused_recent_action": bool(action_assist.get("reused_recent_action", False)),
-                        "reason": _normalize_action_text(action_assist.get("reason", "")),
-                        "action_type": _normalize_action_text(record.get("action_type", "")),
-                        "action_id": _normalize_action_text(record.get("action_id", "")),
-                    }
-                    predicted_action = _normalize_action_text(record.get("predicted_outcome", ""))
-                    if predicted_action:
-                        action["proposed_action"] = predicted_action
+                self._apply_action_assist_to_action(action, action_assist)
                 prediction = self._build_respond_prediction(
                     query_text,
                     proposed_response,
@@ -875,25 +926,24 @@ class InteractionPipeline:
                     created_at=created_at,
                     trace_id=trace_id,
                 )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "respond",
-                    "request": request,
-                    "state_before": state_before,
-                    "query_result": query_result,
-                    "response": response,
-                    "learning": learning,
-                    "runtime_episode": episode,
-                    "state_after": state_after,
-                }
-                trace_path = self._persist_trace_fn(trace)
-                episode["trace_path"] = str(trace_path)
-                episode = self._append_runtime_episode_trace_fn(episode)
+                episode = self._finalize_trace(
+                    operation="respond",
+                    trace_id=trace_id,
+                    created_at=created_at,
+                    request=request,
+                    episode=episode,
+                    state_after=state_after,
+                    state_before=state_before,
+                    extra_trace_fields={
+                        "query_result": query_result,
+                        "response": response,
+                        "learning": learning,
+                    },
+                )
                 return {
-                    "trace_id": trace["trace_id"],
-                    "trace_path": str(trace_path),
-                    "created_at": trace["created_at"],
+                    "trace_id": trace_id,
+                    "trace_path": str(episode["trace_path"]),
+                    "created_at": created_at,
                     "query_result": query_result,
                     "response": response,
                     "learning": learning,
@@ -922,17 +972,14 @@ class InteractionPipeline:
                     trace_id=trace_id,
                     error=exc,
                 )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "respond",
-                    "request": request,
-                    "state_before": state_before,
-                    "runtime_episode": episode,
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot_fn(include_replay_dataset_summary=False),
-                }
-                trace_path = self._persist_trace_fn(trace)
-                episode["trace_path"] = str(trace_path)
-                self._append_runtime_episode_trace_fn(episode)
+                self._finalize_trace(
+                    operation="respond",
+                    trace_id=trace_id,
+                    created_at=created_at,
+                    request=request,
+                    episode=episode,
+                    state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
+                    state_before=state_before,
+                    error=exc,
+                )
                 raise
