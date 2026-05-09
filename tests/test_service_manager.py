@@ -364,6 +364,40 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 manager.close()
 
 
+class ServiceManagerInteractionPipelineDelegationTests(unittest.TestCase):
+    def test_query_feed_and_respond_delegate_to_interaction_pipeline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_interaction_pipeline_delegation")
+            try:
+                calls: list[tuple[str, dict[str, object]]] = []
+
+                class _FakeInteractionPipeline:
+                    def query(self, **kwargs: object) -> dict[str, object]:
+                        calls.append(("query", dict(kwargs)))
+                        return {"operation": "query"}
+
+                    def feed(self, **kwargs: object) -> dict[str, object]:
+                        calls.append(("feed", dict(kwargs)))
+                        return {"operation": "feed"}
+
+                    def respond(self, **kwargs: object) -> dict[str, object]:
+                        calls.append(("respond", dict(kwargs)))
+                        return {"operation": "respond"}
+
+                manager._interaction_pipeline = _FakeInteractionPipeline()
+
+                self.assertEqual(manager.query(query_text="cats"), {"operation": "query"})
+                self.assertEqual(manager.feed(text="cats chase mice"), {"operation": "feed"})
+                self.assertEqual(manager.respond(query_text="cats"), {"operation": "respond"})
+                self.assertEqual([call[0] for call in calls], ["query", "feed", "respond"])
+                self.assertEqual(calls[0][1]["query_text"], "cats")
+                self.assertEqual(calls[1][1]["text"], "cats chase mice")
+                self.assertEqual(calls[2][1]["query_text"], "cats")
+            finally:
+                manager.close()
+
+
 class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
     def test_record_runtime_feedback_updates_and_persists_runtime_episode_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -9346,152 +9380,118 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             finally:
                 restored.close()
 
-    def test_respond_auto_executes_and_reuses_workspace_action_for_gap_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            manager = _build_manager(
-                root,
-                test_case="service_manager_action_loop_auto_query_gap",
-                env_root=root,
-            )
-            try:
-                first = manager.respond(
-                    query_text="What do cats chase at night?",
-                    max_evidence_items=3,
-                    learn_mode="none",
-                )
-                self.assertEqual(first["query_result"]["action_assist"]["reason"], "query_gap_auto_search")
-                self.assertTrue(first["query_result"]["action_assist"]["executed"])
-                self.assertTrue(first["query_result"]["action_assist"]["used_in_response"])
-                self.assertEqual(first["query_result"]["action_assist"]["result"]["trigger_reason"], "query_gap_auto_search")
-                self.assertIn("cats chase mice at night", first["response"]["response_text"].lower())
-                self.assertEqual(manager.action_history(limit=4)["count"], 1)
-
-                second = manager.respond(
-                    query_text="What do cats chase at night?",
-                    max_evidence_items=3,
-                    learn_mode="none",
-                )
-                self.assertEqual(second["query_result"]["action_assist"]["reason"], "recent_verified_action")
-                self.assertFalse(second["query_result"]["action_assist"]["executed"])
-                self.assertTrue(second["query_result"]["action_assist"]["reused_recent_action"])
-                self.assertIn("cats chase mice at night", second["response"]["response_text"].lower())
-                self.assertEqual(manager.action_history(limit=4)["count"], 1)
-            finally:
-                manager.close()
-
-    def test_respond_auto_reads_named_workspace_file_for_gap_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            manager = _build_manager(
-                root,
-                test_case="service_manager_action_loop_auto_query_read",
-                env_root=root,
-            )
-            try:
-                response = manager.respond(
-                    query_text="What does notes.md say cats chase at night?",
-                    max_evidence_items=3,
-                    learn_mode="none",
-                )
-                assist = response["query_result"]["action_assist"]
-                self.assertEqual(assist["reason"], "query_gap_auto_read")
-                self.assertTrue(assist["executed"])
-                self.assertEqual(assist["result"]["action_type"], "workspace_read")
-                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_read")
-                self.assertEqual(assist["result"]["inputs"]["path"], "notes.md")
-                self.assertIn("cats chase mice at night", response["response"]["response_text"].lower())
-                history = manager.action_history(limit=4)
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["action_type"], "workspace_read")
-            finally:
-                manager.close()
-
-    def test_respond_auto_fetches_explicit_url_for_gap_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "page.html").write_text(
-                "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
-                encoding="utf-8",
-            )
-            port = _free_port()
-            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
-            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            manager = _build_manager(
-                root,
-                test_case="service_manager_action_loop_auto_query_fetch",
-                env_root=root,
-            )
-            try:
-                response = manager.respond(
-                    query_text=f"What does http://127.0.0.1:{port}/page.html say cats chase at night?",
-                    max_evidence_items=3,
-                    learn_mode="none",
-                )
-                assist = response["query_result"]["action_assist"]
-                self.assertEqual(assist["reason"], "query_gap_auto_fetch")
-                self.assertTrue(assist["executed"])
-                self.assertEqual(assist["result"]["action_type"], "web_fetch")
-                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_fetch")
-                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
-                self.assertIn("cats chase mice at night", response["response"]["response_text"].lower())
-                history = manager.action_history(limit=4)
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["action_type"], "web_fetch")
-            finally:
-                manager.close()
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=2.0)
-
-    def test_respond_auto_requests_explicit_json_api_for_gap_query(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.json").write_text(
-                '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
-                encoding="utf-8",
-            )
-            port = _free_port()
-            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
-            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            manager = _build_manager(
-                root,
-                test_case="service_manager_action_loop_auto_query_api",
-                env_root=root,
-            )
-            try:
-                response = manager.respond(
-                    query_text=f"What does http://127.0.0.1:{port}/data.json say cats chase at night?",
-                    max_evidence_items=3,
-                    learn_mode="none",
-                )
-                assist = response["query_result"]["action_assist"]
-                self.assertEqual(assist["reason"], "query_gap_auto_api_request")
-                self.assertTrue(assist["executed"])
-                self.assertEqual(assist["result"]["action_type"], "api_request")
-                self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_api_request")
-                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
-                self.assertIn("mice at night", response["response"]["response_text"].lower())
-                history = manager.action_history(limit=4)
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["action_type"], "api_request")
-            finally:
-                manager.close()
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=2.0)
+    def test_respond_auto_executes_workspace_web_and_api_action_assist_for_gap_queries(self) -> None:
+        cases = [
+            {
+                "label": "workspace_search",
+                "test_case": "service_manager_action_loop_auto_query_gap",
+                "query_text": "What do cats chase at night?",
+                "reason": "query_gap_auto_search",
+                "expected_action_type": None,
+                "expected_response_fragment": "cats chase mice at night",
+                "expected_input": None,
+                "setup": lambda root: (root / "notes.md").write_text(
+                    "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                    encoding="utf-8",
+                ),
+            },
+            {
+                "label": "workspace_read",
+                "test_case": "service_manager_action_loop_auto_query_read",
+                "query_text": "What does notes.md say cats chase at night?",
+                "action_type": "workspace_read",
+                "reason": "query_gap_auto_read",
+                "expected_action_type": "workspace_read",
+                "expected_response_fragment": "cats chase mice at night",
+                "expected_input": ("path", "notes.md"),
+                "setup": lambda root: (root / "notes.md").write_text(
+                    "Cats rest indoors during the day.\nCats chase mice at night.\n",
+                    encoding="utf-8",
+                ),
+            },
+            {
+                "label": "web_fetch",
+                "test_case": "service_manager_action_loop_auto_query_fetch",
+                "query_text": "What does {url} say cats chase at night?",
+                "action_type": "web_fetch",
+                "reason": "query_gap_auto_fetch",
+                "expected_action_type": "web_fetch",
+                "expected_response_fragment": "cats chase mice at night",
+                "expected_input": ("url", None),
+                "setup": lambda root: (root / "page.html").write_text(
+                    "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
+                    encoding="utf-8",
+                ),
+            },
+            {
+                "label": "api_request",
+                "test_case": "service_manager_action_loop_auto_query_api",
+                "query_text": "What does {url} say cats chase at night?",
+                "action_type": "api_request",
+                "reason": "query_gap_auto_api_request",
+                "expected_action_type": "api_request",
+                "expected_response_fragment": "mice at night",
+                "expected_input": ("url", None),
+                "setup": lambda root: (root / "data.json").write_text(
+                    '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
+                    encoding="utf-8",
+                ),
+            },
+        ]
+        for case in cases:
+            with self.subTest(action_type=case["label"]):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    root = Path(tmpdir)
+                    case["setup"](root)
+                    port = None
+                    server = None
+                    thread = None
+                    query_text = case["query_text"]
+                    if case["label"] in {"web_fetch", "api_request"}:
+                        port = _free_port()
+                        handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+                        server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+                        thread = threading.Thread(target=server.serve_forever, daemon=True)
+                        thread.start()
+                        url_path = "page.html" if case["action_type"] == "web_fetch" else "data.json"
+                        query_text = query_text.format(url=f"http://127.0.0.1:{port}/{url_path}")
+                    manager = _build_manager(
+                        root,
+                        test_case=case["test_case"],
+                        env_root=root,
+                    )
+                    try:
+                        response = manager.respond(
+                            query_text=query_text,
+                            max_evidence_items=3,
+                            learn_mode="none",
+                        )
+                        assist = response["query_result"]["action_assist"]
+                        self.assertEqual(assist["reason"], case["reason"])
+                        self.assertTrue(assist["executed"])
+                        self.assertEqual(assist["result"]["trigger_reason"], case["reason"])
+                        expected_action_type = case["expected_action_type"]
+                        if expected_action_type is not None:
+                            self.assertEqual(assist["result"]["action_type"], expected_action_type)
+                        self.assertIn(case["expected_response_fragment"], response["response"]["response_text"].lower())
+                        expected_input = case["expected_input"]
+                        if expected_input is not None:
+                            input_key, expected_value = expected_input
+                            if input_key == "path":
+                                self.assertEqual(assist["result"]["inputs"]["path"], expected_value)
+                            else:
+                                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
+                        history = manager.action_history(limit=4)
+                        self.assertEqual(history["count"], 1)
+                        if expected_action_type is not None:
+                            self.assertEqual(history["actions"][0]["action_type"], expected_action_type)
+                    finally:
+                        manager.close()
+                        if server is not None:
+                            server.shutdown()
+                            server.server_close()
+                        if thread is not None:
+                            thread.join(timeout=2.0)
 
     def test_respond_does_not_reuse_parameterized_api_request_for_explicit_url_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
