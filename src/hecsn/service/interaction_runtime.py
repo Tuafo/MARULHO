@@ -1,8 +1,8 @@
 """Compatibility mixin for operator interaction runtime.
 
-Query and feed now delegate through the constructor-injected
-InteractionPipeline seam. Respond/acquire remain here for now, along with the
-shared helpers that those public methods still use.
+Query, feed, and respond delegate through the constructor-injected
+InteractionPipeline seam. Acquire remains here for now, along with the shared
+helpers that those public methods still use.
 """
 
 from __future__ import annotations
@@ -68,217 +68,15 @@ class InteractionRuntimeMixin:
         max_evidence_items: int = 3,
         learn_mode: str = "user_and_selected_evidence",
     ) -> dict[str, Any]:
-        with self._lock:
-            started_perf = time.perf_counter()
-            created_at = datetime.now(timezone.utc).isoformat()
-            trace_id = str(uuid4())
-            request = {
-                "query_text": query_text,
-                "context_text": context_text,
-                "top_k_candidates": int(top_k_candidates),
-                "top_k_memories": int(top_k_memories),
-                "top_chars": int(top_chars),
-                "max_evidence_items": int(max_evidence_items),
-                "learn_mode": learn_mode,
-            }
-            state_before = self._service_state_snapshot(include_replay_dataset_summary=False)
-            try:
-                query_result = self._build_query_locked(
-                    query_text=query_text,
-                    context_text=context_text,
-                    top_k_candidates=top_k_candidates,
-                    top_k_memories=top_k_memories,
-                    top_chars=top_chars,
-                )
-                query_result["concept_summary"] = self._observe_concepts_locked(
-                    query_text=query_text,
-                    query_result=query_result,
-                )
-                query_result["gap_plan"] = self._plan_gaps_locked(
-                    query_text=query_text,
-                    query_result=query_result,
-                )
-                query_result["delayed_consequence"] = self._apply_delayed_query_consequence_locked(
-                    query_result=query_result,
-                )
-                self._record_recent_query_gap_locked(
-                    query_text=query_text,
-                    gap_plan=query_result["gap_plan"],
-                    source="respond",
-                )
-                query_summary = query_result.get("query_summary") or {}
-                response = self._responder.build_response(
-                    query_text=query_text,
-                    query_summary=query_summary,
-                    concept_summary=query_result.get("concept_summary"),
-                    max_evidence_items=max_evidence_items,
-                )
-                proposed_response = deepcopy(response)
-                action_assist = self._maybe_auto_action_assist_locked(
-                    query_text=query_text,
-                    query_result=query_result,
-                    response=response,
-                )
-                if action_assist is not None:
-                    if int(action_assist.get("response_episode_count", 0) or 0) > 0:
-                        query_summary = query_result.get("query_summary") or {}
-                        response = self._responder.build_response(
-                            query_text=query_text,
-                            query_summary=query_summary,
-                            concept_summary=query_result.get("concept_summary"),
-                            max_evidence_items=max_evidence_items,
-                        )
-                        action_assist["used_in_response"] = True
-                    response_note = self._normalize_action_text(action_assist.get("response_note", ""))
-                    if response_note:
-                        base_text = self._normalize_action_text(response.get("response_text", ""))
-                        if response_note.strip() not in base_text:
-                            response["response_text"] = (base_text + response_note).strip()
-                            action_assist["used_in_response"] = True
-                    query_result["action_assist"] = deepcopy(action_assist)
-                    response["action_assist"] = deepcopy(action_assist)
-                response_outcome_score = self._response_grounded_outcome_score_locked(
-                    query_result=query_result,
-                    response=response,
-                    action_assist=action_assist,
-                )
-                applied_background_provenance = self._apply_background_source_response_provenance_locked(
-                    response=response,
-                    outcome_score=response_outcome_score,
-                )
-                if not applied_background_provenance:
-                    self._apply_background_source_outcome_calibration_locked(
-                        query_text=query_text,
-                        outcome_score=response_outcome_score,
-                    )
-                autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
-                if autonomy is not None:
-                    self._apply_provider_response_outcome_calibration_locked(
-                        autonomy=autonomy,
-                        response=response,
-                        outcome_score=response_outcome_score,
-                    )
-                learning = self._learn_from_turn_locked(query_text=query_text, response=response, learn_mode=learn_mode)
-                delayed_candidate = self._record_response_consequence_candidate_locked(
-                    query_result=query_result,
-                    response=response,
-                    outcome_score=response_outcome_score,
-                )
-                if delayed_candidate is not None:
-                    response["delayed_consequence_candidate"] = deepcopy(delayed_candidate)
-
-                action = {
-                    "action_type": "respond",
-                    "learn_mode": learn_mode,
-                    "max_evidence_items": int(max_evidence_items),
-                }
-                if isinstance(action_assist, Mapping):
-                    record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
-                    action["action_assist"] = {
-                        "triggered": bool(action_assist.get("triggered", False)),
-                        "executed": bool(action_assist.get("executed", False)),
-                        "reused_recent_action": bool(action_assist.get("reused_recent_action", False)),
-                        "reason": self._normalize_action_text(action_assist.get("reason", "")),
-                        "action_type": self._normalize_action_text(record.get("action_type", "")),
-                        "action_id": self._normalize_action_text(record.get("action_id", "")),
-                    }
-                    predicted_action = self._normalize_action_text(record.get("predicted_outcome", ""))
-                    if predicted_action:
-                        action["proposed_action"] = predicted_action
-                prediction = {
-                    "kind": "response_prediction",
-                    "predicted_output": self._normalize_action_text(proposed_response.get("response_text", ""))
-                    or f"Respond should produce a grounded answer for: {query_text}",
-                    "proposed_answer": self._normalize_action_text(proposed_response.get("response_text", "")),
-                    "confidence": float(proposed_response.get("support_score", 0.0) or 0.0),
-                    "topics": salient_query_terms(query_text)[:8],
-                }
-                if action.get("proposed_action"):
-                    prediction["proposed_action"] = action["proposed_action"]
-                actual_output = self._respond_runtime_actual_output(
-                    response=response,
-                    action_assist=action_assist,
-                    outcome_score=response_outcome_score,
-                )
-                verification = self._respond_runtime_verification(
-                    response=response,
-                    action_assist=action_assist,
-                    outcome_score=response_outcome_score,
-                )
-                state_after = self._service_state_snapshot(include_replay_dataset_summary=False)
-                episode = self._runtime_episode_payload_locked(
-                    operation="respond",
-                    request=request,
-                    prediction=prediction,
-                    action=action,
-                    actual_output=actual_output,
-                    verification=verification,
-                    started_perf=started_perf,
-                    created_at=created_at,
-                    trace_id=trace_id,
-                )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "respond",
-                    "request": request,
-                    "state_before": state_before,
-                    "query_result": query_result,
-                    "response": response,
-                    "learning": learning,
-                    "runtime_episode": episode,
-                    "state_after": state_after,
-                }
-                trace_path = self._persist_trace_locked(trace)
-                episode["trace_path"] = str(trace_path)
-                episode = self._append_runtime_episode_trace_locked(episode)
-                return {
-                    "trace_id": trace["trace_id"],
-                    "trace_path": str(trace_path),
-                    "created_at": trace["created_at"],
-                    "query_result": query_result,
-                    "response": response,
-                    "learning": learning,
-                    "runtime_episode": episode,
-                    **self._runtime_state.mutation_summary(),
-                }
-            except Exception as exc:
-                prediction = {
-                    "kind": "response_prediction",
-                    "predicted_output": f"Respond should produce a grounded answer for: {query_text}",
-                    "topics": salient_query_terms(query_text)[:8],
-                }
-                action = {
-                    "action_type": "respond",
-                    "learn_mode": learn_mode,
-                    "max_evidence_items": int(max_evidence_items),
-                }
-                episode = self._runtime_episode_payload_locked(
-                    operation="respond",
-                    request=request,
-                    prediction=prediction,
-                    action=action,
-                    actual_output=None,
-                    verification=None,
-                    started_perf=started_perf,
-                    created_at=created_at,
-                    trace_id=trace_id,
-                    error=exc,
-                )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "respond",
-                    "request": request,
-                    "state_before": state_before,
-                    "runtime_episode": episode,
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
-                }
-                trace_path = self._persist_trace_locked(trace)
-                episode["trace_path"] = str(trace_path)
-                self._append_runtime_episode_trace_locked(episode)
-                raise
+        return self._interaction_pipeline.respond(
+            query_text=query_text,
+            context_text=context_text,
+            top_k_candidates=top_k_candidates,
+            top_k_memories=top_k_memories,
+            top_chars=top_chars,
+            max_evidence_items=max_evidence_items,
+            learn_mode=learn_mode,
+        )
 
     def acquire(
         self,

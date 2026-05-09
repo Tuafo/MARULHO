@@ -11,6 +11,8 @@ from hecsn.service.interaction_pipeline import (
     build_feed_runtime_actual_output,
     build_query_runtime_actual_output,
     build_query_runtime_verification,
+    build_respond_runtime_actual_output,
+    build_respond_runtime_verification,
 )
 from hecsn.service.living_loop import RuntimeEpisodeTrace, build_replay_plan
 
@@ -1049,28 +1051,11 @@ class RuntimeEvidenceMixin:
         action_assist: Mapping[str, Any] | None,
         outcome_score: float,
     ) -> dict[str, Any]:
-        actual = {
-            "summary": self._normalize_action_text(response.get("response_text", "")),
-            "response_text": self._normalize_action_text(response.get("response_text", "")),
-            "response_mode": self._normalize_action_text(response.get("response_mode", "")),
-            "support_score": float(response.get("support_score", 0.0) or 0.0),
-            "evidence_coverage": float(response.get("evidence_coverage", 0.0) or 0.0),
-            "selected_evidence_count": int(len(list(response.get("selected_evidence") or []))),
-            "unsupported_terms": list(response.get("unsupported_terms") or []),
-            "outcome_score": float(outcome_score),
-        }
-        if isinstance(action_assist, Mapping):
-            record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
-            actual["action_assist"] = {
-                "triggered": bool(action_assist.get("triggered", False)),
-                "executed": bool(action_assist.get("executed", False)),
-                "reused_recent_action": bool(action_assist.get("reused_recent_action", False)),
-                "reason": self._normalize_action_text(action_assist.get("reason", "")),
-                "used_in_response": bool(action_assist.get("used_in_response", False)),
-                "action_type": self._normalize_action_text(record.get("action_type", "")),
-                "action_id": self._normalize_action_text(record.get("action_id", "")),
-            }
-        return actual
+        return build_respond_runtime_actual_output(
+            response=response,
+            action_assist=action_assist,
+            outcome_score=outcome_score,
+        )
 
     def _respond_runtime_verification(
         self,
@@ -1079,41 +1064,9 @@ class RuntimeEvidenceMixin:
         action_assist: Mapping[str, Any] | None,
         outcome_score: float,
     ) -> dict[str, Any]:
-        action_verification: Mapping[str, Any] = {}
-        if isinstance(action_assist, Mapping):
-            record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
-            action_verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
-        if bool(action_verification.get("contradiction", False)):
-            return {
-                "status": "contradicted",
-                "success": False,
-                "confidence": float(action_verification.get("confidence", 0.0) or 0.0),
-                "contradiction": True,
-                "summary": self._normalize_action_text(action_verification.get("summary", "Action verification contradicted the prediction.")),
-            }
-        if bool(action_verification.get("success", False)):
-            return {
-                "status": "verified",
-                "success": True,
-                "confidence": max(float(action_verification.get("confidence", 0.0) or 0.0), float(outcome_score)),
-                "contradiction": False,
-                "summary": self._normalize_action_text(action_verification.get("summary", "Action verification supplied grounded evidence.")),
-            }
-        selected_count = int(len(list(response.get("selected_evidence") or [])))
-        response_mode = self._normalize_action_text(response.get("response_mode", "")).lower()
-        if response_mode == "insufficient_evidence" or selected_count <= 0:
-            return {
-                "status": "unverified",
-                "success": False,
-                "confidence": float(outcome_score),
-                "contradiction": False,
-                "summary": "Response did not have enough grounded evidence for verification.",
-            }
-        return {
-            "status": "verified" if outcome_score >= 0.5 else "unverified",
-            "success": bool(outcome_score >= 0.5),
-            "confidence": float(outcome_score),
-            "contradiction": False,
-            "summary": f"Response grounded by {selected_count} selected evidence item(s).",
-        }
+        return build_respond_runtime_verification(
+            response=response,
+            action_assist=action_assist,
+            outcome_score=outcome_score,
+        )
 

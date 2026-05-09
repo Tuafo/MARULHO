@@ -475,7 +475,7 @@ class HECSNServiceManager(
 
         # --- Status Read Model (ADR 0003 deep module extraction) ---
         self._status_read_model = self._build_status_read_model()
-        # --- Interaction Pipeline (ADR 0003 query/feed-turn extraction) ---
+        # --- Interaction Pipeline (ADR 0003 query/feed/respond-turn extraction) ---
         self._interaction_pipeline = self._build_interaction_pipeline()
 
     @property
@@ -518,6 +518,16 @@ class HECSNServiceManager(
         )
 
     def _build_interaction_pipeline(self) -> InteractionPipeline:
+        def apply_provider_response_outcome_calibration_fn(**kwargs: Any) -> bool:
+            autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
+            if autonomy is None:
+                return False
+            return self._apply_provider_response_outcome_calibration_locked(
+                autonomy=autonomy,
+                response=kwargs["response"],
+                outcome_score=kwargs["outcome_score"],
+            )
+
         return InteractionPipeline(
             lock=self._lock,
             trainer=self._trainer,
@@ -534,6 +544,14 @@ class HECSNServiceManager(
             persist_trace_fn=lambda trace: self._persist_trace_locked(trace),
             append_runtime_episode_trace_fn=lambda episode: self._append_runtime_episode_trace_locked(episode),
             service_state_snapshot_fn=lambda **kwargs: self._service_state_snapshot(**kwargs),
+            build_response_fn=lambda **kwargs: self._responder.build_response(**kwargs),
+            maybe_auto_action_assist_fn=lambda **kwargs: self._maybe_auto_action_assist_locked(**kwargs),
+            response_grounded_outcome_score_fn=lambda **kwargs: self._response_grounded_outcome_score_locked(**kwargs),
+            apply_background_source_response_provenance_fn=lambda **kwargs: self._apply_background_source_response_provenance_locked(**kwargs),
+            apply_background_source_outcome_calibration_fn=lambda **kwargs: self._apply_background_source_outcome_calibration_locked(**kwargs),
+            apply_provider_response_outcome_calibration_fn=apply_provider_response_outcome_calibration_fn,
+            learn_from_turn_fn=lambda **kwargs: self._learn_from_turn_locked(**kwargs),
+            record_response_consequence_candidate_fn=lambda **kwargs: self._record_response_consequence_candidate_locked(**kwargs),
         )
 
     def _cortex_active(self) -> bool:

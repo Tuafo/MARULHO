@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 import tempfile
 import threading
@@ -15,6 +16,8 @@ from hecsn.service.interaction_pipeline import (
     InteractionPipeline,
     build_feed_runtime_actual_output,
     build_feed_runtime_verification,
+    build_respond_runtime_actual_output,
+    build_respond_runtime_verification,
 )
 
 
@@ -408,6 +411,261 @@ def _build_feed_pipeline(
     return pipeline, calls, trainer, encoder
 
 
+def _build_respond_pipeline(
+    trace_dir: Path,
+    *,
+    build_query_raises: BaseException | None = None,
+    build_response_outputs: list[dict[str, Any]] | None = None,
+    action_assist_result: dict[str, Any] | None = None,
+    response_outcome_score: float = 0.84,
+    background_provenance_applied: bool = False,
+    delayed_candidate: dict[str, Any] | None = None,
+    learn_mode_raises: BaseException | None = None,
+) -> tuple[InteractionPipeline, dict[str, Any], _FeedTestTrainer, _FeedTestEncoder]:
+    calls: dict[str, Any] = {
+        "build_query_result": [],
+        "observe_concepts": [],
+        "plan_gaps": [],
+        "apply_delayed": [],
+        "record_recent_query_gap": [],
+        "build_response": [],
+        "maybe_auto_action_assist": [],
+        "response_grounded_outcome_score": [],
+        "apply_background_source_response_provenance": [],
+        "apply_background_source_outcome_calibration": [],
+        "apply_provider_response_outcome_calibration": [],
+        "learn_from_turn": [],
+        "record_response_consequence_candidate": [],
+        "runtime_state_mark_mutated": 0,
+        "runtime_state_mutation_summary": 0,
+        "runtime_episode_payload": [],
+        "persist_trace": [],
+        "append_runtime_episode_trace": [],
+        "service_state_snapshot": [],
+    }
+    episodes: list[dict[str, Any]] = []
+    trainer = _FeedTestTrainer()
+    encoder = _FeedTestEncoder([])
+    response_outputs = list(build_response_outputs or [
+        {
+            "response_mode": "grounded_synthesis",
+            "response_text": "Grounded answer: cats chase mice at night.",
+            "support_score": 0.84,
+            "evidence_coverage": 0.72,
+            "unsupported_terms": [],
+            "selected_evidence": [
+                {
+                    "text": "cats chase mice at night",
+                    "source_name": "notes.md",
+                    "source_names": ["notes.md"],
+                    "provider": "web",
+                    "providers": ["web"],
+                }
+            ],
+            "concept_grounding": {"top_concepts": [{"label": "cats"}]},
+            "native_decode": None,
+        }
+    ])
+    response_call_count = {"count": 0}
+
+    def build_query_result_fn(**kwargs: Any) -> dict[str, Any]:
+        calls["build_query_result"].append(kwargs)
+        if build_query_raises is not None:
+            raise build_query_raises
+        return {
+            "query_summary": {
+                "query_text": kwargs["query_text"],
+                "top_candidates": [{"candidate_id": "cand-1"}],
+                "memory_matches": [
+                    {"text": "cats chase mice at night", "similarity": 0.93},
+                    {"text": "cats rest indoors", "similarity": 0.76},
+                ],
+                "memory_episodes": [{"episode_id": "episode-a", "text": "cats chase mice at night"}],
+                "winner_column": 2,
+                "reconstruction_error": 0.125,
+            },
+            "checkpoint": "test://checkpoint",
+            "checkpoint_metadata": {},
+            "config": {},
+            "feed_summary": None,
+            "context_summary": None,
+            "context_comparison": None,
+        }
+
+    def observe_concepts_fn(**kwargs: Any) -> dict[str, Any]:
+        calls["observe_concepts"].append(kwargs)
+        return {
+            "concept_count": 3,
+            "observations": 5,
+            "top_concepts": [{"concept_id": "cats", "label": "cats"}],
+        }
+
+    def plan_gaps_fn(**kwargs: Any) -> dict[str, Any]:
+        calls["plan_gaps"].append(kwargs)
+        return {
+            "planner_mode": "semantic_gap_planner",
+            "grounded_fraction": 0.58,
+            "unsupported_terms": ["mice"],
+            "retrieval_queries": ["cats chase"],
+            "follow_up_questions": ["What do cats chase?"],
+            "weak_concepts": [],
+        }
+
+    def apply_delayed_query_consequence_fn(**kwargs: Any) -> dict[str, Any]:
+        calls["apply_delayed"].append(kwargs)
+        return {
+            "enabled": True,
+            "matched_records": 1,
+            "credited_records": 0,
+            "penalized_records": 0,
+            "forgiven_records": 0,
+        }
+
+    def record_recent_query_gap_fn(**kwargs: Any) -> None:
+        calls["record_recent_query_gap"].append(kwargs)
+
+    def build_response_fn(**kwargs: Any) -> dict[str, Any]:
+        calls["build_response"].append(kwargs)
+        index = min(response_call_count["count"], len(response_outputs) - 1)
+        response_call_count["count"] += 1
+        return deepcopy(response_outputs[index])
+
+    def maybe_auto_action_assist_fn(**kwargs: Any) -> dict[str, Any] | None:
+        calls["maybe_auto_action_assist"].append(kwargs)
+        if action_assist_result is None:
+            return None
+        return deepcopy(action_assist_result)
+
+    def response_grounded_outcome_score_fn(**kwargs: Any) -> float:
+        calls["response_grounded_outcome_score"].append(kwargs)
+        return response_outcome_score
+
+    def apply_background_source_response_provenance_fn(**kwargs: Any) -> bool:
+        calls["apply_background_source_response_provenance"].append(kwargs)
+        return background_provenance_applied
+
+    def apply_background_source_outcome_calibration_fn(**kwargs: Any) -> None:
+        calls["apply_background_source_outcome_calibration"].append(kwargs)
+
+    def apply_provider_response_outcome_calibration_fn(**kwargs: Any) -> bool:
+        calls["apply_provider_response_outcome_calibration"].append(kwargs)
+        return False
+
+    def runtime_state_mark_mutated_fn() -> None:
+        calls["runtime_state_mark_mutated"] += 1
+
+    def runtime_state_mutation_summary_fn() -> dict[str, Any]:
+        calls["runtime_state_mutation_summary"] += 1
+        mutated = bool(calls["runtime_state_mark_mutated"])
+        return {
+            "dirty_state": mutated,
+            "state_revision": 8 if mutated else 7,
+        }
+
+    def learn_from_turn_fn(**kwargs: Any) -> dict[str, Any] | None:
+        calls["learn_from_turn"].append(kwargs)
+        if learn_mode_raises is not None:
+            raise learn_mode_raises
+        if kwargs["learn_mode"] == "none":
+            return None
+        runtime_state_mark_mutated_fn()
+        selected_evidence = list(kwargs.get("response", {}).get("selected_evidence") or [])
+        return {
+            "learn_mode": kwargs["learn_mode"],
+            "user_feed": {
+                "text": kwargs["query_text"],
+                "tokens_processed": 1,
+            },
+            "evidence_feed": None,
+            "selected_evidence_count": len(selected_evidence),
+        }
+
+    def record_response_consequence_candidate_fn(**kwargs: Any) -> dict[str, Any] | None:
+        calls["record_response_consequence_candidate"].append(kwargs)
+        if delayed_candidate is None:
+            return None
+        return deepcopy(delayed_candidate)
+
+    def runtime_episode_payload_fn(**kwargs: Any) -> dict[str, Any]:
+        calls["runtime_episode_payload"].append(kwargs)
+        payload = {
+            "episode_id": "episode-respond-1",
+            "trace_id": kwargs["trace_id"],
+            "operation": kwargs["operation"],
+            "request": kwargs["request"],
+            "prediction": kwargs["prediction"],
+            "action": kwargs["action"],
+            "actual_output": kwargs["actual_output"],
+            "verification": kwargs["verification"],
+            "status": "failed" if kwargs.get("error") is not None else "succeeded",
+            "created_at": kwargs["created_at"],
+            "trace_path": kwargs.get("trace_path", ""),
+        }
+        if kwargs.get("error") is not None:
+            error = kwargs["error"]
+            payload["failure"] = {
+                "error_type": type(error).__name__,
+                "message": str(error),
+            }
+        return payload
+
+    def persist_trace_fn(trace: dict[str, Any]) -> Path:
+        calls["persist_trace"].append(trace)
+        trace_path = trace_dir / f"{trace['trace_id']}.json"
+        trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        return trace_path
+
+    def append_runtime_episode_trace_fn(episode: Mapping[str, Any]) -> dict[str, Any]:
+        calls["append_runtime_episode_trace"].append(episode)
+        episodes.append(dict(episode))
+        return dict(episode)
+
+    def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
+        calls["service_state_snapshot"].append(include_replay_dataset_summary)
+        mutated = bool(calls["runtime_state_mark_mutated"])
+        return {
+            "checkpoint_path": "/tmp/test.pt",
+            "dirty_state": mutated,
+            "state_revision": 8 if mutated else 7,
+            "token_count": trainer.token_count,
+            "concept_count": 3,
+            "terminus_runtime": {
+                "configured": True,
+                "running": False,
+            },
+        }
+
+    pipeline = InteractionPipeline(
+        lock=threading.RLock(),
+        trainer=trainer,
+        encoder=encoder,
+        build_query_result_fn=build_query_result_fn,
+        observe_concepts_fn=observe_concepts_fn,
+        plan_gaps_fn=plan_gaps_fn,
+        apply_delayed_query_consequence_fn=apply_delayed_query_consequence_fn,
+        record_recent_query_gap_fn=record_recent_query_gap_fn,
+        observe_runtime_concepts_fn=lambda **kwargs: None,
+        runtime_state_mark_mutated_fn=runtime_state_mark_mutated_fn,
+        runtime_state_mutation_summary_fn=runtime_state_mutation_summary_fn,
+        runtime_episode_payload_fn=runtime_episode_payload_fn,
+        persist_trace_fn=persist_trace_fn,
+        append_runtime_episode_trace_fn=append_runtime_episode_trace_fn,
+        service_state_snapshot_fn=service_state_snapshot_fn,
+        build_response_fn=build_response_fn,
+        maybe_auto_action_assist_fn=maybe_auto_action_assist_fn,
+        response_grounded_outcome_score_fn=response_grounded_outcome_score_fn,
+        apply_background_source_response_provenance_fn=apply_background_source_response_provenance_fn,
+        apply_background_source_outcome_calibration_fn=apply_background_source_outcome_calibration_fn,
+        apply_provider_response_outcome_calibration_fn=apply_provider_response_outcome_calibration_fn,
+        learn_from_turn_fn=learn_from_turn_fn,
+        record_response_consequence_candidate_fn=record_response_consequence_candidate_fn,
+    )
+    calls["episodes"] = episodes
+    calls["trainer"] = trainer
+    calls["encoder"] = encoder
+    return pipeline, calls, trainer, encoder
+
+
 class InteractionPipelineQueryTests(unittest.TestCase):
     def test_query_orchestrates_query_turn_and_persists_runtime_episode_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -628,3 +886,265 @@ class InteractionPipelineFeedTests(unittest.TestCase):
             self.assertIsNone(stored_trace["runtime_episode"]["verification"])
             trace_path = trace_dir / f"{stored_trace['trace_id']}.json"
             self.assertTrue(trace_path.exists())
+
+
+class InteractionPipelineRespondTests(unittest.TestCase):
+    def test_respond_runtime_actual_output_and_verification_reflect_response_payload(self) -> None:
+        response = {
+            "response_mode": "grounded_synthesis",
+            "response_text": "Grounded answer: cats chase mice at night.",
+            "support_score": 0.84,
+            "evidence_coverage": 0.72,
+            "unsupported_terms": ["mice"],
+            "selected_evidence": [
+                {
+                    "text": "cats chase mice at night",
+                    "source_name": "notes.md",
+                    "provider": "web",
+                }
+            ],
+        }
+        action_assist = {
+            "triggered": True,
+            "executed": False,
+            "reused_recent_action": True,
+            "reason": "recent_verified_action",
+            "used_in_response": True,
+            "result": {
+                "action_type": "workspace_read",
+                "action_id": "action-1",
+                "verification": {
+                    "success": True,
+                    "contradiction": False,
+                    "confidence": 0.91,
+                    "summary": "Action verification supplied grounded evidence.",
+                },
+            },
+        }
+
+        actual = build_respond_runtime_actual_output(
+            response=response,
+            action_assist=action_assist,
+            outcome_score=0.73,
+        )
+        verification = build_respond_runtime_verification(
+            response=response,
+            action_assist=action_assist,
+            outcome_score=0.73,
+        )
+
+        self.assertEqual(actual["summary"], "Grounded answer: cats chase mice at night.")
+        self.assertEqual(actual["selected_evidence_count"], 1)
+        self.assertEqual(actual["action_assist"]["reason"], "recent_verified_action")
+        self.assertTrue(actual["action_assist"]["reused_recent_action"])
+        self.assertEqual(actual["action_assist"]["action_type"], "workspace_read")
+        self.assertEqual(actual["action_assist"]["action_id"], "action-1")
+        self.assertEqual(verification["status"], "verified")
+        self.assertTrue(verification["success"])
+        self.assertAlmostEqual(float(verification["confidence"]), 0.91)
+
+    def test_respond_orchestrates_response_turn_and_persists_runtime_episode_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_dir = Path(tmpdir) / "traces"
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            delayed_candidate = {
+                "candidate_id": "response-1",
+                "summary": "Delayed consequence candidate",
+            }
+            pipeline, calls, _trainer, _encoder = _build_respond_pipeline(
+                trace_dir,
+                delayed_candidate=delayed_candidate,
+            )
+
+            result = pipeline.respond(
+                query_text="What do cats chase at night?",
+                context_text="shared context",
+                top_k_candidates=4,
+                top_k_memories=2,
+                top_chars=9,
+                max_evidence_items=2,
+                learn_mode="user_only",
+            )
+
+            self.assertEqual(len(calls["build_query_result"]), 1)
+            self.assertEqual(len(calls["build_response"]), 1)
+            self.assertEqual(len(calls["maybe_auto_action_assist"]), 1)
+            self.assertEqual(len(calls["response_grounded_outcome_score"]), 1)
+            self.assertEqual(len(calls["apply_background_source_response_provenance"]), 1)
+            self.assertEqual(len(calls["apply_background_source_outcome_calibration"]), 1)
+            self.assertEqual(len(calls["apply_provider_response_outcome_calibration"]), 1)
+            self.assertEqual(len(calls["learn_from_turn"]), 1)
+            self.assertEqual(len(calls["record_response_consequence_candidate"]), 1)
+            self.assertEqual(calls["record_recent_query_gap"][0]["source"], "respond")
+            self.assertFalse(calls["service_state_snapshot"][0])
+            build_kwargs = calls["build_query_result"][0]
+            self.assertEqual(build_kwargs["query_text"], "What do cats chase at night?")
+            self.assertEqual(build_kwargs["context_text"], "shared context")
+            self.assertEqual(build_kwargs["top_k_candidates"], 4)
+            self.assertEqual(build_kwargs["top_k_memories"], 2)
+            self.assertEqual(build_kwargs["top_chars"], 9)
+
+            self.assertEqual(result["response"]["response_text"], "Grounded answer: cats chase mice at night.")
+            self.assertEqual(result["response"]["delayed_consequence_candidate"]["candidate_id"], "response-1")
+            self.assertEqual(result["learning"]["learn_mode"], "user_only")
+            self.assertTrue(result["dirty_state"])
+            self.assertEqual(result["state_revision"], 8)
+            self.assertEqual(result["runtime_episode"]["operation"], "respond")
+            self.assertEqual(result["runtime_episode"]["actual_output"]["summary"], "Grounded answer: cats chase mice at night.")
+            self.assertEqual(result["runtime_episode"]["verification"]["status"], "verified")
+            self.assertAlmostEqual(float(result["runtime_episode"]["verification"]["confidence"]), 0.84)
+            self.assertTrue(str(result["runtime_episode"]["trace_path"]).endswith(".json"))
+
+            trace_path = trace_dir / f"{result['runtime_episode']['trace_id']}.json"
+            self.assertTrue(trace_path.exists())
+            stored_trace = json.loads(trace_path.read_text(encoding="utf-8"))
+            self.assertEqual(stored_trace["operation"], "respond")
+            self.assertEqual(stored_trace["query_result"]["delayed_consequence"]["matched_records"], 1)
+            self.assertEqual(stored_trace["response"]["delayed_consequence_candidate"]["candidate_id"], "response-1")
+            self.assertEqual(len(calls["episodes"]), 1)
+
+    def test_respond_reuses_recent_verified_action_and_appends_response_note(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trace_dir = Path(tmpdir) / "traces"
+            trace_dir.mkdir(parents=True, exist_ok=True)
+            pipeline, calls, _trainer, _encoder = _build_respond_pipeline(
+                trace_dir,
+                build_response_outputs=[
+                    {
+                        "response_mode": "grounded_synthesis",
+                        "response_text": "Grounded answer: cats chase mice at night.",
+                        "support_score": 0.84,
+                        "evidence_coverage": 0.72,
+                        "unsupported_terms": [],
+                        "selected_evidence": [{"text": "cats chase mice at night"}],
+                    },
+                    {
+                        "response_mode": "grounded_synthesis",
+                        "response_text": "Rebuilt grounded answer: cats chase mice at night.",
+                        "support_score": 0.84,
+                        "evidence_coverage": 0.72,
+                        "unsupported_terms": [],
+                        "selected_evidence": [{"text": "cats chase mice at night"}],
+                    },
+                ],
+                action_assist_result={
+                    "triggered": True,
+                    "executed": False,
+                    "reused_recent_action": True,
+                    "reason": "recent_verified_action",
+                    "used_in_response": False,
+                    "response_episode_count": 1,
+                    "response_note": " I verified the workspace evidence.",
+                    "result": {
+                        "action_type": "workspace_read",
+                        "action_id": "action-1",
+                        "predicted_outcome": "read notes.md",
+                        "verification": {
+                            "success": True,
+                            "contradiction": False,
+                            "confidence": 0.91,
+                            "summary": "Action verification supplied grounded evidence.",
+                        },
+                    },
+                },
+            )
+
+            result = pipeline.respond(
+                query_text="What do cats chase at night?",
+                learn_mode="none",
+            )
+
+            self.assertEqual(len(calls["build_response"]), 2)
+            self.assertEqual(result["query_result"]["action_assist"]["reason"], "recent_verified_action")
+            self.assertTrue(result["query_result"]["action_assist"]["reused_recent_action"])
+            self.assertTrue(result["response"]["action_assist"]["used_in_response"])
+            self.assertEqual(result["response"]["action_assist"]["result"]["action_type"], "workspace_read")
+            self.assertEqual(result["runtime_episode"]["action"]["action_assist"]["action_type"], "workspace_read")
+            self.assertEqual(result["runtime_episode"]["action"]["proposed_action"], "read notes.md")
+            self.assertIn("I verified the workspace evidence.", result["response"]["response_text"])
+            self.assertFalse(result["dirty_state"])
+            self.assertEqual(result["state_revision"], 7)
+            self.assertEqual(result["runtime_episode"]["verification"]["status"], "verified")
+            self.assertEqual(result["runtime_episode"]["action"]["action_assist"]["reason"], "recent_verified_action")
+
+    def test_respond_auto_executes_workspace_web_and_api_action_assist(self) -> None:
+        cases = [
+            {
+                "reason": "query_gap_auto_read",
+                "action_type": "workspace_read",
+                "action_id": "workspace-1",
+                "predicted_outcome": "read notes.md",
+            },
+            {
+                "reason": "query_gap_auto_fetch",
+                "action_type": "web_fetch",
+                "action_id": "web-1",
+                "predicted_outcome": "fetch page.html",
+            },
+            {
+                "reason": "query_gap_auto_api_request",
+                "action_type": "api_request",
+                "action_id": "api-1",
+                "predicted_outcome": "request data.json",
+            },
+        ]
+        for case in cases:
+            with self.subTest(action_type=case["action_type"]):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    trace_dir = Path(tmpdir) / "traces"
+                    trace_dir.mkdir(parents=True, exist_ok=True)
+                    pipeline, calls, _trainer, _encoder = _build_respond_pipeline(
+                        trace_dir,
+                        build_response_outputs=[
+                            {
+                                "response_mode": "grounded_synthesis",
+                                "response_text": "Initial grounded answer: cats chase mice at night.",
+                                "support_score": 0.84,
+                                "evidence_coverage": 0.72,
+                                "unsupported_terms": [],
+                                "selected_evidence": [{"text": "cats chase mice at night"}],
+                            },
+                            {
+                                "response_mode": "grounded_synthesis",
+                                "response_text": "Rebuilt grounded answer: cats chase mice at night.",
+                                "support_score": 0.84,
+                                "evidence_coverage": 0.72,
+                                "unsupported_terms": [],
+                                "selected_evidence": [{"text": "cats chase mice at night"}],
+                            },
+                        ],
+                        action_assist_result={
+                            "triggered": True,
+                            "executed": True,
+                            "reused_recent_action": False,
+                            "reason": case["reason"],
+                            "used_in_response": False,
+                            "response_episode_count": 1,
+                            "result": {
+                                "action_type": case["action_type"],
+                                "action_id": case["action_id"],
+                                "predicted_outcome": case["predicted_outcome"],
+                                "verification": {
+                                    "success": True,
+                                    "contradiction": False,
+                                    "confidence": 0.88,
+                                    "summary": "Action verification supplied grounded evidence.",
+                                },
+                            },
+                        },
+                    )
+
+                    result = pipeline.respond(
+                        query_text="What do cats chase at night?",
+                        learn_mode="none",
+                    )
+
+                    self.assertEqual(len(calls["build_response"]), 2)
+                    self.assertEqual(result["query_result"]["action_assist"]["reason"], case["reason"])
+                    self.assertTrue(result["query_result"]["action_assist"]["executed"])
+                    self.assertTrue(result["response"]["action_assist"]["used_in_response"])
+                    self.assertEqual(result["response"]["action_assist"]["result"]["action_type"], case["action_type"])
+                    self.assertEqual(result["runtime_episode"]["action"]["action_assist"]["action_type"], case["action_type"])
+                    self.assertEqual(result["runtime_episode"]["action"]["proposed_action"], case["predicted_outcome"])
+                    self.assertEqual(result["runtime_episode"]["verification"]["status"], "verified")
+                    self.assertEqual(result["response"]["response_text"], "Rebuilt grounded answer: cats chase mice at night.")
