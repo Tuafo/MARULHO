@@ -7,6 +7,7 @@ import time
 from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
+from hecsn.service.history_store import read_history_record, replace_history_record
 from hecsn.service.interaction_pipeline import (
     build_feed_runtime_actual_output,
     build_query_runtime_actual_output,
@@ -403,38 +404,20 @@ class RuntimeEvidenceMixin:
         return deepcopy(normalized)
 
     def _runtime_episode_trace_locked(self, episode_id: str) -> dict[str, Any] | None:
-        target_id = str(episode_id)
-        if not target_id:
-            return None
-        for episode in list(self._runtime_episode_traces):
-            if str(episode.get("episode_id", "")) == target_id:
-                return deepcopy(episode)
-        return None
+        return read_history_record(self._runtime_episode_traces, record_id=episode_id, id_field="episode_id")
 
     def _replace_runtime_episode_trace_locked(
         self,
         episode_id: str,
         episode: Mapping[str, Any],
     ) -> dict[str, Any] | None:
-        target_id = str(episode_id)
-        if not target_id:
-            return None
-        replacement = deepcopy(dict(episode))
-        if str(replacement.get("episode_id", "")) != target_id:
-            return None
-        existing = list(self._runtime_episode_traces)
-        replaced = False
-        updated: list[dict[str, Any]] = []
-        for item in existing:
-            if not replaced and str(item.get("episode_id", "")) == target_id:
-                updated.append(deepcopy(replacement))
-                replaced = True
-            else:
-                updated.append(item)
-        if not replaced:
-            return None
-        self._runtime_episode_traces = deque(updated, maxlen=self._runtime_episode_traces.maxlen)
-        return deepcopy(replacement)
+        self._runtime_episode_traces, replaced = replace_history_record(
+            self._runtime_episode_traces,
+            record_id=episode_id,
+            replacement=episode,
+            id_field="episode_id",
+        )
+        return replaced
 
     @staticmethod
     def _normalize_runtime_trace_export_filter(endpoint: str | None) -> str | None:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from hecsn.service.action_loop import execute_digital_action
+from hecsn.service.history_store import read_history_record, replace_history_record
 
 DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = 0.25
 
@@ -25,36 +26,18 @@ class ActionRuntimeMixin:
             }
 
     def action_record(self, action_id: str) -> dict[str, Any] | None:
-        target_id = str(action_id)
-        if not target_id:
-            return None
         with self._lock:
-            for item in list(self._action_history):
-                if str(item.get("action_id", "")) == target_id:
-                    return deepcopy(item)
-        return None
+            return read_history_record(self._action_history, record_id=action_id, id_field="action_id")
 
     def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None:
-        target_id = str(action_id)
-        if not target_id:
-            return None
-        replacement = deepcopy(dict(record))
-        if str(replacement.get("action_id", "")) != target_id:
-            return None
         with self._lock:
-            existing = list(self._action_history)
-            updated: list[dict[str, Any]] = []
-            replaced = False
-            for item in existing:
-                if not replaced and str(item.get("action_id", "")) == target_id:
-                    updated.append(deepcopy(replacement))
-                    replaced = True
-                else:
-                    updated.append(item)
-            if not replaced:
-                return None
-            self._action_history = deque(updated, maxlen=self._action_history.maxlen)
-            return deepcopy(replacement)
+            self._action_history, replaced = replace_history_record(
+                self._action_history,
+                record_id=action_id,
+                replacement=record,
+                id_field="action_id",
+            )
+            return replaced
 
     def execute_digital_action(
         self,
