@@ -12,7 +12,7 @@ Module structure:
 - delayed_consequence.py: Long-horizon source/provider consequence learning
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers
 - cortex_runtime.py: Cortex ask/sleep/thought/action-intent control helpers
-- reporting.py: Architecture and grounding-probe reporting helpers
+- reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_runtime.py: Query/feed/respond/acquire operator interaction flow
 - living_status.py: Living-loop and policy-actuator read-only status helpers
@@ -23,7 +23,7 @@ Module structure:
 - sensory_runtime.py: Multimodal sensory selection, prefetch, and injection
 - source_focus.py: Text-source focus, semantic scoring, and source utility
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
-- sensory_preview.py: Recent sensory preview payload helpers
+- sensory_preview.py: Sensory preview payload helpers (now delegates through status_read_model)
 - replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging
 - terminus_presets.py: Quick-start preset configurations
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources

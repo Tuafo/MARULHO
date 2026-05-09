@@ -16,7 +16,7 @@ from collections import deque
 from copy import deepcopy
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Callable
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.runtime_state import RuntimeState
@@ -54,12 +54,159 @@ def _build_brain_snapshot() -> dict[str, Any]:
     }
 
 
-def _build_read_model() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
+def _build_architecture_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
+    """Build a realistic architecture summary for testing the read model seam."""
+    import torch as _torch
+    model = trainer.model
+    config = trainer.config
+    layers: list[dict[str, Any]] = []
+    layers.append({
+        "id": "input_encoding",
+        "name": "Input + Stream Ingestion",
+        "enabled": True,
+        "type": "input",
+        "params": {
+            "input_dim": int(config.input_dim),
+            "representation": config.input_representation,
+            "background_sources": 0,
+            "background_routing": "focus_aware_allocation",
+            "sensory_sources": 0,
+            "learned_chunking": bool(config.enable_learned_chunking),
+        },
+    })
+    layers.append({
+        "id": "competitive_routing",
+        "name": "GPCSN Column Field",
+        "enabled": True,
+        "type": "core",
+        "params": {
+            "n_columns": int(config.n_columns),
+            "k_routing": int(config.k_routing),
+            "plasticity_mode": config.plasticity_mode,
+            "plasticity_rule": config.plasticity_rule,
+        },
+    })
+    predictive_enabled = bool(getattr(model, "predictive", None) is not None)
+    layers.append({
+        "id": "predictive_columns",
+        "name": "Predictive Columns",
+        "enabled": predictive_enabled,
+        "type": "prediction",
+        "params": {
+            "enabled": predictive_enabled,
+            "prediction_error_driven": predictive_enabled,
+        } if predictive_enabled else {},
+    })
+    layers.append({
+        "id": "context_prediction",
+        "name": f"Context Attractor ({config.context_mode})",
+        "enabled": model.context_layer is not None,
+        "type": "context",
+        "params": {
+            "context_mode": config.context_mode,
+        },
+    })
+    layers.append({
+        "id": "binding",
+        "name": "Hypercube Binding + Hubs",
+        "enabled": model.binding_layer is not None,
+        "type": "binding",
+        "params": {
+            "n_bindings": int(config.binding_n_bindings),
+            "fan_in": int(config.binding_fan_in),
+            "topology": type(model.binding_layer).__name__ if model.binding_layer is not None else "disabled",
+        } if model.binding_layer is not None else {},
+    })
+    layers.append({
+        "id": "abstraction",
+        "name": "Abstraction Layer",
+        "enabled": model.abstraction_layer is not None,
+        "type": "abstraction",
+        "params": {
+            "n_concepts": int(config.abstraction_n_concepts),
+        } if model.abstraction_layer is not None else {},
+    })
+    layers.append({
+        "id": "cross_modal_grounding",
+        "name": "Real Cross-Modal Grounding",
+        "enabled": model.cross_modal is not None,
+        "type": "grounding",
+        "params": {
+            "dim_visual": int(config.cross_modal_dim_visual),
+            "dim_audio": int(config.cross_modal_dim_audio),
+            "visual_confidence": float(model.cross_modal.visual_confidence.mean().item()) if model.cross_modal else 0.0,
+            "audio_confidence": float(model.cross_modal.audio_confidence.mean().item()) if model.cross_modal else 0.0,
+            "sensory_active": False,
+        },
+    })
+    layers.append({
+        "id": "memory_consolidation",
+        "name": "Dual Memory + Consolidation",
+        "enabled": True,
+        "type": "memory",
+        "params": {
+            "memory_capacity": int(config.memory_capacity),
+            "stc_tag_duration_strong": float(config.stc_tag_duration_strong),
+        },
+    })
+    layers.append({
+        "id": "nim_cortex",
+        "name": "NIM Mind Layer",
+        "enabled": False,
+        "type": "cortex",
+        "params": {},
+    })
+    layers.append({
+        "id": "autonomy_guidance",
+        "name": "Active Exploration + Grounded-Family-Summary Lineage-Reconvergent Divergence-Split Trajectory-Sensitive Compacted Age-Sensitive Consequence-Calibrated Real-Source Guidance",
+        "enabled": False,
+        "type": "autonomy",
+        "params": {
+            "autonomy_enabled": False,
+            "candidate_count": 0,
+            "adaptive_focus_budgeting": False,
+            "grounded_outcome_calibration": False,
+            "evidence_provenance_credit": True,
+            "delayed_multi_turn_consequence_tracking": True,
+            "contradiction_decay_penalties": True,
+            "mixed_evidence_forgiveness_scheduling": True,
+            "age_sensitive_consequence_cooling": True,
+            "consequence_state_retirement": True,
+            "consequence_record_compaction": True,
+            "trajectory_sensitive_consequence_families": True,
+            "divergence_sensitive_consequence_splitting": True,
+            "lineage_aware_consequence_remerge": True,
+            "grounded_family_summary_calibration": True,
+            "sensory_enabled": False,
+            "items_per_episode": 0,
+        },
+    })
+    return {
+        "model_name": "Terminus",
+        "core_name": "GPCSN",
+        "version": "current",
+        "family": "hybrid_snn_llm",
+        "layers": layers,
+        "config": {
+            "context_mode": config.context_mode,
+            "plasticity_rule": config.plasticity_rule,
+            "n_columns": int(config.n_columns),
+            "cross_modal": bool(model.cross_modal is not None),
+        },
+    }
+
+
+def _build_read_model(**kwargs: Any) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
     cfg = _build_config()
     trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     lock = threading.RLock()
     runtime_state = RuntimeState(lock=lock)
     brain_snapshot = _build_brain_snapshot()
+    preview_history: deque[dict[str, Any]] = kwargs.pop("sensory_preview_history", deque(maxlen=8))
+    arch_fn: Callable[[], dict[str, Any]] = kwargs.pop(
+        "architecture_snapshot_fn",
+        lambda: _build_architecture_snapshot(trainer),
+    )
     model = StatusReadModel(
         lock=lock,
         runtime_state=runtime_state,
@@ -70,6 +217,8 @@ def _build_read_model() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock,
         trace_dir_str="/tmp/traces",
         concept_store_snapshot_fn=lambda: deepcopy({"top_concepts": [], "total_concepts": 0}),
         brain_runtime_snapshot_fn=lambda: deepcopy(brain_snapshot),
+        sensory_preview_history=preview_history,
+        architecture_snapshot_fn=arch_fn,
     )
     return model, trainer, lock, runtime_state
 
@@ -262,6 +411,227 @@ class StatusReadModelReadonlyTests(unittest.TestCase):
         self.assertFalse(runtime_state.dirty_state)
 
 
+class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
+    """StatusReadModel.sensory_previews() produces correct preview payloads."""
+
+    def test_sensory_previews_returns_count_and_previews(self) -> None:
+        """sensory_previews() returns count, latest_preview_id, and previews list."""
+        model, _, _, _ = _build_read_model()
+        result = model.sensory_previews()
+        self.assertIn("count", result)
+        self.assertIn("latest_preview_id", result)
+        self.assertIn("previews", result)
+        self.assertIsInstance(result["previews"], list)
+
+    def test_sensory_previews_empty_history(self) -> None:
+        """sensory_previews() returns zero count and None latest when history is empty."""
+        model, _, _, _ = _build_read_model()
+        result = model.sensory_previews()
+        self.assertEqual(result["count"], 0)
+        self.assertIsNone(result["latest_preview_id"])
+        self.assertEqual(result["previews"], [])
+
+    def test_sensory_previews_with_history(self) -> None:
+        """sensory_previews() returns items from the preview history with correct payload keys."""
+        history = deque(maxlen=8)
+        history.appendleft({
+            "preview_id": "pv-001",
+            "captured_at": "2026-05-08T12:00:00Z",
+            "source_name": "test_source",
+            "adapter": "text",
+            "text": "hello world",
+            "semantic_match": 0.8,
+            "modality_need": 0.3,
+            "item_semantic_match": 0.75,
+            "item_candidates_considered": 5,
+            "item_retrieval_lookahead": 2,
+            "selection_score": 0.9,
+            "window_budget": 64,
+            "topics": ["greeting"],
+            "focus_terms": ["hello"],
+            "metadata": {"kind": "unit_test"},
+        })
+        lock = threading.RLock()
+        runtime_state = RuntimeState(lock=lock)
+        cfg = _build_config()
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        model = StatusReadModel(
+            lock=lock,
+            runtime_state=runtime_state,
+            trainer=trainer,
+            trace_history=deque(maxlen=200),
+            metadata={},
+            checkpoint_path_str="/tmp/test.pt",
+            trace_dir_str="/tmp/traces",
+            concept_store_snapshot_fn=lambda: {"top_concepts": [], "total_concepts": 0},
+            brain_runtime_snapshot_fn=lambda: _build_brain_snapshot(),
+            sensory_preview_history=history,
+        )
+        result = model.sensory_previews()
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["latest_preview_id"], "pv-001")
+        self.assertEqual(len(result["previews"]), 1)
+        preview = result["previews"][0]
+        self.assertEqual(preview["preview_id"], "pv-001")
+        self.assertEqual(preview["source_name"], "test_source")
+        self.assertEqual(preview["text"], "hello world")
+        self.assertAlmostEqual(preview["semantic_match"], 0.8)
+        self.assertEqual(preview["topics"], ["greeting"])
+        self.assertEqual(preview["focus_terms"], ["hello"])
+        self.assertEqual(preview["metadata"], {"kind": "unit_test"})
+
+    def test_sensory_previews_limit(self) -> None:
+        """sensory_previews(limit=N) returns at most N items."""
+        history = deque(maxlen=8)
+        for i in range(5):
+            history.appendleft({
+                "preview_id": f"pv-{i:03d}",
+                "captured_at": "2026-05-08T12:00:00Z",
+                "source_name": f"source_{i}",
+                "adapter": "text",
+                "text": f"item {i}",
+                "semantic_match": 0.5,
+                "modality_need": 0.0,
+                "item_semantic_match": 0.0,
+                "item_candidates_considered": 0,
+                "item_retrieval_lookahead": 1,
+                "selection_score": 0.0,
+                "window_budget": 0,
+                "topics": [],
+                "focus_terms": [],
+                "metadata": {},
+            })
+        lock = threading.RLock()
+        runtime_state = RuntimeState(lock=lock)
+        cfg = _build_config()
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        model = StatusReadModel(
+            lock=lock,
+            runtime_state=runtime_state,
+            trainer=trainer,
+            trace_history=deque(maxlen=200),
+            metadata={},
+            checkpoint_path_str="/tmp/test.pt",
+            trace_dir_str="/tmp/traces",
+            concept_store_snapshot_fn=lambda: {"top_concepts": [], "total_concepts": 0},
+            brain_runtime_snapshot_fn=lambda: _build_brain_snapshot(),
+            sensory_preview_history=history,
+        )
+        result = model.sensory_previews(limit=2)
+        self.assertEqual(result["count"], 5)
+        self.assertEqual(len(result["previews"]), 2)
+
+    def test_sensory_previews_with_visual_media(self) -> None:
+        """sensory_previews() converts visual media bytes to data_url."""
+        history = deque(maxlen=8)
+        history.appendleft({
+            "preview_id": "pv-vis",
+            "captured_at": "2026-05-08T12:00:00Z",
+            "source_name": "cam_source",
+            "adapter": "image",
+            "text": "visual input",
+            "semantic_match": 0.0,
+            "modality_need": 0.0,
+            "item_semantic_match": 0.0,
+            "item_candidates_considered": 0,
+            "item_retrieval_lookahead": 1,
+            "selection_score": 0.0,
+            "window_budget": 0,
+            "topics": [],
+            "focus_terms": [],
+            "metadata": {},
+            "visual": {
+                "bytes": b"\x89PNG\r\n",
+                "mime_type": "image/png",
+            },
+        })
+        lock = threading.RLock()
+        runtime_state = RuntimeState(lock=lock)
+        cfg = _build_config()
+        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        model = StatusReadModel(
+            lock=lock,
+            runtime_state=runtime_state,
+            trainer=trainer,
+            trace_history=deque(maxlen=200),
+            metadata={},
+            checkpoint_path_str="/tmp/test.pt",
+            trace_dir_str="/tmp/traces",
+            concept_store_snapshot_fn=lambda: {"top_concepts": [], "total_concepts": 0},
+            brain_runtime_snapshot_fn=lambda: _build_brain_snapshot(),
+            sensory_preview_history=history,
+        )
+        result = model.sensory_previews()
+        self.assertEqual(result["count"], 1)
+        preview = result["previews"][0]
+        self.assertIsNotNone(preview["visual"])
+        self.assertTrue(preview["visual"]["data_url"].startswith("data:image/png;base64,"))
+        self.assertEqual(preview["visual"]["byte_size"], 6)
+
+
+class StatusReadModelArchitectureSummaryTests(unittest.TestCase):
+    """StatusReadModel.architecture_summary() produces correct layer topology."""
+
+    def test_architecture_summary_returns_model_and_core_name(self) -> None:
+        """architecture_summary() returns Terminus model name and GPCSN core name."""
+        model, _, _, _ = _build_read_model()
+        result = model.architecture_summary()
+        self.assertEqual(result["model_name"], "Terminus")
+        self.assertEqual(result["core_name"], "GPCSN")
+
+    def test_architecture_summary_returns_version_and_family(self) -> None:
+        """architecture_summary() returns version and family fields."""
+        model, _, _, _ = _build_read_model()
+        result = model.architecture_summary()
+        self.assertEqual(result["version"], "current")
+        self.assertEqual(result["family"], "hybrid_snn_llm")
+
+    def test_architecture_summary_returns_layers(self) -> None:
+        """architecture_summary() returns a non-empty layers list with required keys."""
+        model, _, _, _ = _build_read_model()
+        result = model.architecture_summary()
+        self.assertIn("layers", result)
+        self.assertIsInstance(result["layers"], list)
+        self.assertGreater(len(result["layers"]), 0)
+        for layer in result["layers"]:
+            self.assertIn("id", layer)
+            self.assertIn("name", layer)
+            self.assertIn("enabled", layer)
+            self.assertIn("type", layer)
+            self.assertIn("params", layer)
+
+    def test_architecture_summary_contains_key_layers(self) -> None:
+        """architecture_summary() includes input_encoding, competitive_routing, and memory layers."""
+        model, _, _, _ = _build_read_model()
+        result = model.architecture_summary()
+        layer_ids = [l["id"] for l in result["layers"]]
+        self.assertIn("input_encoding", layer_ids)
+        self.assertIn("competitive_routing", layer_ids)
+        self.assertIn("memory_consolidation", layer_ids)
+
+    def test_architecture_summary_returns_config(self) -> None:
+        """architecture_summary() returns config with expected keys."""
+        model, _, _, _ = _build_read_model()
+        result = model.architecture_summary()
+        self.assertIn("config", result)
+        config = result["config"]
+        self.assertIn("context_mode", config)
+        self.assertIn("plasticity_rule", config)
+        self.assertIn("n_columns", config)
+
+
+class StatusReadModelSeparationTests(unittest.TestCase):
+    """Verify that run_grounding_probe() stays outside the StatusReadModel."""
+
+    def test_read_model_has_no_grounding_probe(self) -> None:
+        """StatusReadModel must not have a run_grounding_probe method."""
+        model, _, _, _ = _build_read_model()
+        self.assertFalse(
+            hasattr(model, "run_grounding_probe"),
+            "run_grounding_probe() must remain outside the Status Read Model",
+        )
+
+
 class ServiceManagerDelegationTests(unittest.TestCase):
     """Service Manager delegates status() and terminus_status() to StatusReadModel."""
 
@@ -331,5 +701,51 @@ class ServiceManagerDelegationTests(unittest.TestCase):
                     expected_keys.issubset(set(multimodal.keys())),
                     f"Missing keys: {expected_keys - set(multimodal.keys())}",
                 )
+            finally:
+                manager.close()
+
+    def test_manager_sensory_previews_delegates_to_read_model(self) -> None:
+        """The manager's sensory_previews() method delegates to its StatusReadModel."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            from hecsn.service.manager import HECSNServiceManager
+            cfg = _build_config()
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                root / "initial.pt", trainer, metadata={"test_case": "sensory_delegation"},
+            )
+            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            try:
+                result = manager.sensory_previews()
+                self.assertIn("count", result)
+                self.assertIn("latest_preview_id", result)
+                self.assertIn("previews", result)
+                self.assertIsInstance(result["previews"], list)
+                # Empty history at startup
+                self.assertEqual(result["count"], 0)
+            finally:
+                manager.close()
+
+    def test_manager_architecture_summary_delegates_to_read_model(self) -> None:
+        """The manager's architecture_summary() method delegates to its StatusReadModel."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            from hecsn.service.manager import HECSNServiceManager
+            cfg = _build_config()
+            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            checkpoint_path = save_trainer_checkpoint(
+                root / "initial.pt", trainer, metadata={"test_case": "arch_delegation"},
+            )
+            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            try:
+                result = manager.architecture_summary()
+                self.assertEqual(result["model_name"], "Terminus")
+                self.assertEqual(result["core_name"], "GPCSN")
+                self.assertIn("layers", result)
+                self.assertIn("config", result)
+                layer_ids = [l["id"] for l in result["layers"]]
+                self.assertIn("input_encoding", layer_ids)
+                self.assertIn("competitive_routing", layer_ids)
+                self.assertIn("memory_consolidation", layer_ids)
             finally:
                 manager.close()
