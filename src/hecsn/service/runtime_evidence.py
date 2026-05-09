@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
 from hecsn.service.interaction_pipeline import (
+    build_feed_runtime_actual_output,
     build_query_runtime_actual_output,
     build_query_runtime_verification,
 )
@@ -1033,17 +1034,7 @@ class RuntimeEvidenceMixin:
         return RuntimeEpisodeTrace.from_payload(cast(Mapping[str, Any], self._json_safe(payload))).to_payload()
 
     def _feed_runtime_actual_output(self, summary: Mapping[str, Any]) -> dict[str, Any]:
-        return {
-            "summary": f"Processed {int(summary.get('tokens_processed', 0) or 0)} feed tokens.",
-            "tokens_processed": int(summary.get("tokens_processed", 0) or 0),
-            "token_count": int(summary.get("token_count", 0) or 0),
-            "last_winner": summary.get("last_winner"),
-            "last_recon_error": summary.get("last_recon_error"),
-            "memory_buffer_size": int(summary.get("memory_buffer_size", 0) or 0),
-            "feed_encoding_mode": summary.get("feed_encoding_mode"),
-            "concept_observation_mode": summary.get("concept_observation_mode"),
-            "concept_observations": int(summary.get("concept_observations", 0) or 0),
-        }
+        return build_feed_runtime_actual_output(summary)
 
     def _query_runtime_actual_output(self, result: Mapping[str, Any]) -> dict[str, Any]:
         return build_query_runtime_actual_output(result)

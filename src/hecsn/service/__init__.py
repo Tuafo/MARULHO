@@ -14,8 +14,8 @@ Module structure:
 - cortex_runtime.py: Cortex ask/sleep/thought/action-intent control helpers
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
-- interaction_pipeline.py: Constructor-injected query-turn seam and query trace payload behavior
-- interaction_runtime.py: Query/feed/respond/acquire operator interaction flow
+- interaction_pipeline.py: Constructor-injected query/feed-turn seam and runtime trace payload behavior
+- interaction_runtime.py: Query/feed/respond/acquire operator interaction flow and compatibility delegates
 - living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
 - runtime_config.py: Operator runtime/source configuration normalization
 - runtime_control.py: Terminus configure/start/stop/tick runtime control

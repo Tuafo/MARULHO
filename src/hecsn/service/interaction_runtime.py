@@ -1,8 +1,8 @@
 """Compatibility mixin for operator interaction runtime.
 
-Query now delegates through the constructor-injected InteractionPipeline seam.
-Feed/respond/acquire remain here for now, along with the shared helpers that
-those public methods still use.
+Query and feed now delegate through the constructor-injected
+InteractionPipeline seam. Respond/acquire remain here for now, along with the
+shared helpers that those public methods still use.
 """
 
 from __future__ import annotations
@@ -18,6 +18,10 @@ import torch
 
 from hecsn.config.presets import get_autonomy_acquisition_preset
 from hecsn.gap_planner import plan_query_gaps
+from hecsn.service.interaction_pipeline import (
+    DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+    REQUEST_FEED_ENCODING_MODE,
+)
 from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 from hecsn.training.query_runner import build_query_result, feed_text
@@ -26,8 +30,6 @@ PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
 DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
-DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
-REQUEST_FEED_ENCODING_MODE = "lexical_rolling_segments"
 
 
 class InteractionRuntimeMixin:
@@ -48,143 +50,12 @@ class InteractionRuntimeMixin:
             top_chars=top_chars,
         )
 
-    def _feed_text_for_request_locked(
+    def feed(
         self,
-        text: str,
         *,
-        allow_sleep_maintenance: bool,
-        on_step: Any = None,
-        concept_observation_interval: int = DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+        text: str,
     ) -> dict[str, Any]:
-        self._trainer.encoder = self._encoder
-        last_metrics: dict[str, Any] | None = None
-        tokens = 0
-        concept_observations = 0
-        pending_concept_observation: tuple[str, dict[str, Any]] | None = None
-        observation_interval = max(1, int(concept_observation_interval))
-        sleep_maintenance_deferred = 0
-        pattern_iter = self._encoder.iter_segment_patterns(
-            text,
-            self._trainer.config.window_size,
-            learn=False,
-            use_learned_boundaries=False,
-        )
-        for raw_window, pattern in pattern_iter:
-            last_metrics = self._trainer.train_step(
-                pattern,
-                raw_window=raw_window,
-                allow_sleep_maintenance=allow_sleep_maintenance,
-            )
-            sleep_maintenance_deferred += int(last_metrics.get("sleep_maintenance_deferred", 0) or 0)
-            if on_step is not None:
-                pending_concept_observation = (raw_window, last_metrics)
-                if tokens == 0 or (tokens + 1) % observation_interval == 0:
-                    on_step(raw_window, last_metrics)
-                    concept_observations += 1
-                    pending_concept_observation = None
-            tokens += 1
-
-        if on_step is not None and pending_concept_observation is not None:
-            raw_window, metrics = pending_concept_observation
-            on_step(raw_window, metrics)
-            concept_observations += 1
-
-        return {
-            "tokens_processed": int(tokens),
-            "token_count": int(self._trainer.token_count),
-            "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
-            "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
-            "memory_buffer_size": int(len(self._trainer.model.memory_store.slow_buffer)),
-            "feed_encoding_mode": REQUEST_FEED_ENCODING_MODE,
-            "concept_observation_mode": "sampled" if on_step is not None else "disabled",
-            "concept_observation_interval": int(observation_interval),
-            "concept_observations": int(concept_observations),
-            "sleep_maintenance_allowed": bool(allow_sleep_maintenance),
-            "sleep_maintenance_deferred": int(sleep_maintenance_deferred),
-        }
-
-    def feed(self, *, text: str) -> dict[str, Any]:
-        with self._lock:
-            started_perf = time.perf_counter()
-            created_at = datetime.now(timezone.utc).isoformat()
-            trace_id = str(uuid4())
-            request = {"text_length": int(len(text)), "text_preview": text[:120]}
-            prediction = {
-                "kind": "feed_prediction",
-                "predicted_output": "Feed text should be encoded into runtime memory and concept observations.",
-                "proposed_action": "feed_text",
-                "topics": salient_query_terms(text)[:8],
-            }
-            action = {"action_type": "feed", "text_length": int(len(text))}
-            try:
-                summary = self._feed_text_for_request_locked(
-                    text,
-                    allow_sleep_maintenance=False,
-                    on_step=self._runtime_concept_callback_locked(),
-                )
-                self._runtime_state.mark_mutated()
-                actual_output = self._feed_runtime_actual_output(summary)
-                tokens_processed = int(summary.get("tokens_processed", 0) or 0)
-                verification = {
-                    "status": "verified" if tokens_processed > 0 else "unverified",
-                    "success": bool(tokens_processed > 0),
-                    "confidence": 1.0 if tokens_processed > 0 else 0.0,
-                    "contradiction": False,
-                    "summary": actual_output["summary"],
-                }
-                episode = self._runtime_episode_payload_locked(
-                    operation="feed",
-                    request=request,
-                    prediction=prediction,
-                    action=action,
-                    actual_output=actual_output,
-                    verification=verification,
-                    started_perf=started_perf,
-                    created_at=created_at,
-                    trace_id=trace_id,
-                )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "feed",
-                    "request": request,
-                    "runtime_episode": episode,
-                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
-                }
-                trace_path = self._persist_trace_locked(trace)
-                episode["trace_path"] = str(trace_path)
-                episode = self._append_runtime_episode_trace_locked(episode)
-                return {
-                    "feed_summary": summary,
-                    "runtime_episode": episode,
-                    **self._runtime_state.mutation_summary(),
-                }
-            except Exception as exc:
-                episode = self._runtime_episode_payload_locked(
-                    operation="feed",
-                    request=request,
-                    prediction=prediction,
-                    action=action,
-                    actual_output=None,
-                    verification=None,
-                    started_perf=started_perf,
-                    created_at=created_at,
-                    trace_id=trace_id,
-                    error=exc,
-                )
-                trace = {
-                    "trace_id": trace_id,
-                    "created_at": created_at,
-                    "operation": "feed",
-                    "request": request,
-                    "runtime_episode": episode,
-                    "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "state_after": self._service_state_snapshot(include_replay_dataset_summary=False),
-                }
-                trace_path = self._persist_trace_locked(trace)
-                episode["trace_path"] = str(trace_path)
-                self._append_runtime_episode_trace_locked(episode)
-                raise
+        return self._interaction_pipeline.feed(text=text)
 
     def respond(
         self,

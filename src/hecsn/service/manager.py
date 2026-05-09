@@ -475,7 +475,7 @@ class HECSNServiceManager(
 
         # --- Status Read Model (ADR 0003 deep module extraction) ---
         self._status_read_model = self._build_status_read_model()
-        # --- Interaction Pipeline (ADR 0003 query-turn extraction) ---
+        # --- Interaction Pipeline (ADR 0003 query/feed-turn extraction) ---
         self._interaction_pipeline = self._build_interaction_pipeline()
 
     @property
@@ -520,15 +520,20 @@ class HECSNServiceManager(
     def _build_interaction_pipeline(self) -> InteractionPipeline:
         return InteractionPipeline(
             lock=self._lock,
-            build_query_result_fn=self._build_query_locked,
-            observe_concepts_fn=self._observe_concepts_locked,
-            plan_gaps_fn=self._plan_gaps_locked,
-            apply_delayed_query_consequence_fn=self._apply_delayed_query_consequence_locked,
-            record_recent_query_gap_fn=self._record_recent_query_gap_locked,
-            runtime_episode_payload_fn=self._runtime_episode_payload_locked,
-            persist_trace_fn=self._persist_trace_locked,
-            append_runtime_episode_trace_fn=self._append_runtime_episode_trace_locked,
-            service_state_snapshot_fn=self._service_state_snapshot,
+            trainer=self._trainer,
+            encoder=self._encoder,
+            build_query_result_fn=lambda **kwargs: self._build_query_locked(**kwargs),
+            observe_concepts_fn=lambda **kwargs: self._observe_concepts_locked(**kwargs),
+            plan_gaps_fn=lambda **kwargs: self._plan_gaps_locked(**kwargs),
+            apply_delayed_query_consequence_fn=lambda **kwargs: self._apply_delayed_query_consequence_locked(**kwargs),
+            record_recent_query_gap_fn=lambda **kwargs: self._record_recent_query_gap_locked(**kwargs),
+            observe_runtime_concepts_fn=lambda **kwargs: self._observe_runtime_concepts_locked(**kwargs),
+            runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
+            runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
+            runtime_episode_payload_fn=lambda **kwargs: self._runtime_episode_payload_locked(**kwargs),
+            persist_trace_fn=lambda trace: self._persist_trace_locked(trace),
+            append_runtime_episode_trace_fn=lambda episode: self._append_runtime_episode_trace_locked(episode),
+            service_state_snapshot_fn=lambda **kwargs: self._service_state_snapshot(**kwargs),
         )
 
     def _cortex_active(self) -> bool:

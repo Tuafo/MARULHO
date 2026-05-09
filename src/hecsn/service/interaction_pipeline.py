@@ -1,10 +1,10 @@
-"""Interaction Pipeline seam for query turns.
+"""Interaction Pipeline seam for query and feed turns.
 
-This module owns the first constructor-injected query seam extracted from the
-Service Manager. It handles query turn orchestration, query-specific runtime
-episode trace construction, and the query actual-output / verification payload
-behavior while delegating collaborator-specific work back into injected
-callbacks.
+This module owns the constructor-injected operator-turn seam extracted from
+the Service Manager. It handles query and feed turn orchestration,
+turn-specific runtime episode trace construction, and the query/feed
+actual-output / verification payload behavior while delegating collaborator-
+specific work back into injected callbacks.
 """
 
 from __future__ import annotations
@@ -17,6 +17,10 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from hecsn.semantics.grounding_text import salient_query_terms
+
+
+DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
+REQUEST_FEED_ENCODING_MODE = "lexical_rolling_segments"
 
 
 def _mapping_or_empty(value: Any) -> Mapping[str, Any]:
@@ -53,7 +57,7 @@ def build_query_runtime_actual_output(result: Mapping[str, Any]) -> dict[str, An
 
 def build_query_runtime_verification(result: Mapping[str, Any]) -> dict[str, Any]:
     actual = build_query_runtime_actual_output(result)
-    gap_plan = actual.get("gap_plan") if isinstance(actual.get("gap_plan"), Mapping) else {}
+    gap_plan = _mapping_or_empty(actual.get("gap_plan"))
     confidence = max(
         0.20 if int(actual.get("memory_match_count", 0) or 0) > 0 else 0.05,
         min(1.0, float(gap_plan.get("grounded_fraction", 0.0) or 0.0)),
@@ -67,29 +71,66 @@ def build_query_runtime_verification(result: Mapping[str, Any]) -> dict[str, Any
     }
 
 
+def build_feed_runtime_actual_output(summary: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "summary": f"Processed {int(summary.get('tokens_processed', 0) or 0)} feed tokens.",
+        "tokens_processed": int(summary.get("tokens_processed", 0) or 0),
+        "token_count": int(summary.get("token_count", 0) or 0),
+        "last_winner": summary.get("last_winner"),
+        "last_recon_error": summary.get("last_recon_error"),
+        "memory_buffer_size": int(summary.get("memory_buffer_size", 0) or 0),
+        "feed_encoding_mode": summary.get("feed_encoding_mode"),
+        "concept_observation_mode": summary.get("concept_observation_mode"),
+        "concept_observations": int(summary.get("concept_observations", 0) or 0),
+    }
+
+
+def build_feed_runtime_verification(summary: Mapping[str, Any]) -> dict[str, Any]:
+    actual = build_feed_runtime_actual_output(summary)
+    tokens_processed = int(actual.get("tokens_processed", 0) or 0)
+    verified = bool(tokens_processed > 0)
+    return {
+        "status": "verified" if verified else "unverified",
+        "success": verified,
+        "confidence": 1.0 if verified else 0.0,
+        "contradiction": False,
+        "summary": str(actual.get("summary", "")),
+    }
+
+
 class InteractionPipeline:
-    """Constructor-injected query seam for interaction turns."""
+    """Constructor-injected query and feed seam for interaction turns."""
 
     def __init__(
         self,
         *,
         lock: RLock,
+        trainer: Any,
+        encoder: Any,
         build_query_result_fn: Callable[..., dict[str, Any]],
         observe_concepts_fn: Callable[..., dict[str, Any]],
         plan_gaps_fn: Callable[..., dict[str, Any]],
         apply_delayed_query_consequence_fn: Callable[..., dict[str, Any]],
         record_recent_query_gap_fn: Callable[..., None],
+        observe_runtime_concepts_fn: Callable[..., dict[str, Any] | None],
+        runtime_state_mark_mutated_fn: Callable[[], None],
+        runtime_state_mutation_summary_fn: Callable[[], dict[str, Any]],
         runtime_episode_payload_fn: Callable[..., dict[str, Any]],
         persist_trace_fn: Callable[[dict[str, Any]], Path],
         append_runtime_episode_trace_fn: Callable[[Mapping[str, Any]], dict[str, Any]],
         service_state_snapshot_fn: Callable[..., dict[str, Any]],
     ) -> None:
         self._lock = lock
+        self._trainer = trainer
+        self._encoder = encoder
         self._build_query_result_fn = build_query_result_fn
         self._observe_concepts_fn = observe_concepts_fn
         self._plan_gaps_fn = plan_gaps_fn
         self._apply_delayed_query_consequence_fn = apply_delayed_query_consequence_fn
         self._record_recent_query_gap_fn = record_recent_query_gap_fn
+        self._observe_runtime_concepts_fn = observe_runtime_concepts_fn
+        self._runtime_state_mark_mutated_fn = runtime_state_mark_mutated_fn
+        self._runtime_state_mutation_summary_fn = runtime_state_mutation_summary_fn
         self._runtime_episode_payload_fn = runtime_episode_payload_fn
         self._persist_trace_fn = persist_trace_fn
         self._append_runtime_episode_trace_fn = append_runtime_episode_trace_fn
@@ -100,6 +141,12 @@ class InteractionPipeline:
 
     def _query_runtime_verification(self, result: Mapping[str, Any]) -> dict[str, Any]:
         return build_query_runtime_verification(result)
+
+    def _feed_runtime_actual_output(self, summary: Mapping[str, Any]) -> dict[str, Any]:
+        return build_feed_runtime_actual_output(summary)
+
+    def _feed_runtime_verification(self, summary: Mapping[str, Any]) -> dict[str, Any]:
+        return build_feed_runtime_verification(summary)
 
     @staticmethod
     def _build_request(
@@ -146,22 +193,180 @@ class InteractionPipeline:
         *,
         trace_id: str,
         created_at: str,
+        operation: str,
         request: Mapping[str, Any],
         runtime_episode: Mapping[str, Any],
         state_after: Mapping[str, Any],
+        state_before: Mapping[str, Any] | None = None,
         error: BaseException | None = None,
     ) -> dict[str, Any]:
         trace = {
             "trace_id": trace_id,
             "created_at": created_at,
-            "operation": "query",
+            "operation": operation,
             "request": dict(request),
             "runtime_episode": dict(runtime_episode),
             "state_after": dict(state_after),
         }
+        if state_before is not None:
+            trace["state_before"] = dict(state_before)
         if error is not None:
             trace["error"] = {"type": type(error).__name__, "message": str(error)}
         return trace
+
+    @staticmethod
+    def _build_feed_request(*, text: str) -> dict[str, Any]:
+        return {
+            "text_length": int(len(text)),
+            "text_preview": text[:120],
+        }
+
+    @staticmethod
+    def _build_feed_prediction(text: str) -> dict[str, Any]:
+        return {
+            "kind": "feed_prediction",
+            "predicted_output": "Feed text should be encoded into runtime memory and concept observations.",
+            "proposed_action": "feed_text",
+            "topics": salient_query_terms(text)[:8],
+        }
+
+    @staticmethod
+    def _build_feed_action(*, text: str) -> dict[str, Any]:
+        return {
+            "action_type": "feed",
+            "text_length": int(len(text)),
+        }
+
+    def _feed_text_for_request_locked(
+        self,
+        text: str,
+        *,
+        allow_sleep_maintenance: bool,
+        concept_observation_interval: int = DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+    ) -> dict[str, Any]:
+        self._trainer.encoder = self._encoder
+        last_metrics: dict[str, Any] | None = None
+        tokens = 0
+        concept_observations = 0
+        pending_concept_observation: tuple[str, dict[str, Any]] | None = None
+        observation_interval = max(1, int(concept_observation_interval))
+        sleep_maintenance_deferred = 0
+        pattern_iter = self._encoder.iter_segment_patterns(
+            text,
+            self._trainer.config.window_size,
+            learn=False,
+            use_learned_boundaries=False,
+        )
+        for raw_window, pattern in pattern_iter:
+            raw_window_text = str(raw_window)
+            last_metrics = self._trainer.train_step(
+                pattern,
+                raw_window=raw_window_text,
+                allow_sleep_maintenance=allow_sleep_maintenance,
+            )
+            metrics = dict(last_metrics or {})
+            sleep_maintenance_deferred += int(metrics.get("sleep_maintenance_deferred", 0) or 0)
+            pending_concept_observation = (raw_window_text, metrics)
+            if tokens == 0 or (tokens + 1) % observation_interval == 0:
+                self._observe_runtime_concepts_fn(raw_window=raw_window_text, metrics=metrics)
+                concept_observations += 1
+                pending_concept_observation = None
+            tokens += 1
+
+        if pending_concept_observation is not None:
+            raw_window, metrics = pending_concept_observation
+            self._observe_runtime_concepts_fn(raw_window=raw_window, metrics=metrics)
+            concept_observations += 1
+
+        return {
+            "tokens_processed": int(tokens),
+            "token_count": int(self._trainer.token_count),
+            "last_winner": None if last_metrics is None else int(last_metrics["winner"]),
+            "last_recon_error": None if last_metrics is None else float(last_metrics["recon_error"]),
+            "memory_buffer_size": int(len(self._trainer.model.memory_store.slow_buffer)),
+            "feed_encoding_mode": REQUEST_FEED_ENCODING_MODE,
+            "concept_observation_mode": "sampled",
+            "concept_observation_interval": int(observation_interval),
+            "concept_observations": int(concept_observations),
+            "sleep_maintenance_allowed": bool(allow_sleep_maintenance),
+            "sleep_maintenance_deferred": int(sleep_maintenance_deferred),
+        }
+
+    def feed(
+        self,
+        *,
+        text: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            started_perf = time.perf_counter()
+            created_at = datetime.now(timezone.utc).isoformat()
+            trace_id = str(uuid4())
+            request = self._build_feed_request(text=text)
+            prediction = self._build_feed_prediction(text)
+            action = self._build_feed_action(text=text)
+            try:
+                summary = self._feed_text_for_request_locked(
+                    text,
+                    allow_sleep_maintenance=False,
+                    concept_observation_interval=DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+                )
+                self._runtime_state_mark_mutated_fn()
+                actual_output = self._feed_runtime_actual_output(summary)
+                verification = self._feed_runtime_verification(summary)
+                episode = self._runtime_episode_payload_fn(
+                    operation="feed",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=actual_output,
+                    verification=verification,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                )
+                state_after = self._service_state_snapshot_fn(include_replay_dataset_summary=False)
+                trace = self._build_trace(
+                    trace_id=trace_id,
+                    created_at=created_at,
+                    operation="feed",
+                    request=request,
+                    runtime_episode=episode,
+                    state_after=state_after,
+                )
+                trace_path = self._persist_trace_fn(trace)
+                episode["trace_path"] = str(trace_path)
+                episode = self._append_runtime_episode_trace_fn(episode)
+                return {
+                    "feed_summary": summary,
+                    "runtime_episode": episode,
+                    **self._runtime_state_mutation_summary_fn(),
+                }
+            except Exception as exc:
+                episode = self._runtime_episode_payload_fn(
+                    operation="feed",
+                    request=request,
+                    prediction=prediction,
+                    action=action,
+                    actual_output=None,
+                    verification=None,
+                    started_perf=started_perf,
+                    created_at=created_at,
+                    trace_id=trace_id,
+                    error=exc,
+                )
+                trace = self._build_trace(
+                    trace_id=trace_id,
+                    created_at=created_at,
+                    operation="feed",
+                    request=request,
+                    runtime_episode=episode,
+                    state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
+                    error=exc,
+                )
+                trace_path = self._persist_trace_fn(trace)
+                episode["trace_path"] = str(trace_path)
+                self._append_runtime_episode_trace_fn(episode)
+                raise
 
     def query(
         self,
@@ -230,6 +435,7 @@ class InteractionPipeline:
                 trace = self._build_trace(
                     trace_id=trace_id,
                     created_at=created_at,
+                    operation="query",
                     request=request,
                     runtime_episode=episode,
                     state_after=state_after,
@@ -256,6 +462,7 @@ class InteractionPipeline:
                 trace = self._build_trace(
                     trace_id=trace_id,
                     created_at=created_at,
+                    operation="query",
                     request=request,
                     runtime_episode=episode,
                     state_after=self._service_state_snapshot_fn(include_replay_dataset_summary=False),
