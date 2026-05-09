@@ -461,6 +461,8 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             concept_store_snapshot_fn=lambda: self._concept_store.snapshot(),
             brain_runtime_snapshot_fn=lambda: self._brain_runtime_snapshot_locked(),
             multimodal_runtime_summary_fn=lambda: self._multimodal_runtime_summary_locked(),
+            cortex_active_fn=lambda: self._thought_loop_actual is not None and self._thought_loop_actual.is_running,
+            animation_snapshot_fn=lambda: self._animation_snapshot_locked(),
         )
 
     @property
@@ -489,6 +491,10 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
     def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         """Delegate to StatusReadModel for terminus status snapshots."""
         return self._status_read_model.terminus_status(fresh_wait_seconds=fresh_wait_seconds)
+
+    def telemetry_snapshot(self) -> dict[str, Any]:
+        """Delegate to StatusReadModel for telemetry snapshots."""
+        return self._status_read_model.telemetry_snapshot()
 
     def _cortex_factories_are_mocked(self) -> bool:
         refs = self._cortex_factory_refs or ()

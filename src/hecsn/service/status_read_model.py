@@ -1,15 +1,16 @@
-"""Status Read Model — read-only projection of runtime state into status and
-terminus snapshots.
+"""Status Read Model — read-only projection of runtime state into status, terminus, and telemetry snapshots.
 
-This module owns the ``status()`` and ``terminus_status()`` public surfaces
-and their associated cache state.  It is the first real object-style
-extraction from ADR 0003: the Service Manager delegates to it, and direct
-object-level tests exercise the seam through injected adapter callbacks
-instead of requiring the full manager composition root.
+This module owns the ``status()``, ``terminus_status()``, and
+``telemetry_snapshot()`` public surfaces and their associated cache state. It
+is the first real object-style extraction from ADR 0003: the Service Manager
+delegates to it, and direct object-level tests exercise the seam through
+injected adapter callbacks instead of requiring the full manager composition
+root.
 
 The read model is strictly read-only: it never mutates RuntimeState, never
 records brain events, and never advances the revision counter.
 """
+
 from __future__ import annotations
 
 from collections import deque
@@ -29,41 +30,36 @@ DEFAULT_BRAIN_TICK_TOKENS = 512
 
 
 class StatusReadModel:
-    """Read-only projection of runtime state for ``status()`` and
-    ``terminus_status()``.
+    """Read-only projection of runtime state for ``status()``, ``terminus_status()``,
+    and ``telemetry_snapshot()``.
 
-    Dependencies are injected at construction so that the read model can
-    be exercised in isolation with fakes, while the production wiring in
-    the Service Manager passes callbacks that read from the real manager
-    state under the shared lock.
+    Dependencies are injected at construction so that the read model can be
+    exercised in isolation with fakes, while the production wiring in the
+    Service Manager passes callbacks that read from the real manager state
+    under the shared lock.
 
     Parameters
     ----------
-    lock:
-        The shared ``RLock`` used by the Service Manager and all deep
-        modules.  The read model uses it for thread-safe cache access
-        but never owns it.
-    runtime_state:
-        The ``RuntimeState`` deep module for mutation summary reads.
-    trainer:
-        The ``HECSNTrainer`` instance (read-only access to model stats).
-    trace_history:
-        The manager's trace history deque (read-only access).
-    metadata:
-        The manager's checkpoint metadata dict (read-only access).
-    checkpoint_path_str:
-        String form of the checkpoint path for payload inclusion.
-    trace_dir_str:
-        String form of the trace directory for payload inclusion.
-    concept_store_snapshot_fn:
-        Callable that returns the current concept store snapshot dict.
-        Called under lock.
-    brain_runtime_snapshot_fn:
-        Callable that returns the current brain runtime snapshot dict.
-        Called under lock.
-    multimodal_runtime_summary_fn:
-        Callable that returns the current multimodal runtime summary
-        dict.  Called under lock.  Used by ``terminus_status()`` only.
+    lock: The shared ``RLock`` used by the Service Manager and all deep modules.
+        The read model uses it for thread-safe cache access but never owns it.
+    runtime_state: The ``RuntimeState`` deep module for mutation summary reads.
+    trainer: The ``HECSNTrainer`` instance (read-only access to model stats).
+    trace_history: The manager's trace history deque (read-only access).
+    metadata: The manager's checkpoint metadata dict (read-only access).
+    checkpoint_path_str: String form of the checkpoint path for payload inclusion.
+    trace_dir_str: String form of the trace directory for payload inclusion.
+    concept_store_snapshot_fn: Callable that returns the current concept store
+        snapshot dict. Called under lock.
+    brain_runtime_snapshot_fn: Callable that returns the current brain runtime
+        snapshot dict. Called under lock.
+    multimodal_runtime_summary_fn: Callable that returns the current multimodal
+        runtime summary dict. Called under lock. Used by ``terminus_status()``
+        only.
+    cortex_active_fn: Callable that returns whether the cortex thought loop is
+        currently running. Called under lock. Used by ``telemetry_snapshot()``
+        for revision-keyed cache reuse decisions.
+    animation_snapshot_fn: Callable that returns the current animation snapshot
+        dict. Called under lock. Used by ``telemetry_snapshot()`` only.
     """
 
     def __init__(
@@ -79,6 +75,8 @@ class StatusReadModel:
         concept_store_snapshot_fn: Callable[[], dict[str, Any]],
         brain_runtime_snapshot_fn: Callable[[], dict[str, Any]],
         multimodal_runtime_summary_fn: Callable[[], dict[str, Any]] | None = None,
+        cortex_active_fn: Callable[[], bool] | None = None,
+        animation_snapshot_fn: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
@@ -90,9 +88,14 @@ class StatusReadModel:
         self._concept_store_snapshot_fn = concept_store_snapshot_fn
         self._brain_runtime_snapshot_fn = brain_runtime_snapshot_fn
         self._multimodal_runtime_summary_fn = multimodal_runtime_summary_fn
+        self._cortex_active_fn = cortex_active_fn
+        self._animation_snapshot_fn = animation_snapshot_fn
+
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
         self._cached_terminus_status: dict[str, Any] | None = None
+        self._cached_telemetry: dict[str, Any] | None = None
+        self._cached_telemetry_rev: int = -1
 
     # ------------------------------------------------------------------
     # Static helpers reused from StatusRuntimeMixin
@@ -127,8 +130,13 @@ class StatusReadModel:
         payload = {
             "source_bank": source_bank,
             "sensory_source_bank": sensory_source_bank,
-            "tick_tokens": int(terminus_runtime.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS) or DEFAULT_BRAIN_TICK_TOKENS),
-            "sleep_interval_seconds": float(terminus_runtime.get("sleep_interval_seconds", 0.0) or 0.0),
+            "tick_tokens": int(
+                terminus_runtime.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)
+                or DEFAULT_BRAIN_TICK_TOKENS
+            ),
+            "sleep_interval_seconds": float(
+                terminus_runtime.get("sleep_interval_seconds", 0.0) or 0.0
+            ),
             "repeat_sources": bool(terminus_runtime.get("repeat_sources", True)),
             "ingestion": {
                 "enabled": bool(ingestion.get("enabled", True)),
@@ -186,6 +194,7 @@ class StatusReadModel:
             or trace_history_size > 0
             or last_work_at
         )
+
         if last_error:
             verdict = "failed"
             recommended_action = "inspect_last_error"
@@ -225,6 +234,7 @@ class StatusReadModel:
             "replay_fact_promotion_allowed": False,
             "decision": self._working_set_decision(pressure),
         }
+
         if verdict == "alive" and pressure == "high":
             verdict = "degraded"
             recommended_action = "reduce_memory_pressure_before_extending_runtime"
@@ -242,9 +252,7 @@ class StatusReadModel:
             "last_tick": None if last_tick_duration is None else float(last_tick_duration),
             "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
         }
-
         source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
-
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -295,13 +303,13 @@ class StatusReadModel:
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size = int(len(self._trace_history))
+
         return {
             "checkpoint_path": str(self._checkpoint_path_str),
             **runtime_mutation,
             "token_count": int(self._trainer.token_count),
             "last_winner": (
-                None if self._trainer.last_winner is None
-                else int(self._trainer.last_winner)
+                None if self._trainer.last_winner is None else int(self._trainer.last_winner)
             ),
             "context_supported": bool(self._trainer.model.context_layer is not None),
             "context_state_norm": float(
@@ -310,12 +318,10 @@ class StatusReadModel:
             "trace_history_size": trace_history_size,
             "trace_storage_dir": str(self._trace_dir_str),
             "last_trace_id": (
-                None if last_trace is None
-                else str(last_trace.get("trace_id"))
+                None if last_trace is None else str(last_trace.get("trace_id"))
             ),
             "last_trace_created_at": (
-                None if last_trace is None
-                else str(last_trace.get("created_at"))
+                None if last_trace is None else str(last_trace.get("created_at"))
             ),
             "checkpoint_metadata": deepcopy(self._metadata),
             "dopamine": float(self._trainer.model.surprise.dopamine),
@@ -361,6 +367,81 @@ class StatusReadModel:
             ),
         }
 
+    def _telemetry_snapshot_locked(self) -> dict[str, Any]:
+        """Build the telemetry dict. Caller MUST hold self._lock."""
+        runtime_mutation = self._runtime_state.mutation_summary()
+        current_rev = int(runtime_mutation["state_revision"])
+        cortex_active = self._cortex_active_fn() if self._cortex_active_fn is not None else False
+        # Revision-keyed cache reuse: when the cortex is inactive and the
+        # revision hasn't changed, the cached telemetry is still valid.
+        if not cortex_active and self._cached_telemetry is not None and self._cached_telemetry_rev == current_rev:
+            return self._cached_telemetry
+
+        memory_store = self._trainer.model.memory_store.summary_stats()
+        last_trace = self._trace_history[0] if self._trace_history else None
+        drift_value = (
+            self._trainer._cached_drift
+            if self._trainer._cached_drift is not None
+            else self._trainer.model.memory_store.compute_drift(
+                self._trainer.last_winner
+                if self._trainer.config.use_winner_local_drift
+                else None
+            )
+        )
+        terminus_runtime = self._brain_runtime_snapshot_fn()
+        replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
+
+        animation = self._animation_snapshot_fn() if self._animation_snapshot_fn is not None else {}
+
+        snapshot = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "checkpoint_path": str(self._checkpoint_path_str),
+            "dirty_state": bool(runtime_mutation["dirty_state"]),
+            "state_revision": current_rev,
+            "token_count": int(self._trainer.token_count),
+            "last_winner": None if self._trainer.last_winner is None else int(self._trainer.last_winner),
+            "context_state_norm": float(torch.linalg.norm(self._trainer.context_state().float()).item()),
+            "trace_history_size": int(len(self._trace_history)),
+            "last_trace_id": None if last_trace is None else str(last_trace.get("trace_id")),
+            "last_trace_created_at": None if last_trace is None else str(last_trace.get("created_at")),
+            "memory_fill_fraction": float(memory_store.get("fill_fraction", 0.0)),
+            "memory_buffer_size": int(memory_store.get("size", 0)),
+            "sleep_events": int(self._trainer.sleep_events),
+            "micro_sleep_events": int(self._trainer.micro_sleep_events),
+            "deep_sleep_events": int(self._trainer.deep_sleep_events),
+            "dopamine": float(self._trainer.model.surprise.dopamine),
+            "serotonin": float(self._trainer.model.surprise.serotonin),
+            "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
+            "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
+            "drift": float(drift_value),
+            "drift_floor": float(
+                self._trainer.current_rolling_drift_floor
+                if self._trainer.current_rolling_drift_floor is not None
+                else drift_value
+            ),
+            "grounding_confidence": {
+                w: round(c, 4) for w, c in self._trainer.word_grounding_confidence.items()
+            },
+            "n_visual_signatures": len(self._trainer.word_visual_signature),
+            "n_audio_signatures": len(self._trainer.word_audio_signature),
+            "cross_modal_visual_confidence": (
+                float(self._trainer.model.cross_modal.visual_confidence.mean().item())
+                if self._trainer.model.cross_modal is not None
+                else None
+            ),
+            "cross_modal_audio_confidence": (
+                float(self._trainer.model.cross_modal.audio_confidence.mean().item())
+                if self._trainer.model.cross_modal is not None
+                else None
+            ),
+            "animation": animation,
+            "terminus_runtime": terminus_runtime,
+            "replay_dataset_summary": replay_dataset_summary,
+        }
+        self._cached_telemetry = snapshot
+        self._cached_telemetry_rev = current_rev
+        return snapshot
+
     # ------------------------------------------------------------------
     # Public surfaces
     # ------------------------------------------------------------------
@@ -397,11 +478,11 @@ class StatusReadModel:
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         """Return the status snapshot (non-blocking by default).
 
-        When ``fresh_wait_seconds`` is ``None`` the call tries to acquire
-        the lock for up to 150 ms.  If that fails and a cached snapshot
-        exists, the cached copy is returned.  When a caller explicitly
-        requests a fresh snapshot, the method retries until the deadline
-        and then blocks rather than silently serving stale data.
+        When ``fresh_wait_seconds`` is ``None`` the call tries to acquire the
+        lock for up to 150 ms. If that fails and a cached snapshot exists, the
+        cached copy is returned. When a caller explicitly requests a fresh
+        snapshot, the method retries until the deadline and then blocks rather
+        than silently serving stale data.
         """
         result = self._read_snapshot(
             fresh_wait_seconds=fresh_wait_seconds,
@@ -414,9 +495,9 @@ class StatusReadModel:
     def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
         """Return the terminus status snapshot (non-blocking by default).
 
-        Polling semantics mirror ``status()``: non-blocking default with
-        cached fallback, and blocking retry when an explicit freshness
-        deadline is requested.
+        Polling semantics mirror ``status()``: non-blocking default with cached
+        fallback, and blocking retry when an explicit freshness deadline is
+        requested.
         """
         result = self._read_snapshot(
             fresh_wait_seconds=fresh_wait_seconds,
@@ -425,3 +506,22 @@ class StatusReadModel:
         )
         self._cached_terminus_status = result
         return result
+
+    def telemetry_snapshot(self) -> dict[str, Any]:
+        """Return the telemetry snapshot (non-blocking with lock-contention fallback).
+
+        Non-blocking: return cached data when the brain loop holds the lock
+        (prevents SSE/API starvation during training or HF network I/O). When
+        the cortex is inactive and the state revision hasn't changed, the
+        previously cached telemetry snapshot is reused instead of rebuilding.
+        """
+        acquired = self._lock.acquire(timeout=0.15)
+        if not acquired:
+            if self._cached_telemetry is not None:
+                return self._cached_telemetry
+            # No cache yet (first call) — must block
+            self._lock.acquire()
+        try:
+            return self._telemetry_snapshot_locked()
+        finally:
+            self._lock.release()
