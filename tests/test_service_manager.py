@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 import json
 from functools import partial
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -99,6 +102,55 @@ def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) 
         trace_dir=root / "traces",
         env_root=env_root,
     )
+
+
+@contextmanager
+def _serve_directory(root: Path) -> Iterator[str]:
+    port = _free_port()
+    handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
+    server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+
+def _write_query_gap_notes(root: Path) -> None:
+    (root / "notes.md").write_text(
+        "Cats rest indoors during the day.\nCats chase mice at night.\n",
+        encoding="utf-8",
+    )
+
+
+def _write_query_gap_page(root: Path) -> None:
+    (root / "page.html").write_text(
+        "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
+        encoding="utf-8",
+    )
+
+
+def _write_query_gap_data(root: Path) -> None:
+    (root / "data.json").write_text(
+        '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
+        encoding="utf-8",
+    )
+
+
+@dataclass(frozen=True)
+class _RespondActionAssistCase:
+    label: str
+    test_case: str
+    query_text: str
+    reason: str
+    expected_response_fragment: str
+    setup: Callable[[Path], None]
+    expected_action_type: str | None = None
+    expected_input_path: str | None = None
+    served_path: str | None = None
 
 
 class ServiceManagerBootstrapTests(unittest.TestCase):
@@ -9382,116 +9434,93 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
 
     def test_respond_auto_executes_workspace_web_and_api_action_assist_for_gap_queries(self) -> None:
         cases = [
-            {
-                "label": "workspace_search",
-                "test_case": "service_manager_action_loop_auto_query_gap",
-                "query_text": "What do cats chase at night?",
-                "reason": "query_gap_auto_search",
-                "expected_action_type": None,
-                "expected_response_fragment": "cats chase mice at night",
-                "expected_input": None,
-                "setup": lambda root: (root / "notes.md").write_text(
-                    "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                    encoding="utf-8",
-                ),
-            },
-            {
-                "label": "workspace_read",
-                "test_case": "service_manager_action_loop_auto_query_read",
-                "query_text": "What does notes.md say cats chase at night?",
-                "action_type": "workspace_read",
-                "reason": "query_gap_auto_read",
-                "expected_action_type": "workspace_read",
-                "expected_response_fragment": "cats chase mice at night",
-                "expected_input": ("path", "notes.md"),
-                "setup": lambda root: (root / "notes.md").write_text(
-                    "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                    encoding="utf-8",
-                ),
-            },
-            {
-                "label": "web_fetch",
-                "test_case": "service_manager_action_loop_auto_query_fetch",
-                "query_text": "What does {url} say cats chase at night?",
-                "action_type": "web_fetch",
-                "reason": "query_gap_auto_fetch",
-                "expected_action_type": "web_fetch",
-                "expected_response_fragment": "cats chase mice at night",
-                "expected_input": ("url", None),
-                "setup": lambda root: (root / "page.html").write_text(
-                    "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
-                    encoding="utf-8",
-                ),
-            },
-            {
-                "label": "api_request",
-                "test_case": "service_manager_action_loop_auto_query_api",
-                "query_text": "What does {url} say cats chase at night?",
-                "action_type": "api_request",
-                "reason": "query_gap_auto_api_request",
-                "expected_action_type": "api_request",
-                "expected_response_fragment": "mice at night",
-                "expected_input": ("url", None),
-                "setup": lambda root: (root / "data.json").write_text(
-                    '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
-                    encoding="utf-8",
-                ),
-            },
+            _RespondActionAssistCase(
+                label="workspace_search",
+                test_case="service_manager_action_loop_auto_query_gap",
+                query_text="What do cats chase at night?",
+                reason="query_gap_auto_search",
+                expected_response_fragment="cats chase mice at night",
+                setup=_write_query_gap_notes,
+            ),
+            _RespondActionAssistCase(
+                label="workspace_read",
+                test_case="service_manager_action_loop_auto_query_read",
+                query_text="What does notes.md say cats chase at night?",
+                reason="query_gap_auto_read",
+                expected_action_type="workspace_read",
+                expected_response_fragment="cats chase mice at night",
+                expected_input_path="notes.md",
+                setup=_write_query_gap_notes,
+            ),
+            _RespondActionAssistCase(
+                label="web_fetch",
+                test_case="service_manager_action_loop_auto_query_fetch",
+                query_text="What does {url} say cats chase at night?",
+                reason="query_gap_auto_fetch",
+                expected_action_type="web_fetch",
+                expected_response_fragment="cats chase mice at night",
+                setup=_write_query_gap_page,
+                served_path="page.html",
+            ),
+            _RespondActionAssistCase(
+                label="api_request",
+                test_case="service_manager_action_loop_auto_query_api",
+                query_text="What does {url} say cats chase at night?",
+                reason="query_gap_auto_api_request",
+                expected_action_type="api_request",
+                expected_response_fragment="mice at night",
+                setup=_write_query_gap_data,
+                served_path="data.json",
+            ),
         ]
         for case in cases:
-            with self.subTest(action_type=case["label"]):
+            with self.subTest(action_type=case.label):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     root = Path(tmpdir)
-                    case["setup"](root)
-                    port = None
-                    server = None
-                    thread = None
-                    query_text = case["query_text"]
-                    if case["label"] in {"web_fetch", "api_request"}:
-                        port = _free_port()
-                        handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
-                        server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-                        thread = threading.Thread(target=server.serve_forever, daemon=True)
-                        thread.start()
-                        url_path = "page.html" if case["action_type"] == "web_fetch" else "data.json"
-                        query_text = query_text.format(url=f"http://127.0.0.1:{port}/{url_path}")
-                    manager = _build_manager(
-                        root,
-                        test_case=case["test_case"],
-                        env_root=root,
-                    )
-                    try:
-                        response = manager.respond(
-                            query_text=query_text,
-                            max_evidence_items=3,
-                            learn_mode="none",
-                        )
-                        assist = response["query_result"]["action_assist"]
-                        self.assertEqual(assist["reason"], case["reason"])
-                        self.assertTrue(assist["executed"])
-                        self.assertEqual(assist["result"]["trigger_reason"], case["reason"])
-                        expected_action_type = case["expected_action_type"]
-                        if expected_action_type is not None:
-                            self.assertEqual(assist["result"]["action_type"], expected_action_type)
-                        self.assertIn(case["expected_response_fragment"], response["response"]["response_text"].lower())
-                        expected_input = case["expected_input"]
-                        if expected_input is not None:
-                            input_key, expected_value = expected_input
-                            if input_key == "path":
-                                self.assertEqual(assist["result"]["inputs"]["path"], expected_value)
-                            else:
-                                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
-                        history = manager.action_history(limit=4)
-                        self.assertEqual(history["count"], 1)
-                        if expected_action_type is not None:
-                            self.assertEqual(history["actions"][0]["action_type"], expected_action_type)
-                    finally:
-                        manager.close()
-                        if server is not None:
-                            server.shutdown()
-                            server.server_close()
-                        if thread is not None:
-                            thread.join(timeout=2.0)
+                    case.setup(root)
+                    query_text = case.query_text
+                    server_context = _serve_directory(root) if case.served_path is not None else None
+                    if server_context is not None:
+                        with server_context as base_url:
+                            query_text = query_text.format(url=f"{base_url}/{case.served_path}")
+                            self._assert_auto_query_action_assist_case(case, root, query_text)
+                        continue
+                    self._assert_auto_query_action_assist_case(case, root, query_text)
+
+    def _assert_auto_query_action_assist_case(
+        self,
+        case: _RespondActionAssistCase,
+        root: Path,
+        query_text: str,
+    ) -> None:
+        manager = _build_manager(
+            root,
+            test_case=case.test_case,
+            env_root=root,
+        )
+        try:
+            response = manager.respond(
+                query_text=query_text,
+                max_evidence_items=3,
+                learn_mode="none",
+            )
+            assist = response["query_result"]["action_assist"]
+            self.assertEqual(assist["reason"], case.reason)
+            self.assertTrue(assist["executed"])
+            self.assertEqual(assist["result"]["trigger_reason"], case.reason)
+            if case.expected_action_type is not None:
+                self.assertEqual(assist["result"]["action_type"], case.expected_action_type)
+            self.assertIn(case.expected_response_fragment, response["response"]["response_text"].lower())
+            if case.expected_input_path is not None:
+                self.assertEqual(assist["result"]["inputs"]["path"], case.expected_input_path)
+            if case.served_path is not None:
+                self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
+            history = manager.action_history(limit=4)
+            self.assertEqual(history["count"], 1)
+            if case.expected_action_type is not None:
+                self.assertEqual(history["actions"][0]["action_type"], case.expected_action_type)
+        finally:
+            manager.close()
 
     def test_respond_does_not_reuse_parameterized_api_request_for_explicit_url_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
