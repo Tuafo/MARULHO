@@ -463,6 +463,8 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
             multimodal_runtime_summary_fn=lambda: self._multimodal_runtime_summary_locked(),
             sensory_preview_history=self._sensory_preview_history,
             architecture_snapshot_fn=lambda: self._architecture_summary_impl(),
+            cortex_active_fn=lambda: self._thought_loop_actual is not None and self._thought_loop_actual.is_running,
+            animation_snapshot_fn=lambda: self._animation_snapshot_locked(),
         )
 
     @property
@@ -503,6 +505,10 @@ class HECSNServiceManager(ReplayDatasetBundleMixin, RuntimeEvidenceMixin, Runtim
     def _architecture_summary_impl(self) -> dict[str, Any]:
         """Build the architecture summary under lock (called by read model callback)."""
         return ServiceReportingMixin.architecture_summary(self)
+
+    def telemetry_snapshot(self) -> dict[str, Any]:
+        """Delegate to StatusReadModel for telemetry snapshots."""
+        return self._status_read_model.telemetry_snapshot()
 
     def _cortex_factories_are_mocked(self) -> bool:
         refs = self._cortex_factory_refs or ()
