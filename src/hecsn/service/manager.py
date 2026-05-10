@@ -294,6 +294,9 @@ class HECSNServiceManager(
         self._trainer, self._metadata = load_trainer_checkpoint(self._checkpoint_path)
         self._encoder = self._trainer.encoder
         self._responder = EvidenceResponder()
+        self._runtime_config = RuntimeConfigMixin(self)
+        self._runtime_sources = RuntimeSourcesMixin(self)
+        self._source_focus = SourceFocusMixin(self)
         self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
@@ -303,7 +306,7 @@ class HECSNServiceManager(
             self._trainer.model.abstraction_layer,
             cast(dict[str, Any] | None, terminus_state.get("geometric_curiosity")),
         )
-        self._brain_config = self._normalize_brain_config(
+        self._brain_config = self._runtime_config._normalize_brain_config(
             terminus_state
         )
         self._brain_source_runtimes: list[_BrainSourceRuntime] = []

@@ -38,7 +38,7 @@ class RuntimeControlMixin:
         promotion_thread = self._request_remote_warm_promotion_stop()
         self._join_remote_warm_promotion_thread(promotion_thread)
         with self._lock:
-            self._brain_config = self._normalize_brain_config(
+            self._brain_config = self._runtime_config._normalize_brain_config(
                 {
                     "source_bank": source_bank,
                     "tick_tokens": tick_tokens,

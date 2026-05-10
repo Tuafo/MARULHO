@@ -1,8 +1,8 @@
 """Source focus and utility scoring helpers for Terminus.
 
-This mixin chooses useful text sources and updates source utility summaries. It
-keeps source scoring separate from brain-loop orchestration and from the delayed
-consequence learner.
+This module chooses useful text sources and updates source utility summaries.
+It keeps source scoring separate from brain-loop orchestration and from the
+delayed consequence learner.
 """
 
 from __future__ import annotations
@@ -18,7 +18,30 @@ DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
-class SourceFocusMixin:
+class SourceFocusScorer:
+    def __init__(self, manager: Any | None = None) -> None:
+        object.__setattr__(self, "_manager", manager)
+
+    def __getattr__(self, name: str) -> Any:
+        manager = object.__getattribute__(self, "_manager")
+        if manager is None:
+            raise AttributeError(name)
+        return getattr(manager, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_manager":
+            object.__setattr__(self, name, value)
+            return
+        try:
+            manager = object.__getattribute__(self, "_manager")
+        except AttributeError:
+            object.__setattr__(self, name, value)
+            return
+        if manager is None or manager is self:
+            object.__setattr__(self, name, value)
+            return
+        setattr(manager, name, value)
+
     def _focus_gap_terms_locked(self, limit: int = 4) -> list[str]:
         terms: list[str] = []
 
@@ -393,3 +416,6 @@ class SourceFocusMixin:
             elif bool(verification.get("contradiction", False)):
                 score *= 0.25
         return float(max(0.0, min(1.0, score)))
+
+
+SourceFocusMixin = SourceFocusScorer

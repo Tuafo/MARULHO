@@ -1,6 +1,6 @@
 """Runtime source stream and cache helpers for Terminus.
 
-This mixin owns source stream construction, live-remote wrapping, runtime cache
+This module owns source stream construction, live-remote wrapping, runtime cache
 read/write helpers, and stream shutdown. It does not decide replay policy,
 training policy, or memory promotion.
 """
@@ -98,7 +98,30 @@ class _SensorySourceRuntime:
 
 
 
-class RuntimeSourcesMixin:
+class RuntimeSources:
+    def __init__(self, manager: Any | None = None) -> None:
+        object.__setattr__(self, "_manager", manager)
+
+    def __getattr__(self, name: str) -> Any:
+        manager = object.__getattribute__(self, "_manager")
+        if manager is None:
+            raise AttributeError(name)
+        return getattr(manager, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_manager":
+            object.__setattr__(self, name, value)
+            return
+        try:
+            manager = object.__getattribute__(self, "_manager")
+        except AttributeError:
+            object.__setattr__(self, name, value)
+            return
+        if manager is None or manager is self:
+            object.__setattr__(self, name, value)
+            return
+        setattr(manager, name, value)
+
     @staticmethod
     def _source_spec_uses_live_remote(spec: Mapping[str, Any]) -> bool:
         source_type = str(spec.get("source_type", "auto") or "auto").strip().lower()
@@ -388,3 +411,6 @@ class RuntimeSourcesMixin:
     def _close_sensory_sources_locked(self) -> None:
         self._interrupt_sensory_sources_locked()
         self._sensory_source_runtimes = []
+
+
+RuntimeSourcesMixin = RuntimeSources
