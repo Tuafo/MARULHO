@@ -27,7 +27,7 @@ const MAX_ITERATIONS = 10;
 
 const PI_MODEL = "nvidia-nim/z-ai/glm-5.1";
 
-const IDLE_TIMEOUT = 5400;
+const IDLE_TIMEOUT = 10800;
 
 const sandbox = hostDirect({
   env: {
@@ -223,7 +223,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "merger",
     maxIterations: 1,
     idleTimeoutSeconds: IDLE_TIMEOUT,
-    agent: sandcastle.codex("gpt-5.4-mini", { effort: "xhigh" }),
+    agent: sandcastle.pi(PI_MODEL),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),

@@ -100,6 +100,7 @@ src/hecsn/service/living_loop_replay.py
 src/hecsn/service/living_loop_self_model.py
 src/hecsn/service/living_status.py
 src/hecsn/service/manager.py
+src/hecsn/service/manager_bound_module.py
 src/hecsn/service/persistence.py
 src/hecsn/service/replay_dataset_bundle.py
 src/hecsn/service/replay_dataset_bundle_runner.py
@@ -204,7 +205,9 @@ tests/test_replay_training_gate.py
 tests/test_replay_training_plan.py
 tests/test_responder.py
 tests/test_routing_index.py
+tests/test_runtime_config.py
 tests/test_runtime_feedback.py
+tests/test_runtime_sources.py
 tests/test_runtime_state.py
 tests/test_self_improvement_readiness.py
 tests/test_semantic_encoder.py
@@ -213,6 +216,7 @@ tests/test_service_benchmark.py
 tests/test_service_manager.py
 tests/test_sfa_correction.py
 tests/test_source_catalog.py
+tests/test_source_focus.py
 tests/test_sparsity.py
 tests/test_status_read_model.py
 tests/test_surprise.py
