@@ -157,7 +157,7 @@ class RuntimeEvidenceMixin:
         candidates_by_target = self._replay_dataset_candidates_by_target(replay_plan.get("candidates", []))
         sample_links_by_target = self._replay_dataset_sample_links_by_target_locked()
         items: list[dict[str, Any]] = []
-        for episode in list(self._runtime_episode_traces):
+        for episode in list(self._interaction_pipeline.runtime_episode_traces()):
             operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
             endpoint_path = self._runtime_trace_export_endpoint(operation)
             if endpoint_filter is not None and endpoint_filter not in {operation, endpoint_path.lower(), endpoint_path.lower().lstrip("/")}:
@@ -276,7 +276,7 @@ class RuntimeEvidenceMixin:
             )
             state_by_trace_id = self._runtime_trace_state_by_trace_id_locked()
             examples: list[dict[str, Any]] = []
-            for episode in list(self._runtime_episode_traces):
+            for episode in list(self._interaction_pipeline.runtime_episode_traces()):
                 operation = str(episode.get("operation", "") or "unknown").strip().lower() or "unknown"
                 endpoint_path = self._runtime_trace_export_endpoint(operation)
                 if endpoint_filter is not None and endpoint_filter not in {operation, endpoint_path.lower(), endpoint_path.lower().lstrip("/")}:
@@ -393,33 +393,17 @@ class RuntimeEvidenceMixin:
             return None
 
     def _append_runtime_episode_trace_locked(self, episode: Mapping[str, Any]) -> dict[str, Any]:
-        normalized = self._normalize_runtime_episode_trace(episode)
-        if normalized is None:
-            normalized = dict(self._json_safe(dict(episode)))
-        episode_id = str(normalized.get("episode_id", ""))
-        if episode_id:
-            existing = [
-                item for item in list(self._runtime_episode_traces) if str(item.get("episode_id", "")) != episode_id
-            ]
-            self._runtime_episode_traces = deque(existing, maxlen=self._runtime_episode_traces.maxlen)
-        self._runtime_episode_traces.appendleft(deepcopy(normalized))
-        return deepcopy(normalized)
+        return self._interaction_pipeline.append_runtime_episode_trace(episode)
 
     def _runtime_episode_trace_locked(self, episode_id: str) -> dict[str, Any] | None:
-        return read_history_record(self._runtime_episode_traces, record_id=episode_id, id_field="episode_id")
+        return self._interaction_pipeline.runtime_episode_trace(episode_id)
 
     def _replace_runtime_episode_trace_locked(
         self,
         episode_id: str,
         episode: Mapping[str, Any],
     ) -> dict[str, Any] | None:
-        self._runtime_episode_traces, replaced = replace_history_record(
-            self._runtime_episode_traces,
-            record_id=episode_id,
-            replacement=episode,
-            id_field="episode_id",
-        )
-        return replaced
+        return self._interaction_pipeline.replace_runtime_episode_trace(episode_id, episode)
 
     @staticmethod
     def _normalize_runtime_trace_export_filter(endpoint: str | None) -> str | None:
@@ -987,7 +971,7 @@ class RuntimeEvidenceMixin:
 
     def _runtime_feedback_summary_locked(self) -> dict[str, Any]:
         targets: list[tuple[str, str, Any]] = []
-        for episode in list(self._runtime_episode_traces):
+        for episode in list(self._interaction_pipeline.runtime_episode_traces()):
             if isinstance(episode, Mapping):
                 targets.append(("runtime_episode", str(episode.get("episode_id", "") or ""), episode.get("feedback", [])))
         for action in list(self._action_history):

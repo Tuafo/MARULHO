@@ -50,7 +50,7 @@ class LivingStatusMixin:
         ]
         runtime_episodes = [
             RuntimeEpisodeTrace.from_payload(item)
-            for item in list(self._runtime_episode_traces)[:12]
+            for item in list(self._interaction_pipeline.runtime_episode_traces())[:12]
             if isinstance(item, Mapping)
         ]
         narrative = cortex_data.get("narrative_self") if isinstance(cortex_data.get("narrative_self"), Mapping) else {}

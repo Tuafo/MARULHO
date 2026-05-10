@@ -440,33 +440,8 @@ class InteractionRuntimeMixin:
         gap_plan: dict[str, Any],
         source: str,
     ) -> None:
-        normalized_query = " ".join(str(query_text).split()).strip()
-        if not normalized_query:
-            return
-        existing = [
-            item
-            for item in list(self._brain_recent_query_gaps)
-            if str(item.get("query_text", "")).lower() != normalized_query.lower()
-        ]
-        self._brain_recent_query_gaps = deque(existing, maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY)
-        grounded_fraction = float(gap_plan.get("grounded_fraction", 0.0))
-        query_deficit = bool(gap_plan.get("unsupported_terms")) or grounded_fraction < 0.999
-        self._brain_skip_next_autonomy_for_grounded_query = not query_deficit
-        meaningful = bool(query_deficit and (gap_plan.get("unsupported_terms") or gap_plan.get("gap_terms") or gap_plan.get("weak_concepts")))
-        if not meaningful:
-            return
-        normalized = self._normalize_recent_query_gap(
-            {
-                "recorded_at": datetime.now(timezone.utc).isoformat(),
-                "source": source,
-                "query_text": normalized_query,
-                "unsupported_terms": list(gap_plan.get("unsupported_terms") or []),
-                "gap_terms": list(gap_plan.get("gap_terms") or []),
-                "retrieval_queries": list(gap_plan.get("retrieval_queries") or []),
-                "follow_up_questions": list(gap_plan.get("follow_up_questions") or []),
-                "weak_concepts": list(gap_plan.get("weak_concepts") or []),
-                "grounded_fraction": float(gap_plan.get("grounded_fraction", 0.0)),
-            }
+        self._interaction_pipeline.record_recent_query_gap(
+            query_text=query_text,
+            gap_plan=gap_plan,
+            source=source,
         )
-        if normalized is not None:
-            self._brain_recent_query_gaps.appendleft(normalized)

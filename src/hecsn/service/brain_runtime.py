@@ -832,8 +832,7 @@ class BrainRuntimeMixin:
 
         if not curiosity_triggered and token_delta < trigger_interval:
             return None
-        if self._brain_skip_next_autonomy_for_grounded_query:
-            self._brain_skip_next_autonomy_for_grounded_query = False
+        if self._interaction_pipeline.consume_skip_next_autonomy_for_grounded_query():
             self._brain_last_acquisition_summary = None
             return None
         candidate_specs = self._autonomy_candidate_specs_locked(
@@ -893,7 +892,7 @@ class BrainRuntimeMixin:
             "final_max_candidate_gap": result.get("final_max_candidate_gap"),
             "stop_reason": result.get("stop_reason"),
             "focus_plan": deepcopy(result.get("semantic_plan")),
-            "recent_query_gap_count": int(len(self._brain_recent_query_gaps)),
+            "recent_query_gap_count": int(len(self._interaction_pipeline.recent_query_gaps())),
             "adaptive_learning": deepcopy(adaptive_learning),
             "provider_curriculum": deepcopy(self._provider_curriculum_snapshot_locked(autonomy, focus_plan)),
         }
@@ -1164,7 +1163,7 @@ class BrainRuntimeMixin:
                 "share_of_text_learning_tokens": float(autonomy_share_of_text_learning),
                 "tokens_until_trigger": autonomy_tokens_until_trigger,
                 "trigger_ready": autonomy_trigger_ready,
-                "recent_query_gaps": [deepcopy(item) for item in list(self._brain_recent_query_gaps)],
+                "recent_query_gaps": self._interaction_pipeline.recent_query_gaps(),
                 "focus_plan": deepcopy(autonomy_focus_plan),
                 "adaptive_learning": deepcopy(autonomy_adaptive_learning),
                 "provider_curriculum": deepcopy(autonomy_provider_curriculum),
@@ -1197,9 +1196,9 @@ class BrainRuntimeMixin:
             "delayed_consequence_compacted_total": int(self._delayed_consequence_compacted_total),
             "delayed_consequence_split_total": int(self._delayed_consequence_split_total),
             "delayed_consequence_remerged_total": int(self._delayed_consequence_remerged_total),
-            "recent_query_gaps": [deepcopy(item) for item in list(self._brain_recent_query_gaps)],
+            "recent_query_gaps": self._interaction_pipeline.recent_query_gaps(),
             "action_history": [deepcopy(item) for item in list(self._action_history)],
-            "runtime_episode_traces": [deepcopy(item) for item in list(self._runtime_episode_traces)],
+            "runtime_episode_traces": self._interaction_pipeline.runtime_episode_traces(),
             "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
             "last_event": runtime_state_snapshot["last_event"],
             "recent_events": runtime_state_snapshot["recent_events"],

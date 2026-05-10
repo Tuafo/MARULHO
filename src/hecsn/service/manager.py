@@ -45,7 +45,6 @@ PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
-DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_INGESTION_QUEUE_MULTIPLIER = 2
 DEFAULT_REMOTE_PREWARM_GRACE_SECONDS = 0.25
@@ -320,17 +319,6 @@ class HECSNServiceManager(
             terminus_state.get("background_source_utility")
         )
         self._brain_last_error: str | None = None
-        self._brain_recent_query_gaps: deque[dict[str, Any]] = deque(
-            (
-                item
-                for item in (
-                    self._normalize_recent_query_gap(raw_item)
-                    for raw_item in list(terminus_state.get("recent_query_gaps") or [])
-                )
-                if item is not None
-            ),
-            maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY,
-        )
         self._last_cortex_query_hint_text: str | None = None
         self._last_cortex_query_hint_at = 0.0
         self._action_history: deque[dict[str, Any]] = deque(
@@ -343,17 +331,6 @@ class HECSNServiceManager(
                 if item is not None
             ),
             maxlen=24,
-        )
-        self._runtime_episode_traces: deque[dict[str, Any]] = deque(
-            (
-                item
-                for item in (
-                    self._normalize_runtime_episode_trace(raw_item)
-                    for raw_item in list(terminus_state.get("runtime_episode_traces") or [])
-                )
-                if item is not None
-            ),
-            maxlen=64,
         )
         self._replay_sample_history: deque[dict[str, Any]] = deque(
             (
@@ -382,7 +359,6 @@ class HECSNServiceManager(
         self._delayed_consequence_compacted_total = max(0, int(terminus_state.get("delayed_consequence_compacted_total", 0) or 0))
         self._delayed_consequence_split_total = max(0, int(terminus_state.get("delayed_consequence_split_total", 0) or 0))
         self._delayed_consequence_remerged_total = max(0, int(terminus_state.get("delayed_consequence_remerged_total", 0) or 0))
-        self._brain_skip_next_autonomy_for_grounded_query = False
         self._brain_last_acquisition_summary: dict[str, Any] | None = None
         self._brain_last_acquisition_token_count = int(self._trainer.token_count)
         self._brain_running_since: str | None = None
@@ -479,7 +455,13 @@ class HECSNServiceManager(
         # --- Status Read Model (ADR 0003 deep module extraction) ---
         self._status_read_model = self._build_status_read_model()
         # --- Interaction Pipeline (ADR 0003 query/feed/respond-turn extraction) ---
-        self._interaction_pipeline = self._build_interaction_pipeline()
+        self._interaction_pipeline = self._build_interaction_pipeline(
+            recent_query_gaps=list(terminus_state.get("recent_query_gaps") or []),
+            runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
+        )
+        self._brain_recent_query_gaps = self._interaction_pipeline._recent_query_gaps
+        self._runtime_episode_traces = self._interaction_pipeline._runtime_episode_traces
+        self._brain_skip_next_autonomy_for_grounded_query = False
 
     @property
     def _thought_loop(self) -> Any:
@@ -520,7 +502,12 @@ class HECSNServiceManager(
             cortex_signal_state_fn=self._cortex_signal_state_impl,
         )
 
-    def _build_interaction_pipeline(self) -> InteractionPipeline:
+    def _build_interaction_pipeline(
+        self,
+        *,
+        recent_query_gaps: Sequence[Mapping[str, Any]] | None = None,
+        runtime_episode_traces: Sequence[Mapping[str, Any]] | None = None,
+    ) -> InteractionPipeline:
         def apply_provider_response_outcome_calibration_fn(**kwargs: Any) -> bool:
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
@@ -539,15 +526,11 @@ class HECSNServiceManager(
             observe_concepts_fn=lambda **kwargs: self._observe_concepts_locked(**kwargs),
             plan_gaps_fn=lambda **kwargs: self._plan_gaps_locked(**kwargs),
             apply_delayed_query_consequence_fn=lambda **kwargs: self._apply_delayed_query_consequence_locked(**kwargs),
-            record_recent_query_gap_fn=lambda **kwargs: self._record_recent_query_gap_locked(**kwargs),
             observe_runtime_concepts_fn=lambda **kwargs: self._observe_runtime_concepts_locked(**kwargs),
             runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
             runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
             runtime_episode_payload_fn=lambda **kwargs: self._runtime_episode_payload_locked(**kwargs),
             persist_trace_fn=lambda trace: self._persist_trace_locked(trace),
-            append_runtime_episode_trace_fn=lambda episode: self._append_runtime_episode_trace_locked(episode),
-            runtime_episode_trace_fn=lambda episode_id: self._runtime_episode_trace_locked(episode_id),
-            replace_runtime_episode_trace_fn=lambda episode_id, episode: self._replace_runtime_episode_trace_locked(episode_id, episode),
             service_state_snapshot_fn=lambda **kwargs: self._service_state_snapshot(**kwargs),
             build_response_fn=lambda **kwargs: self._responder.build_response(**kwargs),
             maybe_auto_action_assist_fn=lambda **kwargs: self._maybe_auto_action_assist_locked(**kwargs),
@@ -557,6 +540,8 @@ class HECSNServiceManager(
             apply_provider_response_outcome_calibration_fn=apply_provider_response_outcome_calibration_fn,
             learn_from_turn_fn=lambda **kwargs: self._learn_from_turn_locked(**kwargs),
             record_response_consequence_candidate_fn=lambda **kwargs: self._record_response_consequence_candidate_locked(**kwargs),
+            recent_query_gaps=recent_query_gaps,
+            runtime_episode_traces=runtime_episode_traces,
         )
 
     def _cortex_active(self) -> bool:

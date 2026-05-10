@@ -60,6 +60,9 @@ class _FakeManager:
             ],
             maxlen=8,
         )
+        self._interaction_pipeline = SimpleNamespace(
+            recent_query_gaps=lambda: list(self._brain_recent_query_gaps),
+        )
         self._brain_config = {"tick_tokens": 8}
         self._runtime_state = _FakeRuntimeState()
         self._brain_source_runtimes = []

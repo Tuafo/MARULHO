@@ -275,7 +275,8 @@ class TerminusAutonomyMixin:
         return merged
 
     def _recent_query_focus_plan_locked(self) -> dict[str, Any] | None:
-        if not self._brain_recent_query_gaps:
+        recent_query_gaps = self._interaction_pipeline.recent_query_gaps()
+        if not recent_query_gaps:
             return None
         gap_weights: Counter[str] = Counter()
         unsupported_weights: Counter[str] = Counter()
@@ -286,7 +287,7 @@ class TerminusAutonomyMixin:
         seen_queries: set[str] = set()
         seen_questions: set[str] = set()
         seen_terms: set[str] = set()
-        for index, item in enumerate(list(self._brain_recent_query_gaps)):
+        for index, item in enumerate(list(recent_query_gaps)):
             recency_weight = 1.0 / float(index + 1)
             for raw_term in salient_query_terms(str(item.get("query_text", ""))):
                 term = str(raw_term).strip().lower()

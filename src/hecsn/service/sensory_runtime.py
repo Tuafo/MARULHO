@@ -65,8 +65,9 @@ class SensoryRuntimeMixin:
             target = str(getattr(self._thought_loop_actual.gate, "active_exploration_target", "")).strip()
             if target:
                 phrases.append(target)
-        if self._brain_recent_query_gaps:
-            recent_gap = self._brain_recent_query_gaps[0]
+        recent_query_gaps = self._interaction_pipeline.recent_query_gaps()
+        if recent_query_gaps:
+            recent_gap = recent_query_gaps[0]
             phrases.append(str(recent_gap.get("query_text", "")))
             phrases.extend(str(term) for term in list(recent_gap.get("unsupported_terms") or [])[:4])
             phrases.extend(

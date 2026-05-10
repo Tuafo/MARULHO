@@ -34,12 +34,8 @@ def _build_pipeline(
         "record_recent_query_gap": [],
         "runtime_episode_payload": [],
         "persist_trace": [],
-        "append_runtime_episode_trace": [],
-        "runtime_episode_trace": [],
-        "replace_runtime_episode_trace": [],
         "service_state_snapshot": [],
     }
-    episodes: list[dict[str, Any]] = []
 
     def build_query_result_fn(**kwargs: Any) -> dict[str, Any]:
         calls["build_query_result"].append(kwargs)
@@ -126,28 +122,6 @@ def _build_pipeline(
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
         return trace_path
 
-    def append_runtime_episode_trace_fn(episode: Mapping[str, Any]) -> dict[str, Any]:
-        calls["append_runtime_episode_trace"].append(episode)
-        stored = deepcopy(dict(episode))
-        episodes.append(stored)
-        return deepcopy(stored)
-
-    def runtime_episode_trace_fn(episode_id: str) -> dict[str, Any] | None:
-        calls["runtime_episode_trace"].append(episode_id)
-        for episode in episodes:
-            if str(episode.get("episode_id", "")) == str(episode_id):
-                return deepcopy(episode)
-        return None
-
-    def replace_runtime_episode_trace_fn(episode_id: str, episode: Mapping[str, Any]) -> dict[str, Any] | None:
-        calls["replace_runtime_episode_trace"].append({"episode_id": episode_id, "episode": deepcopy(dict(episode))})
-        for index, current in enumerate(episodes):
-            if str(current.get("episode_id", "")) == str(episode_id):
-                stored = deepcopy(dict(episode))
-                episodes[index] = stored
-                return deepcopy(stored)
-        return None
-
     def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         calls["service_state_snapshot"].append(include_replay_dataset_summary)
         return {
@@ -170,18 +144,13 @@ def _build_pipeline(
         observe_concepts_fn=observe_concepts_fn,
         plan_gaps_fn=plan_gaps_fn,
         apply_delayed_query_consequence_fn=apply_delayed_query_consequence_fn,
-        record_recent_query_gap_fn=record_recent_query_gap_fn,
         observe_runtime_concepts_fn=lambda **kwargs: None,
         runtime_state_mark_mutated_fn=lambda: None,
         runtime_state_mutation_summary_fn=lambda: {"dirty_state": False, "state_revision": 0},
         runtime_episode_payload_fn=runtime_episode_payload_fn,
         persist_trace_fn=persist_trace_fn,
-        append_runtime_episode_trace_fn=append_runtime_episode_trace_fn,
-        runtime_episode_trace_fn=runtime_episode_trace_fn,
-        replace_runtime_episode_trace_fn=replace_runtime_episode_trace_fn,
         service_state_snapshot_fn=service_state_snapshot_fn,
     )
-    calls["episodes"] = episodes
     return pipeline, calls
 
 
@@ -277,10 +246,8 @@ def _build_feed_pipeline(
         "runtime_state_mutation_summary": 0,
         "runtime_episode_payload": [],
         "persist_trace": [],
-        "append_runtime_episode_trace": [],
         "service_state_snapshot": [],
     }
-    episodes: list[dict[str, Any]] = []
     trainer = _FeedTestTrainer(train_step_raises=train_step_raises)
     encoder = _FeedTestEncoder(
         [
@@ -390,11 +357,6 @@ def _build_feed_pipeline(
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
         return trace_path
 
-    def append_runtime_episode_trace_fn(episode: Mapping[str, Any]) -> dict[str, Any]:
-        calls["append_runtime_episode_trace"].append(episode)
-        episodes.append(dict(episode))
-        return dict(episode)
-
     def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         calls["service_state_snapshot"].append(include_replay_dataset_summary)
         return {
@@ -417,16 +379,13 @@ def _build_feed_pipeline(
         observe_concepts_fn=observe_concepts_fn,
         plan_gaps_fn=plan_gaps_fn,
         apply_delayed_query_consequence_fn=apply_delayed_query_consequence_fn,
-        record_recent_query_gap_fn=record_recent_query_gap_fn,
         observe_runtime_concepts_fn=observe_runtime_concepts_fn,
         runtime_state_mark_mutated_fn=runtime_state_mark_mutated_fn,
         runtime_state_mutation_summary_fn=runtime_state_mutation_summary_fn,
         runtime_episode_payload_fn=runtime_episode_payload_fn,
         persist_trace_fn=persist_trace_fn,
-        append_runtime_episode_trace_fn=append_runtime_episode_trace_fn,
         service_state_snapshot_fn=service_state_snapshot_fn,
     )
-    calls["episodes"] = episodes
     calls["trainer"] = trainer
     calls["encoder"] = encoder
     return pipeline, calls, trainer, encoder
@@ -461,10 +420,8 @@ def _build_respond_pipeline(
         "runtime_state_mutation_summary": 0,
         "runtime_episode_payload": [],
         "persist_trace": [],
-        "append_runtime_episode_trace": [],
         "service_state_snapshot": [],
     }
-    episodes: list[dict[str, Any]] = []
     trainer = _FeedTestTrainer()
     encoder = _FeedTestEncoder([])
     response_outputs = list(build_response_outputs or [
@@ -636,11 +593,6 @@ def _build_respond_pipeline(
         trace_path.write_text(json.dumps(trace, indent=2, sort_keys=True, default=str), encoding="utf-8")
         return trace_path
 
-    def append_runtime_episode_trace_fn(episode: Mapping[str, Any]) -> dict[str, Any]:
-        calls["append_runtime_episode_trace"].append(episode)
-        episodes.append(dict(episode))
-        return dict(episode)
-
     def service_state_snapshot_fn(*, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         calls["service_state_snapshot"].append(include_replay_dataset_summary)
         mutated = bool(calls["runtime_state_mark_mutated"])
@@ -664,13 +616,11 @@ def _build_respond_pipeline(
         observe_concepts_fn=observe_concepts_fn,
         plan_gaps_fn=plan_gaps_fn,
         apply_delayed_query_consequence_fn=apply_delayed_query_consequence_fn,
-        record_recent_query_gap_fn=record_recent_query_gap_fn,
         observe_runtime_concepts_fn=lambda **kwargs: None,
         runtime_state_mark_mutated_fn=runtime_state_mark_mutated_fn,
         runtime_state_mutation_summary_fn=runtime_state_mutation_summary_fn,
         runtime_episode_payload_fn=runtime_episode_payload_fn,
         persist_trace_fn=persist_trace_fn,
-        append_runtime_episode_trace_fn=append_runtime_episode_trace_fn,
         service_state_snapshot_fn=service_state_snapshot_fn,
         build_response_fn=build_response_fn,
         maybe_auto_action_assist_fn=maybe_auto_action_assist_fn,
@@ -681,7 +631,6 @@ def _build_respond_pipeline(
         learn_from_turn_fn=learn_from_turn_fn,
         record_response_consequence_candidate_fn=record_response_consequence_candidate_fn,
     )
-    calls["episodes"] = episodes
     calls["trainer"] = trainer
     calls["encoder"] = encoder
     return pipeline, calls, trainer, encoder
@@ -712,8 +661,9 @@ class InteractionPipelineQueryTests(unittest.TestCase):
             self.assertEqual(len(calls["observe_concepts"]), 1)
             self.assertEqual(len(calls["plan_gaps"]), 1)
             self.assertEqual(len(calls["apply_delayed"]), 1)
-            self.assertEqual(len(calls["record_recent_query_gap"]), 1)
-            self.assertEqual(calls["record_recent_query_gap"][0]["source"], "query")
+            recent_query_gaps = pipeline.recent_query_gaps()
+            self.assertEqual(len(recent_query_gaps), 1)
+            self.assertEqual(recent_query_gaps[0]["source"], "query")
             self.assertFalse(calls["service_state_snapshot"][0])
 
             self.assertIn("concept_summary", result)
@@ -731,7 +681,7 @@ class InteractionPipelineQueryTests(unittest.TestCase):
             self.assertEqual(stored_trace["operation"], "query")
             self.assertEqual(stored_trace["runtime_episode"]["episode_id"], "episode-1")
             self.assertEqual(stored_trace["state_after"]["state_revision"], 7)
-            self.assertEqual(len(calls["episodes"]), 1)
+            self.assertEqual(len(pipeline.runtime_episode_traces()), 1)
 
     def test_query_runtime_actual_output_and_verification_reflect_query_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -782,7 +732,7 @@ class InteractionPipelineQueryTests(unittest.TestCase):
                 pipeline.query(query_text="cats chase mice")
 
             self.assertEqual(len(calls["persist_trace"]), 1)
-            self.assertEqual(len(calls["append_runtime_episode_trace"]), 1)
+            self.assertEqual(len(pipeline.runtime_episode_traces()), 1)
             stored_trace = calls["persist_trace"][0]
             self.assertEqual(stored_trace["operation"], "query")
             self.assertEqual(stored_trace["error"]["type"], "RuntimeError")
@@ -793,19 +743,21 @@ class InteractionPipelineQueryTests(unittest.TestCase):
 
 
 class InteractionPipelineTraceSeamTests(unittest.TestCase):
-    def test_runtime_episode_trace_read_and_replace_use_injected_seam(self) -> None:
+    def test_runtime_episode_trace_read_and_replace_use_pipeline_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             trace_dir = Path(tmpdir) / "traces"
             trace_dir.mkdir(parents=True, exist_ok=True)
-            pipeline, calls = _build_pipeline(trace_dir)
-            calls["episodes"].append(
-                {
-                    "episode_id": "episode-1",
-                    "trace_id": "trace-1",
-                    "operation": "query",
-                    "feedback": [],
-                    "verification": {"status": "verified"},
-                }
+            pipeline, _calls = _build_pipeline(trace_dir)
+            pipeline.load_interaction_state(
+                runtime_episode_traces=[
+                    {
+                        "episode_id": "episode-1",
+                        "trace_id": "trace-1",
+                        "operation": "query",
+                        "feedback": [],
+                        "verification": {"status": "verified"},
+                    }
+                ]
             )
 
             episode = pipeline.runtime_episode_trace("episode-1")
@@ -813,19 +765,14 @@ class InteractionPipelineTraceSeamTests(unittest.TestCase):
             assert episode is not None
             self.assertEqual(episode["episode_id"], "episode-1")
             episode["feedback"].append({"feedback_id": "fb-1"})
-
-            stored_before_replace = calls["episodes"][0]
-            self.assertEqual(stored_before_replace["feedback"], [])
+            self.assertEqual(pipeline.runtime_episode_traces()[0]["feedback"], [])
 
             replaced = pipeline.replace_runtime_episode_trace("episode-1", episode)
             self.assertIsNotNone(replaced)
             assert replaced is not None
             self.assertEqual(replaced["feedback"][0]["feedback_id"], "fb-1")
-            self.assertEqual(len(calls["runtime_episode_trace"]), 1)
-            self.assertEqual(calls["runtime_episode_trace"][0], "episode-1")
-            self.assertEqual(len(calls["replace_runtime_episode_trace"]), 1)
-            self.assertEqual(calls["replace_runtime_episode_trace"][0]["episode_id"], "episode-1")
-            self.assertEqual(calls["episodes"][0]["feedback"][0]["feedback_id"], "fb-1")
+            self.assertEqual(pipeline.runtime_episode_trace("episode-1")["feedback"][0]["feedback_id"], "fb-1")
+            self.assertEqual(pipeline.runtime_episode_traces()[0]["feedback"][0]["feedback_id"], "fb-1")
 
 
 class InteractionPipelineFeedTests(unittest.TestCase):
@@ -882,7 +829,7 @@ class InteractionPipelineFeedTests(unittest.TestCase):
             self.assertEqual(stored_trace["state_after"]["state_revision"], 8)
             self.assertTrue(stored_trace["state_after"]["dirty_state"])
             self.assertEqual(len(calls["persist_trace"]), 1)
-            self.assertEqual(len(calls["append_runtime_episode_trace"]), 1)
+            self.assertEqual(len(pipeline.runtime_episode_traces()), 1)
             self.assertEqual(len(calls["runtime_episode_payload"]), 1)
 
     def test_feed_runtime_actual_output_and_verification_reflect_feed_payload(self) -> None:
@@ -929,7 +876,7 @@ class InteractionPipelineFeedTests(unittest.TestCase):
             self.assertEqual(calls["runtime_state_mark_mutated"], 0)
             self.assertEqual(calls["runtime_state_mutation_summary"], 0)
             self.assertEqual(len(calls["persist_trace"]), 1)
-            self.assertEqual(len(calls["append_runtime_episode_trace"]), 1)
+            self.assertEqual(len(pipeline.runtime_episode_traces()), 1)
             self.assertFalse(calls["service_state_snapshot"][0])
 
             stored_trace = calls["persist_trace"][0]
@@ -1032,7 +979,7 @@ class InteractionPipelineRespondTests(unittest.TestCase):
             self.assertEqual(len(calls["apply_provider_response_outcome_calibration"]), 1)
             self.assertEqual(len(calls["learn_from_turn"]), 1)
             self.assertEqual(len(calls["record_response_consequence_candidate"]), 1)
-            self.assertEqual(calls["record_recent_query_gap"][0]["source"], "respond")
+            self.assertEqual(pipeline.recent_query_gaps()[0]["source"], "respond")
             self.assertFalse(calls["service_state_snapshot"][0])
             build_kwargs = calls["build_query_result"][0]
             self.assertEqual(build_kwargs["query_text"], "What do cats chase at night?")
@@ -1058,7 +1005,7 @@ class InteractionPipelineRespondTests(unittest.TestCase):
             self.assertEqual(stored_trace["operation"], "respond")
             self.assertEqual(stored_trace["query_result"]["delayed_consequence"]["matched_records"], 1)
             self.assertEqual(stored_trace["response"]["delayed_consequence_candidate"]["candidate_id"], "response-1")
-            self.assertEqual(len(calls["episodes"]), 1)
+            self.assertEqual(len(pipeline.runtime_episode_traces()), 1)
 
     def test_respond_reuses_recent_verified_action_and_appends_response_note(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

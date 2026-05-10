@@ -90,8 +90,9 @@ class SourceFocusScorer(ManagerBoundModule):
                     for item in list(raw_concept.get("top_terms") or [])
                     if str(item).strip()
                 )
-        if not phrases and self._brain_recent_query_gaps:
-            recent_gap = self._brain_recent_query_gaps[0]
+        recent_query_gaps = self._interaction_pipeline.recent_query_gaps()
+        if not phrases and recent_query_gaps:
+            recent_gap = recent_query_gaps[0]
             phrases.append(str(recent_gap.get("query_text", "")))
             phrases.extend(str(term) for term in list(recent_gap.get("unsupported_terms") or [])[:4])
         if not phrases:

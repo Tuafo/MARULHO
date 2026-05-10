@@ -13,7 +13,6 @@ from hecsn.reporting.io import write_json_file
 from hecsn.semantics import ConceptStore, GeometricCuriosityController
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 
-DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 
@@ -99,17 +98,6 @@ class ServicePersistenceMixin:
                 terminus_state.get("background_source_utility")
             )
             self._brain_last_error = None
-            self._brain_recent_query_gaps = deque(
-                (
-                    item
-                    for item in (
-                        self._normalize_recent_query_gap(raw_item)
-                        for raw_item in list(terminus_state.get("recent_query_gaps") or [])
-                    )
-                    if item is not None
-                ),
-                maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY,
-            )
             self._action_history = deque(
                 (
                     item
@@ -120,17 +108,6 @@ class ServicePersistenceMixin:
                     if item is not None
                 ),
                 maxlen=24,
-            )
-            self._runtime_episode_traces = deque(
-                (
-                    item
-                    for item in (
-                        self._normalize_runtime_episode_trace(raw_item)
-                        for raw_item in list(terminus_state.get("runtime_episode_traces") or [])
-                    )
-                    if item is not None
-                ),
-                maxlen=64,
             )
             self._replay_sample_history = deque(
                 (
@@ -163,6 +140,10 @@ class ServicePersistenceMixin:
             self._brain_last_acquisition_summary = None
             self._brain_last_acquisition_token_count = int(self._trainer.token_count)
             self._rebuild_brain_sources_locked()
+            self._interaction_pipeline.load_interaction_state(
+                recent_query_gaps=list(terminus_state.get("recent_query_gaps") or []),
+                runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
+            )
             self._runtime_state.restore_event_history(
                 last_event=terminus_state.get("last_event"),
                 recent_events=terminus_state.get("recent_events"),

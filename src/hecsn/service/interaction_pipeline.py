@@ -9,18 +9,23 @@ specific work back into injected callbacks.
 
 from __future__ import annotations
 
+from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 import time
-from typing import Any, Callable, Mapping, TypeVar
+from typing import Any, Callable, Mapping, Sequence, TypeVar
 from uuid import uuid4
 
+from hecsn.service.history_store import read_history_record
+from hecsn.service.living_loop import RuntimeEpisodeTrace
 from hecsn.semantics.grounding_text import salient_query_terms
 
 
 DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL = 8
+DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
+DEFAULT_RUNTIME_EPISODE_TRACE_HISTORY = 64
 REQUEST_FEED_ENCODING_MODE = "lexical_rolling_segments"
 _RespondCallbackT = TypeVar("_RespondCallbackT")
 
@@ -199,13 +204,11 @@ class InteractionPipeline:
         observe_concepts_fn: Callable[..., dict[str, Any]],
         plan_gaps_fn: Callable[..., dict[str, Any]],
         apply_delayed_query_consequence_fn: Callable[..., dict[str, Any]],
-        record_recent_query_gap_fn: Callable[..., None],
         observe_runtime_concepts_fn: Callable[..., dict[str, Any] | None],
         runtime_state_mark_mutated_fn: Callable[[], None],
         runtime_state_mutation_summary_fn: Callable[[], dict[str, Any]],
         runtime_episode_payload_fn: Callable[..., dict[str, Any]],
         persist_trace_fn: Callable[[dict[str, Any]], Path],
-        append_runtime_episode_trace_fn: Callable[[Mapping[str, Any]], dict[str, Any]],
         service_state_snapshot_fn: Callable[..., dict[str, Any]],
         build_response_fn: Callable[..., dict[str, Any]] | None = None,
         maybe_auto_action_assist_fn: Callable[..., dict[str, Any] | None] | None = None,
@@ -215,8 +218,8 @@ class InteractionPipeline:
         apply_provider_response_outcome_calibration_fn: Callable[..., bool] | None = None,
         learn_from_turn_fn: Callable[..., dict[str, Any] | None] | None = None,
         record_response_consequence_candidate_fn: Callable[..., dict[str, Any] | None] | None = None,
-        runtime_episode_trace_fn: Callable[[str], dict[str, Any] | None] | None = None,
-        replace_runtime_episode_trace_fn: Callable[[str, Mapping[str, Any]], dict[str, Any] | None] | None = None,
+        recent_query_gaps: Sequence[Mapping[str, Any]] | None = None,
+        runtime_episode_traces: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
         self._trainer = trainer
@@ -225,15 +228,11 @@ class InteractionPipeline:
         self._observe_concepts_fn = observe_concepts_fn
         self._plan_gaps_fn = plan_gaps_fn
         self._apply_delayed_query_consequence_fn = apply_delayed_query_consequence_fn
-        self._record_recent_query_gap_fn = record_recent_query_gap_fn
         self._observe_runtime_concepts_fn = observe_runtime_concepts_fn
         self._runtime_state_mark_mutated_fn = runtime_state_mark_mutated_fn
         self._runtime_state_mutation_summary_fn = runtime_state_mutation_summary_fn
         self._runtime_episode_payload_fn = runtime_episode_payload_fn
         self._persist_trace_fn = persist_trace_fn
-        self._append_runtime_episode_trace_fn = append_runtime_episode_trace_fn
-        self._runtime_episode_trace_fn = runtime_episode_trace_fn
-        self._replace_runtime_episode_trace_fn = replace_runtime_episode_trace_fn
         self._service_state_snapshot_fn = service_state_snapshot_fn
         self._build_response_fn = build_response_fn
         self._maybe_auto_action_assist_fn = maybe_auto_action_assist_fn
@@ -243,6 +242,224 @@ class InteractionPipeline:
         self._apply_provider_response_outcome_calibration_fn = apply_provider_response_outcome_calibration_fn
         self._learn_from_turn_fn = learn_from_turn_fn
         self._record_response_consequence_candidate_fn = record_response_consequence_candidate_fn
+        self._skip_next_autonomy_for_grounded_query = False
+        self._recent_query_gaps: deque[dict[str, Any]] = deque(
+            (
+                item
+                for item in (
+                    self._normalize_recent_query_gap(raw_item)
+                    for raw_item in list(recent_query_gaps or [])
+                )
+                if item is not None
+            ),
+            maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY,
+        )
+        self._runtime_episode_traces: deque[dict[str, Any]] = deque(
+            (
+                item
+                for item in (
+                    self._normalize_runtime_episode_trace(raw_item)
+                    for raw_item in list(runtime_episode_traces or [])
+                )
+                if item is not None
+            ),
+            maxlen=DEFAULT_RUNTIME_EPISODE_TRACE_HISTORY,
+        )
+
+    @staticmethod
+    def _normalize_recent_query_gap(item: Any) -> dict[str, Any] | None:
+        if not isinstance(item, dict):
+            return None
+        query_text = " ".join(str(item.get("query_text", "")).split()).strip()
+        if not query_text:
+            return None
+        unsupported_terms = [
+            str(term).strip().lower()
+            for term in list(item.get("unsupported_terms") or [])
+            if str(term).strip()
+        ]
+        gap_terms: list[dict[str, Any]] = []
+        for raw_gap in list(item.get("gap_terms") or []):
+            if not isinstance(raw_gap, dict):
+                continue
+            term = str(raw_gap.get("term", "")).strip().lower()
+            if not term:
+                continue
+            gap_terms.append(
+                {
+                    "term": term,
+                    "weight": float(raw_gap.get("weight", 0.0)),
+                }
+            )
+        retrieval_queries = [
+            " ".join(str(value).split()).strip()
+            for value in list(item.get("retrieval_queries") or [])
+            if " ".join(str(value).split()).strip()
+        ]
+        follow_up_questions = [
+            " ".join(str(value).split()).strip()
+            for value in list(item.get("follow_up_questions") or [])
+            if " ".join(str(value).split()).strip()
+        ]
+        weak_concepts: list[dict[str, Any]] = []
+        for raw_concept in list(item.get("weak_concepts") or []):
+            if not isinstance(raw_concept, dict):
+                continue
+            label = " ".join(str(raw_concept.get("label", "")).split()).strip()
+            top_terms = [
+                " ".join(str(value).split()).strip().lower()
+                for value in list(raw_concept.get("top_terms") or [])
+                if " ".join(str(value).split()).strip()
+            ]
+            if not label and not top_terms:
+                continue
+            weak_concepts.append(
+                {
+                    "label": label,
+                    "weakness": float(raw_concept.get("weakness", 0.0)),
+                    "uncertainty": float(raw_concept.get("uncertainty", 0.0)),
+                    "drift": float(raw_concept.get("drift", 0.0)),
+                    "top_terms": top_terms[:4],
+                    "match_count": max(0, int(raw_concept.get("match_count", 0))),
+                }
+            )
+        return {
+            "recorded_at": str(item.get("recorded_at") or datetime.now(timezone.utc).isoformat()),
+            "source": str(item.get("source") or "query"),
+            "query_text": query_text,
+            "unsupported_terms": unsupported_terms,
+            "gap_terms": gap_terms,
+            "retrieval_queries": retrieval_queries[:4],
+            "follow_up_questions": follow_up_questions[:4],
+            "weak_concepts": weak_concepts[:4],
+            "grounded_fraction": float(item.get("grounded_fraction", 0.0)),
+        }
+
+    @staticmethod
+    def _normalize_runtime_episode_trace(item: Any) -> dict[str, Any] | None:
+        if not isinstance(item, Mapping):
+            return None
+        try:
+            return RuntimeEpisodeTrace.from_payload(item).to_payload()
+        except Exception:
+            return None
+
+    def load_interaction_state(
+        self,
+        *,
+        recent_query_gaps: Sequence[Mapping[str, Any]] | None = None,
+        runtime_episode_traces: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        with self._lock:
+            self._recent_query_gaps.clear()
+            for item in list(recent_query_gaps or []):
+                normalized = self._normalize_recent_query_gap(item)
+                if normalized is not None:
+                    self._recent_query_gaps.append(normalized)
+            self._runtime_episode_traces.clear()
+            for item in list(runtime_episode_traces or []):
+                normalized = self._normalize_runtime_episode_trace(item)
+                if normalized is not None:
+                    self._runtime_episode_traces.append(normalized)
+
+    def recent_query_gaps(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [deepcopy(item) for item in list(self._recent_query_gaps)]
+
+    def record_recent_query_gap(
+        self,
+        *,
+        query_text: str,
+        gap_plan: Mapping[str, Any],
+        source: str,
+    ) -> None:
+        normalized_query = " ".join(str(query_text).split()).strip()
+        if not normalized_query:
+            return
+        existing = [
+            item
+            for item in list(self._recent_query_gaps)
+            if str(item.get("query_text", "")).lower() != normalized_query.lower()
+        ]
+        self._recent_query_gaps.clear()
+        self._recent_query_gaps.extend(existing)
+        grounded_fraction = float(gap_plan.get("grounded_fraction", 0.0))
+        query_deficit = bool(gap_plan.get("unsupported_terms")) or grounded_fraction < 0.999
+        self._skip_next_autonomy_for_grounded_query = not query_deficit
+        meaningful = bool(query_deficit and (gap_plan.get("unsupported_terms") or gap_plan.get("gap_terms") or gap_plan.get("weak_concepts")))
+        if not meaningful:
+            return
+        normalized = self._normalize_recent_query_gap(
+            {
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "source": source,
+                "query_text": normalized_query,
+                "unsupported_terms": list(gap_plan.get("unsupported_terms") or []),
+                "gap_terms": list(gap_plan.get("gap_terms") or []),
+                "retrieval_queries": list(gap_plan.get("retrieval_queries") or []),
+                "follow_up_questions": list(gap_plan.get("follow_up_questions") or []),
+                "weak_concepts": list(gap_plan.get("weak_concepts") or []),
+                "grounded_fraction": float(gap_plan.get("grounded_fraction", 0.0)),
+            }
+        )
+        if normalized is not None:
+            self._recent_query_gaps.appendleft(normalized)
+
+    def consume_skip_next_autonomy_for_grounded_query(self) -> bool:
+        with self._lock:
+            skip = bool(self._skip_next_autonomy_for_grounded_query)
+            self._skip_next_autonomy_for_grounded_query = False
+            return skip
+
+    def runtime_episode_traces(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [deepcopy(item) for item in list(self._runtime_episode_traces)]
+
+    def runtime_episode_trace(self, episode_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return read_history_record(self._runtime_episode_traces, record_id=episode_id, id_field="episode_id")
+
+    def append_runtime_episode_trace(self, episode: Mapping[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            normalized = self._normalize_runtime_episode_trace(episode)
+            if normalized is None:
+                normalized = dict(episode)
+            episode_id = str(normalized.get("episode_id", ""))
+            if episode_id:
+                existing = [
+                    item for item in list(self._runtime_episode_traces) if str(item.get("episode_id", "")) != episode_id
+                ]
+                self._runtime_episode_traces.clear()
+                self._runtime_episode_traces.extend(existing)
+            self._runtime_episode_traces.appendleft(deepcopy(normalized))
+            return deepcopy(normalized)
+
+    def replace_runtime_episode_trace(self, episode_id: str, episode: Mapping[str, Any]) -> dict[str, Any] | None:
+        with self._lock:
+            replaced: dict[str, Any] | None = None
+            updated: deque[dict[str, Any]] = deque(maxlen=self._runtime_episode_traces.maxlen)
+            for item in list(self._runtime_episode_traces):
+                if str(item.get("episode_id", "")) == str(episode_id):
+                    normalized = self._normalize_runtime_episode_trace(episode)
+                    replaced = deepcopy(normalized if normalized is not None else dict(episode))
+                    if normalized is not None:
+                        updated.append(deepcopy(normalized))
+                    else:
+                        updated.append(deepcopy(dict(episode)))
+                else:
+                    updated.append(deepcopy(item))
+            if replaced is None:
+                return None
+            self._runtime_episode_traces.clear()
+            self._runtime_episode_traces.extend(updated)
+            return replaced
+
+    def interaction_state_snapshot(self) -> dict[str, list[dict[str, Any]]]:
+        with self._lock:
+            return {
+                "recent_query_gaps": [deepcopy(item) for item in list(self._recent_query_gaps)],
+                "runtime_episode_traces": [deepcopy(item) for item in list(self._runtime_episode_traces)],
+            }
 
     def _query_runtime_actual_output(self, result: Mapping[str, Any]) -> dict[str, Any]:
         return build_query_runtime_actual_output(result)
@@ -284,7 +501,7 @@ class InteractionPipeline:
         result["delayed_consequence"] = self._apply_delayed_query_consequence_fn(
             query_result=result,
         )
-        self._record_recent_query_gap_fn(
+        self.record_recent_query_gap(
             query_text=query_text,
             gap_plan=result["gap_plan"],
             source=gap_source,
@@ -346,23 +563,7 @@ class InteractionPipeline:
         trace_path = self._persist_trace_fn(trace)
         finalized_episode = dict(episode)
         finalized_episode["trace_path"] = str(trace_path)
-        return self._append_runtime_episode_trace_fn(finalized_episode)
-
-    def runtime_episode_trace(self, episode_id: str) -> dict[str, Any] | None:
-        with self._lock:
-            if self._runtime_episode_trace_fn is None:
-                return None
-            return self._runtime_episode_trace_fn(episode_id)
-
-    def replace_runtime_episode_trace(
-        self,
-        episode_id: str,
-        episode: Mapping[str, Any],
-    ) -> dict[str, Any] | None:
-        with self._lock:
-            if self._replace_runtime_episode_trace_fn is None:
-                return None
-            return self._replace_runtime_episode_trace_fn(episode_id, episode)
+        return self.append_runtime_episode_trace(finalized_episode)
 
     @staticmethod
     def _build_request(
