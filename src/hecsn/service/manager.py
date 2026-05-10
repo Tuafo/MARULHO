@@ -183,6 +183,8 @@ from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_epi
 
 from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E402
 
+_BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
+
 
 class _TimedCallFailure:
     def __init__(self, error: BaseException) -> None:
@@ -272,7 +274,7 @@ class HECSNServiceManager(
 
     def __getattr__(self, name: str) -> Any:
         brain_runtime = self.__dict__.get("_brain_runtime")
-        if brain_runtime is not None and name in BrainRuntime.__dict__:
+        if brain_runtime is not None and name in _BRAIN_RUNTIME_DELEGATE_NAMES:
             return getattr(brain_runtime, name)
         raise AttributeError(name)
 

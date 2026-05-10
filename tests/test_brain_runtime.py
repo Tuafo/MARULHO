@@ -3,11 +3,39 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from types import SimpleNamespace
+from typing import Any
 import unittest
 
 from hecsn.service.brain_runtime import BrainRuntime, BrainRuntimeMixin
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.runtime_sources import _BrainSourceRuntime
+
+_SNAPSHOT_TIMESTAMP = "2026-05-10T00:00:00+00:00"
+_DEFAULT_BRAIN_CONFIG = {
+    "tick_tokens": 8,
+    "sleep_interval_seconds": 0.01,
+    "repeat_sources": True,
+    "autonomy": None,
+    "sensory": None,
+}
+
+
+def _source_spec(name: str, source: str, *, topic_terms: list[str] | None = None) -> dict[str, object]:
+    spec: dict[str, object] = {
+        "name": name,
+        "source": source,
+        "source_type": "file",
+    }
+    if topic_terms is not None:
+        spec["topic_terms"] = list(topic_terms)
+    return spec
+
+
+def _tick_event(timestamp: str = _SNAPSHOT_TIMESTAMP) -> dict[str, str]:
+    return {
+        "type": "tick",
+        "timestamp": timestamp,
+    }
 
 
 class _FakeRuntimeState:
@@ -30,10 +58,10 @@ class _FakeThoughtLoop:
         self.observations: list[dict[str, object]] = []
         self.surprises: list[dict[str, float]] = []
 
-    def inject_observation(self, **kwargs):
+    def inject_observation(self, **kwargs: object) -> None:
         self.observations.append(deepcopy(kwargs))
 
-    def inject_surprise(self, **kwargs):
+    def inject_surprise(self, **kwargs: float) -> None:
         self.surprises.append({str(key): float(value) for key, value in kwargs.items()})
 
     def snapshot(self) -> dict[str, object]:
@@ -57,34 +85,67 @@ class _FakeAutonomyPlanner:
             "unsupported_terms": ["rabbits"],
         }
 
-    def _autonomy_focus_pressure_locked(self, focus_plan):
+    def _autonomy_focus_pressure_locked(self, focus_plan: dict[str, object]) -> tuple[float, dict[str, float]]:
         return 0.25, {"focus_pressure": 0.25}
 
-    def _provider_curriculum_snapshot_locked(self, autonomy, focus_plan):
+    def _provider_curriculum_snapshot_locked(
+        self,
+        autonomy: object,
+        focus_plan: dict[str, object],
+    ) -> dict[str, object]:
         return {"providers": []}
 
-    def _adaptive_autonomy_settings_locked(self, autonomy, focus_plan):
+    def _adaptive_autonomy_settings_locked(
+        self,
+        autonomy: object,
+        focus_plan: dict[str, object],
+    ) -> dict[str, int]:
         return {
             "effective_trigger_interval_tokens": 4096,
             "effective_acquisition_tokens": 512,
             "effective_acquisition_slots": 1,
         }
 
-    def _update_provider_curriculum_locked(self, *, autonomy, result, candidate_specs, focus_plan) -> None:
+    def _update_provider_curriculum_locked(
+        self,
+        *,
+        autonomy: object,
+        result: object,
+        candidate_specs: object,
+        focus_plan: dict[str, object],
+    ) -> None:
         return None
 
 
 class _BrainRuntimeFixtureBase:
     def __init__(self) -> None:
-        self._brain_config = {
-            "tick_tokens": 8,
-            "sleep_interval_seconds": 0.01,
-            "repeat_sources": True,
-            "autonomy": None,
-            "sensory": None,
-        }
+        self._brain_config = dict(_DEFAULT_BRAIN_CONFIG)
         self._brain_source_utility: dict[str, dict[str, object]] = {}
         self._brain_source_runtimes: list[_BrainSourceRuntime] = []
+        self._initialize_runtime_state()
+        self._thought_loop_actual = _FakeThoughtLoop()
+        self._concept_store = _FakeConceptStore()
+        self._autonomy_planner = _FakeAutonomyPlanner()
+        self._interaction_pipeline = SimpleNamespace(
+            recent_query_gaps=lambda: [],
+            runtime_episode_traces=lambda: [],
+        )
+        self._trainer = SimpleNamespace(
+            token_count=108,
+            config=SimpleNamespace(window_size=32),
+            model=SimpleNamespace(
+                surprise=SimpleNamespace(
+                    dopamine=0.1,
+                    serotonin=0.2,
+                    norepinephrine=0.3,
+                    acetylcholine=0.4,
+                )
+            ),
+        )
+        self._runtime_state = _FakeRuntimeState()
+        self._brain_events: list[dict[str, object]] = []
+
+    def _initialize_runtime_state(self) -> None:
         self._brain_source_index = 0
         self._brain_tick_count = 0
         self._brain_background_tokens = 0
@@ -135,83 +196,71 @@ class _BrainRuntimeFixtureBase:
         self._sensory_startup_warm_latency_ms = None
         self._brain_stream_epoch = 0
         self._sensory_stream_epoch = 0
-        self._thought_loop_actual = _FakeThoughtLoop()
-        self._concept_store = _FakeConceptStore()
-        self._autonomy_planner = _FakeAutonomyPlanner()
-        self._interaction_pipeline = SimpleNamespace(
-            recent_query_gaps=lambda: [],
-            runtime_episode_traces=lambda: [],
-        )
-        self._trainer = SimpleNamespace(
-            token_count=108,
-            config=SimpleNamespace(window_size=32),
-            model=SimpleNamespace(
-                surprise=SimpleNamespace(
-                    dopamine=0.1,
-                    serotonin=0.2,
-                    norepinephrine=0.3,
-                    acetylcholine=0.4,
-                )
-            ),
-        )
-        self._runtime_state = _FakeRuntimeState()
-        self._brain_events: list[dict[str, object]] = []
 
-    def _background_focus_terms_locked(self, *, focus_plan=None):
+    def _background_focus_terms_locked(self, *, focus_plan: Any = None) -> list[str]:
         return ["cats", "mice"]
 
-    def _background_focus_overlap_locked(self, focus_terms, grounded_observation):
+    def _background_focus_overlap_locked(
+        self,
+        focus_terms: list[str],
+        grounded_observation: dict[str, object],
+    ) -> float:
         return 0.5
 
     def _record_brain_event_locked(self, event: dict[str, object]) -> None:
         self._brain_events.append(deepcopy(event))
 
-    def _run_brain_autonomy_locked(self):
+    def _run_brain_autonomy_locked(self) -> None:
         return None
 
-    def _run_real_sensory_episode_locked(self):
+    def _run_real_sensory_episode_locked(self) -> None:
         return None
 
-    def _multimodal_runtime_summary_locked(self):
+    def _multimodal_runtime_summary_locked(self) -> dict[str, bool]:
         return {"configured": False}
 
-    def _runtime_environment_summary(self):
+    def _runtime_environment_summary(self) -> dict[str, str]:
         return {"mode": "test"}
 
-    def _action_loop_summary_locked(self):
+    def _action_loop_summary_locked(self) -> dict[str, str]:
         return {"mode": "idle"}
 
-    def _huggingface_runtime_summary_locked(self):
+    def _huggingface_runtime_summary_locked(self) -> dict[str, int]:
         return {"source_count": 0}
 
-    def _ingestion_runtime_summary_locked(self):
+    def _ingestion_runtime_summary_locked(self) -> dict[str, bool]:
         return {"configured": False}
 
-    def _delayed_consequence_summary_locked(self, limit: int = 4):
+    def _delayed_consequence_summary_locked(self, limit: int = 4) -> dict[str, int]:
         return {"record_count": 0, "limit": int(limit)}
 
-    def _living_loop_snapshot_locked(self, *, cortex_snapshot, include_replay_dataset_summary=True):
+    def _living_loop_snapshot_locked(
+        self,
+        *,
+        cortex_snapshot: dict[str, object],
+        include_replay_dataset_summary: bool = True,
+    ) -> dict[str, object]:
         return {
             "cortex_snapshot": deepcopy(cortex_snapshot),
             "include_replay_dataset_summary": bool(include_replay_dataset_summary),
         }
 
-    def _remerge_converged_delayed_consequence_families_locked(self):
+    def _remerge_converged_delayed_consequence_families_locked(self) -> None:
         return None
 
-    def _split_divergent_delayed_consequence_families_locked(self):
+    def _split_divergent_delayed_consequence_families_locked(self) -> None:
         return None
 
-    def _compact_delayed_consequence_records_locked(self):
+    def _compact_delayed_consequence_records_locked(self) -> None:
         return None
 
-    def _cool_delayed_consequence_records_locked(self):
+    def _cool_delayed_consequence_records_locked(self) -> None:
         return None
 
-    def _brain_runtime_active_locked(self):
+    def _brain_runtime_active_locked(self) -> bool:
         return False
 
-    def _cortex_unavailable_snapshot(self):
+    def _cortex_unavailable_snapshot(self) -> dict[str, bool]:
         return {"enabled": False}
 
 
@@ -223,58 +272,30 @@ class _SnapshotManager(_BrainRuntimeFixtureBase):
     def __init__(self) -> None:
         super().__init__()
         self._brain_config = {
-            "source_bank": [
-                {
-                    "name": "source_a",
-                    "source": "source-a.txt",
-                    "source_type": "file",
-                }
-            ],
-            "tick_tokens": 8,
-            "sleep_interval_seconds": 0.01,
-            "repeat_sources": True,
-            "autonomy": None,
-            "sensory": None,
+            **dict(_DEFAULT_BRAIN_CONFIG),
+            "source_bank": [_source_spec("source_a", "source-a.txt")],
         }
         runtime = _BrainSourceRuntime(
-            spec={
-                "name": "source_a",
-                "source": "source-a.txt",
-                "source_type": "file",
-            },
+            spec=_source_spec("source_a", "source-a.txt"),
             stream=iter(()),
             tokens_processed=8,
             tick_visits=1,
             last_tokens_trained=8,
-            last_activity_at="2026-05-10T00:00:00+00:00",
+            last_activity_at=_SNAPSHOT_TIMESTAMP,
         )
         self._brain_source_runtimes = [runtime]
         self._brain_background_tokens = 8
         self._brain_autonomy_tokens = 0
         self._brain_last_acquisition_token_count = 108
         self._brain_last_acquisition_summary = {"tokens_trained_total": 8}
-        self._brain_last_tick_completed_at = "2026-05-10T00:00:00+00:00"
+        self._brain_last_tick_completed_at = _SNAPSHOT_TIMESTAMP
         self._brain_last_tick_duration_ms = 12.5
         self._brain_last_tick_token_delta = 8
-        self._brain_last_work_at = "2026-05-10T00:00:00+00:00"
-        self._brain_running_since = None
-        self._brain_stop_requested_at = None
-        self._brain_stop_requested_reason = None
-        self._brain_stop_requested_perf = None
-        self._brain_stop_timed_out = False
-        self._brain_last_stop_duration_ms = None
+        self._brain_last_work_at = _SNAPSHOT_TIMESTAMP
         self._runtime_state = _FakeRuntimeState(
             snapshot={
-                "last_event": {
-                    "type": "tick",
-                    "timestamp": "2026-05-10T00:00:00+00:00",
-                },
-                "recent_events": [
-                    {
-                        "type": "tick",
-                        "timestamp": "2026-05-10T00:00:00+00:00",
-                    }
-                ],
+                "last_event": _tick_event(),
+                "recent_events": [_tick_event()],
             }
         )
 
@@ -290,12 +311,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         manager = _FinalizeTickManager()
         module = BrainRuntime(manager)
         runtime = _BrainSourceRuntime(
-            spec={
-                "name": "science_source",
-                "source": "science.txt",
-                "source_type": "file",
-                "topic_terms": ["cats", "mice"],
-            },
+            spec=_source_spec("science_source", "science.txt", topic_terms=["cats", "mice"]),
             stream=iter(()),
         )
 
