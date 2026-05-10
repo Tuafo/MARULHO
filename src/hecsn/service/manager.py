@@ -148,10 +148,10 @@ from hecsn.service.action_executor import ActionExecutor
 from hecsn.service.feedback_applier import FeedbackApplier
 from hecsn.service.brain_runtime import BrainRuntimeMixin
 from hecsn.service.delayed_consequence import DelayedConsequenceMixin
-from hecsn.service.persistence import ServicePersistenceMixin
+from hecsn.service.persistence import RuntimePersistence
 from hecsn.service.cortex_runtime import CortexRuntimeMixin
 from hecsn.service.reporting import ServiceReportingMixin
-from hecsn.service.replay_runtime import ReplayRuntimeMixin
+from hecsn.service.replay_runtime import ReplayController
 from hecsn.service.interaction_runtime import InteractionRuntimeMixin
 from hecsn.service.living_status import LivingStatusMixin
 from hecsn.service.runtime_config import RuntimeConfigMixin
@@ -246,10 +246,10 @@ class HECSNServiceManager(
     RuntimeEvidenceMixin,
     BrainRuntimeMixin,
     DelayedConsequenceMixin,
-    ServicePersistenceMixin,
+    RuntimePersistence,
     CortexRuntimeMixin,
     ServiceReportingMixin,
-    ReplayRuntimeMixin,
+    ReplayController,
     InteractionRuntimeMixin,
     LivingStatusMixin,
     RuntimeConfigMixin,
@@ -292,11 +292,11 @@ class HECSNServiceManager(
         self._runtime_config = RuntimeConfigMixin(self)
         self._runtime_sources = RuntimeSourcesMixin(self)
         self._source_focus = SourceFocusMixin(self)
-        self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
         self._concept_store = ConceptStore.from_state_dict(concept_state)
+        self._runtime_persistence = RuntimePersistence(self, trace_history_limit=trace_history_limit)
         self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
             self._trainer.model.abstraction_layer,
             cast(dict[str, Any] | None, terminus_state.get("geometric_curiosity")),
@@ -320,16 +320,9 @@ class HECSNServiceManager(
         self._action_executor = self._build_action_executor(
             action_history=list(terminus_state.get("action_history") or [])
         )
-        self._replay_sample_history: deque[dict[str, Any]] = deque(
-            (
-                item
-                for item in (
-                    self._normalize_replay_sample_record(raw_item)
-                    for raw_item in list(terminus_state.get("replay_sample_history") or [])
-                )
-                if item is not None
-            ),
-            maxlen=DEFAULT_REPLAY_SAMPLE_HISTORY,
+        self._replay_controller = ReplayController(
+            self,
+            replay_sample_history=list(terminus_state.get("replay_sample_history") or []),
         )
         self._delayed_consequence_records: deque[dict[str, Any]] = deque(
             (
@@ -475,7 +468,7 @@ class HECSNServiceManager(
             lock=self._lock,
             runtime_state=self._runtime_state,
             trainer=self._trainer,
-            trace_history=self._trace_history,
+            trace_history=self._runtime_persistence.trace_history,
             metadata=self._metadata,
             checkpoint_path_str=str(self._checkpoint_path),
             trace_dir_str=str(self._trace_dir),
@@ -519,7 +512,7 @@ class HECSNServiceManager(
             runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
             runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
             runtime_episode_payload_fn=lambda **kwargs: self._runtime_episode_payload_locked(**kwargs),
-            persist_trace_fn=lambda trace: self._persist_trace_locked(trace),
+            persist_trace_fn=lambda trace: self._runtime_persistence.persist_trace(trace),
             service_state_snapshot_fn=lambda **kwargs: self._service_state_snapshot(**kwargs),
             build_response_fn=lambda **kwargs: self._responder.build_response(**kwargs),
             maybe_auto_action_assist_fn=lambda **kwargs: self._maybe_auto_action_assist_locked(**kwargs),
@@ -581,6 +574,22 @@ class HECSNServiceManager(
     @_action_history.setter
     def _action_history(self, value: Sequence[Mapping[str, Any]]) -> None:
         self._action_executor.history = value
+
+    @property
+    def _trace_history(self) -> deque[dict[str, Any]]:
+        return self._runtime_persistence.trace_history
+
+    @_trace_history.setter
+    def _trace_history(self, value: Sequence[Mapping[str, Any]]) -> None:
+        self._runtime_persistence.trace_history = value
+
+    @property
+    def _replay_sample_history(self) -> deque[dict[str, Any]]:
+        return self._replay_controller.history
+
+    @_replay_sample_history.setter
+    def _replay_sample_history(self, value: Sequence[Mapping[str, Any]]) -> None:
+        self._replay_controller.history = value
 
     def _cortex_active(self) -> bool:
         return self._thought_loop_actual is not None and self._thought_loop_actual.is_running

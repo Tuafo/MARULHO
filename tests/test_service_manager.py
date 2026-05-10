@@ -415,6 +415,36 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_save_restore_round_trips_replay_history_and_trace_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_replay_history_roundtrip")
+            try:
+                manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
+                replay_record = manager.replay_sample(
+                    mode="sample",
+                    operator_id="operator-1",
+                    confirmation=True,
+                )
+                self.assertEqual(replay_record["status"], "recorded")
+                self.assertEqual(manager.replay_sample_history(limit=10)["count"], 1)
+                self.assertGreaterEqual(len(manager.recent_traces(limit=10)), 1)
+
+                saved = manager.save_checkpoint(str(root / "service.pt"))
+                restored = HECSNServiceManager(saved["path"], trace_dir=root / "traces")
+                try:
+                    replay_history = restored.replay_sample_history(limit=10)
+                    traces = restored.recent_traces(limit=10)
+
+                    self.assertEqual(replay_history["count"], 1)
+                    self.assertEqual(replay_history["history"][0]["replay_sample_id"], replay_record["replay_sample_id"])
+                    self.assertGreaterEqual(len(traces), 1)
+                    self.assertTrue(any(trace.get("operation") == "feed" for trace in traces))
+                finally:
+                    restored.close()
+            finally:
+                manager.close()
+
 
 class ServiceManagerInteractionPipelineDelegationTests(unittest.TestCase):
     def test_query_feed_and_respond_delegate_to_interaction_pipeline(self) -> None:

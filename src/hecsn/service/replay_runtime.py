@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from copy import deepcopy
 from datetime import datetime, timezone
 import random
@@ -18,8 +18,45 @@ MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 
 
-class ReplayRuntimeMixin:
+class ReplayController:
     """Advisory replay planning and operator-gated replay sampling helpers."""
+
+    def __init__(
+        self,
+        manager: Any | None = None,
+        *,
+        replay_sample_history: Sequence[Mapping[str, Any]] | None = None,
+        history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
+    ) -> None:
+        self._manager = manager
+        self._history_maxlen = max(1, int(history_maxlen))
+        self._replay_sample_history: deque[dict[str, Any]] = deque(maxlen=self._history_maxlen)
+        self.load_replay_sample_history(replay_sample_history or [])
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            manager = object.__getattribute__(self, "_manager")
+        except AttributeError:
+            manager = None
+        if manager is None:
+            raise AttributeError(name)
+        return getattr(manager, name)
+
+    @property
+    def history(self) -> deque[dict[str, Any]]:
+        return self._replay_sample_history
+
+    @history.setter
+    def history(self, replay_sample_history: Sequence[Mapping[str, Any]]) -> None:
+        self.load_replay_sample_history(replay_sample_history)
+
+    def load_replay_sample_history(self, replay_sample_history: Sequence[Mapping[str, Any]]) -> None:
+        normalized = [
+            item
+            for item in (self._normalize_replay_sample_record(raw_item) for raw_item in list(replay_sample_history))
+            if item is not None
+        ]
+        self._replay_sample_history = deque(normalized, maxlen=self._history_maxlen)
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
@@ -387,12 +424,13 @@ class ReplayRuntimeMixin:
             alpha = max(0.0, min(4.0, float(data.get("alpha", 1.0))))
         except (TypeError, ValueError):
             alpha = 1.0
+        seed_raw: Any = data.get("seed")
         seed_value: int | None
-        if data.get("seed") is None:
+        if seed_raw is None:
             seed_value = None
         else:
             try:
-                seed_value = int(data.get("seed"))
+                seed_value = int(seed_raw)
             except (TypeError, ValueError):
                 seed_value = None
         return {
@@ -421,4 +459,7 @@ class ReplayRuntimeMixin:
             "after": _counts(data.get("after")),
             "plan_summary": dict(data.get("plan_summary", {})) if isinstance(data.get("plan_summary"), Mapping) else {},
         }
+
+
+ReplayRuntimeMixin = ReplayController
 

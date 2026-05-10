@@ -5,7 +5,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
 from hecsn.config.runtime_env import load_runtime_env
@@ -17,8 +17,36 @@ DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 
 
-class ServicePersistenceMixin:
+class RuntimePersistence:
     """Checkpoint, trace-history, and JSON-safe persistence helpers."""
+
+    def __init__(
+        self,
+        manager: Any | None = None,
+        *,
+        trace_history_limit: int = 200,
+        trace_history: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        self._manager = manager
+        self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
+        self.load_persisted_traces(trace_history or [])
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            manager = object.__getattribute__(self, "_manager")
+        except AttributeError:
+            manager = None
+        if manager is None:
+            raise AttributeError(name)
+        return getattr(manager, name)
+
+    @property
+    def trace_history(self) -> deque[dict[str, Any]]:
+        return self._trace_history
+
+    @trace_history.setter
+    def trace_history(self, value: Sequence[Mapping[str, Any]]) -> None:
+        self.load_persisted_traces(value)
 
     def checkpoint_list(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -41,6 +69,16 @@ class ServicePersistenceMixin:
         with self._lock:
             count = max(1, int(limit))
             return [deepcopy(trace) for trace in list(self._trace_history)[:count]]
+
+    def persist_trace(self, trace: dict[str, Any]) -> Path:
+        with self._lock:
+            return self._persist_trace_locked(trace)
+
+    def load_persisted_traces(self, trace_history: Sequence[Mapping[str, Any]]) -> None:
+        self._trace_history = deque(
+            (deepcopy(dict(item)) for item in list(trace_history) if isinstance(item, Mapping)),
+            maxlen=self._trace_history.maxlen,
+        )
 
     def save_checkpoint(self, path: str | None = None) -> dict[str, Any]:
         with self._lock:
@@ -211,4 +249,7 @@ class ServicePersistenceMixin:
 
     def _record_brain_event_locked(self, event: dict[str, Any]) -> None:
         self._runtime_state.record_event(event)
+
+
+ServicePersistenceMixin = RuntimePersistence
 
