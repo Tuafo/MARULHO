@@ -184,6 +184,13 @@ from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_epi
 
 from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E402
 
+def _public_names(cls: type) -> frozenset[str]:
+    """Return the set of non-dunder attribute names defined on *cls*."""
+    return frozenset(name for name in cls.__dict__ if not name.startswith("__"))
+
+
+_PUBLIC_DUNDER = frozenset({"__dict__", "__doc__", "__init__", "__module__", "__qualname__"})
+
 _BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
 _RUNTIME_CONTROL_DELEGATE_NAMES = frozenset(RuntimeControl.__dict__)
 _RUNTIME_CONTROL_DELEGATE_ATTRS = RUNTIME_CONTROL_STATE_FIELDS | _RUNTIME_CONTROL_DELEGATE_NAMES
@@ -206,52 +213,22 @@ _CORTEX_CONTROLLER_DELEGATE_NAMES = frozenset(
     name for name in CortexController.__dict__
     if not name.startswith("__") and name not in _CORTEX_CONTROLLER_PASSTHROUGH_NAMES
 )
-_DELAYED_CONSEQUENCE_DELEGATE_NAMES = frozenset(
-    name for name in DelayedConsequenceTracker.__dict__ if not name.startswith("__")
-)
+_DELAYED_CONSEQUENCE_DELEGATE_NAMES = _public_names(DelayedConsequenceTracker)
 _DELAYED_CONSEQUENCE_DELEGATE_ATTRS = DELAYED_CONSEQUENCE_STATE_FIELDS | _DELAYED_CONSEQUENCE_DELEGATE_NAMES
-_RUNTIME_EVIDENCE_DELEGATE_NAMES = frozenset(
-    name for name in RuntimeEvidenceMixin.__dict__ if not name.startswith("__")
-)
-_INTERACTION_RUNTIME_DELEGATE_NAMES = frozenset(
-    name for name in InteractionRuntimeMixin.__dict__ if not name.startswith("__")
-)
-_LIVING_STATUS_DELEGATE_NAMES = frozenset(
-    name for name in LivingStatusMixin.__dict__ if not name.startswith("__")
-)
-_STATUS_RUNTIME_DELEGATE_NAMES = frozenset(
-    name for name in StatusRuntimeMixin.__dict__ if not name.startswith("__")
-)
-_SENSORY_RUNTIME_DELEGATE_NAMES = frozenset(
-    name for name in SensoryRuntimeMixin.__dict__ if not name.startswith("__")
-)
-_RUNTIME_PREWARM_DELEGATE_NAMES = frozenset(
-    name for name in RuntimePrewarmMixin.__dict__ if not name.startswith("__")
-)
-_RUNTIME_SOURCES_DELEGATE_NAMES = frozenset(
-    name for name in RuntimeSources.__dict__ if not name.startswith("__")
-)
-_RUNTIME_CONFIG_DELEGATE_NAMES = frozenset(
-    name for name in RuntimeConfig.__dict__ if not name.startswith("__")
-)
-_REPLAY_DATASET_BUNDLE_DELEGATE_NAMES = frozenset(
-    name for name in ReplayDatasetBundleMixin.__dict__ if not name.startswith("__")
-)
-_SENSORY_PREVIEW_DELEGATE_NAMES = frozenset(
-    name for name in SensoryPreviewMixin.__dict__ if not name.startswith("__")
-)
-_SERVICE_REPORTING_DELEGATE_NAMES = frozenset(
-    name for name in ServiceReportingMixin.__dict__ if not name.startswith("__")
-)
-_TERMINUS_AUTONOMY_DELEGATE_NAMES = frozenset(
-    name for name in TerminusAutonomyMixin.__dict__ if not name.startswith("__")
-)
-_REPLAY_CONTROLLER_DELEGATE_NAMES = frozenset(
-    name for name in ReplayController.__dict__ if not name.startswith("__")
-)
-_SOURCE_FOCUS_DELEGATE_NAMES = frozenset(
-    name for name in SourceFocusScorer.__dict__ if not name.startswith("__")
-)
+_RUNTIME_EVIDENCE_DELEGATE_NAMES = _public_names(RuntimeEvidenceMixin)
+_INTERACTION_RUNTIME_DELEGATE_NAMES = _public_names(InteractionRuntimeMixin)
+_LIVING_STATUS_DELEGATE_NAMES = _public_names(LivingStatusMixin)
+_STATUS_RUNTIME_DELEGATE_NAMES = _public_names(StatusRuntimeMixin)
+_SENSORY_RUNTIME_DELEGATE_NAMES = _public_names(SensoryRuntimeMixin)
+_RUNTIME_PREWARM_DELEGATE_NAMES = _public_names(RuntimePrewarmMixin)
+_RUNTIME_SOURCES_DELEGATE_NAMES = _public_names(RuntimeSources)
+_RUNTIME_CONFIG_DELEGATE_NAMES = _public_names(RuntimeConfig)
+_REPLAY_DATASET_BUNDLE_DELEGATE_NAMES = _public_names(ReplayDatasetBundleMixin)
+_SENSORY_PREVIEW_DELEGATE_NAMES = _public_names(SensoryPreviewMixin)
+_SERVICE_REPORTING_DELEGATE_NAMES = _public_names(ServiceReportingMixin)
+_TERMINUS_AUTONOMY_DELEGATE_NAMES = _public_names(TerminusAutonomyMixin)
+_REPLAY_CONTROLLER_DELEGATE_NAMES = _public_names(ReplayController)
+_SOURCE_FOCUS_DELEGATE_NAMES = _public_names(SourceFocusScorer)
 
 
 class _TimedCallFailure:
@@ -306,16 +283,16 @@ class HECSNServiceManager:
         # Only route to modules that actually contain the method in their class __dict__
         # to avoid ManagerBoundModule.__getattr__ -> manager -> module loops.
         _module_delegation = [
-            ("_runtime_persistence", frozenset(RuntimePersistence.__dict__) - {"__dict__", "__doc__", "__init__", "__module__", "__qualname__"}),
+            ("_runtime_persistence", frozenset(RuntimePersistence.__dict__) - _PUBLIC_DUNDER),
             ("_replay_controller", _REPLAY_CONTROLLER_DELEGATE_NAMES),
-            ("_interaction_pipeline", frozenset(InteractionPipeline.__dict__) - {"__dict__", "__doc__", "__init__", "__module__", "__qualname__"}),
-            ("_status_read_model", frozenset(StatusReadModel.__dict__) - {"__dict__", "__doc__", "__init__", "__module__", "__qualname__"}),
+            ("_interaction_pipeline", frozenset(InteractionPipeline.__dict__) - _PUBLIC_DUNDER),
+            ("_status_read_model", frozenset(StatusReadModel.__dict__) - _PUBLIC_DUNDER),
             ("_runtime_sources", _RUNTIME_SOURCES_DELEGATE_NAMES),
             ("_brain_runtime", _BRAIN_RUNTIME_DELEGATE_NAMES),
-            ("_runtime_control", frozenset(RuntimeControl.__dict__) - {"__dict__", "__doc__", "__init__", "__module__", "__qualname__"}),
+            ("_runtime_control", frozenset(RuntimeControl.__dict__) - _PUBLIC_DUNDER),
             ("_runtime_config", _RUNTIME_CONFIG_DELEGATE_NAMES),
             ("_delayed_consequence", _DELAYED_CONSEQUENCE_DELEGATE_NAMES),
-            ("_autonomy_planner", frozenset(AutonomyPlanner.__dict__) - {"__dict__", "__doc__", "__init__", "__module__", "__qualname__"}),
+            ("_autonomy_planner", frozenset(AutonomyPlanner.__dict__) - _PUBLIC_DUNDER),
             ("_source_focus", _SOURCE_FOCUS_DELEGATE_NAMES),
         ]
         for attr, names in _module_delegation:

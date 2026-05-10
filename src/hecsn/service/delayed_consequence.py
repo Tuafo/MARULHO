@@ -61,6 +61,11 @@ def _build_delayed_consequence_initial_state() -> dict[str, Any]:
 DELAYED_CONSEQUENCE_STATE_FIELDS = frozenset(_build_delayed_consequence_initial_state())
 
 
+def _restore_non_negative_int(state: dict[str, Any], key: str) -> int:
+    """Restore a non-negative integer total from checkpoint state."""
+    return max(0, int(state.get(key, 0) or 0))
+
+
 class DelayedConsequenceTracker(ManagerBoundModule):
 
     def __init__(self, manager: Any | None = None) -> None:
@@ -2727,10 +2732,20 @@ class DelayedConsequenceTracker(ManagerBoundModule):
             ),
             maxlen=DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
         )
-        self._delayed_consequence_cooled_total = max(0, int(terminus_state.get("delayed_consequence_cooled_total", 0) or 0))
-        self._delayed_consequence_retired_total = max(0, int(terminus_state.get("delayed_consequence_retired_total", 0) or 0))
-        self._delayed_consequence_compacted_total = max(0, int(terminus_state.get("delayed_consequence_compacted_total", 0) or 0))
-        self._delayed_consequence_split_total = max(0, int(terminus_state.get("delayed_consequence_split_total", 0) or 0))
-        self._delayed_consequence_remerged_total = max(0, int(terminus_state.get("delayed_consequence_remerged_total", 0) or 0))
+        self._delayed_consequence_cooled_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_cooled_total",
+        )
+        self._delayed_consequence_retired_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_retired_total",
+        )
+        self._delayed_consequence_compacted_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_compacted_total",
+        )
+        self._delayed_consequence_split_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_split_total",
+        )
+        self._delayed_consequence_remerged_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_remerged_total",
+        )
 
 DelayedConsequenceMixin = DelayedConsequenceTracker
