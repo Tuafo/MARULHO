@@ -223,7 +223,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     name: "merger",
     maxIterations: 1,
     idleTimeoutSeconds: IDLE_TIMEOUT,
-    agent: sandcastle.pi(PI_MODEL),
+    agent: sandcastle.codex("gpt-5.4-mini", { effort: "xhigh" }),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),

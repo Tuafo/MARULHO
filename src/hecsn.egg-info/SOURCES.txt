@@ -89,6 +89,8 @@ src/hecsn/service/api.py
 src/hecsn/service/brain_runtime.py
 src/hecsn/service/cortex_runtime.py
 src/hecsn/service/delayed_consequence.py
+src/hecsn/service/history_store.py
+src/hecsn/service/interaction_pipeline.py
 src/hecsn/service/interaction_runtime.py
 src/hecsn/service/living_loop.py
 src/hecsn/service/living_loop_helpers.py
@@ -168,6 +170,7 @@ tests/test_geometric_curiosity.py
 tests/test_grounding_probe.py
 tests/test_grounding_text.py
 tests/test_hypercube.py
+tests/test_interaction_pipeline.py
 tests/test_ivf_router.py
 tests/test_learned_chunking.py
 tests/test_live_long_run_validation.py
@@ -201,6 +204,7 @@ tests/test_replay_training_gate.py
 tests/test_replay_training_plan.py
 tests/test_responder.py
 tests/test_routing_index.py
+tests/test_runtime_feedback.py
 tests/test_runtime_state.py
 tests/test_self_improvement_readiness.py
 tests/test_semantic_encoder.py
