@@ -144,9 +144,8 @@ from hecsn.service.terminus_autonomy import (  # noqa: E402
 from hecsn.service.replay_dataset_bundle import ReplayDatasetBundleMixin
 from hecsn.service.interaction_pipeline import InteractionPipeline
 from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
-from hecsn.service.runtime_feedback import RuntimeFeedbackMixin
-from hecsn.service.action_assist import ActionAssistMixin
-from hecsn.service.action_runtime import ActionRuntimeMixin
+from hecsn.service.action_executor import ActionExecutor
+from hecsn.service.feedback_applier import FeedbackApplier
 from hecsn.service.brain_runtime import BrainRuntimeMixin
 from hecsn.service.delayed_consequence import DelayedConsequenceMixin
 from hecsn.service.persistence import ServicePersistenceMixin
@@ -245,9 +244,6 @@ from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
 class HECSNServiceManager(
     ReplayDatasetBundleMixin,
     RuntimeEvidenceMixin,
-    RuntimeFeedbackMixin,
-    ActionAssistMixin,
-    ActionRuntimeMixin,
     BrainRuntimeMixin,
     DelayedConsequenceMixin,
     ServicePersistenceMixin,
@@ -321,16 +317,8 @@ class HECSNServiceManager(
         self._brain_last_error: str | None = None
         self._last_cortex_query_hint_text: str | None = None
         self._last_cortex_query_hint_at = 0.0
-        self._action_history: deque[dict[str, Any]] = deque(
-            (
-                item
-                for item in (
-                    self._normalize_action_record(raw_item)
-                    for raw_item in list(terminus_state.get("action_history") or [])
-                )
-                if item is not None
-            ),
-            maxlen=24,
+        self._action_executor = self._build_action_executor(
+            action_history=list(terminus_state.get("action_history") or [])
         )
         self._replay_sample_history: deque[dict[str, Any]] = deque(
             (
@@ -461,6 +449,7 @@ class HECSNServiceManager(
         )
         self._brain_recent_query_gaps = self._interaction_pipeline.recent_query_gap_history
         self._runtime_episode_traces = self._interaction_pipeline.runtime_episode_trace_history
+        self._feedback_applier = self._build_feedback_applier()
         self._brain_skip_next_autonomy_for_grounded_query = False
 
     @property
@@ -544,8 +533,352 @@ class HECSNServiceManager(
             runtime_episode_traces=runtime_episode_traces,
         )
 
+    def _build_action_executor(self, *, action_history: Sequence[Mapping[str, Any]] | None = None) -> ActionExecutor:
+        def apply_provider_outcome_calibration_fn(**kwargs: Any) -> bool:
+            autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
+            if autonomy is None:
+                return False
+            self._apply_provider_outcome_calibration_locked(
+                autonomy=autonomy,
+                query_text=kwargs["query_text"],
+                outcome_score=kwargs["outcome_score"],
+            )
+            return True
+
+        return ActionExecutor(
+            lock=self._lock,
+            action_root=self._action_root,
+            action_history=action_history,
+            history_maxlen=24,
+            runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
+            runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
+            record_brain_event_fn=lambda event: self._record_brain_event_locked(dict(event)),
+            brain_runtime_snapshot_fn=self._brain_runtime_snapshot_locked,
+            runtime_trace_export_safe_value_fn=lambda value: self._runtime_trace_export_safe_value(value),
+            ensure_cortex_initialized_fn=lambda: self._ensure_cortex_initialized(),
+            inject_action_record_into_cortex_fn=lambda thought_loop, record: self._inject_action_record_into_loop(
+                thought_loop, record
+            ),
+            apply_provider_outcome_calibration_fn=apply_provider_outcome_calibration_fn,
+        )
+
+    def _build_feedback_applier(self) -> FeedbackApplier:
+        return FeedbackApplier(
+            lock=self._lock,
+            runtime_episode_store=self._interaction_pipeline,
+            action_store=self._action_executor,
+            runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
+            runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
+            record_brain_event_fn=lambda event: self._record_brain_event_locked(dict(event)),
+            brain_runtime_snapshot_fn=self._brain_runtime_snapshot_locked,
+            runtime_trace_export_safe_value_fn=lambda value: self._runtime_trace_export_safe_value(value),
+        )
+
+    @property
+    def _action_history(self) -> deque[dict[str, Any]]:
+        return self._action_executor.history
+
+    @_action_history.setter
+    def _action_history(self, value: Sequence[Mapping[str, Any]]) -> None:
+        self._action_executor.history = value
+
     def _cortex_active(self) -> bool:
         return self._thought_loop_actual is not None and self._thought_loop_actual.is_running
+
+    # --- Action Executor / Feedback Applier delegation ---
+    def action_history(self, limit: int = 20) -> dict[str, Any]:
+        return self._action_executor.action_history(limit=limit)
+
+    def action_record(self, action_id: str) -> dict[str, Any] | None:
+        return self._action_executor.action_record(action_id)
+
+    def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None:
+        return self._action_executor.replace_action_record(action_id, record)
+
+    def execute_digital_action(
+        self,
+        action: Mapping[str, Any],
+        *,
+        trigger_reason: str | None = None,
+        trigger_query_text: str | None = None,
+    ) -> dict[str, Any]:
+        return self._action_executor.execute_digital_action(
+            action,
+            trigger_reason=trigger_reason,
+            trigger_query_text=trigger_query_text,
+        )
+
+    def record_runtime_feedback(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
+        return self._feedback_applier.record_runtime_feedback(feedback)
+
+    @staticmethod
+    def _normalize_action_text(value: Any) -> str:
+        return ActionExecutor._normalize_action_text(value)
+
+    def _normalize_feedback_text(self, value: Any, *, max_chars: int = DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS) -> str:
+        text = self._normalize_action_text(value)
+        if len(text) > max_chars:
+            return text[:max_chars].rstrip() + "…"
+        return text
+
+    def _runtime_feedback_applied_status(self, verdict: str, *, corrected: bool = False) -> str:
+        normalized = self._normalize_action_text(verdict).lower()
+        if corrected or normalized == "contradicted":
+            return "contradicted"
+        if normalized == "verified":
+            return "verified"
+        return "unverified"
+
+    def _runtime_feedback_provenance(self, status: str) -> str:
+        normalized = self._normalize_action_text(status).lower()
+        if normalized == "verified":
+            return "verified"
+        if normalized == "contradicted":
+            return "contradicted"
+        return "unverified"
+
+    def _sanitize_runtime_feedback_tags(self, tags: Any) -> list[str]:
+        if not isinstance(tags, Sequence) or isinstance(tags, (str, bytes)):
+            return []
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in list(tags)[: DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT * 2]:
+            tag = self._normalize_feedback_text(raw, max_chars=64).lower()
+            if not tag or tag in seen:
+                continue
+            seen.add(tag)
+            cleaned.append(tag)
+            if len(cleaned) >= DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT:
+                break
+        return cleaned
+
+    def _sanitize_runtime_feedback_evidence(self, evidence: Any) -> list[Any]:
+        if not isinstance(evidence, Sequence) or isinstance(evidence, (str, bytes)):
+            return []
+        sanitized: list[Any] = []
+        for raw in list(evidence)[:DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT]:
+            item = self._runtime_trace_export_safe_value(raw)
+            if item in ({}, [], None, ""):
+                continue
+            sanitized.append(item)
+        return sanitized
+
+    def _runtime_feedback_corrected_present(self, feedback: Mapping[str, Any]) -> bool:
+        if "corrected_output" not in feedback or feedback.get("corrected_output") is None:
+            return False
+        corrected_output = feedback.get("corrected_output")
+        if isinstance(corrected_output, str) and not self._normalize_action_text(corrected_output):
+            return False
+        return True
+
+    def _normalize_runtime_feedback_request(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
+        if not isinstance(feedback, Mapping):
+            raise ValueError("Runtime feedback must be an object.")
+        target_type = self._normalize_action_text(feedback.get("target_type", "")).lower()
+        if target_type not in {"runtime_episode", "action"}:
+            raise ValueError(f"Unsupported runtime feedback target_type: {target_type or '<empty>'}")
+        target_id = self._normalize_feedback_text(feedback.get("target_id", ""), max_chars=160)
+        if not target_id:
+            raise ValueError("Runtime feedback target_id is required.")
+        verdict = self._normalize_action_text(feedback.get("verdict", "")).lower()
+        if verdict not in {"verified", "contradicted", "unverified"}:
+            raise ValueError(f"Unsupported runtime feedback verdict: {verdict or '<empty>'}")
+        try:
+            confidence = max(0.0, min(1.0, float(feedback.get("confidence", 1.0))))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Runtime feedback confidence must be numeric.") from exc
+        corrected = self._runtime_feedback_corrected_present(feedback)
+        applied_status = self._runtime_feedback_applied_status(verdict, corrected=corrected)
+        corrected_output = self._runtime_trace_export_safe_value(feedback.get("corrected_output")) if corrected else None
+        return {
+            "feedback_id": str(uuid4()),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "target_type": target_type,
+            "target_id": target_id,
+            "verdict": verdict,
+            "applied_status": applied_status,
+            "confidence": confidence,
+            "summary": self._normalize_feedback_text(feedback.get("summary", "")),
+            "corrected_output": corrected_output,
+            "evidence": self._sanitize_runtime_feedback_evidence(feedback.get("evidence", [])),
+            "tags": self._sanitize_runtime_feedback_tags(feedback.get("tags", [])),
+            "evaluator_id": self._normalize_feedback_text(feedback.get("evaluator_id", ""), max_chars=160),
+        }
+
+    def _normalize_runtime_feedback_entries(self, feedback: Any) -> list[dict[str, Any]]:
+        if not isinstance(feedback, Sequence) or isinstance(feedback, (str, bytes)):
+            return []
+        entries: list[dict[str, Any]] = []
+        for raw in list(feedback)[-DEFAULT_RUNTIME_FEEDBACK_HISTORY:]:
+            if not isinstance(raw, Mapping):
+                continue
+            verdict = self._normalize_action_text(raw.get("verdict", "unverified")).lower()
+            if verdict not in {"verified", "contradicted", "unverified"}:
+                verdict = "unverified"
+            corrected = self._runtime_feedback_corrected_present(raw)
+            applied_status = self._normalize_action_text(raw.get("applied_status", "")).lower()
+            if applied_status not in {"verified", "contradicted", "unverified"}:
+                applied_status = self._runtime_feedback_applied_status(verdict, corrected=corrected)
+            try:
+                confidence = max(0.0, min(1.0, float(raw.get("confidence", 0.0))))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            corrected_output = self._runtime_trace_export_safe_value(raw.get("corrected_output")) if corrected else None
+            entries.append(
+                {
+                    "feedback_id": self._normalize_feedback_text(raw.get("feedback_id", ""), max_chars=80) or str(uuid4()),
+                    "created_at": self._normalize_feedback_text(raw.get("created_at", ""), max_chars=80)
+                    or datetime.now(timezone.utc).isoformat(),
+                    "target_type": self._normalize_feedback_text(raw.get("target_type", ""), max_chars=32),
+                    "target_id": self._normalize_feedback_text(raw.get("target_id", ""), max_chars=160),
+                    "verdict": verdict,
+                    "applied_status": applied_status,
+                    "confidence": confidence,
+                    "summary": self._normalize_feedback_text(raw.get("summary", "")),
+                    "corrected_output": corrected_output,
+                    "evidence": self._sanitize_runtime_feedback_evidence(raw.get("evidence", [])),
+                    "tags": self._sanitize_runtime_feedback_tags(raw.get("tags", [])),
+                    "evaluator_id": self._normalize_feedback_text(raw.get("evaluator_id", ""), max_chars=160),
+                }
+            )
+        return entries
+
+    def _apply_runtime_feedback_to_target(self, target: dict[str, Any], feedback: Mapping[str, Any]) -> None:
+        normalized_feedback = self._normalize_runtime_feedback_request(feedback)
+        feedback_entries = list(target.get("feedback") or [])
+        feedback_entries.append(normalized_feedback)
+        target["feedback"] = self._normalize_runtime_feedback_entries(feedback_entries)
+        target["feedback_status"] = normalized_feedback["applied_status"]
+        target["feedback_provenance"] = self._runtime_feedback_provenance(normalized_feedback["applied_status"])
+        target["provenance"] = target["feedback_provenance"]
+        if normalized_feedback["target_type"] == "action":
+            verification = target.get("verification") if isinstance(target.get("verification"), Mapping) else {}
+            verification = dict(verification)
+            if normalized_feedback["applied_status"] == "contradicted":
+                verification["status"] = "contradicted"
+                verification["success"] = False
+                verification["contradiction"] = True
+                verification["confidence"] = normalized_feedback["confidence"]
+            elif normalized_feedback["applied_status"] == "verified":
+                verification["status"] = "verified"
+                verification["success"] = True
+                verification["contradiction"] = False
+                verification["confidence"] = max(float(verification.get("confidence", 0.0) or 0.0), normalized_feedback["confidence"])
+            else:
+                verification["status"] = "unverified"
+                verification["success"] = False
+                verification["contradiction"] = False
+                verification["confidence"] = normalized_feedback["confidence"]
+            verification["summary"] = normalized_feedback["summary"] or str(verification.get("summary", ""))
+            verification["provenance"] = normalized_feedback["applied_status"]
+            verification["feedback_count"] = int(verification.get("feedback_count", 0) or 0) + 1
+            verification["last_feedback_id"] = normalized_feedback["feedback_id"]
+            verification["last_feedback_at"] = normalized_feedback["created_at"]
+            target["verification"] = verification
+
+    def _normalize_action_record(self, item: Any) -> dict[str, Any] | None:
+        return self._action_executor.normalize_action_record(item)
+
+    def _action_request_has_body(self, inputs: Mapping[str, Any]) -> bool:
+        return self._action_executor._action_request_has_body(inputs)
+
+    def _api_request_record_matches_explicit_url(self, record: Mapping[str, Any], explicit_url: str) -> bool:
+        return self._action_executor._api_request_record_matches_explicit_url(record, explicit_url)
+
+    def _action_query_terms(self, query_text: str) -> tuple[str, ...]:
+        return self._action_executor._action_query_terms(query_text)
+
+    def _action_focus_query_text(self, query_text: str) -> str:
+        return self._action_executor._action_focus_query_text(query_text)
+
+    def _query_workspace_path_candidate_locked(self, query_text: str) -> str:
+        return self._action_executor._query_workspace_path_candidate_locked(query_text)
+
+    def _query_web_url_candidate(self, query_text: str) -> str:
+        return self._action_executor._query_web_url_candidate(query_text)
+
+    def _query_api_url_candidate(self, query_text: str) -> str:
+        return self._action_executor._query_api_url_candidate(query_text)
+
+    def _action_record_relevance_score_locked(self, record: Mapping[str, Any], query_text: str) -> float:
+        return self._action_executor._action_record_relevance_score_locked(record, query_text)
+
+    def _recent_relevant_action_records_locked(
+        self,
+        query_text: str,
+        *,
+        statuses: Sequence[str] | None = None,
+        limit: int = 4,
+    ) -> list[dict[str, Any]]:
+        return self._action_executor.recent_relevant_action_records(
+            query_text,
+            statuses=statuses,
+            limit=limit,
+        )
+
+    def _action_record_to_response_episodes_locked(
+        self,
+        record: Mapping[str, Any],
+        *,
+        query_text: str,
+        limit: int = 3,
+    ) -> list[dict[str, Any]]:
+        return self._action_executor.action_record_to_response_episodes(
+            record,
+            query_text=query_text,
+            limit=limit,
+        )
+
+    def _augment_query_result_with_action_records_locked(
+        self,
+        query_result: dict[str, Any],
+        *,
+        query_text: str,
+        records: Sequence[Mapping[str, Any]],
+    ) -> int:
+        return self._action_executor.augment_query_result_with_action_records(
+            query_result,
+            query_text=query_text,
+            records=records,
+        )
+
+    def _contradicted_action_note_locked(self, record: Mapping[str, Any]) -> str:
+        return self._action_executor.contradicted_action_note(record)
+
+    def _should_auto_execute_action_locked(
+        self,
+        *,
+        query_text: str,
+        query_result: dict[str, Any],
+        response: Mapping[str, Any],
+    ) -> bool:
+        return self._action_executor.should_auto_execute_action(
+            query_text=query_text,
+            query_result=query_result,
+            response=response,
+        )
+
+    def _maybe_auto_action_assist_locked(
+        self,
+        *,
+        query_text: str,
+        query_result: dict[str, Any],
+        response: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        return self._action_executor.maybe_auto_action_assist(
+            query_text=query_text,
+            query_result=query_result,
+            response=response,
+        )
+
+    def _action_history_memory_metadata(self, record: Mapping[str, Any]) -> dict[str, Any]:
+        return self._action_executor.action_history_memory_metadata(record)
+
+    def _replay_action_history_into_cortex_locked(self) -> None:
+        self._action_executor.replay_action_history_into_cortex()
+
+    def _action_loop_summary_locked(self) -> dict[str, Any]:
+        return self._action_executor.action_loop_summary()
 
     # --- Status Read Model delegation (ADR 0003) ---
     def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
