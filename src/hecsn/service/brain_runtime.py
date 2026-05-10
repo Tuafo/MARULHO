@@ -31,6 +31,35 @@ DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
+_BACKGROUND_SOURCE_UTILITY_INT_FIELDS = (
+    "attempts",
+    "selections",
+    "tokens_trained_total",
+)
+_BACKGROUND_SOURCE_UTILITY_FLOAT_FIELDS = (
+    "utility_ema",
+    "semantic_alignment_ema",
+    "grounding_signal_ema",
+    "focus_overlap_ema",
+    "grounded_outcome_ema",
+    "grounded_family_summary_ema",
+    "delayed_consequence_ema",
+    "contradiction_decay_ema",
+)
+_BACKGROUND_SOURCE_UTILITY_DEFAULTS: dict[str, Any] = {
+    "attempts": 0,
+    "selections": 0,
+    "tokens_trained_total": 0,
+    "utility_ema": 0.0,
+    "semantic_alignment_ema": 0.0,
+    "grounding_signal_ema": 0.0,
+    "focus_overlap_ema": 0.0,
+    "grounded_outcome_ema": 0.0,
+    "grounded_family_summary_ema": 0.0,
+    "delayed_consequence_ema": 0.0,
+    "contradiction_decay_ema": 0.0,
+    "last_selected_at": "",
+}
 
 
 def _manager_symbol(name: str, fallback: Any) -> Any:
@@ -666,45 +695,25 @@ class BrainRuntime(ManagerBoundModule):
             name = " ".join(str(raw_name).split()).strip()
             if not name or not isinstance(raw_entry, Mapping):
                 continue
-            normalized[name] = {
-                "attempts": _safe_int(raw_entry.get("attempts", 0)),
-                "selections": _safe_int(raw_entry.get("selections", 0)),
-                "tokens_trained_total": _safe_int(raw_entry.get("tokens_trained_total", 0)),
-                "utility_ema": _safe_float(raw_entry.get("utility_ema", 0.0)),
-                "semantic_alignment_ema": _safe_float(raw_entry.get("semantic_alignment_ema", 0.0)),
-                "grounding_signal_ema": _safe_float(raw_entry.get("grounding_signal_ema", 0.0)),
-                "focus_overlap_ema": _safe_float(raw_entry.get("focus_overlap_ema", 0.0)),
-                "grounded_outcome_ema": _safe_float(raw_entry.get("grounded_outcome_ema", 0.0)),
-                "grounded_family_summary_ema": _safe_float(raw_entry.get("grounded_family_summary_ema", 0.0)),
-                "delayed_consequence_ema": _safe_float(raw_entry.get("delayed_consequence_ema", 0.0)),
-                "contradiction_decay_ema": _safe_float(raw_entry.get("contradiction_decay_ema", 0.0)),
-                "last_selected_at": " ".join(str(raw_entry.get("last_selected_at", "")).split()).strip(),
-            }
+            entry = dict(_BACKGROUND_SOURCE_UTILITY_DEFAULTS)
+            for field in _BACKGROUND_SOURCE_UTILITY_INT_FIELDS:
+                entry[field] = _safe_int(raw_entry.get(field, 0))
+            for field in _BACKGROUND_SOURCE_UTILITY_FLOAT_FIELDS:
+                entry[field] = _safe_float(raw_entry.get(field, 0.0))
+            entry["last_selected_at"] = " ".join(str(raw_entry.get("last_selected_at", "")).split()).strip()
+            normalized[name] = entry
         return normalized
 
     def _background_source_utility_entry_locked(self, runtime: _BrainSourceRuntime) -> dict[str, Any]:
         name = str(runtime.name).strip()
-        entry = self._brain_source_utility.setdefault(
-            name,
-            {
-                "attempts": 0,
-                "selections": 0,
-                "tokens_trained_total": 0,
-                "utility_ema": 0.0,
-                "semantic_alignment_ema": 0.0,
-                "grounding_signal_ema": 0.0,
-                "focus_overlap_ema": 0.0,
-                "grounded_outcome_ema": 0.0,
-                "grounded_family_summary_ema": 0.0,
-                "delayed_consequence_ema": 0.0,
-                "contradiction_decay_ema": 0.0,
-                "last_selected_at": "",
-            },
-        )
-        entry.setdefault("grounded_family_summary_ema", 0.0)
-        entry.setdefault("delayed_consequence_ema", 0.0)
-        entry.setdefault("contradiction_decay_ema", 0.0)
+        entry = self._brain_source_utility.setdefault(name, dict(_BACKGROUND_SOURCE_UTILITY_DEFAULTS))
+        for key, value in _BACKGROUND_SOURCE_UTILITY_DEFAULTS.items():
+            entry.setdefault(key, value)
         return entry
+
+    def _background_source_utility_metrics_locked(self, runtime: _BrainSourceRuntime) -> dict[str, float]:
+        entry = self._background_source_utility_entry_locked(runtime)
+        return {key: float(entry.get(key, 0.0) or 0.0) for key in _BACKGROUND_SOURCE_UTILITY_FLOAT_FIELDS}
 
     def _update_background_source_utility_locked(
         self,
@@ -1202,6 +1211,7 @@ class BrainRuntime(ManagerBoundModule):
             },
             "source_progress": [
                 {
+                    **self._background_source_utility_metrics_locked(runtime),
                     "name": runtime.name,
                     "source_type": runtime.source_type,
                     "tokens_processed": int(runtime.tokens_processed),
@@ -1230,14 +1240,6 @@ class BrainRuntime(ManagerBoundModule):
                     "last_fairness_score": float(runtime.last_fairness_score),
                     "last_buffer_readiness": float(runtime.last_buffer_readiness),
                     "last_utility_score": float(runtime.last_utility_score),
-                    "utility_ema": float(self._background_source_utility_entry_locked(runtime).get("utility_ema", 0.0)),
-                    "semantic_alignment_ema": float(self._background_source_utility_entry_locked(runtime).get("semantic_alignment_ema", 0.0)),
-                    "grounding_signal_ema": float(self._background_source_utility_entry_locked(runtime).get("grounding_signal_ema", 0.0)),
-                    "focus_overlap_ema": float(self._background_source_utility_entry_locked(runtime).get("focus_overlap_ema", 0.0)),
-                    "grounded_outcome_ema": float(self._background_source_utility_entry_locked(runtime).get("grounded_outcome_ema", 0.0)),
-                    "grounded_family_summary_ema": float(self._background_source_utility_entry_locked(runtime).get("grounded_family_summary_ema", 0.0)),
-                    "delayed_consequence_ema": float(self._background_source_utility_entry_locked(runtime).get("delayed_consequence_ema", 0.0)),
-                    "contradiction_decay_ema": float(self._background_source_utility_entry_locked(runtime).get("contradiction_decay_ema", 0.0)),
                     "share_of_background_tokens": float(
                         0.0
                         if self._brain_background_tokens <= 0
