@@ -77,6 +77,15 @@ def _run_live_acquisition_func() -> Any:
     return _manager_symbol("run_live_acquisition", run_live_acquisition)
 
 
+def _source_stream_builder(owner: Any) -> Any:
+    manager = getattr(owner, "_manager", None)
+    if manager is not None:
+        builder = getattr(manager, "_build_source_stream_from_spec", None)
+        if builder is not None:
+            return builder
+    return type(owner)._build_source_stream_from_spec
+
+
 class BrainRuntime(ManagerBoundModule):
     def _ordered_brain_runtime_indices_locked(
         self,
@@ -338,8 +347,10 @@ class BrainRuntime(ManagerBoundModule):
                     except StopIteration:
                         if repeat:
                             cycles += 1
-                            rebuilt = type(self)._build_source_stream_from_spec(
-                                runtime.spec, encoder_ref, window_size,
+                            rebuilt = _source_stream_builder(self)(
+                                runtime.spec,
+                                encoder_ref,
+                                window_size,
                             )
                             runtime.stream = rebuilt
                             new_stream = rebuilt

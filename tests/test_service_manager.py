@@ -8603,7 +8603,6 @@ class CortexIntegrationTests(unittest.TestCase):
                     lambda allow_fallback=False: thought_loop.memory.embedder,
                     EpisodicMemory,
                 )
-                manager._build_cortex_thought_loop = lambda action_history: thought_loop
                 manager.configure_terminus(
                     source_bank=[
                         {
@@ -8617,10 +8616,12 @@ class CortexIntegrationTests(unittest.TestCase):
                     repeat_sources=False,
                 )
                 manager._brain_running = True
-                manager._start_cortex_initialization()
-                self.assertTrue(manager._cortex_init_event.wait(timeout=1.0))
-                self.assertIs(manager._thought_loop_actual, thought_loop)
-                self.assertTrue(thought_loop.is_running)
+                with patch.object(manager._cortex_controller, "_build_cortex_thought_loop", return_value=thought_loop):
+                    manager._start_cortex_initialization()
+                    self.assertTrue(manager._cortex_init_event.wait(timeout=1.0))
+                self.assertIsNotNone(manager._thought_loop_actual)
+                self.assertTrue(manager._thought_loop_actual.is_running)
+                self.assertTrue(manager._cortex_controller._cortex_available)
             finally:
                 manager.close()
 

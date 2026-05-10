@@ -63,6 +63,15 @@ def _remote_promotion_bootstrap_grace_seconds() -> float:
     )
 
 
+def _source_stream_builder(owner: Any) -> Any:
+    manager = getattr(owner, "_manager", None)
+    if manager is not None:
+        builder = getattr(manager, "_build_source_stream_from_spec", None)
+        if builder is not None:
+            return builder
+    return type(owner)._build_source_stream_from_spec
+
+
 class _TimedCallFailure:
     def __init__(self, error: BaseException) -> None:
         self.error = error
@@ -533,7 +542,11 @@ class RuntimePrewarmMixin:
                 except StopIteration:
                     if repeat:
                         cycles += 1
-                        rebuilt = type(self)._build_source_stream_from_spec(runtime.spec, self._encoder, self._trainer.config.window_size)
+                        rebuilt = _source_stream_builder(self)(
+                            runtime.spec,
+                            self._encoder,
+                            self._trainer.config.window_size,
+                        )
                         runtime.stream = rebuilt
                         new_stream = rebuilt
                         exhausted = False
@@ -1029,7 +1042,11 @@ class RuntimePrewarmMixin:
         detached_brain_runtimes = [
             _BrainSourceRuntime(
                 spec=spec,
-                stream=type(self)._build_source_stream_from_spec(spec, encoder_ref, window_size),
+                stream=_source_stream_builder(self)(
+                    spec,
+                    encoder_ref,
+                    window_size,
+                ),
             )
             for spec in brain_specs
         ] if text_target else []

@@ -149,7 +149,7 @@ from hecsn.service.feedback_applier import FeedbackApplier
 from hecsn.service.brain_runtime import BrainRuntime
 from hecsn.service.delayed_consequence import DelayedConsequenceMixin
 from hecsn.service.persistence import RuntimePersistence
-from hecsn.service.cortex_runtime import CortexRuntimeMixin
+from hecsn.service.cortex_controller import CORTEX_CONTROLLER_STATE_FIELDS, CortexController
 from hecsn.service.reporting import ServiceReportingMixin
 from hecsn.service.replay_runtime import ReplayController
 from hecsn.service.interaction_runtime import InteractionRuntimeMixin
@@ -186,6 +186,9 @@ from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E4
 _BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
 _RUNTIME_CONTROL_DELEGATE_NAMES = frozenset(RuntimeControl.__dict__)
 _RUNTIME_CONTROL_DELEGATE_ATTRS = RUNTIME_CONTROL_STATE_FIELDS | _RUNTIME_CONTROL_DELEGATE_NAMES
+_CORTEX_CONTROLLER_DELEGATE_NAMES = frozenset(
+    name for name in CortexController.__dict__ if not name.startswith("__")
+)
 
 
 class _TimedCallFailure:
@@ -251,7 +254,7 @@ class HECSNServiceManager(
     RuntimeEvidenceMixin,
     DelayedConsequenceMixin,
     RuntimePersistence,
-    CortexRuntimeMixin,
+    CortexController,
     ServiceReportingMixin,
     ReplayController,
     InteractionRuntimeMixin,
@@ -280,14 +283,43 @@ class HECSNServiceManager(
         runtime_control = self.__dict__.get("_runtime_control")
         if runtime_control is not None and name in _RUNTIME_CONTROL_DELEGATE_ATTRS:
             return getattr(runtime_control, name)
+        cortex_controller = self.__dict__.get("_cortex_controller")
+        if cortex_controller is not None and (
+            name in CORTEX_CONTROLLER_STATE_FIELDS or name in _CORTEX_CONTROLLER_DELEGATE_NAMES
+        ):
+            return getattr(cortex_controller, name)
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        cortex_controller = self.__dict__.get("_cortex_controller")
+        if cortex_controller is not None and name == "_thought_loop":
+            setattr(cortex_controller, name, value)
+            return
         runtime_control = self.__dict__.get("_runtime_control")
         if runtime_control is not None and name in RUNTIME_CONTROL_STATE_FIELDS:
             setattr(runtime_control, name, value)
             return
+        if cortex_controller is not None and (
+            name in CORTEX_CONTROLLER_STATE_FIELDS or name in _CORTEX_CONTROLLER_DELEGATE_NAMES
+        ):
+            setattr(cortex_controller, name, value)
+            return
         object.__setattr__(self, name, value)
+
+    def start_terminus(self) -> dict[str, Any]:
+        return self._runtime_control.start_terminus()
+
+    @staticmethod
+    def quick_start_presets() -> list[dict[str, Any]]:
+        return RuntimeControl.quick_start_presets()
+
+    @staticmethod
+    def _build_source_stream_from_spec(
+        spec: dict[str, Any],
+        encoder: Any,
+        window_size: int,
+    ) -> Iterator[tuple[str, "torch.Tensor"]]:
+        return BrainRuntime._build_source_stream_from_spec(spec, encoder, window_size)
 
     def __init__(
         self,
@@ -315,6 +347,7 @@ class HECSNServiceManager(
         self._autonomy_planner = AutonomyPlanner(self)
         self._brain_runtime = BrainRuntime(self)
         self._runtime_control = RuntimeControl(self)
+        self._cortex_controller = CortexController(self)
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
@@ -387,39 +420,6 @@ class HECSNServiceManager(
         self._runtime_state.restore_clean()
         self._load_persisted_traces_locked()
 
-        # --- Cortex / ThoughtLoop (requires NVIDIA_API_KEY) ---
-        # Cortex/NIM clients are intentionally not constructed during service
-        # startup. Real NVIDIA environments can block for minutes during NIM
-        # health checks; initialization is triggered only by active cortex use.
-        self._thought_loop_actual: Any = None  # type: ThoughtLoop | None
-        self._lazy_thought_loop = _LazyThoughtLoop(self)
-        self._cortex_available = False
-        self._cortex_init_lock = Lock()
-        self._cortex_init_event = Event()
-        self._cortex_init_thread: Thread | None = None
-        self._cortex_init_started = False
-        self._cortex_init_finished = False
-        self._cortex_init_timed_out = False
-        self._cortex_init_error: str | None = None
-        self._cortex_factory_refs: tuple[Any, Any, Any, Any] | None = None
-        try:
-            from hecsn.cortex.thought_loop import ThoughtLoop
-            from hecsn.cortex.multi_cortex import create_cortex_from_env, create_embedder_from_env
-            from hecsn.cortex.episodic_memory import EpisodicMemory
-
-            self._cortex_factory_refs = (
-                ThoughtLoop,
-                create_cortex_from_env,
-                create_embedder_from_env,
-                EpisodicMemory,
-            )
-            _cortex_logger.info("Cortex module available for lazy initialization")
-        except Exception as exc:
-            self._cortex_init_finished = True
-            self._cortex_init_error = str(exc)
-            self._cortex_init_event.set()
-            _cortex_logger.info("Cortex module unavailable: %s", exc)
-
         # --- Status Read Model (ADR 0003 deep module extraction) ---
         self._status_read_model = self._build_status_read_model()
         # --- Interaction Pipeline (ADR 0003 query/feed/respond-turn extraction) ---
@@ -431,24 +431,6 @@ class HECSNServiceManager(
         self._runtime_episode_traces = self._interaction_pipeline.runtime_episode_trace_history
         self._feedback_applier = self._build_feedback_applier()
         self._brain_skip_next_autonomy_for_grounded_query = False
-
-    @property
-    def _thought_loop(self) -> Any:
-        if self._thought_loop_actual is not None:
-            return self._thought_loop_actual
-        if self._cortex_factories_are_mocked():
-            return self._lazy_thought_loop
-        return None
-
-    @_thought_loop.setter
-    def _thought_loop(self, value: Any) -> None:
-        self._thought_loop_actual = value
-        self._cortex_available = value is not None
-        if value is not None:
-            self._cortex_init_started = True
-            self._cortex_init_finished = True
-            self._cortex_init_error = None
-            self._cortex_init_event.set()
 
     def _build_status_read_model(self) -> StatusReadModel:
         return StatusReadModel(
@@ -582,9 +564,6 @@ class HECSNServiceManager(
     @_replay_sample_history.setter
     def _replay_sample_history(self, value: Sequence[Mapping[str, Any]]) -> None:
         self._replay_controller.history = value
-
-    def _cortex_active(self) -> bool:
-        return self._thought_loop_actual is not None and self._thought_loop_actual.is_running
 
     # --- Action Executor / Feedback Applier delegation ---
     def action_history(self, limit: int = 20) -> dict[str, Any]:
@@ -929,114 +908,6 @@ class HECSNServiceManager(
     def _cortex_signal_state_impl(self) -> dict[str, Any]:
         """Build cortex signal state under lock (called by read model callback)."""
         return LivingStatusMixin._cortex_signal_state(self)
-
-    def _cortex_factories_are_mocked(self) -> bool:
-        refs = self._cortex_factory_refs or ()
-        return any(
-            "unittest.mock" in type(ref).__module__ or hasattr(ref, "mock_calls")
-            for ref in refs
-        )
-
-    def _cortex_unavailable_snapshot(self) -> dict[str, Any]:
-        return {
-            "enabled": False,
-            "initialization": {
-                "started": bool(getattr(self, "_cortex_init_started", False)),
-                "finished": bool(getattr(self, "_cortex_init_finished", False)),
-                "timed_out": bool(getattr(self, "_cortex_init_timed_out", False)),
-                "error": getattr(self, "_cortex_init_error", None),
-            },
-        }
-
-    def _inject_action_record_into_loop(self, thought_loop: Any, record: Mapping[str, Any]) -> None:
-        content = " ".join(str(record.get("episode_text", "")).split()).strip()
-        if not content:
-            return
-        verification_raw = record.get("verification")
-        verification: Mapping[str, Any] = verification_raw if isinstance(verification_raw, Mapping) else {}
-        thought_loop.inject_action_result(
-            content=content,
-            topics=tuple(str(item) for item in list(record.get("topics") or []) if str(item).strip()),
-            success=bool(verification.get("success", False)),
-            confidence=float(verification.get("confidence", 0.0) or 0.0),
-            contradicted=bool(verification.get("contradiction", False)),
-            metadata=self._action_history_memory_metadata(record),
-        )
-
-    def _build_cortex_thought_loop(self, action_history: Sequence[Mapping[str, Any]]) -> Any:
-        if self._cortex_factory_refs is None:
-            raise RuntimeError(self._cortex_init_error or "Cortex module unavailable")
-        ThoughtLoop, create_cortex_from_env, create_embedder_from_env, EpisodicMemory = self._cortex_factory_refs
-        cortex = create_cortex_from_env()
-        embedder = create_embedder_from_env(allow_fallback=False)
-        memory = EpisodicMemory(capacity=2048, embedder=embedder)
-        thought_loop = ThoughtLoop(
-            cortex=cortex,
-            memory=memory,
-            curiosity_controller=getattr(self, "_geometric_curiosity", None),
-            signal_provider=self._cortex_signal_state,
-            narrative_state_path=str(self._checkpoint_dir / "cortex_narrative_self.json"),
-            on_thought=self._on_cortex_thought,
-            on_sleep_summary=self._on_cortex_sleep_cycle,
-        )
-        for record in reversed(list(action_history)):
-            self._inject_action_record_into_loop(thought_loop, record)
-        _cortex_logger.info("Cortex module initialised (%s, embedder=%s)", cortex.model, type(embedder).__name__)
-        return thought_loop
-
-    def _start_cortex_initialization(self) -> None:
-        with self._cortex_init_lock:
-            if self._thought_loop_actual is not None:
-                self._cortex_init_event.set()
-                return
-            if self._cortex_init_thread is not None and self._cortex_init_thread.is_alive():
-                return
-            if self._cortex_init_finished and self._cortex_init_error:
-                return
-            self._cortex_init_started = True
-            self._cortex_init_finished = False
-            self._cortex_init_timed_out = False
-            self._cortex_init_error = None
-            self._cortex_init_event.clear()
-            action_history = list(self._action_history)
-
-            def _runner() -> None:
-                try:
-                    thought_loop = self._build_cortex_thought_loop(action_history)
-                except RuntimeError as exc:
-                    self._cortex_init_error = str(exc)
-                    _cortex_logger.warning("Cortex disabled: %s", exc)
-                except Exception as exc:  # pragma: no cover - defensive init guard
-                    self._cortex_init_error = str(exc)
-                    _cortex_logger.info("Cortex module unavailable: %s", exc)
-                else:
-                    self._thought_loop_actual = thought_loop
-                    self._cortex_available = True
-                    if bool(getattr(self, "_brain_running", False)) and not thought_loop.is_running:
-                        try:
-                            thought_loop.start()
-                            _cortex_logger.info("ThoughtLoop started after delayed cortex initialization")
-                        except Exception as exc:
-                            _cortex_logger.warning("ThoughtLoop failed to start after delayed initialization: %s", exc)
-                finally:
-                    self._cortex_init_finished = True
-                    self._cortex_init_event.set()
-
-            self._cortex_init_thread = Thread(target=_runner, name="hecsn-cortex-init", daemon=True)
-            self._cortex_init_thread.start()
-
-    def _ensure_cortex_initialized(self, *, wait_seconds: float | None = DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS) -> Any:
-        if self._thought_loop_actual is not None:
-            return self._thought_loop_actual
-        self._start_cortex_initialization()
-        if self._thought_loop_actual is not None:
-            return self._thought_loop_actual
-        if wait_seconds is not None:
-            if not self._cortex_init_event.wait(timeout=max(0.0, float(wait_seconds))):
-                self._cortex_init_timed_out = True
-                _cortex_logger.warning("Cortex initialization still pending after %.2fs", float(wait_seconds))
-                return None
-        return self._thought_loop_actual
 
     def close(self) -> None:
         # Stop cortex first (signal, no join yet)
