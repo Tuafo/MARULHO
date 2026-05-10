@@ -112,7 +112,8 @@ class SourceFocusScorer(ManagerBoundModule):
 
     @staticmethod
     def _brain_source_memory_metadata(runtime: _BrainSourceRuntime) -> dict[str, Any]:
-        metadata = runtime.spec.get("metadata") if isinstance(runtime.spec.get("metadata"), Mapping) else {}
+        metadata_value = runtime.spec.get("metadata")
+        metadata = metadata_value if isinstance(metadata_value, Mapping) else {}
         topic_terms = [
             _canonical_provider_term(term)
             for term in list(runtime.spec.get("topic_terms") or [])
@@ -149,6 +150,8 @@ class SourceFocusScorer(ManagerBoundModule):
     @staticmethod
     def _brain_source_topic_terms(runtime: _BrainSourceRuntime) -> set[str]:
         terms: set[str] = set()
+        metadata_value = runtime.spec.get("metadata")
+        metadata = metadata_value if isinstance(metadata_value, Mapping) else {}
         for raw in list(runtime.spec.get("topic_terms") or []):
             for term in salient_query_terms(str(raw)):
                 cleaned = _canonical_provider_term(term)
@@ -163,13 +166,11 @@ class SourceFocusScorer(ManagerBoundModule):
                 cleaned = _canonical_provider_term(term)
                 if len(cleaned) >= 4:
                     terms.add(cleaned)
-        metadata = runtime.spec.get("metadata")
-        if isinstance(metadata, Mapping):
-            for key in ("role", "label", "why", "summary", "description", "title"):
-                for term in salient_query_terms(str(metadata.get(key, ""))):
-                    cleaned = _canonical_provider_term(term)
-                    if len(cleaned) >= 4:
-                        terms.add(cleaned)
+        for key in ("role", "label", "why", "summary", "description", "title"):
+            for term in salient_query_terms(str(metadata.get(key, ""))):
+                cleaned = _canonical_provider_term(term)
+                if len(cleaned) >= 4:
+                    terms.add(cleaned)
         return terms
 
     def _brain_source_semantic_match_locked(
@@ -189,7 +190,8 @@ class SourceFocusScorer(ManagerBoundModule):
         overlap = len(focus_set & source_terms) / max(1.0, min(float(len(focus_set)), float(len(source_terms))))
         head_hits = sum(1 for term in normalized_focus[:3] if term in source_terms)
         head_bonus = min(1.0, 0.5 * head_hits)
-        metadata = runtime.spec.get("metadata") if isinstance(runtime.spec.get("metadata"), Mapping) else {}
+        metadata_value = runtime.spec.get("metadata")
+        metadata = metadata_value if isinstance(metadata_value, Mapping) else {}
         combined_text = " ".join(
             part
             for part in [
@@ -362,7 +364,8 @@ class SourceFocusScorer(ManagerBoundModule):
         response: Mapping[str, Any],
         action_assist: Mapping[str, Any] | None,
     ) -> float:
-        gap_plan = query_result.get("gap_plan") if isinstance(query_result.get("gap_plan"), Mapping) else {}
+        gap_plan_value = query_result.get("gap_plan")
+        gap_plan = gap_plan_value if isinstance(gap_plan_value, Mapping) else {}
         grounded_fraction = max(0.0, min(1.0, float(gap_plan.get("grounded_fraction", 0.0) or 0.0)))
         evidence_coverage = max(0.0, min(1.0, float(response.get("evidence_coverage", 0.0) or 0.0)))
         selected_evidence_count = int(len(list(response.get("selected_evidence") or [])))
@@ -386,8 +389,10 @@ class SourceFocusScorer(ManagerBoundModule):
             ),
         )
         if isinstance(action_assist, Mapping):
-            record = action_assist.get("result") if isinstance(action_assist.get("result"), Mapping) else {}
-            verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
+            result_value = action_assist.get("result")
+            record = result_value if isinstance(result_value, Mapping) else {}
+            verification_value = record.get("verification")
+            verification = verification_value if isinstance(verification_value, Mapping) else {}
             if bool(verification.get("success", False)):
                 confidence = max(0.0, min(1.0, float(verification.get("confidence", 0.0) or 0.0)))
                 score = max(score, max(0.0, min(1.0, 0.55 + 0.35 * confidence)))

@@ -18,7 +18,7 @@ from typing import Any, Iterator, Mapping, Sequence, cast
 
 import torch
 
-from hecsn.data.corpus_loader import BackgroundPrefetchIterator, StreamingCorpusLoader
+from hecsn.data.corpus_loader import BackgroundPrefetchIterator, SourceType, StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.terminus_sensory import SensoryEpisode, build_sensory_stream
@@ -148,7 +148,15 @@ class RuntimeSources(ManagerBoundModule):
         return next(stream)
 
     def _build_brain_source_stream_locked(self, spec: dict[str, Any]) -> Iterator[tuple[str, torch.Tensor]]:
-        source_type = str(spec.get("source_type", "auto"))
+        source_type_raw = str(spec.get("source_type", "auto")).strip().lower() or "auto"
+        if source_type_raw == "file":
+            source_type: SourceType = "file"
+        elif source_type_raw == "hf":
+            source_type = "hf"
+        elif source_type_raw == "web":
+            source_type = "web"
+        else:
+            source_type = "auto"
         loader = StreamingCorpusLoader(
             source=str(spec.get("source", "")),
             source_type=source_type,
@@ -177,7 +185,7 @@ class RuntimeSources(ManagerBoundModule):
         *,
         visual_dim: int,
         audio_dim: int,
-        device: torch.device,
+        device: Any,
     ) -> Iterator[SensoryEpisode]:
         stream = build_sensory_stream(
             spec,

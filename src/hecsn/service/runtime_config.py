@@ -8,7 +8,7 @@ mutate replay datasets; it only turns operator config into normalized dicts.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.terminus_autonomy import (
@@ -195,8 +195,9 @@ class RuntimeConfig(ManagerBoundModule):
                             if str(item).strip()
                         ]
                 for key in ("catalog_priority", "prior_weight"):
-                    if key in entry and entry.get(key) is not None:
-                        normalized_entry[key] = float(entry.get(key))
+                    value = entry.get(key)
+                    if value is not None:
+                        normalized_entry[key] = float(cast(Any, value))
                 normalized_entries.append(normalized_entry)
             normalized["catalog_entries"] = normalized_entries
         else:
