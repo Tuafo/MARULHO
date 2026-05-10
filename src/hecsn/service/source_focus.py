@@ -1,13 +1,12 @@
 """Source focus and utility scoring helpers for Terminus.
 
-This module chooses useful text sources and updates source utility summaries.
+This module chooses useful text sources and scores source utility summaries.
 It keeps source scoring separate from brain-loop orchestration and from the
-delayed consequence learner.
+delayed consequence tracker.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from hecsn.semantics.grounding_text import salient_query_terms
@@ -15,7 +14,6 @@ from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
-DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
@@ -285,51 +283,6 @@ class SourceFocusScorer(ManagerBoundModule):
         phrase_hits = sum(1 for term in normalized_focus[:4] if term and term in combined.lower())
         phrase_bonus = min(1.0, 0.34 * phrase_hits)
         return max(0.0, min(1.0, 0.70 * overlap + 0.30 * phrase_bonus))
-
-    def _update_background_source_utility_locked(
-        self,
-        *,
-        runtime: _BrainSourceRuntime,
-        grounded_observation: Mapping[str, Any] | None,
-        total_trained: int,
-    ) -> None:
-        entry = self._background_source_utility_entry_locked(runtime)
-        focus_plan = self._autonomy_focus_plan_locked()
-        focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
-        semantic_alignment = max(0.0, min(1.0, float(runtime.last_semantic_match)))
-        grounding_signal = 0.0
-        if isinstance(grounded_observation, Mapping):
-            grounding_signal = max(0.0, min(1.0, float(grounded_observation.get("grounding_signal", 0.0) or 0.0)))
-        focus_overlap = self._background_focus_overlap_locked(focus_terms, grounded_observation)
-        token_fraction = min(
-            1.0,
-            float(max(0, int(total_trained))) / float(max(1, int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)))),
-        )
-        utility_sample = max(
-            0.0,
-            min(
-                1.0,
-                0.50 * semantic_alignment
-                + 0.20 * grounding_signal
-                + 0.20 * focus_overlap
-                + 0.10 * token_fraction,
-            ),
-        )
-
-        entry["attempts"] = int(entry.get("attempts", 0)) + 1
-        entry["selections"] = int(entry.get("selections", 0)) + 1
-        entry["tokens_trained_total"] = int(entry.get("tokens_trained_total", 0)) + max(0, int(total_trained))
-        alpha = 0.30
-        for key, sample in (
-            ("utility_ema", utility_sample),
-            ("semantic_alignment_ema", semantic_alignment),
-            ("grounding_signal_ema", grounding_signal),
-            ("focus_overlap_ema", focus_overlap),
-        ):
-            previous = max(0.0, min(1.0, float(entry.get(key, 0.0) or 0.0)))
-            entry[key] = float(sample if int(entry["selections"]) <= 1 else (1.0 - alpha) * previous + alpha * float(sample))
-        entry["last_selected_at"] = datetime.now(timezone.utc).isoformat()
-        self._runtime_state.mark_mutated()
 
     @staticmethod
     def _selected_evidence_weight_map(

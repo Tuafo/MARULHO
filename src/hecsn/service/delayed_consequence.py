@@ -1,8 +1,9 @@
-"""Delayed-consequence learning helpers for Terminus.
+"""Delayed-consequence tracking helpers for Terminus.
 
-This mixin contains long-horizon utility learning for sources/providers and
-response provenance. It is intentionally isolated from the service facade so the
-living-brain learning rules can be audited separately from runtime control.
+This tracker owns the long-horizon consequence record state machines for
+sources/providers and response provenance. Source utility mutation is owned by
+Brain Runtime through an explicit interface so the learning rules stay
+separable from runtime control.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
 from hecsn.semantics.grounding_text import salient_query_terms
+from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
@@ -45,7 +47,7 @@ DEFAULT_FORGIVENESS_RECOVERY_RATIO = 0.80
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
-class DelayedConsequenceMixin:
+class DelayedConsequenceTracker(ManagerBoundModule):
     @staticmethod
     def _consequence_query_terms(value: Any) -> list[str]:
         normalized_text = " ".join(str(value).split()).strip()
@@ -2453,68 +2455,6 @@ class DelayedConsequenceMixin:
             "recent_records": recent_records,
         }
 
-    @staticmethod
-    def _normalize_background_source_utility_state(value: Any) -> dict[str, dict[str, Any]]:
-        if not isinstance(value, Mapping):
-            return {}
-
-        def _safe_int(raw_value: Any) -> int:
-            try:
-                return max(0, int(raw_value))
-            except (TypeError, ValueError):
-                return 0
-
-        def _safe_float(raw_value: Any) -> float:
-            try:
-                return max(0.0, min(1.0, float(raw_value)))
-            except (TypeError, ValueError):
-                return 0.0
-
-        normalized: dict[str, dict[str, Any]] = {}
-        for raw_name, raw_entry in value.items():
-            name = " ".join(str(raw_name).split()).strip()
-            if not name or not isinstance(raw_entry, Mapping):
-                continue
-            normalized[name] = {
-                "attempts": _safe_int(raw_entry.get("attempts", 0)),
-                "selections": _safe_int(raw_entry.get("selections", 0)),
-                "tokens_trained_total": _safe_int(raw_entry.get("tokens_trained_total", 0)),
-                "utility_ema": _safe_float(raw_entry.get("utility_ema", 0.0)),
-                "semantic_alignment_ema": _safe_float(raw_entry.get("semantic_alignment_ema", 0.0)),
-                "grounding_signal_ema": _safe_float(raw_entry.get("grounding_signal_ema", 0.0)),
-                "focus_overlap_ema": _safe_float(raw_entry.get("focus_overlap_ema", 0.0)),
-                "grounded_outcome_ema": _safe_float(raw_entry.get("grounded_outcome_ema", 0.0)),
-                "grounded_family_summary_ema": _safe_float(raw_entry.get("grounded_family_summary_ema", 0.0)),
-                "delayed_consequence_ema": _safe_float(raw_entry.get("delayed_consequence_ema", 0.0)),
-                "contradiction_decay_ema": _safe_float(raw_entry.get("contradiction_decay_ema", 0.0)),
-                "last_selected_at": " ".join(str(raw_entry.get("last_selected_at", "")).split()).strip(),
-            }
-        return normalized
-
-    def _background_source_utility_entry_locked(self, runtime: _BrainSourceRuntime) -> dict[str, Any]:
-        name = str(runtime.name).strip()
-        entry = self._brain_source_utility.setdefault(
-            name,
-            {
-                "attempts": 0,
-                "selections": 0,
-                "tokens_trained_total": 0,
-                "utility_ema": 0.0,
-                "semantic_alignment_ema": 0.0,
-                "grounding_signal_ema": 0.0,
-                "focus_overlap_ema": 0.0,
-                "grounded_outcome_ema": 0.0,
-                "grounded_family_summary_ema": 0.0,
-                "delayed_consequence_ema": 0.0,
-                "contradiction_decay_ema": 0.0,
-                "last_selected_at": "",
-            },
-        )
-        entry.setdefault("grounded_family_summary_ema", 0.0)
-        entry.setdefault("delayed_consequence_ema", 0.0)
-        entry.setdefault("contradiction_decay_ema", 0.0)
-        return entry
-
     def _normalize_delayed_consequence_record(self, item: Any) -> dict[str, Any] | None:
         if not isinstance(item, Mapping):
             return None
@@ -2742,3 +2682,6 @@ class DelayedConsequenceMixin:
             "last_evaluated_at": self._normalize_action_text(item.get("last_evaluated_at", "")),
             "last_evaluated_query_text": self._normalize_action_text(item.get("last_evaluated_query_text", "")),
         }
+
+
+DelayedConsequenceMixin = DelayedConsequenceTracker
