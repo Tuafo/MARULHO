@@ -78,10 +78,6 @@ def _run_live_acquisition_func() -> Any:
 
 
 class BrainRuntime(ManagerBoundModule):
-    def _autonomy_planner_module(self) -> Any:
-        planner = getattr(self, "_autonomy_planner", None)
-        return planner if planner is not None else self
-
     def _ordered_brain_runtime_indices_locked(
         self,
         *,
@@ -89,7 +85,7 @@ class BrainRuntime(ManagerBoundModule):
         excluded_indices: set[int] | None = None,
     ) -> tuple[list[int], list[str], float]:
         excluded = excluded_indices or set()
-        autonomy_planner = self._autonomy_planner_module()
+        autonomy_planner = self._bound_module("_autonomy_planner")
         focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
         focus_pressure, _focus_pressure_details = autonomy_planner._autonomy_focus_pressure_locked(focus_plan)
@@ -728,7 +724,7 @@ class BrainRuntime(ManagerBoundModule):
         total_trained: int,
     ) -> None:
         entry = self._background_source_utility_entry_locked(runtime)
-        autonomy_planner = self._autonomy_planner_module()
+        autonomy_planner = self._bound_module("_autonomy_planner")
         focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
         semantic_alignment = max(0.0, min(1.0, float(runtime.last_semantic_match)))
@@ -932,7 +928,7 @@ class BrainRuntime(ManagerBoundModule):
         if not autonomy or not bool(autonomy.get("enabled", False)):
             return None
         token_delta = int(self._trainer.token_count) - int(self._brain_last_acquisition_token_count)
-        autonomy_planner = self._autonomy_planner_module()
+        autonomy_planner = self._bound_module("_autonomy_planner")
         focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         adaptive_learning = autonomy_planner._adaptive_autonomy_settings_locked(autonomy, focus_plan)
         trigger_interval = int(
@@ -1096,7 +1092,7 @@ class BrainRuntime(ManagerBoundModule):
             next_source_name = self._brain_source_runtimes[0].name
             background_selection_order = [self._brain_source_runtimes[0].name]
         elif len(self._brain_source_runtimes) > 1:
-            autonomy_planner = self._autonomy_planner_module()
+            autonomy_planner = self._bound_module("_autonomy_planner")
             background_focus_plan = autonomy_planner._autonomy_focus_plan_locked()
             background_focus_terms = self._background_focus_terms_locked(focus_plan=background_focus_plan)
             background_focus_pressure, _background_focus_pressure_details = autonomy_planner._autonomy_focus_pressure_locked(background_focus_plan)
@@ -1120,7 +1116,7 @@ class BrainRuntime(ManagerBoundModule):
         sensory_tokens_until_trigger = None
         sensory_trigger_ready = None
         if autonomy is not None:
-            autonomy_planner = self._autonomy_planner_module()
+            autonomy_planner = self._bound_module("_autonomy_planner")
             if autonomy_focus_plan is None:
                 autonomy_focus_plan = autonomy_planner._autonomy_focus_plan_locked()
             autonomy_provider_curriculum = autonomy_planner._provider_curriculum_snapshot_locked(autonomy, autonomy_focus_plan)

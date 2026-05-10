@@ -494,6 +494,10 @@ class HECSNServiceManager(
             cortex_signal_state_fn=self._cortex_signal_state_impl,
         )
 
+    def _autonomy_planner_or_self(self) -> Any:
+        planner = getattr(self, "_autonomy_planner", None)
+        return planner if planner is not None else self
+
     def _build_interaction_pipeline(
         self,
         *,
@@ -504,19 +508,11 @@ class HECSNServiceManager(
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
                 return False
-            planner = getattr(self, "_autonomy_planner", None)
-            if planner is not None:
-                planner._apply_provider_response_outcome_calibration_locked(
-                    autonomy=autonomy,
-                    response=kwargs["response"],
-                    outcome_score=kwargs["outcome_score"],
-                )
-            else:
-                self._apply_provider_response_outcome_calibration_locked(
-                    autonomy=autonomy,
-                    response=kwargs["response"],
-                    outcome_score=kwargs["outcome_score"],
-                )
+            self._autonomy_planner_or_self()._apply_provider_response_outcome_calibration_locked(
+                autonomy=autonomy,
+                response=kwargs["response"],
+                outcome_score=kwargs["outcome_score"],
+            )
             return True
 
         return InteractionPipeline(
@@ -550,19 +546,11 @@ class HECSNServiceManager(
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
                 return False
-            planner = getattr(self, "_autonomy_planner", None)
-            if planner is not None:
-                planner._apply_provider_outcome_calibration_locked(
-                    autonomy=autonomy,
-                    query_text=kwargs["query_text"],
-                    outcome_score=kwargs["outcome_score"],
-                )
-            else:
-                self._apply_provider_outcome_calibration_locked(
-                    autonomy=autonomy,
-                    query_text=kwargs["query_text"],
-                    outcome_score=kwargs["outcome_score"],
-                )
+            self._autonomy_planner_or_self()._apply_provider_outcome_calibration_locked(
+                autonomy=autonomy,
+                query_text=kwargs["query_text"],
+                outcome_score=kwargs["outcome_score"],
+            )
             return True
 
         return ActionExecutor(

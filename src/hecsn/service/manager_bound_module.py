@@ -13,6 +13,10 @@ class ManagerBoundModule:
     def __init__(self, manager: Any | None = None) -> None:
         object.__setattr__(self, "_manager", manager)
 
+    def _bound_module(self, attribute_name: str) -> Any:
+        module = getattr(self, attribute_name, None)
+        return module if module is not None else self
+
     def __getattr__(self, name: str) -> Any:
         manager = object.__getattribute__(self, "_manager")
         if manager is None:

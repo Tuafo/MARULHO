@@ -9,8 +9,6 @@ terminus autonomy mixin.
 
 from __future__ import annotations
 
-from typing import Any
-
 from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.terminus_autonomy import TerminusAutonomyMixin as _TerminusAutonomyMixin
 
@@ -18,9 +16,5 @@ from hecsn.service.terminus_autonomy import TerminusAutonomyMixin as _TerminusAu
 class AutonomyPlanner(ManagerBoundModule, _TerminusAutonomyMixin):
     """Manager-bound autonomy planner with legacy mixin behavior."""
 
-    def __init__(self, manager: Any | None = None) -> None:
-        super().__init__(manager)
-
 
 AutonomyPlannerMixin = AutonomyPlanner
-
