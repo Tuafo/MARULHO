@@ -10,6 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Mapping, Sequence
 
+from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.terminus_autonomy import (
     AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT,
     AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT,
@@ -28,30 +29,7 @@ DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_INGESTION_QUEUE_MULTIPLIER = 2
 
 
-class RuntimeConfig:
-    def __init__(self, manager: Any | None = None) -> None:
-        object.__setattr__(self, "_manager", manager)
-
-    def __getattr__(self, name: str) -> Any:
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None:
-            raise AttributeError(name)
-        return getattr(manager, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_manager":
-            object.__setattr__(self, name, value)
-            return
-        try:
-            manager = object.__getattribute__(self, "_manager")
-        except AttributeError:
-            object.__setattr__(self, name, value)
-            return
-        if manager is None or manager is self:
-            object.__setattr__(self, name, value)
-            return
-        setattr(manager, name, value)
-
+class RuntimeConfig(ManagerBoundModule):
     def _normalize_brain_source_spec(self, spec: Any, index: int) -> dict[str, Any]:
         if not isinstance(spec, dict):
             raise ValueError("Each Terminus source must be an object")

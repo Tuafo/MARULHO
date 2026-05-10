@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 from hecsn.semantics.grounding_text import salient_query_terms
+from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
@@ -18,30 +19,7 @@ DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
-class SourceFocusScorer:
-    def __init__(self, manager: Any | None = None) -> None:
-        object.__setattr__(self, "_manager", manager)
-
-    def __getattr__(self, name: str) -> Any:
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None:
-            raise AttributeError(name)
-        return getattr(manager, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_manager":
-            object.__setattr__(self, name, value)
-            return
-        try:
-            manager = object.__getattribute__(self, "_manager")
-        except AttributeError:
-            object.__setattr__(self, name, value)
-            return
-        if manager is None or manager is self:
-            object.__setattr__(self, name, value)
-            return
-        setattr(manager, name, value)
-
+class SourceFocusScorer(ManagerBoundModule):
     def _focus_gap_terms_locked(self, limit: int = 4) -> list[str]:
         terms: list[str] = []
 

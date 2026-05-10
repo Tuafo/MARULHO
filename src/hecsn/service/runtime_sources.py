@@ -20,6 +20,7 @@ import torch
 
 from hecsn.data.corpus_loader import BackgroundPrefetchIterator, StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
+from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.terminus_sensory import SensoryEpisode, build_sensory_stream
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -98,30 +99,7 @@ class _SensorySourceRuntime:
 
 
 
-class RuntimeSources:
-    def __init__(self, manager: Any | None = None) -> None:
-        object.__setattr__(self, "_manager", manager)
-
-    def __getattr__(self, name: str) -> Any:
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None:
-            raise AttributeError(name)
-        return getattr(manager, name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_manager":
-            object.__setattr__(self, name, value)
-            return
-        try:
-            manager = object.__getattribute__(self, "_manager")
-        except AttributeError:
-            object.__setattr__(self, name, value)
-            return
-        if manager is None or manager is self:
-            object.__setattr__(self, name, value)
-            return
-        setattr(manager, name, value)
-
+class RuntimeSources(ManagerBoundModule):
     @staticmethod
     def _source_spec_uses_live_remote(spec: Mapping[str, Any]) -> bool:
         source_type = str(spec.get("source_type", "auto") or "auto").strip().lower()
@@ -145,9 +123,9 @@ class RuntimeSources:
     @staticmethod
     def _wrap_remote_stream(spec: Mapping[str, Any], stream: Iterator[Any], *, is_sensory: bool) -> Iterator[Any]:
         uses_remote = (
-            RuntimeSourcesMixin._sensory_spec_uses_live_remote(spec)
+            RuntimeSources._sensory_spec_uses_live_remote(spec)
             if is_sensory
-            else RuntimeSourcesMixin._source_spec_uses_live_remote(spec)
+            else RuntimeSources._source_spec_uses_live_remote(spec)
         )
         if not uses_remote:
             return stream
@@ -207,7 +185,7 @@ class RuntimeSources:
             audio_dim=int(audio_dim),
             device=device,
         )
-        return cast(Iterator[SensoryEpisode], RuntimeSourcesMixin._wrap_remote_stream(spec, stream, is_sensory=True))
+        return cast(Iterator[SensoryEpisode], RuntimeSources._wrap_remote_stream(spec, stream, is_sensory=True))
 
     def _runtime_cache_root(self) -> Path:
         root = self._checkpoint_dir / "runtime_cache"
