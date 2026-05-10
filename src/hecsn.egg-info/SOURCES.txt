@@ -115,6 +115,7 @@ src/hecsn/service/runtime_prewarm.py
 src/hecsn/service/runtime_sources.py
 src/hecsn/service/runtime_state.py
 src/hecsn/service/schemas.py
+src/hecsn/service/autonomy_planner.py
 src/hecsn/service/sensory_preview.py
 src/hecsn/service/sensory_runtime.py
 src/hecsn/service/server.py
@@ -213,6 +214,7 @@ tests/test_self_improvement_readiness.py
 tests/test_semantic_encoder.py
 tests/test_service_api.py
 tests/test_service_benchmark.py
+tests/test_autonomy_planner.py
 tests/test_service_manager.py
 tests/test_sfa_correction.py
 tests/test_source_catalog.py

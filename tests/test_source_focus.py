@@ -117,6 +117,27 @@ class _FakeManager:
         return float(len(left_terms & right_terms)) / float(max(1, min(len(left_terms), len(right_terms))))
 
 
+class _FakeAutonomyPlanner:
+    def __init__(self, plan: dict[str, object]) -> None:
+        self.plan = plan
+        self.calls = 0
+
+    def _autonomy_focus_plan_locked(self):
+        self.calls += 1
+        return self.plan
+
+
+class _PlannerBackedManager:
+    def __init__(self) -> None:
+        self._interaction_pipeline = SimpleNamespace(recent_query_gaps=lambda: [])
+        self._autonomy_planner = _FakeAutonomyPlanner(
+            {
+                "query_terms": ["quantum"],
+                "unsupported_terms": ["mice"],
+            }
+        )
+
+
 class SourceFocusSeamTests(unittest.TestCase):
     def test_alias_points_to_constructed_module(self) -> None:
         self.assertIs(SourceFocusMixin, SourceFocusScorer)
@@ -191,3 +212,11 @@ class SourceFocusSeamTests(unittest.TestCase):
         self.assertGreater(provider_weighted["arxiv"], 0.0)
         self.assertIn("notes.md", source_weighted)
         self.assertIn("archive.md", source_weighted)
+
+    def test_background_focus_terms_use_autonomy_planner_module_when_available(self) -> None:
+        module = SourceFocusScorer(_PlannerBackedManager())
+
+        terms = module._background_focus_terms_locked(limit=4)
+
+        self.assertEqual(terms[:2], ["quantum", "mice"])
+        self.assertEqual(module._autonomy_planner.calls, 1)

@@ -78,6 +78,10 @@ def _run_live_acquisition_func() -> Any:
 
 
 class BrainRuntime(ManagerBoundModule):
+    def _autonomy_planner_module(self) -> Any:
+        planner = getattr(self, "_autonomy_planner", None)
+        return planner if planner is not None else self
+
     def _ordered_brain_runtime_indices_locked(
         self,
         *,
@@ -85,9 +89,10 @@ class BrainRuntime(ManagerBoundModule):
         excluded_indices: set[int] | None = None,
     ) -> tuple[list[int], list[str], float]:
         excluded = excluded_indices or set()
-        focus_plan = self._autonomy_focus_plan_locked()
+        autonomy_planner = self._autonomy_planner_module()
+        focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
-        focus_pressure, _focus_pressure_details = self._autonomy_focus_pressure_locked(focus_plan)
+        focus_pressure, _focus_pressure_details = autonomy_planner._autonomy_focus_pressure_locked(focus_plan)
         tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
         source_count = max(1, len(self._brain_source_runtimes))
         ranked: list[tuple[int, float, float, float, float, float, int, str]] = []
@@ -723,7 +728,8 @@ class BrainRuntime(ManagerBoundModule):
         total_trained: int,
     ) -> None:
         entry = self._background_source_utility_entry_locked(runtime)
-        focus_plan = self._autonomy_focus_plan_locked()
+        autonomy_planner = self._autonomy_planner_module()
+        focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
         semantic_alignment = max(0.0, min(1.0, float(runtime.last_semantic_match)))
         grounding_signal = 0.0
@@ -926,8 +932,9 @@ class BrainRuntime(ManagerBoundModule):
         if not autonomy or not bool(autonomy.get("enabled", False)):
             return None
         token_delta = int(self._trainer.token_count) - int(self._brain_last_acquisition_token_count)
-        focus_plan = self._autonomy_focus_plan_locked()
-        adaptive_learning = self._adaptive_autonomy_settings_locked(autonomy, focus_plan)
+        autonomy_planner = self._autonomy_planner_module()
+        focus_plan = autonomy_planner._autonomy_focus_plan_locked()
+        adaptive_learning = autonomy_planner._adaptive_autonomy_settings_locked(autonomy, focus_plan)
         trigger_interval = int(
             adaptive_learning.get("effective_trigger_interval_tokens", autonomy.get("trigger_interval_tokens", DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS))
         )
@@ -952,11 +959,11 @@ class BrainRuntime(ManagerBoundModule):
         if self._interaction_pipeline.consume_skip_next_autonomy_for_grounded_query():
             self._brain_last_acquisition_summary = None
             return None
-        candidate_specs = self._autonomy_candidate_specs_locked(
+        candidate_specs = autonomy_planner._autonomy_candidate_specs_locked(
             candidate_bank=list(autonomy.get("candidate_bank", [])),
             focus_plan=focus_plan,
         )
-        shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = self._autonomy_shortlist_settings_locked(
+        shortlist_size, shortlist_gap_weight, shortlist_affinity_weight = autonomy_planner._autonomy_shortlist_settings_locked(
             candidate_bank=candidate_specs,
             config=autonomy,
             focus_plan=focus_plan,
@@ -985,7 +992,7 @@ class BrainRuntime(ManagerBoundModule):
             semantic_plan=focus_plan,
             on_train_step=self._runtime_concept_callback_locked(),
         )
-        self._update_provider_curriculum_locked(
+        autonomy_planner._update_provider_curriculum_locked(
             autonomy=autonomy,
             result=result,
             candidate_specs=candidate_specs,
@@ -1011,7 +1018,7 @@ class BrainRuntime(ManagerBoundModule):
             "focus_plan": deepcopy(result.get("semantic_plan")),
             "recent_query_gap_count": int(len(self._interaction_pipeline.recent_query_gaps())),
             "adaptive_learning": deepcopy(adaptive_learning),
-            "provider_curriculum": deepcopy(self._provider_curriculum_snapshot_locked(autonomy, focus_plan)),
+            "provider_curriculum": deepcopy(autonomy_planner._provider_curriculum_snapshot_locked(autonomy, focus_plan)),
         }
         self._brain_last_acquisition_summary = summary
         return summary
@@ -1089,9 +1096,10 @@ class BrainRuntime(ManagerBoundModule):
             next_source_name = self._brain_source_runtimes[0].name
             background_selection_order = [self._brain_source_runtimes[0].name]
         elif len(self._brain_source_runtimes) > 1:
-            background_focus_plan = self._autonomy_focus_plan_locked()
+            autonomy_planner = self._autonomy_planner_module()
+            background_focus_plan = autonomy_planner._autonomy_focus_plan_locked()
             background_focus_terms = self._background_focus_terms_locked(focus_plan=background_focus_plan)
-            background_focus_pressure, _background_focus_pressure_details = self._autonomy_focus_pressure_locked(background_focus_plan)
+            background_focus_pressure, _background_focus_pressure_details = autonomy_planner._autonomy_focus_pressure_locked(background_focus_plan)
             ordered_indices, _focus_terms, _focus_pressure = self._ordered_brain_runtime_indices_locked(
                 start_index=self._brain_source_index,
             )
@@ -1112,10 +1120,11 @@ class BrainRuntime(ManagerBoundModule):
         sensory_tokens_until_trigger = None
         sensory_trigger_ready = None
         if autonomy is not None:
+            autonomy_planner = self._autonomy_planner_module()
             if autonomy_focus_plan is None:
-                autonomy_focus_plan = self._autonomy_focus_plan_locked()
-            autonomy_provider_curriculum = self._provider_curriculum_snapshot_locked(autonomy, autonomy_focus_plan)
-            autonomy_adaptive_learning = self._adaptive_autonomy_settings_locked(autonomy, autonomy_focus_plan)
+                autonomy_focus_plan = autonomy_planner._autonomy_focus_plan_locked()
+            autonomy_provider_curriculum = autonomy_planner._provider_curriculum_snapshot_locked(autonomy, autonomy_focus_plan)
+            autonomy_adaptive_learning = autonomy_planner._adaptive_autonomy_settings_locked(autonomy, autonomy_focus_plan)
             trigger_interval = int(
                 autonomy_adaptive_learning.get(
                     "effective_trigger_interval_tokens",

@@ -18,6 +18,10 @@ DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
 class SourceFocusScorer(ManagerBoundModule):
+    def _autonomy_planner_module(self) -> Any:
+        planner = getattr(self, "_autonomy_planner", None)
+        return planner if planner is not None else self
+
     def _focus_gap_terms_locked(self, limit: int = 4) -> list[str]:
         terms: list[str] = []
 
@@ -68,7 +72,7 @@ class SourceFocusScorer(ManagerBoundModule):
         *,
         focus_plan: Mapping[str, Any] | None = None,
     ) -> list[str]:
-        plan = focus_plan if focus_plan is not None else self._autonomy_focus_plan_locked()
+        plan = focus_plan if focus_plan is not None else self._autonomy_planner_module()._autonomy_focus_plan_locked()
         phrases: list[str] = []
         if isinstance(plan, Mapping):
             phrases.extend(str(item) for item in list(plan.get("query_terms") or []) if str(item).strip())
