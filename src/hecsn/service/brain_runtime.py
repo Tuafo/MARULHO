@@ -1,8 +1,9 @@
 """Brain runtime orchestration helpers for Terminus.
 
-This mixin owns source rebuilding, tick collection/training, grounded source
-observation injection, autonomy scheduling, animation snapshots, and runtime
-status snapshots. Delayed-consequence learning remains isolated elsewhere.
+This runtime owns source rebuilding, tick collection/training, grounded source
+observation injection, source utility state/mutation, autonomy scheduling,
+animation snapshots, and runtime status snapshots. Delayed-consequence
+learning remains isolated in its own tracker.
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ import torch
 from hecsn.data.corpus_loader import StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.runtime_sources import RuntimeSourcesMixin, _BrainSourceRuntime, _SensorySourceRuntime
+from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.runtime_sources import RuntimeSourcesMixin, SourceType, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -29,6 +31,35 @@ DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
+_BACKGROUND_SOURCE_UTILITY_INT_FIELDS = (
+    "attempts",
+    "selections",
+    "tokens_trained_total",
+)
+_BACKGROUND_SOURCE_UTILITY_FLOAT_FIELDS = (
+    "utility_ema",
+    "semantic_alignment_ema",
+    "grounding_signal_ema",
+    "focus_overlap_ema",
+    "grounded_outcome_ema",
+    "grounded_family_summary_ema",
+    "delayed_consequence_ema",
+    "contradiction_decay_ema",
+)
+_BACKGROUND_SOURCE_UTILITY_DEFAULTS: dict[str, Any] = {
+    "attempts": 0,
+    "selections": 0,
+    "tokens_trained_total": 0,
+    "utility_ema": 0.0,
+    "semantic_alignment_ema": 0.0,
+    "grounding_signal_ema": 0.0,
+    "focus_overlap_ema": 0.0,
+    "grounded_outcome_ema": 0.0,
+    "grounded_family_summary_ema": 0.0,
+    "delayed_consequence_ema": 0.0,
+    "contradiction_decay_ema": 0.0,
+    "last_selected_at": "",
+}
 
 
 def _manager_symbol(name: str, fallback: Any) -> Any:
@@ -46,7 +77,7 @@ def _run_live_acquisition_func() -> Any:
     return _manager_symbol("run_live_acquisition", run_live_acquisition)
 
 
-class BrainRuntimeMixin:
+class BrainRuntime(ManagerBoundModule):
     def _ordered_brain_runtime_indices_locked(
         self,
         *,
@@ -59,7 +90,7 @@ class BrainRuntimeMixin:
         focus_pressure, _focus_pressure_details = self._autonomy_focus_pressure_locked(focus_plan)
         tick_tokens = int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS))
         source_count = max(1, len(self._brain_source_runtimes))
-        ranked: list[tuple[int, float, float, float, float, int, str]] = []
+        ranked: list[tuple[int, float, float, float, float, float, int, str]] = []
         for idx, runtime in enumerate(self._brain_source_runtimes):
             if idx in excluded or runtime.exhausted:
                 continue
@@ -447,6 +478,7 @@ class BrainRuntimeMixin:
     ) -> Iterator[tuple[str, "torch.Tensor"]]:
         """Build a pattern stream without needing self._lock."""
         source_type = str(spec.get("source_type", "auto"))
+        source_type = cast(SourceType, source_type)
         loader = StreamingCorpusLoader(
             source=str(spec.get("source", "")),
             source_type=source_type,
@@ -634,18 +666,103 @@ class BrainRuntimeMixin:
             metadata=metadata,
         )
         return {
-            "observation_kind": "source",
-            "source_name": runtime.name,
-            "source_type": runtime.source_type,
             "content": excerpt,
             "topics": deduped_topics,
-            "salience": salience,
-            "grounding_signal": grounding_signal,
-            "evidence_unit_count": int(len(evidence_windows)),
-            "evidence_window_count": int(len(evidence_windows)),
-            "token_count": int(total_trained),
-            "recent_concepts": recent_concepts[:3],
+            "salience": float(salience),
+            "grounding_signal": float(grounding_signal),
+            "metadata": metadata,
         }
+
+    @staticmethod
+    def _normalize_background_source_utility_state(value: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(value, Mapping):
+            return {}
+
+        def _safe_int(raw_value: Any) -> int:
+            try:
+                return max(0, int(raw_value))
+            except (TypeError, ValueError):
+                return 0
+
+        def _safe_float(raw_value: Any) -> float:
+            try:
+                return max(0.0, min(1.0, float(raw_value)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        normalized: dict[str, dict[str, Any]] = {}
+        for raw_name, raw_entry in value.items():
+            name = " ".join(str(raw_name).split()).strip()
+            if not name or not isinstance(raw_entry, Mapping):
+                continue
+            entry = dict(_BACKGROUND_SOURCE_UTILITY_DEFAULTS)
+            for field in _BACKGROUND_SOURCE_UTILITY_INT_FIELDS:
+                entry[field] = _safe_int(raw_entry.get(field, 0))
+            for field in _BACKGROUND_SOURCE_UTILITY_FLOAT_FIELDS:
+                entry[field] = _safe_float(raw_entry.get(field, 0.0))
+            entry["last_selected_at"] = " ".join(str(raw_entry.get("last_selected_at", "")).split()).strip()
+            normalized[name] = entry
+        return normalized
+
+    def _background_source_utility_entry_locked(self, runtime: _BrainSourceRuntime) -> dict[str, Any]:
+        name = str(runtime.name).strip()
+        entry = self._brain_source_utility.setdefault(name, dict(_BACKGROUND_SOURCE_UTILITY_DEFAULTS))
+        for key, value in _BACKGROUND_SOURCE_UTILITY_DEFAULTS.items():
+            entry.setdefault(key, value)
+        return entry
+
+    def _background_source_utility_metrics_locked(self, runtime: _BrainSourceRuntime) -> dict[str, float]:
+        entry = self._background_source_utility_entry_locked(runtime)
+        return {key: float(entry.get(key, 0.0) or 0.0) for key in _BACKGROUND_SOURCE_UTILITY_FLOAT_FIELDS}
+
+    def _update_background_source_utility_locked(
+        self,
+        *,
+        runtime: _BrainSourceRuntime,
+        grounded_observation: Mapping[str, Any] | None,
+        total_trained: int,
+    ) -> None:
+        entry = self._background_source_utility_entry_locked(runtime)
+        focus_plan = self._autonomy_focus_plan_locked()
+        focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
+        semantic_alignment = max(0.0, min(1.0, float(runtime.last_semantic_match)))
+        grounding_signal = 0.0
+        if isinstance(grounded_observation, Mapping):
+            grounding_signal = max(0.0, min(1.0, float(grounded_observation.get("grounding_signal", 0.0) or 0.0)))
+        focus_overlap = 0.0
+        background_focus_overlap = getattr(self, "_background_focus_overlap_locked", None)
+        if callable(background_focus_overlap):
+            focus_overlap_raw = background_focus_overlap(focus_terms, grounded_observation)
+            focus_overlap = max(0.0, min(1.0, float(cast(Any, focus_overlap_raw))))
+        token_fraction = min(
+            1.0,
+            float(max(0, int(total_trained))) / float(max(1, int(self._brain_config.get("tick_tokens", DEFAULT_BRAIN_TICK_TOKENS)))),
+        )
+        utility_sample = max(
+            0.0,
+            min(
+                1.0,
+                0.50 * semantic_alignment
+                + 0.20 * grounding_signal
+                + 0.20 * focus_overlap
+                + 0.10 * token_fraction,
+            ),
+        )
+
+        entry["attempts"] = int(entry.get("attempts", 0)) + 1
+        entry["selections"] = int(entry.get("selections", 0)) + 1
+        entry["tokens_trained_total"] = int(entry.get("tokens_trained_total", 0)) + max(0, int(total_trained))
+        alpha = 0.30
+        for key, sample in (
+            ("utility_ema", utility_sample),
+            ("semantic_alignment_ema", semantic_alignment),
+            ("grounding_signal_ema", grounding_signal),
+            ("focus_overlap_ema", focus_overlap),
+        ):
+            previous = max(0.0, min(1.0, float(entry.get(key, 0.0) or 0.0)))
+            entry[key] = float(sample if int(entry["selections"]) <= 1 else (1.0 - alpha) * previous + alpha * float(sample))
+        entry["last_selected_at"] = datetime.now(timezone.utc).isoformat()
+        self._runtime_state.mark_mutated()
 
     def _finalize_tick_locked(
         self,
@@ -915,7 +1032,7 @@ class BrainRuntimeMixin:
             }
         context_tau = None
         if model.context_layer is not None and hasattr(model.context_layer, "log_tau"):
-            context_tau = torch.exp(model.context_layer.log_tau).detach().cpu().tolist()
+            context_tau = getattr(torch, "exp")(model.context_layer.log_tau).detach().cpu().tolist()
 
         # Binding layer summary
         binding_state = None
@@ -1094,6 +1211,7 @@ class BrainRuntimeMixin:
             },
             "source_progress": [
                 {
+                    **self._background_source_utility_metrics_locked(runtime),
                     "name": runtime.name,
                     "source_type": runtime.source_type,
                     "tokens_processed": int(runtime.tokens_processed),
@@ -1122,14 +1240,6 @@ class BrainRuntimeMixin:
                     "last_fairness_score": float(runtime.last_fairness_score),
                     "last_buffer_readiness": float(runtime.last_buffer_readiness),
                     "last_utility_score": float(runtime.last_utility_score),
-                    "utility_ema": float(self._background_source_utility_entry_locked(runtime).get("utility_ema", 0.0)),
-                    "semantic_alignment_ema": float(self._background_source_utility_entry_locked(runtime).get("semantic_alignment_ema", 0.0)),
-                    "grounding_signal_ema": float(self._background_source_utility_entry_locked(runtime).get("grounding_signal_ema", 0.0)),
-                    "focus_overlap_ema": float(self._background_source_utility_entry_locked(runtime).get("focus_overlap_ema", 0.0)),
-                    "grounded_outcome_ema": float(self._background_source_utility_entry_locked(runtime).get("grounded_outcome_ema", 0.0)),
-                    "grounded_family_summary_ema": float(self._background_source_utility_entry_locked(runtime).get("grounded_family_summary_ema", 0.0)),
-                    "delayed_consequence_ema": float(self._background_source_utility_entry_locked(runtime).get("delayed_consequence_ema", 0.0)),
-                    "contradiction_decay_ema": float(self._background_source_utility_entry_locked(runtime).get("contradiction_decay_ema", 0.0)),
                     "share_of_background_tokens": float(
                         0.0
                         if self._brain_background_tokens <= 0
@@ -1204,3 +1314,6 @@ class BrainRuntimeMixin:
             "recent_events": runtime_state_snapshot["recent_events"],
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
         }
+
+
+BrainRuntimeMixin = BrainRuntime

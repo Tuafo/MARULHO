@@ -8,8 +8,8 @@ Module structure:
 - runtime_feedback.py: Operator feedback normalization and application
 - action_assist.py: Query action-assist and audited action evidence injection
 - action_runtime.py: Digital action execution and audit summaries
-- brain_runtime.py: Brain source rebuild, tick, autonomy, and runtime snapshots
-- delayed_consequence.py: Long-horizon source/provider consequence learning
+- brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
+- delayed_consequence.py: Long-horizon consequence record state machines
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers
 - cortex_runtime.py: Cortex ask/sleep/thought/action-intent control helpers
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
@@ -22,7 +22,7 @@ Module structure:
 - runtime_prewarm.py: Remote warm promotion and ingestion prewarm loops
 - runtime_sources.py: Runtime source streams, live-remote wrapping, and caches
 - sensory_runtime.py: Multimodal sensory selection, prefetch, and injection
-- source_focus.py: Text-source focus, semantic scoring, and source utility
+- source_focus.py: Text-source focus and semantic scoring
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
 - sensory_preview.py: Sensory preview payload helpers (now delegates through status_read_model)
 - replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging

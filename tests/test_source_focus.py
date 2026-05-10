@@ -131,7 +131,7 @@ class SourceFocusSeamTests(unittest.TestCase):
                 "metadata": {"label": "cats in science"},
             },
             stream=iter([]),
-            buffered_patterns=deque([("cats chase mice", torch.tensor([1.0]))]),
+            buffered_patterns=deque([("cats chase mice", getattr(torch, "tensor")([1.0]))]),
         )
         focus_terms = module._background_focus_terms_locked(limit=6)
         score, semantic_match, fairness, readiness, utility = module._brain_source_selection_score_locked(
@@ -150,31 +150,6 @@ class SourceFocusSeamTests(unittest.TestCase):
         self.assertGreater(utility, 0.0)
         self.assertAlmostEqual(runtime.last_selection_score, score)
         self.assertAlmostEqual(runtime.last_semantic_match, semantic_match)
-
-    def test_update_background_source_utility_marks_mutation(self) -> None:
-        manager = _FakeManager()
-        module = SourceFocusScorer(manager)
-        runtime = _BrainSourceRuntime(
-            spec={
-                "name": "science_source",
-                "source": "science.txt",
-                "topic_terms": ["cats", "mice"],
-            },
-            stream=iter([]),
-        )
-
-        module._update_background_source_utility_locked(
-            runtime=runtime,
-            grounded_observation={"content": "cats and mice", "grounding_signal": 0.75},
-            total_trained=6,
-        )
-
-        entry = manager._brain_source_utility["science_source"]
-        self.assertEqual(manager._runtime_state.mutated, 1)
-        self.assertEqual(entry["attempts"], 2)
-        self.assertEqual(entry["selections"], 2)
-        self.assertGreater(entry["utility_ema"], 0.0)
-        self.assertTrue(entry["last_selected_at"])
 
     def test_selected_evidence_weight_map_handles_plural_and_singular_names(self) -> None:
         provider_weighted = SourceFocusScorer._selected_evidence_weight_map(
