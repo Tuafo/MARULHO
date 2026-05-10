@@ -146,7 +146,7 @@ from hecsn.service.interaction_pipeline import InteractionPipeline
 from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
 from hecsn.service.action_executor import ActionExecutor
 from hecsn.service.feedback_applier import FeedbackApplier
-from hecsn.service.brain_runtime import BrainRuntimeMixin
+from hecsn.service.brain_runtime import BrainRuntime
 from hecsn.service.delayed_consequence import DelayedConsequenceMixin
 from hecsn.service.persistence import RuntimePersistence
 from hecsn.service.cortex_runtime import CortexRuntimeMixin
@@ -245,7 +245,6 @@ from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
 class HECSNServiceManager(
     ReplayDatasetBundleMixin,
     RuntimeEvidenceMixin,
-    BrainRuntimeMixin,
     DelayedConsequenceMixin,
     RuntimePersistence,
     CortexRuntimeMixin,
@@ -267,9 +266,15 @@ class HECSNServiceManager(
 
     Manages the SNN model, cortex integration, brain loop,
     multimodal training, checkpointing, and the REST API state.
-    Autonomy / targeted acquisition logic is delegated to AutonomyPlanner
-    with the legacy mixin retained for compatibility during the split.
+    Autonomy / targeted acquisition logic is delegated to AutonomyPlanner,
+    and brain-loop behavior is delegated to an explicit BrainRuntime seam.
     """
+
+    def __getattr__(self, name: str) -> Any:
+        brain_runtime = self.__dict__.get("_brain_runtime")
+        if brain_runtime is not None and name in BrainRuntime.__dict__:
+            return getattr(brain_runtime, name)
+        raise AttributeError(name)
 
     def __init__(
         self,
@@ -295,6 +300,7 @@ class HECSNServiceManager(
         self._runtime_sources = RuntimeSourcesMixin(self)
         self._source_focus = SourceFocusMixin(self)
         self._autonomy_planner = AutonomyPlanner(self)
+        self._brain_runtime = BrainRuntime(self)
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
