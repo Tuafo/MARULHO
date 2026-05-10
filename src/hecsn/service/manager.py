@@ -459,8 +459,8 @@ class HECSNServiceManager(
             recent_query_gaps=list(terminus_state.get("recent_query_gaps") or []),
             runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
         )
-        self._brain_recent_query_gaps = self._interaction_pipeline._recent_query_gaps
-        self._runtime_episode_traces = self._interaction_pipeline._runtime_episode_traces
+        self._brain_recent_query_gaps = self._interaction_pipeline.recent_query_gap_history
+        self._runtime_episode_traces = self._interaction_pipeline.runtime_episode_trace_history
         self._brain_skip_next_autonomy_for_grounded_query = False
 
     @property

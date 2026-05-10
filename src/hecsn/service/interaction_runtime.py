@@ -7,7 +7,6 @@ helpers that those public methods still use.
 
 from __future__ import annotations
 
-from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
 import time
@@ -20,6 +19,7 @@ from hecsn.config.presets import get_autonomy_acquisition_preset
 from hecsn.gap_planner import plan_query_gaps
 from hecsn.service.interaction_pipeline import (
     DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
+    InteractionPipeline,
     REQUEST_FEED_ENCODING_MODE,
 )
 from hecsn.semantics.grounding_text import salient_query_terms
@@ -29,9 +29,6 @@ from hecsn.training.query_runner import build_query_result, feed_text
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
-DEFAULT_RECENT_QUERY_GAP_HISTORY = 8
-
-
 class InteractionRuntimeMixin:
     def query(
         self,
@@ -366,72 +363,7 @@ class InteractionRuntimeMixin:
         )
 
     def _normalize_recent_query_gap(self, item: Any) -> dict[str, Any] | None:
-        if not isinstance(item, dict):
-            return None
-        query_text = " ".join(str(item.get("query_text", "")).split()).strip()
-        if not query_text:
-            return None
-        unsupported_terms = [
-            str(term).strip().lower()
-            for term in list(item.get("unsupported_terms") or [])
-            if str(term).strip()
-        ]
-        gap_terms: list[dict[str, Any]] = []
-        for raw_gap in list(item.get("gap_terms") or []):
-            if not isinstance(raw_gap, dict):
-                continue
-            term = str(raw_gap.get("term", "")).strip().lower()
-            if not term:
-                continue
-            gap_terms.append(
-                {
-                    "term": term,
-                    "weight": float(raw_gap.get("weight", 0.0)),
-                }
-            )
-        retrieval_queries = [
-            " ".join(str(value).split()).strip()
-            for value in list(item.get("retrieval_queries") or [])
-            if " ".join(str(value).split()).strip()
-        ]
-        follow_up_questions = [
-            " ".join(str(value).split()).strip()
-            for value in list(item.get("follow_up_questions") or [])
-            if " ".join(str(value).split()).strip()
-        ]
-        weak_concepts: list[dict[str, Any]] = []
-        for raw_concept in list(item.get("weak_concepts") or []):
-            if not isinstance(raw_concept, dict):
-                continue
-            label = " ".join(str(raw_concept.get("label", "")).split()).strip()
-            top_terms = [
-                " ".join(str(value).split()).strip().lower()
-                for value in list(raw_concept.get("top_terms") or [])
-                if " ".join(str(value).split()).strip()
-            ]
-            if not label and not top_terms:
-                continue
-            weak_concepts.append(
-                {
-                    "label": label,
-                    "weakness": float(raw_concept.get("weakness", 0.0)),
-                    "uncertainty": float(raw_concept.get("uncertainty", 0.0)),
-                    "drift": float(raw_concept.get("drift", 0.0)),
-                    "top_terms": top_terms[:4],
-                    "match_count": max(0, int(raw_concept.get("match_count", 0))),
-                }
-            )
-        return {
-            "recorded_at": str(item.get("recorded_at") or datetime.now(timezone.utc).isoformat()),
-            "source": str(item.get("source") or "query"),
-            "query_text": query_text,
-            "unsupported_terms": unsupported_terms,
-            "gap_terms": gap_terms,
-            "retrieval_queries": retrieval_queries[:4],
-            "follow_up_questions": follow_up_questions[:4],
-            "weak_concepts": weak_concepts[:4],
-            "grounded_fraction": float(item.get("grounded_fraction", 0.0)),
-        }
+        return InteractionPipeline._normalize_recent_query_gap(item)
 
     def _record_recent_query_gap_locked(
         self,

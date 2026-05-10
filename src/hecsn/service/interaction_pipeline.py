@@ -243,28 +243,18 @@ class InteractionPipeline:
         self._learn_from_turn_fn = learn_from_turn_fn
         self._record_response_consequence_candidate_fn = record_response_consequence_candidate_fn
         self._skip_next_autonomy_for_grounded_query = False
-        self._recent_query_gaps: deque[dict[str, Any]] = deque(
-            (
-                item
-                for item in (
-                    self._normalize_recent_query_gap(raw_item)
-                    for raw_item in list(recent_query_gaps or [])
-                )
-                if item is not None
-            ),
-            maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY,
-        )
-        self._runtime_episode_traces: deque[dict[str, Any]] = deque(
-            (
-                item
-                for item in (
-                    self._normalize_runtime_episode_trace(raw_item)
-                    for raw_item in list(runtime_episode_traces or [])
-                )
-                if item is not None
-            ),
-            maxlen=DEFAULT_RUNTIME_EPISODE_TRACE_HISTORY,
-        )
+        self._recent_query_gaps: deque[dict[str, Any]] = deque(maxlen=DEFAULT_RECENT_QUERY_GAP_HISTORY)
+        self._runtime_episode_traces: deque[dict[str, Any]] = deque(maxlen=DEFAULT_RUNTIME_EPISODE_TRACE_HISTORY)
+        self._replace_recent_query_gaps_locked(recent_query_gaps)
+        self._replace_runtime_episode_traces_locked(runtime_episode_traces)
+
+    @property
+    def recent_query_gap_history(self) -> deque[dict[str, Any]]:
+        return self._recent_query_gaps
+
+    @property
+    def runtime_episode_trace_history(self) -> deque[dict[str, Any]]:
+        return self._runtime_episode_traces
 
     @staticmethod
     def _normalize_recent_query_gap(item: Any) -> dict[str, Any] | None:
@@ -351,16 +341,28 @@ class InteractionPipeline:
         runtime_episode_traces: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         with self._lock:
-            self._recent_query_gaps.clear()
-            for item in list(recent_query_gaps or []):
-                normalized = self._normalize_recent_query_gap(item)
-                if normalized is not None:
-                    self._recent_query_gaps.append(normalized)
-            self._runtime_episode_traces.clear()
-            for item in list(runtime_episode_traces or []):
-                normalized = self._normalize_runtime_episode_trace(item)
-                if normalized is not None:
-                    self._runtime_episode_traces.append(normalized)
+            self._replace_recent_query_gaps_locked(recent_query_gaps)
+            self._replace_runtime_episode_traces_locked(runtime_episode_traces)
+
+    def _replace_recent_query_gaps_locked(
+        self,
+        items: Sequence[Mapping[str, Any]] | None,
+    ) -> None:
+        self._recent_query_gaps.clear()
+        for raw_item in list(items or []):
+            normalized = self._normalize_recent_query_gap(raw_item)
+            if normalized is not None:
+                self._recent_query_gaps.append(normalized)
+
+    def _replace_runtime_episode_traces_locked(
+        self,
+        items: Sequence[Mapping[str, Any]] | None,
+    ) -> None:
+        self._runtime_episode_traces.clear()
+        for raw_item in list(items or []):
+            normalized = self._normalize_runtime_episode_trace(raw_item)
+            if normalized is not None:
+                self._runtime_episode_traces.append(normalized)
 
     def recent_query_gaps(self) -> list[dict[str, Any]]:
         with self._lock:

@@ -31,7 +31,6 @@ def _build_pipeline(
         "observe_concepts": [],
         "plan_gaps": [],
         "apply_delayed": [],
-        "record_recent_query_gap": [],
         "runtime_episode_payload": [],
         "persist_trace": [],
         "service_state_snapshot": [],
@@ -89,9 +88,6 @@ def _build_pipeline(
             "penalized_records": 0,
             "forgiven_records": 0,
         }
-
-    def record_recent_query_gap_fn(**kwargs: Any) -> None:
-        calls["record_recent_query_gap"].append(kwargs)
 
     def runtime_episode_payload_fn(**kwargs: Any) -> dict[str, Any]:
         calls["runtime_episode_payload"].append(kwargs)
@@ -240,7 +236,6 @@ def _build_feed_pipeline(
         "observe_concepts": [],
         "plan_gaps": [],
         "apply_delayed": [],
-        "record_recent_query_gap": [],
         "observe_runtime_concepts": [],
         "runtime_state_mark_mutated": 0,
         "runtime_state_mutation_summary": 0,
@@ -306,9 +301,6 @@ def _build_feed_pipeline(
             "penalized_records": 0,
             "forgiven_records": 0,
         }
-
-    def record_recent_query_gap_fn(**kwargs: Any) -> None:
-        calls["record_recent_query_gap"].append(kwargs)
 
     def observe_runtime_concepts_fn(**kwargs: Any) -> dict[str, Any] | None:
         calls["observe_runtime_concepts"].append(kwargs)
@@ -407,7 +399,6 @@ def _build_respond_pipeline(
         "observe_concepts": [],
         "plan_gaps": [],
         "apply_delayed": [],
-        "record_recent_query_gap": [],
         "build_response": [],
         "maybe_auto_action_assist": [],
         "response_grounded_outcome_score": [],
@@ -498,9 +489,6 @@ def _build_respond_pipeline(
             "penalized_records": 0,
             "forgiven_records": 0,
         }
-
-    def record_recent_query_gap_fn(**kwargs: Any) -> None:
-        calls["record_recent_query_gap"].append(kwargs)
 
     def build_response_fn(**kwargs: Any) -> dict[str, Any]:
         calls["build_response"].append(kwargs)
@@ -795,7 +783,6 @@ class InteractionPipelineFeedTests(unittest.TestCase):
             self.assertEqual(len(calls["observe_concepts"]), 0)
             self.assertEqual(len(calls["plan_gaps"]), 0)
             self.assertEqual(len(calls["apply_delayed"]), 0)
-            self.assertEqual(len(calls["record_recent_query_gap"]), 0)
             self.assertEqual(calls["runtime_state_mark_mutated"], 1)
             self.assertEqual(calls["runtime_state_mutation_summary"], 1)
             self.assertFalse(calls["service_state_snapshot"][0])
