@@ -27,7 +27,7 @@ const MAX_ITERATIONS = 10;
 
 const PI_MODEL = "nvidia-nim/z-ai/glm-5.1";
 
-const IDLE_TIMEOUT = 1800;
+const IDLE_TIMEOUT = 5400;
 
 const sandbox = hostDirect({
   env: {
