@@ -68,7 +68,7 @@ class SourceFocusScorer(ManagerBoundModule):
         *,
         focus_plan: Mapping[str, Any] | None = None,
     ) -> list[str]:
-        plan = focus_plan if focus_plan is not None else self._autonomy_focus_plan_locked()
+        plan = focus_plan if focus_plan is not None else self._bound_module("_autonomy_planner")._autonomy_focus_plan_locked()
         phrases: list[str] = []
         if isinstance(plan, Mapping):
             phrases.extend(str(item) for item in list(plan.get("query_terms") or []) if str(item).strip())

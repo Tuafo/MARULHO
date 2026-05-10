@@ -160,6 +160,7 @@ from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
 from hecsn.service.runtime_sources import RuntimeSourcesMixin, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.sensory_runtime import SensoryRuntimeMixin
+from hecsn.service.autonomy_planner import AutonomyPlanner
 from hecsn.service.status_runtime import StatusRuntimeMixin
 from hecsn.service.status_read_model import StatusReadModel
 from hecsn.service.sensory_preview import SensoryPreviewMixin
@@ -266,7 +267,8 @@ class HECSNServiceManager(
 
     Manages the SNN model, cortex integration, brain loop,
     multimodal training, checkpointing, and the REST API state.
-    Autonomy / targeted acquisition logic is in TerminusAutonomyMixin.
+    Autonomy / targeted acquisition logic is delegated to AutonomyPlanner
+    with the legacy mixin retained for compatibility during the split.
     """
 
     def __init__(
@@ -292,6 +294,7 @@ class HECSNServiceManager(
         self._runtime_config = RuntimeConfigMixin(self)
         self._runtime_sources = RuntimeSourcesMixin(self)
         self._source_focus = SourceFocusMixin(self)
+        self._autonomy_planner = AutonomyPlanner(self)
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
@@ -484,6 +487,10 @@ class HECSNServiceManager(
             cortex_signal_state_fn=self._cortex_signal_state_impl,
         )
 
+    def _autonomy_planner_or_self(self) -> Any:
+        planner = getattr(self, "_autonomy_planner", None)
+        return planner if planner is not None else self
+
     def _build_interaction_pipeline(
         self,
         *,
@@ -494,11 +501,12 @@ class HECSNServiceManager(
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
                 return False
-            return self._apply_provider_response_outcome_calibration_locked(
+            self._autonomy_planner_or_self()._apply_provider_response_outcome_calibration_locked(
                 autonomy=autonomy,
                 response=kwargs["response"],
                 outcome_score=kwargs["outcome_score"],
             )
+            return True
 
         return InteractionPipeline(
             lock=self._lock,
@@ -531,7 +539,7 @@ class HECSNServiceManager(
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
                 return False
-            self._apply_provider_outcome_calibration_locked(
+            self._autonomy_planner_or_self()._apply_provider_outcome_calibration_locked(
                 autonomy=autonomy,
                 query_text=kwargs["query_text"],
                 outcome_score=kwargs["outcome_score"],

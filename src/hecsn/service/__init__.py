@@ -23,13 +23,14 @@ Module structure:
 - runtime_sources.py: Runtime source streams, live-remote wrapping, and caches
 - sensory_runtime.py: Multimodal sensory selection, prefetch, and injection
 - source_focus.py: Text-source focus and semantic scoring
+- autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum)
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
 - sensory_preview.py: Sensory preview payload helpers (now delegates through status_read_model)
 - replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging
 - terminus_presets.py: Quick-start preset configurations
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources
 - terminus_sensory.py: Real Hugging Face multimodal stream adapters
-- terminus_autonomy.py: TerminusAutonomyMixin (focus planning, provider curriculum)
+- terminus_autonomy.py: legacy TerminusAutonomyMixin compatibility module
 - api.py: FastAPI route definitions
 - schemas.py: Request/response Pydantic models
 - server.py: CLI entry point (uvicorn launcher)
