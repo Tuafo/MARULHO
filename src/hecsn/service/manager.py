@@ -185,6 +185,7 @@ from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E4
 
 _BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
 _RUNTIME_CONTROL_DELEGATE_NAMES = frozenset(RuntimeControl.__dict__)
+_RUNTIME_CONTROL_DELEGATE_ATTRS = RUNTIME_CONTROL_STATE_FIELDS | _RUNTIME_CONTROL_DELEGATE_NAMES
 
 
 class _TimedCallFailure:
@@ -277,9 +278,7 @@ class HECSNServiceManager(
         if brain_runtime is not None and name in _BRAIN_RUNTIME_DELEGATE_NAMES:
             return getattr(brain_runtime, name)
         runtime_control = self.__dict__.get("_runtime_control")
-        if runtime_control is not None and (
-            name in RUNTIME_CONTROL_STATE_FIELDS or name in _RUNTIME_CONTROL_DELEGATE_NAMES
-        ):
+        if runtime_control is not None and name in _RUNTIME_CONTROL_DELEGATE_ATTRS:
             return getattr(runtime_control, name)
         raise AttributeError(name)
 
