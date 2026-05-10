@@ -196,56 +196,6 @@ class _TimedCallFailure:
         self.error = error
 
 
-class _LazyThoughtLoop:
-    """Compatibility proxy that initializes the real ThoughtLoop on active use."""
-
-    def __init__(self, manager: "HECSNServiceManager") -> None:
-        self._manager = manager
-
-    def _get(self) -> Any:
-        loop = self._manager._ensure_cortex_initialized()
-        if loop is None:
-            raise RuntimeError("cortex_unavailable")
-        return loop
-
-    @property
-    def is_running(self) -> bool:
-        loop = self._manager._thought_loop_actual
-        return bool(loop is not None and loop.is_running)
-
-    def snapshot(self) -> dict[str, Any]:
-        loop = self._manager._thought_loop_actual
-        if loop is None:
-            return self._manager._cortex_unavailable_snapshot()
-        return loop.snapshot()
-
-    def start(self) -> None:
-        loop = self._get()
-        loop.start()
-
-    def stop(self, timeout: float = 5.0) -> None:
-        loop = self._manager._thought_loop_actual
-        if loop is not None:
-            loop.stop(timeout=timeout)
-
-    def request_stop(self) -> None:
-        loop = self._manager._thought_loop_actual
-        if loop is not None:
-            loop.request_stop()
-
-    def submit_query(self, query: str) -> None:
-        self._get().submit_query(query)
-
-    def request_sleep(self, **kwargs: Any) -> dict[str, Any]:
-        return self._get().request_sleep(**kwargs)
-
-    def inject_action_result(self, **kwargs: Any) -> None:
-        self._get().inject_action_result(**kwargs)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._get(), name)
-
-
 from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
 
 
@@ -371,8 +321,6 @@ class HECSNServiceManager(
             terminus_state.get("background_source_utility")
         )
         self._brain_last_error: str | None = None
-        self._last_cortex_query_hint_text: str | None = None
-        self._last_cortex_query_hint_at = 0.0
         self._action_executor = self._build_action_executor(
             action_history=list(terminus_state.get("action_history") or [])
         )

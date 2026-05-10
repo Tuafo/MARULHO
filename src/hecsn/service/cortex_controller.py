@@ -124,9 +124,6 @@ class CortexController(ManagerBoundModule):
                 raise AttributeError("_thought_loop")
             setter(self, value)
             return
-        if name == "_manager" or name in CORTEX_CONTROLLER_STATE_FIELDS:
-            object.__setattr__(self, name, value)
-            return
         object.__setattr__(self, name, value)
 
     @staticmethod
@@ -511,6 +508,21 @@ class CortexController(ManagerBoundModule):
             ]
         return list(records)
 
+    @staticmethod
+    def _cortex_action_type(
+        *,
+        explicit_api_url: str,
+        explicit_url: str,
+        explicit_path: str,
+    ) -> str:
+        if explicit_api_url:
+            return "api_request"
+        if explicit_url:
+            return "web_fetch"
+        if explicit_path:
+            return "workspace_read"
+        return "workspace_search"
+
     @classmethod
     def _cortex_action_trigger_reason(cls, action_intent: str, action_type: str) -> str:
         normalized_intent = cls._normalize_action_text(action_intent).lower()
@@ -579,7 +591,11 @@ class CortexController(ManagerBoundModule):
             )
             return {"reused": True, "record": deepcopy(recent_contradicted[0])}
 
-        action_type = "api_request" if explicit_api_url else ("web_fetch" if explicit_url else ("workspace_read" if explicit_path else "workspace_search"))
+        action_type = self._cortex_action_type(
+            explicit_api_url=explicit_api_url,
+            explicit_url=explicit_url,
+            explicit_path=explicit_path,
+        )
         self._record_brain_event_locked(
             {
                 "type": "cortex_action_requested",
