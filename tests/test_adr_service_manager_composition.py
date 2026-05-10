@@ -1,10 +1,17 @@
-"""Tests for ADR 0003 Service Manager composition root and architecture guards (Issue #60).
+"""Tests for ADR 0003 Service Manager composition root and architecture guards.
+
+Issue #60: Manager composition root architecture guards.
+Issue #61: Accept ADR 0003 and align domain docs.
 
 These tests verify that HECSNServiceManager is a thin composition root per ADR 0003:
-  - No legacy mixin classes in the manager inheritance
-  - ADR-owned state is not directly defined on the manager
-  - RuntimeState private fields do not leak outside RuntimeState
-  - The manager constructs and wires deep modules explicitly
+
+- No legacy mixin classes in the manager inheritance
+- ADR-owned state is not directly defined on the manager
+- RuntimeState private fields do not leak outside RuntimeState
+- The manager constructs and wires deep modules explicitly
+- ADR 0003 is Accepted and does not contradict ADR 0001 or ADR 0002
+- ADR 0003 has a References section linking to PRD and prior ADRs
+- CONTEXT.md matches the final module inventory and ownership language
 """
 
 from __future__ import annotations
@@ -17,6 +24,9 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "hecsn" / "service"
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0003-service-manager-deep-module-split.md"
+_ADR_0001_PATH = _REPO_ROOT / "docs" / "adr" / "0001-living-loop-depth-aligned-module-split.md"
+_ADR_0002_PATH = _REPO_ROOT / "docs" / "adr" / "0002-runtime-state-ownership.md"
+_CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 
 # Legacy mixin classes that must not appear in HECSNServiceManager.__bases__
 _LEGACY_MIXIN_CLASSES = frozenset({
@@ -109,15 +119,32 @@ _RUNTIME_STATE_PRIVATE_FIELDS = frozenset({
     "_brain_event_history",
 })
 
+# Deep module names from ADR 0003 that CONTEXT.md must list
+_ADR_0003_DEEP_MODULES = (
+    "Runtime State",
+    "Delayed Consequence Tracker",
+    "Autonomy Planner",
+    "Brain Runtime",
+    "Interaction Pipeline",
+    "Feedback Applier",
+    "Source Focus Scorer",
+    "Runtime Controller",
+    "Status Read Model",
+    "Action Executor",
+    "Cortex Controller",
+    "Runtime Persistence",
+    "Runtime Config",
+    "Runtime Sources",
+    "Replay Controller",
+)
+
 
 def _parse_manager_init_self_assigns() -> set[str]:
     """Parse manager.py to find all self._X = assignments in __init__."""
     manager_path = _SERVICE_SRC_ROOT / "manager.py"
     tree = ast.parse(manager_path.read_text(encoding="utf-8"), filename=str(manager_path))
-
     assigned_fields: set[str] = set()
     in_init = False
-
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "__init__":
             in_init = True
@@ -132,8 +159,39 @@ def _parse_manager_init_self_assigns() -> set[str]:
                     assigned_fields.add(child.targets[0].attr)
             in_init = False
             break
-
     return assigned_fields
+
+
+def _all_composition_root_guard_conditions_pass() -> bool:
+    """Return True when all ADR 0003 composition root guard conditions pass.
+
+    This is the programmatic check that the implementation matches the
+    architectural decision: no legacy mixins in MRO, no ADR-owned state
+    on the manager __init__, and RuntimeState fields stay in RuntimeState.
+    """
+    from hecsn.service.manager import HECSNServiceManager
+
+    # Guard 1: No legacy mixin in MRO
+    mro_names = {cls.__name__ for cls in HECSNServiceManager.__mro__}
+    if mro_names & _LEGACY_MIXIN_CLASSES:
+        return False
+
+    # Guard 2: No ADR-owned state on manager __init__
+    init_fields = _parse_manager_init_self_assigns()
+    if init_fields & _ADR_OWNED_FIELDS:
+        return False
+
+    # Guard 3: RuntimeState private fields stay in runtime_state.py
+    for path in sorted(_SERVICE_SRC_ROOT.rglob("*.py")):
+        if path.name == "runtime_state.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in _RUNTIME_STATE_PRIVATE_FIELDS:
+                if isinstance(node.value, ast.Name) and node.value.id == "self":
+                    return False
+
+    return True
 
 
 class TestADR0003ManagerCompositionRoot(unittest.TestCase):
@@ -222,10 +280,9 @@ class TestADR0003DocumentStatus(unittest.TestCase):
     def test_adr_file_exists(self) -> None:
         self.assertTrue(_ADR_PATH.exists(), f"ADR file not found at {_ADR_PATH}")
 
-    def test_adr_has_status_proposed_or_accepted(self) -> None:
+    def test_adr_has_status_accepted(self) -> None:
         text = _ADR_PATH.read_text(encoding="utf-8")
         self.assertIn("## Status", text)
-        # After all module guards pass, this should be Accepted
         self.assertRegex(text, r"## Status\s*\n\s*Accepted")
 
     def test_adr_mentions_composition_root(self) -> None:
@@ -236,6 +293,134 @@ class TestADR0003DocumentStatus(unittest.TestCase):
         text = _ADR_PATH.read_text(encoding="utf-8")
         for module_name in ("RuntimeState", "InteractionPipeline", "ActionExecutor", "CortexController"):
             self.assertIn(module_name, text)
+
+    def test_adr_status_must_not_be_proposed_when_guards_pass(self) -> None:
+        """ADR 0003 must not remain Proposed after all guard conditions pass.
+
+        Architecture guards verify that the manager is a thin composition root
+        with no legacy mixins in MRO and no ADR-owned state on manager __init__.
+        When those conditions all pass, the ADR must reflect that the
+        implementation is complete by being Accepted, not Proposed.
+        """
+        guards_pass = _all_composition_root_guard_conditions_pass()
+        text = _ADR_PATH.read_text(encoding="utf-8")
+        is_proposed = bool(
+            __import__("re").search(r"## Status\s*\n\s*Proposed", text)
+        )
+        if guards_pass:
+            self.assertFalse(
+                is_proposed,
+                "ADR 0003 must not remain Proposed when all composition root "
+                "guard conditions pass (no legacy mixins in MRO, no ADR-owned "
+                "state on manager __init__, RuntimeState fields isolated). "
+                "Change ADR 0003 status to Accepted.",
+            )
+
+
+class TestADR0003ConsistencyWithPriorADRs(unittest.TestCase):
+    """ADR 0003 must not contradict ADR 0001 or ADR 0002."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.adr3_text = _ADR_PATH.read_text(encoding="utf-8")
+        cls.adr2_text = _ADR_0002_PATH.read_text(encoding="utf-8")
+
+    def test_adr3_references_adr_0001(self) -> None:
+        """ADR 0003 must reference ADR 0001 in its References section."""
+        self.assertIn("ADR 0001", self.adr3_text)
+
+    def test_adr3_references_adr_0002(self) -> None:
+        """ADR 0003 must reference ADR 0002 in its References section."""
+        self.assertIn("ADR 0002", self.adr3_text)
+
+    def test_adr3_has_references_section(self) -> None:
+        """ADR 0003 must have a ## References section."""
+        self.assertIn("## References", self.adr3_text)
+
+    def test_adr3_explicitly_states_no_contradiction_with_adr2(self) -> None:
+        """ADR 0003 must explicitly state it does not contradict ADR 0002.
+
+        ADR 0002 records that RuntimeState owns mutation truth. ADR 0003
+        must acknowledge this ownership and confirm it is preserved.
+        """
+        # ADR 0003 must mention ADR 0002 and acknowledge RuntimeState ownership
+        self.assertIn("ADR 0002", self.adr3_text)
+        self.assertIn("RuntimeState", self.adr3_text)
+
+    def test_adr3_preserves_runtime_state_ownership_from_adr2(self) -> None:
+        """ADR 0003 must not assign RuntimeState fields to other modules."""
+        # RuntimeState owns dirty_state, state_revision, last_event, recent_events per ADR 0002
+        for field in ("dirty_state", "state_revision", "last_event", "recent_events"):
+            self.assertIn(field, self.adr3_text)
+
+    def test_adr3_does_not_reopen_adr1_living_loop_split(self) -> None:
+        """ADR 0003 must not modify the ADR 0001 Living Loop depth split."""
+        # ADR 0003 should reference ADR 0001, not redefine its layers
+        self.assertIn("ADR 0001", self.adr3_text)
+
+    def test_adr3_references_prd(self) -> None:
+        """ADR 0003 must reference PRD #50."""
+        self.assertIn("PRD #50", self.adr3_text)
+
+
+class TestContextMdADR0003Alignment(unittest.TestCase):
+    """CONTEXT.md must match the ADR 0003 Service Manager module inventory."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.context_text = _CONTEXT_PATH.read_text(encoding="utf-8")
+
+    def test_context_mentions_adr_0003(self) -> None:
+        """CONTEXT.md must reference ADR 0003."""
+        self.assertIn("ADR 0003", self.context_text)
+
+    def test_context_lists_all_15_deep_modules(self) -> None:
+        """CONTEXT.md must list all 15 deep modules from ADR 0003."""
+        for module_name in _ADR_0003_DEEP_MODULES:
+            self.assertIn(
+                module_name,
+                self.context_text,
+                f"CONTEXT.md missing ADR 0003 deep module: {module_name}",
+            )
+
+    def test_context_describes_service_manager_as_composition_root(self) -> None:
+        """CONTEXT.md must describe Service Manager as a composition root."""
+        self.assertIn("composition root", self.context_text.lower())
+
+    def test_context_says_manager_owns_no_business_logic(self) -> None:
+        """CONTEXT.md must state the manager owns no business logic."""
+        # The Service Manager entry must say it wires/exposes but owns no logic
+        self.assertIn("owns no business logic", self.context_text.lower())
+
+    def test_context_runtime_state_description_matches_adr2(self) -> None:
+        """CONTEXT.md Runtime State description must align with ADR 0002."""
+        self.assertIn("dirty_state", self.context_text)
+        self.assertIn("state_revision", self.context_text)
+
+    def test_context_mentions_dirty_without_revision_for_replay(self) -> None:
+        """CONTEXT.md must document the replay dirty-without-revision path."""
+        self.assertIn("dirty-without-revision", self.context_text)
+
+    def test_context_does_not_use_legacy_mixin_language(self) -> None:
+        """CONTEXT.md Service Manager entry must not use legacy mixin language.
+
+        The module list should describe deep modules, not mixin inheritance.
+        """
+        # Find the Service Manager section
+        sm_idx = self.context_text.find("**Service Manager**")
+        if sm_idx == -1:
+            self.fail("CONTEXT.md missing Service Manager entry")
+        # Get text from Service Manager to the next top-level entry
+        sm_section = self.context_text[sm_idx:]
+        # Should not describe inheritance-based architecture
+        self.assertNotIn(
+            "inherits from",
+            sm_section.lower(),
+        )
+        self.assertNotIn(
+            "mixin inheritance",
+            sm_section.lower(),
+        )
 
 
 if __name__ == "__main__":

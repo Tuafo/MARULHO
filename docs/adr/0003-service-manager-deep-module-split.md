@@ -28,7 +28,7 @@ Dissolve the mixin inheritance into 15 independent deep modules, each with its o
 
 | Module | Absorbs | Lines | Owns (state) |
 |---|---|---|---|
-| RuntimeState | new | ~50 | `dirty_state`, `state_revision`, brain event log |
+| RuntimeState | new | ~50 | `dirty_state`, `state_revision`, `last_event`, `recent_events`, brain event log |
 | DelayedConsequenceTracker | DelayedConsequenceMixin | 2644 | consequence records, cooled/retired/compacted/split/remerged totals |
 | AutonomyPlanner | TerminusAutonomyMixin | 1771 | (reads shared state via interfaces) |
 | BrainRuntime | BrainRuntimeMixin | 1148 | source runtimes, source utility, tick counters, ingestion/sensory thread state |
@@ -48,14 +48,18 @@ Dissolve the mixin inheritance into 15 independent deep modules, each with its o
 
 1. **Constructor injection.** Each module declares its dependencies in its `__init__` signature. The Service Manager wires them. Tests provide fakes.
 2. **Writer owns state.** The module that mutates a piece of state owns it. Other modules access it through the owner's read methods. Key ownership assignments:
-   - `brain_source_utility` → BrainRuntime (mutated by DelayedConsequence via `brain_runtime.update_source_utility()`)
-   - `brain_recent_query_gaps` → InteractionPipeline (read by Autonomy and SourceFocus via `interaction.recent_query_gaps()`)
-   - `action_history` → ActionExecutor (read by 8+ modules via `action_executor.action_history()` and `action_executor.recent_relevant_actions()`)
+ - `brain_source_utility` → BrainRuntime (mutated by DelayedConsequence via `brain_runtime.update_source_utility()`)
+ - `brain_recent_query_gaps` → InteractionPipeline (read by Autonomy and SourceFocus via `interaction.recent_query_gaps()`)
+ - `action_history` → ActionExecutor (read by 8+ modules via `action_executor.action_history()` and `action_executor.recent_relevant_actions()`)
 3. **Shared RLock.** Each module receives the RLock as a constructor parameter. No module owns the lock. This avoids deadlock while preserving the current thread-safety model (brain thread + FastAPI handlers).
 4. **Direct references between modules.** Modules hold references to each other (injected at construction). No event bus, no manager orchestration. The dependency graph is explicit in each module's constructor.
 5. **RuntimeState for cross-cutting concerns.** A tiny module owns `dirty_state`, `state_revision`, and the brain event log. Modules call `runtime_state.mark_mutated()` and `runtime_state.record_event()` instead of depending on the Service Manager's internals.
 6. **Shallow modules collapsed.** LivingStatusMixin, SensoryPreviewMixin, and the shallow half of ReportingMixin collapse into StatusReadModel. They don't earn their own modules.
 7. **InteractionRuntime + RuntimeEvidence merged.** Every interaction (query/feed/respond) produces an episode trace — they're tightly coupled (10 cross-reads) and form a single interaction pipeline.
+
+### Relationship to ADR 0001 and ADR 0002
+
+This ADR does not reopen or contradict ADR 0001 or ADR 0002. The Living Loop depth-aligned module split and its unidirectional dependency chain remain intact (ADR 0001). RuntimeState remains the single owner of mutation truth, brain event history, `dirty_state`, `state_revision`, `last_event`, and `recent_events` (ADR 0002). This ADR extends the module inventory around the existing RuntimeState and Living Loop seams without redefining their ownership boundaries.
 
 ### Backward compatibility
 
@@ -111,3 +115,10 @@ Per-module locks create deadlock risk (A holds lock_A, waits for B which holds l
 
 - The total line count stays roughly the same — this is a reorganization, not a reduction
 - The Service Manager's public API surface doesn't change — FastAPI routes are untouched
+
+## References
+
+- PRD #50: Close ADR 0003 Service Manager deep module split
+- Issue #61: Accept ADR 0003 and align domain docs
+- ADR 0001: Split Living Loop monolith into depth-aligned modules
+- ADR 0002: Runtime State owns mutation truth and brain event history
