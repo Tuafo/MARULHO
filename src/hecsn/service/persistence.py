@@ -32,10 +32,7 @@ class RuntimePersistence:
         self.load_persisted_traces(trace_history or [])
 
     def __getattr__(self, name: str) -> Any:
-        try:
-            manager = object.__getattribute__(self, "_manager")
-        except AttributeError:
-            manager = None
+        manager = object.__getattribute__(self, "_manager")
         if manager is None:
             raise AttributeError(name)
         return getattr(manager, name)
@@ -75,10 +72,13 @@ class RuntimePersistence:
             return self._persist_trace_locked(trace)
 
     def load_persisted_traces(self, trace_history: Sequence[Mapping[str, Any]]) -> None:
-        self._trace_history = deque(
-            (deepcopy(dict(item)) for item in list(trace_history) if isinstance(item, Mapping)),
-            maxlen=self._trace_history.maxlen,
-        )
+        normalized = [
+            deepcopy(dict(item))
+            for item in trace_history
+            if isinstance(item, Mapping)
+        ]
+        self._trace_history.clear()
+        self._trace_history.extend(normalized)
 
     def save_checkpoint(self, path: str | None = None) -> dict[str, Any]:
         with self._lock:
@@ -136,28 +136,8 @@ class RuntimePersistence:
                 terminus_state.get("background_source_utility")
             )
             self._brain_last_error = None
-            self._action_history = deque(
-                (
-                    item
-                    for item in (
-                        self._normalize_action_record(raw_item)
-                        for raw_item in list(terminus_state.get("action_history") or [])
-                    )
-                    if item is not None
-                ),
-                maxlen=24,
-            )
-            self._replay_sample_history = deque(
-                (
-                    item
-                    for item in (
-                        self._normalize_replay_sample_record(raw_item)
-                        for raw_item in list(terminus_state.get("replay_sample_history") or [])
-                    )
-                    if item is not None
-                ),
-                maxlen=DEFAULT_REPLAY_SAMPLE_HISTORY,
-            )
+            self._action_history = list(terminus_state.get("action_history") or [])
+            self._replay_sample_history = list(terminus_state.get("replay_sample_history") or [])
             self._delayed_consequence_records = deque(
                 (
                     item

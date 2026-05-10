@@ -112,6 +112,26 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertEqual(history["history"][0]["replay_sample_id"], "replay-sample-1")
         self.assertEqual(controller.history[0]["replay_sample_id"], "replay-sample-1")
 
+    def test_history_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = ReplayController(manager)
+
+        history = controller.history
+        controller.history = [
+            {
+                "schema_version": 1,
+                "replay_sample_id": "replay-sample-1",
+                "mode": "sample",
+                "status": "recorded",
+                "selected_candidate_ids": ["candidate-1"],
+                "selected_candidates": [],
+                "safety_flags": {"audit_only": True, "operator_confirmed": True},
+            }
+        ]
+
+        self.assertIs(controller.history, history)
+        self.assertEqual(history[0]["replay_sample_id"], "replay-sample-1")
+
     def test_replay_sample_marks_dirty_without_revision(self) -> None:
         manager = _FakeReplayManager()
         controller = ReplayController(manager)

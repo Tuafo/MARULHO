@@ -34,10 +34,7 @@ class ReplayController:
         self.load_replay_sample_history(replay_sample_history or [])
 
     def __getattr__(self, name: str) -> Any:
-        try:
-            manager = object.__getattribute__(self, "_manager")
-        except AttributeError:
-            manager = None
+        manager = object.__getattribute__(self, "_manager")
         if manager is None:
             raise AttributeError(name)
         return getattr(manager, name)
@@ -53,10 +50,11 @@ class ReplayController:
     def load_replay_sample_history(self, replay_sample_history: Sequence[Mapping[str, Any]]) -> None:
         normalized = [
             item
-            for item in (self._normalize_replay_sample_record(raw_item) for raw_item in list(replay_sample_history))
+            for item in (self._normalize_replay_sample_record(raw_item) for raw_item in replay_sample_history)
             if item is not None
         ]
-        self._replay_sample_history = deque(normalized, maxlen=self._history_maxlen)
+        self._replay_sample_history.clear()
+        self._replay_sample_history.extend(normalized)
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:

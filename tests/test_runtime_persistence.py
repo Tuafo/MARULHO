@@ -133,6 +133,23 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertEqual(history[0]["trace_id"], "trace-1")
             self.assertEqual(Path(str(history[0]["trace_path"])).name, trace_path.name)
 
+    def test_trace_history_setter_preserves_existing_deque_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            persistence = RuntimePersistence(manager, trace_history_limit=2)
+
+            history = persistence.trace_history
+            persistence.trace_history = [
+                {
+                    "trace_id": "trace-1",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                }
+            ]
+
+            self.assertIs(persistence.trace_history, history)
+            self.assertEqual(history[0]["trace_id"], "trace-1")
+
     def test_save_checkpoint_uses_runtime_state_and_service_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
