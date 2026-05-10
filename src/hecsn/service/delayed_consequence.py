@@ -47,7 +47,42 @@ DEFAULT_FORGIVENESS_RECOVERY_RATIO = 0.80
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
+def _build_delayed_consequence_initial_state() -> dict[str, Any]:
+    return {
+        "_delayed_consequence_records": deque(maxlen=DEFAULT_DELAYED_CONSEQUENCE_RECORDS),
+        "_delayed_consequence_cooled_total": 0,
+        "_delayed_consequence_retired_total": 0,
+        "_delayed_consequence_compacted_total": 0,
+        "_delayed_consequence_split_total": 0,
+        "_delayed_consequence_remerged_total": 0,
+    }
+
+
+DELAYED_CONSEQUENCE_STATE_FIELDS = frozenset(_build_delayed_consequence_initial_state())
+
+
+def _restore_non_negative_int(state: dict[str, Any], key: str) -> int:
+    """Restore a non-negative integer total from checkpoint state."""
+    return max(0, int(state.get(key, 0) or 0))
+
+
 class DelayedConsequenceTracker(ManagerBoundModule):
+
+    def __init__(self, manager: Any | None = None) -> None:
+        object.__setattr__(self, "_manager", manager)
+        for field_name, initial_value in _build_delayed_consequence_initial_state().items():
+            object.__setattr__(self, field_name, initial_value)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_manager" or name in DELAYED_CONSEQUENCE_STATE_FIELDS:
+            object.__setattr__(self, name, value)
+            return
+        manager = object.__getattribute__(self, "_manager")
+        if manager is None or manager is self:
+            object.__setattr__(self, name, value)
+            return
+        setattr(manager, name, value)
+
     @staticmethod
     def _consequence_query_terms(value: Any) -> list[str]:
         normalized_text = " ".join(str(value).split()).strip()
@@ -2683,5 +2718,34 @@ class DelayedConsequenceTracker(ManagerBoundModule):
             "last_evaluated_query_text": self._normalize_action_text(item.get("last_evaluated_query_text", "")),
         }
 
+
+    def restore_state(self, terminus_state: dict[str, Any]) -> None:
+        """Restore consequence records and totals from checkpoint state."""
+        self._delayed_consequence_records = deque(
+            (
+                item
+                for item in (
+                    self._normalize_delayed_consequence_record(raw_item)
+                    for raw_item in list(terminus_state.get("delayed_consequence_records") or [])
+                )
+                if item is not None
+            ),
+            maxlen=DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
+        )
+        self._delayed_consequence_cooled_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_cooled_total",
+        )
+        self._delayed_consequence_retired_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_retired_total",
+        )
+        self._delayed_consequence_compacted_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_compacted_total",
+        )
+        self._delayed_consequence_split_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_split_total",
+        )
+        self._delayed_consequence_remerged_total = _restore_non_negative_int(
+            terminus_state, "delayed_consequence_remerged_total",
+        )
 
 DelayedConsequenceMixin = DelayedConsequenceTracker
