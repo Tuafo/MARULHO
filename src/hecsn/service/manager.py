@@ -155,7 +155,7 @@ from hecsn.service.replay_runtime import ReplayController
 from hecsn.service.interaction_runtime import InteractionRuntimeMixin
 from hecsn.service.living_status import LivingStatusMixin
 from hecsn.service.runtime_config import RuntimeConfigMixin
-from hecsn.service.runtime_control import RuntimeControlMixin
+from hecsn.service.runtime_control import RUNTIME_CONTROL_STATE_FIELDS, RuntimeControl
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
 from hecsn.service.runtime_sources import RuntimeSourcesMixin, _BrainSourceRuntime, _SensorySourceRuntime
@@ -184,6 +184,7 @@ from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_epi
 from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E402
 
 _BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
+_RUNTIME_CONTROL_DELEGATE_NAMES = frozenset(RuntimeControl.__dict__)
 
 
 class _TimedCallFailure:
@@ -255,7 +256,6 @@ class HECSNServiceManager(
     InteractionRuntimeMixin,
     LivingStatusMixin,
     RuntimeConfigMixin,
-    RuntimeControlMixin,
     RuntimePrewarmMixin,
     RuntimeSourcesMixin,
     SensoryRuntimeMixin,
@@ -276,7 +276,19 @@ class HECSNServiceManager(
         brain_runtime = self.__dict__.get("_brain_runtime")
         if brain_runtime is not None and name in _BRAIN_RUNTIME_DELEGATE_NAMES:
             return getattr(brain_runtime, name)
+        runtime_control = self.__dict__.get("_runtime_control")
+        if runtime_control is not None and (
+            name in RUNTIME_CONTROL_STATE_FIELDS or name in _RUNTIME_CONTROL_DELEGATE_NAMES
+        ):
+            return getattr(runtime_control, name)
         raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        runtime_control = self.__dict__.get("_runtime_control")
+        if runtime_control is not None and name in RUNTIME_CONTROL_STATE_FIELDS:
+            setattr(runtime_control, name, value)
+            return
+        object.__setattr__(self, name, value)
 
     def __init__(
         self,
@@ -303,6 +315,7 @@ class HECSNServiceManager(
         self._source_focus = SourceFocusMixin(self)
         self._autonomy_planner = AutonomyPlanner(self)
         self._brain_runtime = BrainRuntime(self)
+        self._runtime_control = RuntimeControl(self)
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
@@ -353,7 +366,6 @@ class HECSNServiceManager(
         self._delayed_consequence_remerged_total = max(0, int(terminus_state.get("delayed_consequence_remerged_total", 0) or 0))
         self._brain_last_acquisition_summary: dict[str, Any] | None = None
         self._brain_last_acquisition_token_count = int(self._trainer.token_count)
-        self._brain_running_since: str | None = None
         self._brain_last_tick_completed_at: str | None = None
         self._brain_last_tick_duration_ms: float | None = None
         self._brain_last_tick_token_delta = 0
@@ -363,44 +375,9 @@ class HECSNServiceManager(
         self._real_sensory_last_error: str | None = None
         self._last_sensory_focus_terms: tuple[str, ...] = ()
         self._sensory_preview_history: deque[dict[str, Any]] = deque(maxlen=8)
-        self._brain_thread: Thread | None = None
-        self._brain_stop_event: Event | None = None
-        self._brain_running = False
-        self._brain_stop_requested_at: str | None = None
-        self._brain_stop_requested_reason: str | None = None
-        self._brain_stop_requested_perf: float | None = None
-        self._brain_stop_timed_out = False
-        self._brain_last_stop_duration_ms: float | None = None
         self._real_sensory_episodes_completed = 0
         self._real_visual_accepted = 0
         self._real_audio_accepted = 0
-        self._ingestion_prewarm_thread: Thread | None = None
-        self._ingestion_prewarm_stop_event: Event | None = None
-        self._ingestion_prewarm_running = False
-        self._ingestion_configured_at: str | None = None
-        self._ingestion_configured_perf: float | None = None
-        self._ingestion_prewarm_started_at: str | None = None
-        self._ingestion_prewarm_started_perf: float | None = None
-        self._ingestion_prewarm_completed_at: str | None = None
-        self._ingestion_prewarm_last_duration_ms: float | None = None
-        self._ingestion_prewarm_last_error: str | None = None
-        self._ingestion_prewarm_run_count = 0
-        self._ingestion_prewarm_last_trigger: str | None = None
-        self._ingestion_prewarm_budget_exhausted = False
-        self._ingestion_warm_ready_at: str | None = None
-        self._ingestion_startup_warm_latency_ms: float | None = None
-        self._remote_warm_promotion_thread: Thread | None = None
-        self._remote_warm_promotion_stop_event: Event | None = None
-        self._remote_warm_promotion_running = False
-        self._remote_warm_promotion_last_trigger: str | None = None
-        self._sensory_configured_at: str | None = None
-        self._sensory_configured_perf: float | None = None
-        self._sensory_prewarm_budget_exhausted = False
-        self._sensory_warm_ready_at: str | None = None
-        self._sensory_startup_warm_latency_ms: float | None = None
-        self._active_execution_requests = 0
-        self._active_execution_idle_event = Event()
-        self._active_execution_idle_event.set()
         self._brain_stream_epoch = 0
         self._sensory_stream_epoch = 0
         self._rebuild_brain_sources_locked()

@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from hecsn.config.model_config import HECSNConfig
+from hecsn.service.manager_bound_module import ManagerBoundModule
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
@@ -16,9 +17,98 @@ DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 
 _cortex_logger = _logging.getLogger(__name__ + ".cortex")
 
+RUNTIME_CONTROL_STATE_FIELDS = frozenset(
+    {
+        "_active_execution_idle_event",
+        "_active_execution_requests",
+        "_brain_stop_event",
+        "_brain_stop_requested_at",
+        "_brain_stop_requested_perf",
+        "_brain_stop_requested_reason",
+        "_brain_stop_timed_out",
+        "_brain_thread",
+        "_brain_running",
+        "_brain_running_since",
+        "_brain_last_stop_duration_ms",
+        "_ingestion_configured_at",
+        "_ingestion_configured_perf",
+        "_ingestion_prewarm_budget_exhausted",
+        "_ingestion_prewarm_completed_at",
+        "_ingestion_prewarm_last_duration_ms",
+        "_ingestion_prewarm_last_error",
+        "_ingestion_prewarm_last_trigger",
+        "_ingestion_prewarm_run_count",
+        "_ingestion_prewarm_running",
+        "_ingestion_prewarm_started_at",
+        "_ingestion_prewarm_started_perf",
+        "_ingestion_prewarm_stop_event",
+        "_ingestion_prewarm_thread",
+        "_ingestion_startup_warm_latency_ms",
+        "_ingestion_warm_ready_at",
+        "_remote_warm_promotion_last_trigger",
+        "_remote_warm_promotion_running",
+        "_remote_warm_promotion_stop_event",
+        "_remote_warm_promotion_thread",
+        "_sensory_configured_at",
+        "_sensory_configured_perf",
+        "_sensory_prewarm_budget_exhausted",
+        "_sensory_startup_warm_latency_ms",
+        "_sensory_warm_ready_at",
+    }
+)
 
-class RuntimeControlMixin:
+
+class RuntimeControl(ManagerBoundModule):
     """Terminus configure/start/stop/tick runtime control helpers."""
+
+    def __init__(self, manager: Any | None = None) -> None:
+        object.__setattr__(self, "_manager", manager)
+        object.__setattr__(self, "_active_execution_idle_event", Event())
+        self._active_execution_idle_event.set()
+        self._active_execution_requests = 0
+        self._brain_stop_event = None
+        self._brain_stop_requested_at = None
+        self._brain_stop_requested_perf = None
+        self._brain_stop_requested_reason = None
+        self._brain_stop_timed_out = False
+        self._brain_thread = None
+        self._brain_running = False
+        self._brain_running_since = None
+        self._brain_last_stop_duration_ms = None
+        self._ingestion_configured_at = None
+        self._ingestion_configured_perf = None
+        self._ingestion_prewarm_budget_exhausted = False
+        self._ingestion_prewarm_completed_at = None
+        self._ingestion_prewarm_last_duration_ms = None
+        self._ingestion_prewarm_last_error = None
+        self._ingestion_prewarm_last_trigger = None
+        self._ingestion_prewarm_run_count = 0
+        self._ingestion_prewarm_running = False
+        self._ingestion_prewarm_started_at = None
+        self._ingestion_prewarm_started_perf = None
+        self._ingestion_prewarm_stop_event = None
+        self._ingestion_prewarm_thread = None
+        self._ingestion_startup_warm_latency_ms = None
+        self._ingestion_warm_ready_at = None
+        self._remote_warm_promotion_last_trigger = None
+        self._remote_warm_promotion_running = False
+        self._remote_warm_promotion_stop_event = None
+        self._remote_warm_promotion_thread = None
+        self._sensory_configured_at = None
+        self._sensory_configured_perf = None
+        self._sensory_prewarm_budget_exhausted = False
+        self._sensory_startup_warm_latency_ms = None
+        self._sensory_warm_ready_at = None
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_manager" or name in RUNTIME_CONTROL_STATE_FIELDS:
+            object.__setattr__(self, name, value)
+            return
+        manager = object.__getattribute__(self, "_manager")
+        if manager is None or manager is self:
+            object.__setattr__(self, name, value)
+            return
+        setattr(manager, name, value)
 
     def configure_terminus(
         self,
@@ -468,4 +558,7 @@ class RuntimeControlMixin:
                 last_metrics,
                 evidence_windows,
             )
+
+
+RuntimeControlMixin = RuntimeControl
 
