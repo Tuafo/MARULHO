@@ -19,6 +19,7 @@ DEFAULT_RUNTIME_FEEDBACK_HISTORY = 8
 DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT = 8
 DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT = 12
 DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS = 2000
+SUPPORTED_ACTION_TYPES = ("workspace_search", "workspace_read", "web_fetch", "api_request")
 
 
 class ActionExecutor:
@@ -77,7 +78,7 @@ class ActionExecutor:
             return {
                 "count": int(len(self._action_history)),
                 "root_path": str(self._action_root),
-                "supported_actions": ["workspace_search", "workspace_read", "web_fetch", "api_request"],
+                "supported_actions": list(SUPPORTED_ACTION_TYPES),
                 "actions": history,
             }
 
@@ -153,7 +154,7 @@ class ActionExecutor:
         trigger_query_text: str | None = None,
     ) -> dict[str, Any]:
         action_type = " ".join(str(action.get("action_type", action.get("type", ""))).split()).strip().lower()
-        if action_type not in {"workspace_search", "workspace_read", "web_fetch", "api_request"}:
+        if action_type not in SUPPORTED_ACTION_TYPES:
             return {"accepted": False, "reason": "unsupported_action_type", "action_type": action_type or None}
 
         requested_root = Path(str(action.get("root_path", ".") or "."))
@@ -612,6 +613,37 @@ class ActionExecutor:
             return 0.0
         return float(overlap) / float(max(1, len(query_terms)))
 
+    def _filter_records_for_explicit_target(
+        self,
+        records: Sequence[Mapping[str, Any]],
+        *,
+        explicit_api_url: str,
+        explicit_url: str,
+        explicit_path: str,
+    ) -> list[dict[str, Any]]:
+        filtered_records = [deepcopy(dict(record)) for record in records]
+        if explicit_api_url:
+            return [
+                record
+                for record in filtered_records
+                if self._api_request_record_matches_explicit_url(record, explicit_api_url)
+            ]
+        if explicit_url:
+            return [
+                record
+                for record in filtered_records
+                if str(record.get("action_type", "")) == "web_fetch"
+                and self._normalize_action_text((record.get("inputs") or {}).get("url", "")) == explicit_url
+            ]
+        if explicit_path:
+            return [
+                record
+                for record in filtered_records
+                if str(record.get("action_type", "")) == "workspace_read"
+                and self._normalize_action_text((record.get("inputs") or {}).get("path", "")) == explicit_path
+            ]
+        return filtered_records
+
     def _recent_relevant_action_records_locked(
         self,
         query_text: str,
@@ -750,14 +782,15 @@ class ActionExecutor:
             if text_key:
                 seen_texts.add(text_key)
         if injected:
+            injected_texts = {
+                self._normalize_action_text(injected_item.get("text", "")).lower()
+                for injected_item in injected
+            }
             query_summary["memory_episodes"] = injected + [
                 item
                 for item in existing
                 if self._normalize_action_text(item.get("text", item.get("raw_window", ""))).lower()
-                not in {
-                    self._normalize_action_text(injected_item.get("text", "")).lower()
-                    for injected_item in injected
-                }
+                not in injected_texts
             ]
         return int(len(injected))
 
@@ -766,6 +799,31 @@ class ActionExecutor:
         if actual:
             return f" I checked the workspace and observed: {actual}"
         return " I checked the workspace and found no additional grounded evidence there."
+
+    def _reuse_recent_action_assist(
+        self,
+        record: Mapping[str, Any],
+        *,
+        result_count: int,
+        response_episode_count: int,
+        used_in_response: bool,
+    ) -> dict[str, Any]:
+        assist = {
+            "triggered": True,
+            "executed": False,
+            "reused_recent_action": True,
+            "used_in_response": used_in_response,
+            "result": deepcopy(dict(record)),
+            "result_count": int(result_count),
+            "response_episode_count": int(response_episode_count),
+        }
+        verification = record.get("verification") if isinstance(record.get("verification"), Mapping) else {}
+        if bool(verification.get("contradiction", False)):
+            assist["reason"] = "recent_contradicted_action"
+            assist["response_note"] = self._contradicted_action_note_locked(record)
+            return assist
+        assist["reason"] = "recent_verified_action"
+        return assist
 
     def _should_auto_execute_action_locked(
         self,
@@ -802,94 +860,50 @@ class ActionExecutor:
         explicit_api_url = self._query_api_url_candidate(query_text)
         explicit_url = self._query_web_url_candidate(query_text) if not explicit_api_url else ""
         explicit_path = self._query_workspace_path_candidate_locked(query_text) if not (explicit_api_url or explicit_url) else ""
-        verified_records = self._recent_relevant_action_records_locked(query_text, statuses=("verified",), limit=2)
-        if explicit_api_url:
-            verified_records = [
-                record
-                for record in verified_records
-                if self._api_request_record_matches_explicit_url(record, explicit_api_url)
-            ]
-        elif explicit_url:
-            verified_records = [
-                record
-                for record in verified_records
-                if str(record.get("action_type", "")) == "web_fetch"
-                and self._normalize_action_text((record.get("inputs") or {}).get("url", "")) == explicit_url
-            ]
-        elif explicit_path:
-            verified_records = [
-                record
-                for record in verified_records
-                if str(record.get("action_type", "")) == "workspace_read"
-                and self._normalize_action_text((record.get("inputs") or {}).get("path", "")) == explicit_path
-            ]
+        verified_records = self._filter_records_for_explicit_target(
+            self._recent_relevant_action_records_locked(query_text, statuses=("verified",), limit=2),
+            explicit_api_url=explicit_api_url,
+            explicit_url=explicit_url,
+            explicit_path=explicit_path,
+        )
         if verified_records:
             injected = self._augment_query_result_with_action_records_locked(
                 query_result,
                 query_text=query_text,
                 records=verified_records,
             )
-            return {
-                "triggered": True,
-                "executed": False,
-                "reused_recent_action": True,
-                "reason": "recent_verified_action",
-                "used_in_response": bool(injected > 0),
-                "result": deepcopy(verified_records[0]),
-                "result_count": int(len(verified_records)),
-                "response_episode_count": int(injected),
-            }
+            return self._reuse_recent_action_assist(
+                verified_records[0],
+                result_count=len(verified_records),
+                response_episode_count=injected,
+                used_in_response=bool(injected > 0),
+            )
 
-        contradicted_records = self._recent_relevant_action_records_locked(query_text, statuses=("contradicted",), limit=1)
-        if explicit_api_url:
-            contradicted_records = [
-                record
-                for record in contradicted_records
-                if self._api_request_record_matches_explicit_url(record, explicit_api_url)
-            ]
-        elif explicit_url:
-            contradicted_records = [
-                record
-                for record in contradicted_records
-                if str(record.get("action_type", "")) == "web_fetch"
-                and self._normalize_action_text((record.get("inputs") or {}).get("url", "")) == explicit_url
-            ]
-        elif explicit_path:
-            contradicted_records = [
-                record
-                for record in contradicted_records
-                if str(record.get("action_type", "")) == "workspace_read"
-                and self._normalize_action_text((record.get("inputs") or {}).get("path", "")) == explicit_path
-            ]
+        contradicted_records = self._filter_records_for_explicit_target(
+            self._recent_relevant_action_records_locked(query_text, statuses=("contradicted",), limit=1),
+            explicit_api_url=explicit_api_url,
+            explicit_url=explicit_url,
+            explicit_path=explicit_path,
+        )
         if not self._should_auto_execute_action_locked(query_text=query_text, query_result=query_result, response=response):
             response_mode = self._normalize_action_text(response.get("response_mode", "")).lower()
             unsupported_terms = list(response.get("unsupported_terms") or [])
             if contradicted_records and (response_mode == "insufficient_evidence" or unsupported_terms):
-                return {
-                    "triggered": True,
-                    "executed": False,
-                    "reused_recent_action": True,
-                    "reason": "recent_contradicted_action",
-                    "used_in_response": False,
-                    "result": deepcopy(contradicted_records[0]),
-                    "result_count": 1,
-                    "response_episode_count": 0,
-                    "response_note": self._contradicted_action_note_locked(contradicted_records[0]),
-                }
+                return self._reuse_recent_action_assist(
+                    contradicted_records[0],
+                    result_count=1,
+                    response_episode_count=0,
+                    used_in_response=False,
+                )
             return None
 
         if contradicted_records:
-            return {
-                "triggered": True,
-                "executed": False,
-                "reused_recent_action": True,
-                "reason": "recent_contradicted_action",
-                "used_in_response": False,
-                "result": deepcopy(contradicted_records[0]),
-                "result_count": 1,
-                "response_episode_count": 0,
-                "response_note": self._contradicted_action_note_locked(contradicted_records[0]),
-            }
+            return self._reuse_recent_action_assist(
+                contradicted_records[0],
+                result_count=1,
+                response_episode_count=0,
+                used_in_response=False,
+            )
 
         gap_plan = query_result.get("gap_plan") if isinstance(query_result.get("gap_plan"), Mapping) else {}
         retrieval_queries = [
@@ -1042,7 +1056,7 @@ class ActionExecutor:
         return {
             "enabled": True,
             "root_path": str(self._action_root),
-            "supported_actions": ["workspace_search", "workspace_read", "web_fetch", "api_request"],
+            "supported_actions": list(SUPPORTED_ACTION_TYPES),
             "actions_recorded": int(len(self._action_history)),
             "verified_actions": int(verified),
             "contradicted_actions": int(contradicted),
