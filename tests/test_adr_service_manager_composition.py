@@ -18,14 +18,13 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import unittest
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "hecsn" / "service"
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0003-service-manager-deep-module-split.md"
-_ADR_0001_PATH = _REPO_ROOT / "docs" / "adr" / "0001-living-loop-depth-aligned-module-split.md"
-_ADR_0002_PATH = _REPO_ROOT / "docs" / "adr" / "0002-runtime-state-ownership.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 
 # Legacy mixin classes that must not appear in HECSNServiceManager.__bases__
@@ -143,11 +142,15 @@ def _parse_manager_init_self_assigns() -> set[str]:
     """Parse manager.py to find all self._X = assignments in __init__."""
     manager_path = _SERVICE_SRC_ROOT / "manager.py"
     tree = ast.parse(manager_path.read_text(encoding="utf-8"), filename=str(manager_path))
+
     assigned_fields: set[str] = set()
-    in_init = False
-    for node in ast.walk(tree):
+
+    # Walk only top-level class/function definitions to find __init__,
+    # then walk within that function node. This avoids the bug where
+    # ast.walk visits nodes in undefined order, causing an in_init flag
+    # to be reset by a later non-__init__ function.
+    for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef) and node.name == "__init__":
-            in_init = True
             for child in ast.walk(node):
                 if (
                     isinstance(child, ast.Assign)
@@ -157,8 +160,8 @@ def _parse_manager_init_self_assigns() -> set[str]:
                     and child.targets[0].value.id == "self"
                 ):
                     assigned_fields.add(child.targets[0].attr)
-            in_init = False
             break
+
     return assigned_fields
 
 
@@ -304,9 +307,7 @@ class TestADR0003DocumentStatus(unittest.TestCase):
         """
         guards_pass = _all_composition_root_guard_conditions_pass()
         text = _ADR_PATH.read_text(encoding="utf-8")
-        is_proposed = bool(
-            __import__("re").search(r"## Status\s*\n\s*Proposed", text)
-        )
+        is_proposed = bool(re.search(r"## Status\s*\n\s*Proposed", text))
         if guards_pass:
             self.assertFalse(
                 is_proposed,
@@ -323,44 +324,26 @@ class TestADR0003ConsistencyWithPriorADRs(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.adr3_text = _ADR_PATH.read_text(encoding="utf-8")
-        cls.adr2_text = _ADR_0002_PATH.read_text(encoding="utf-8")
-
-    def test_adr3_references_adr_0001(self) -> None:
-        """ADR 0003 must reference ADR 0001 in its References section."""
-        self.assertIn("ADR 0001", self.adr3_text)
-
-    def test_adr3_references_adr_0002(self) -> None:
-        """ADR 0003 must reference ADR 0002 in its References section."""
-        self.assertIn("ADR 0002", self.adr3_text)
 
     def test_adr3_has_references_section(self) -> None:
         """ADR 0003 must have a ## References section."""
         self.assertIn("## References", self.adr3_text)
 
-    def test_adr3_explicitly_states_no_contradiction_with_adr2(self) -> None:
-        """ADR 0003 must explicitly state it does not contradict ADR 0002.
+    def test_adr3_references_prior_adrs_and_prd(self) -> None:
+        """ADR 0003 must reference ADR 0001, ADR 0002, and PRD #50.
 
         ADR 0002 records that RuntimeState owns mutation truth. ADR 0003
         must acknowledge this ownership and confirm it is preserved.
+        ADR 0003 must also reference ADR 0001 rather than redefine its layers.
         """
-        # ADR 0003 must mention ADR 0002 and acknowledge RuntimeState ownership
-        self.assertIn("ADR 0002", self.adr3_text)
+        for reference in ("ADR 0001", "ADR 0002", "PRD #50"):
+            self.assertIn(reference, self.adr3_text)
         self.assertIn("RuntimeState", self.adr3_text)
 
     def test_adr3_preserves_runtime_state_ownership_from_adr2(self) -> None:
         """ADR 0003 must not assign RuntimeState fields to other modules."""
-        # RuntimeState owns dirty_state, state_revision, last_event, recent_events per ADR 0002
         for field in ("dirty_state", "state_revision", "last_event", "recent_events"):
             self.assertIn(field, self.adr3_text)
-
-    def test_adr3_does_not_reopen_adr1_living_loop_split(self) -> None:
-        """ADR 0003 must not modify the ADR 0001 Living Loop depth split."""
-        # ADR 0003 should reference ADR 0001, not redefine its layers
-        self.assertIn("ADR 0001", self.adr3_text)
-
-    def test_adr3_references_prd(self) -> None:
-        """ADR 0003 must reference PRD #50."""
-        self.assertIn("PRD #50", self.adr3_text)
 
 
 class TestContextMdADR0003Alignment(unittest.TestCase):
