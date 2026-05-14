@@ -28,8 +28,8 @@ The accepted implementation goes further than simple mixin extraction:
 
 - `HECSNServiceManager` does not use catch-all `__getattr__`, `__setattr__`, or legacy unbound mixin fallback routing.
 - Manager-owned ADR runtime state is moved behind the owning modules. Brain Runtime owns source runtimes, source utility, tick counters, stream epochs, and sensory episode/preview counters. Interaction Pipeline owns query gap history and runtime episode traces. RuntimeState owns mutation truth and brain event history.
-- Public Service Manager methods remain stable, but internal compatibility is expressed as explicit delegate methods and explicit state properties, not manager-bound attribute magic.
-- Deep modules no longer inherit from `ManagerBoundModule`; the owner-forwarder helper has been removed. RuntimeController and AutonomyPlanner use explicit dependency adapters, and the remaining service modules that previously used owner forwarders now receive explicit dependency objects or constructor callbacks. StatusReadModel owns the sensory preview projection directly.
+- Public Service Manager methods remain stable, but internal compatibility is expressed as explicit facade methods and explicit state properties, not manager-bound attribute magic or import-time dynamic delegate installation.
+- Deep modules no longer inherit from `ManagerBoundModule`; the owner-forwarder helper has been removed. RuntimeController and AutonomyPlanner use explicit dependency adapters, and the remaining service modules that previously used owner forwarders now receive explicit dependency objects or constructor callbacks. Module-level `*Mixin = ...` compatibility aliases have been removed. StatusReadModel owns the sensory preview projection directly.
 
 ### Module inventory
 
@@ -76,7 +76,7 @@ Compatibility imports such as `RuntimeControlMixin = RuntimeControl` may remain 
 
 ### Migration strategy
 
-This migration is implemented far enough that the Service Manager is no longer a legacy mixin inheritance surface and no longer has catch-all attribute routing. RuntimeController and AutonomyPlanner moved off manager-backed owner forwarders, and the remaining owner-forwarded modules have been converted to explicit dependency objects or constructor callbacks. Remaining compatibility work should continue by replacing broad manager facade delegates with explicit public facade methods where import compatibility allows.
+This migration is implemented far enough that the Service Manager is no longer a legacy mixin inheritance surface and no longer has catch-all attribute routing. RuntimeController and AutonomyPlanner moved off manager-backed owner forwarders, the remaining owner-forwarded modules have been converted to explicit dependency objects or constructor callbacks, and broad manager facade delegates are now explicit named methods rather than import-time installed wrappers. Remaining compatibility work should continue by moving mixin-named implementation modules to domain-named modules where import compatibility allows.
 
 1. Keep the ADR guard in `tests/test_adr_service_manager_composition.py` as the first regression target for future service-manager architecture work.
 2. When touching transitional facade delegates, prefer replacing them with a concrete constructor dependency or an interface method on the true owner.
@@ -119,7 +119,7 @@ Per-module locks create deadlock risk (A holds lock_A, waits for B which holds l
 
 - Constructor signatures get larger — the BrainRuntime module, as the central hub, will have many dependencies
 - Wiring code in the Service Manager's composition root must be maintained
-- Some compatibility modules and facade delegates remain while older tests/imports are retired
+- Some mixin-named implementation modules remain while older tests/imports are retired
 - Some cross-module calls that were previously `self.method()` become `other_module.method()`, which is a shallow syntax change with no semantic difference — but it adds a reference that must be managed
 
 ### Neutral

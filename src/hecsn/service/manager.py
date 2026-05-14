@@ -310,8 +310,8 @@ class HECSNServiceManager:
         self._encoder = self._trainer.encoder
         self._responder = EvidenceResponder()
         self._runtime_config = RuntimeConfig(
-            provider_query_family_priority=self._provider_query_family_priority_locked,
-            provider_topic_family_priority=self._provider_topic_family_priority_locked,
+            provider_query_family_priority=lambda family_entry: TerminusAutonomyMixin._provider_query_family_priority_locked(self, family_entry),
+            provider_topic_family_priority=lambda family_entry: TerminusAutonomyMixin._provider_topic_family_priority_locked(self, family_entry),
         )
         self._runtime_sources = RuntimeSources(
             RuntimeSourcesDependencies(
@@ -321,7 +321,7 @@ class HECSNServiceManager:
                 checkpoint_dir=lambda: self._checkpoint_dir,
                 checkpoint_path=lambda: self._checkpoint_path,
                 encoder=lambda: self._encoder,
-                sensory_queue_target_items=self._sensory_queue_target_items_locked,
+                sensory_queue_target_items=lambda: StatusRuntimeMixin._sensory_queue_target_items_locked(self),
                 sensory_source_runtimes=lambda: self._sensory_source_runtimes,
                 set_sensory_source_runtimes=lambda value: setattr(self, "_sensory_source_runtimes", list(value)),
                 trainer=lambda: self._trainer,
@@ -399,7 +399,7 @@ class HECSNServiceManager:
         self._replay_controller = ReplayController(
             ReplayControllerDependencies(
                 action_history=lambda: self._action_history,
-                cortex_unavailable_snapshot=self._cortex_unavailable_snapshot,
+                cortex_unavailable_snapshot=lambda: self._cortex_controller._cortex_unavailable_snapshot(),
                 living_loop_snapshot=lambda **kwargs: LivingStatusMixin._living_loop_snapshot_locked(self, **kwargs),
                 lock=self._lock,
                 normalize_action_text=self._normalize_action_text,
@@ -416,17 +416,17 @@ class HECSNServiceManager:
         self._delayed_consequence = DelayedConsequenceTracker(
             DelayedConsequenceDependencies(
                 action_record_relevance_score=self._action_record_relevance_score_locked,
-                background_focus_terms=self._background_focus_terms_locked,
+                background_focus_terms=lambda **kwargs: self._source_focus._background_focus_terms_locked(**kwargs),
                 background_source_utility_entry=self._background_source_utility_entry_locked,
                 brain_config=lambda: self._brain_config,
                 brain_source_runtimes=lambda: self._brain_source_runtimes,
-                brain_source_semantic_match=self._brain_source_semantic_match_locked,
+                brain_source_semantic_match=self._source_focus._brain_source_semantic_match_locked,
                 normalize_action_text=self._normalize_action_text,
                 normalize_provider_curriculum=self._normalize_provider_curriculum,
                 recent_relevant_action_records=self._recent_relevant_action_records_locked,
                 record_brain_event=self._record_brain_event_locked,
                 runtime_state=self._runtime_state,
-                selected_evidence_weight_map=self._selected_evidence_weight_map,
+                selected_evidence_weight_map=SourceFocusScorer._selected_evidence_weight_map,
                 source_text_overlap=self._source_text_overlap,
                 trainer=lambda: self._trainer,
             )
@@ -1035,34 +1035,1061 @@ class HECSNServiceManager:
             self._close_sensory_sources_locked()
 
 
-def _install_module_delegate(
-    name: str,
-    module_attr: str,
-) -> None:
-    if name in HECSNServiceManager.__dict__:
-        return
+    # --- Explicit compatibility facade methods (ADR 0003) ---
+    # Generated once from the former broad delegate surface so manager.py has
+    # named methods instead of import-time dynamic delegate installation.
+    def checkpoint_list(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.checkpoint_list(*args, **kwargs)
 
-    def _delegated(self: HECSNServiceManager, *args: Any, **kwargs: Any) -> Any:
-        module = object.__getattribute__(self, module_attr)
-        return getattr(module, name)(*args, **kwargs)
+    def recent_traces(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.recent_traces(*args, **kwargs)
 
-    _delegated.__name__ = name
-    setattr(HECSNServiceManager, name, _delegated)
+    def persist_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.persist_trace(*args, **kwargs)
 
+    def load_persisted_traces(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.load_persisted_traces(*args, **kwargs)
 
-def _install_mixin_delegate(
-    name: str,
-    mixin_cls: type,
-) -> None:
-    if name in HECSNServiceManager.__dict__:
-        return
-    descriptor = mixin_cls.__dict__[name]
+    def save_checkpoint(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.save_checkpoint(*args, **kwargs)
 
-    def _delegated(self: HECSNServiceManager, *args: Any, **kwargs: Any) -> Any:
-        return descriptor.__get__(self, type(self))(*args, **kwargs)
+    def restore_checkpoint(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.restore_checkpoint(*args, **kwargs)
 
-    _delegated.__name__ = name
-    setattr(HECSNServiceManager, name, _delegated)
+    def _service_state_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence._service_state_snapshot(*args, **kwargs)
+
+    def _resolve_save_path(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence._resolve_save_path(*args, **kwargs)
+
+    def _persist_trace_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence._persist_trace_locked(*args, **kwargs)
+
+    def _load_persisted_traces_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence._load_persisted_traces_locked(*args, **kwargs)
+
+    def _json_safe(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence._json_safe(*args, **kwargs)
+
+    def _record_brain_event_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence._record_brain_event_locked(*args, **kwargs)
+
+    def _cortex_unavailable_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._cortex_unavailable_snapshot(*args, **kwargs)
+
+    def _living_loop_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._living_loop_snapshot_locked(*args, **kwargs)
+
+    def _replay_plan_summary(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._replay_plan_summary(*args, **kwargs)
+
+    def _runtime_feedback_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._runtime_feedback_summary_locked(*args, **kwargs)
+
+    def _runtime_trace_export_safe_value(self, *args: Any, **kwargs: Any) -> Any:
+        return RuntimeEvidenceMixin._runtime_trace_export_safe_value(self, *args, **kwargs)
+
+    def load_replay_sample_history(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.load_replay_sample_history(*args, **kwargs)
+
+    def replay_plan_status(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.replay_plan_status(*args, **kwargs)
+
+    def replay_sample(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.replay_sample(*args, **kwargs)
+
+    def replay_sample_history(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.replay_sample_history(*args, **kwargs)
+
+    def _replay_sample_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._replay_sample_summary_locked(*args, **kwargs)
+
+    def _replay_sample_state_counts_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._replay_sample_state_counts_locked(*args, **kwargs)
+
+    def _sample_replay_candidates(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._sample_replay_candidates(*args, **kwargs)
+
+    def _replay_sample_candidate_payload(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._replay_sample_candidate_payload(*args, **kwargs)
+
+    def _normalize_replay_sample_record(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._normalize_replay_sample_record(*args, **kwargs)
+
+    def _normalize_recent_query_gap(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._normalize_recent_query_gap(*args, **kwargs)
+
+    def _normalize_runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._normalize_runtime_episode_trace(*args, **kwargs)
+
+    def load_interaction_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.load_interaction_state(*args, **kwargs)
+
+    def _replace_recent_query_gaps_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._replace_recent_query_gaps_locked(*args, **kwargs)
+
+    def _replace_runtime_episode_traces_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._replace_runtime_episode_traces_locked(*args, **kwargs)
+
+    def recent_query_gaps(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.recent_query_gaps(*args, **kwargs)
+
+    def record_recent_query_gap(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.record_recent_query_gap(*args, **kwargs)
+
+    def consume_skip_next_autonomy_for_grounded_query(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.consume_skip_next_autonomy_for_grounded_query(*args, **kwargs)
+
+    def runtime_episode_traces(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.runtime_episode_traces(*args, **kwargs)
+
+    def runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.runtime_episode_trace(*args, **kwargs)
+
+    def append_runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.append_runtime_episode_trace(*args, **kwargs)
+
+    def replace_runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.replace_runtime_episode_trace(*args, **kwargs)
+
+    def interaction_state_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.interaction_state_snapshot(*args, **kwargs)
+
+    def _query_runtime_actual_output(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._query_runtime_actual_output(*args, **kwargs)
+
+    def _query_runtime_verification(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._query_runtime_verification(*args, **kwargs)
+
+    def _feed_runtime_actual_output(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._feed_runtime_actual_output(*args, **kwargs)
+
+    def _feed_runtime_verification(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._feed_runtime_verification(*args, **kwargs)
+
+    def _enrich_query_result(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._enrich_query_result(*args, **kwargs)
+
+    def _build_runtime_episode(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_runtime_episode(*args, **kwargs)
+
+    def _finalize_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._finalize_trace(*args, **kwargs)
+
+    def _build_request(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_request(*args, **kwargs)
+
+    def _build_prediction(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_prediction(*args, **kwargs)
+
+    def _build_action(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_action(*args, **kwargs)
+
+    def _build_trace(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_trace(*args, **kwargs)
+
+    def _build_feed_request(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_feed_request(*args, **kwargs)
+
+    def _build_feed_prediction(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_feed_prediction(*args, **kwargs)
+
+    def _build_feed_action(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_feed_action(*args, **kwargs)
+
+    def _feed_text_for_request_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._feed_text_for_request_locked(*args, **kwargs)
+
+    def feed(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.feed(*args, **kwargs)
+
+    def query(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.query(*args, **kwargs)
+
+    def _build_respond_request(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_respond_request(*args, **kwargs)
+
+    def _build_respond_action(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_respond_action(*args, **kwargs)
+
+    def _build_respond_prediction(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_respond_prediction(*args, **kwargs)
+
+    def _respond_runtime_actual_output(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._respond_runtime_actual_output(*args, **kwargs)
+
+    def _respond_runtime_verification(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._respond_runtime_verification(*args, **kwargs)
+
+    def _require_respond_callback(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._require_respond_callback(*args, **kwargs)
+
+    def _require_respond_callbacks(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._require_respond_callbacks(*args, **kwargs)
+
+    def _build_response_payload(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._build_response_payload(*args, **kwargs)
+
+    def _apply_action_assist(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._apply_action_assist(*args, **kwargs)
+
+    def _apply_action_assist_to_action(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline._apply_action_assist_to_action(*args, **kwargs)
+
+    def respond(self, *args: Any, **kwargs: Any) -> Any:
+        return self._interaction_pipeline.respond(*args, **kwargs)
+
+    def _replay_dataset_summary_from_runtime(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._replay_dataset_summary_from_runtime(*args, **kwargs)
+
+    def _runtime_source_configuration_evidence(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._runtime_source_configuration_evidence(*args, **kwargs)
+
+    def _runtime_truth_contract_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._runtime_truth_contract_locked(*args, **kwargs)
+
+    def _working_set_decision(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._working_set_decision(*args, **kwargs)
+
+    def _state_norm(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._state_norm(*args, **kwargs)
+
+    def _last_trace_fields(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._last_trace_fields(*args, **kwargs)
+
+    def _runtime_mutation_payload(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._runtime_mutation_payload(*args, **kwargs)
+
+    def _status_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._status_snapshot_locked(*args, **kwargs)
+
+    def _terminus_status_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._terminus_status_snapshot_locked(*args, **kwargs)
+
+    def _telemetry_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._telemetry_snapshot_locked(*args, **kwargs)
+
+    def _read_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._read_snapshot(*args, **kwargs)
+
+    def _sensory_media_payload(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._sensory_media_payload(*args, **kwargs)
+
+    def _read_sensory_previews(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model._read_sensory_previews(*args, **kwargs)
+
+    def cortex_signal_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model.cortex_signal_state(*args, **kwargs)
+
+    def _sensory_queue_target_items_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return StatusRuntimeMixin._sensory_queue_target_items_locked(self, *args, **kwargs)
+
+    def _source_spec_uses_live_remote(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._source_spec_uses_live_remote(*args, **kwargs)
+
+    def _sensory_spec_uses_live_remote(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._sensory_spec_uses_live_remote(*args, **kwargs)
+
+    def _wrap_remote_stream(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._wrap_remote_stream(*args, **kwargs)
+
+    def _stream_supports_ready_reads(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._stream_supports_ready_reads(*args, **kwargs)
+
+    def _next_stream_item(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._next_stream_item(*args, **kwargs)
+
+    def _runtime_cache_root(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._runtime_cache_root(*args, **kwargs)
+
+    def _runtime_cache_key(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._runtime_cache_key(*args, **kwargs)
+
+    def _brain_runtime_cache_path(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._brain_runtime_cache_path(*args, **kwargs)
+
+    def _sensory_runtime_cache_path(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._sensory_runtime_cache_path(*args, **kwargs)
+
+    def _reconstruct_text_from_windows(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._reconstruct_text_from_windows(*args, **kwargs)
+
+    def _update_brain_runtime_cache_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._update_brain_runtime_cache_locked(*args, **kwargs)
+
+    def _restore_brain_runtime_cache_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._restore_brain_runtime_cache_locked(*args, **kwargs)
+
+    def _serialize_sensory_episode(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._serialize_sensory_episode(*args, **kwargs)
+
+    def _deserialize_sensory_episode(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._deserialize_sensory_episode(*args, **kwargs)
+
+    def _update_sensory_runtime_cache_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._update_sensory_runtime_cache_locked(*args, **kwargs)
+
+    def _restore_sensory_runtime_cache_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._restore_sensory_runtime_cache_locked(*args, **kwargs)
+
+    def _close_runtime_streams(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._close_runtime_streams(*args, **kwargs)
+
+    def _interrupt_brain_sources_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._interrupt_brain_sources_locked(*args, **kwargs)
+
+    def _interrupt_sensory_sources_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._interrupt_sensory_sources_locked(*args, **kwargs)
+
+    def _close_brain_sources_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._close_brain_sources_locked(*args, **kwargs)
+
+    def _close_sensory_sources_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_sources._close_sensory_sources_locked(*args, **kwargs)
+
+    def restore_runtime_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime.restore_runtime_state(*args, **kwargs)
+
+    def _ordered_brain_runtime_indices_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._ordered_brain_runtime_indices_locked(*args, **kwargs)
+
+    def _rebuild_brain_sources_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._rebuild_brain_sources_locked(*args, **kwargs)
+
+    def _commit_collected_runtime_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._commit_collected_runtime_locked(*args, **kwargs)
+
+    def _train_chunk_in_sub_batches(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._train_chunk_in_sub_batches(*args, **kwargs)
+
+    def _prefetch_runtime_queue_unlocked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._prefetch_runtime_queue_unlocked(*args, **kwargs)
+
+    def _prefetch_source_queues_unlocked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._prefetch_source_queues_unlocked(*args, **kwargs)
+
+    def _collect_chunk_unlocked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._collect_chunk_unlocked(*args, **kwargs)
+
+    def _source_text_overlap(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._source_text_overlap(*args, **kwargs)
+
+    def _grounded_source_sentences(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._grounded_source_sentences(*args, **kwargs)
+
+    def _dedupe_grounded_topics(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._dedupe_grounded_topics(*args, **kwargs)
+
+    def _grounded_observation_metadata(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._grounded_observation_metadata(*args, **kwargs)
+
+    def _inject_source_observation_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._inject_source_observation_locked(*args, **kwargs)
+
+    def _normalize_background_source_utility_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._normalize_background_source_utility_state(*args, **kwargs)
+
+    def _background_source_utility_entry_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._background_source_utility_entry_locked(*args, **kwargs)
+
+    def _background_source_utility_metrics_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._background_source_utility_metrics_locked(*args, **kwargs)
+
+    def _update_background_source_utility_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._update_background_source_utility_locked(*args, **kwargs)
+
+    def _finalize_tick_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._finalize_tick_locked(*args, **kwargs)
+
+    def _brain_tick_idle_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._brain_tick_idle_locked(*args, **kwargs)
+
+    def _run_brain_autonomy_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._run_brain_autonomy_locked(*args, **kwargs)
+
+    def _animation_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._animation_snapshot_locked(*args, **kwargs)
+
+    def _brain_runtime_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._brain_runtime_snapshot_locked(*args, **kwargs)
+
+    def _brain_persisted_state_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._brain_runtime._brain_persisted_state_locked(*args, **kwargs)
+
+    def configure_terminus(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control.configure_terminus(*args, **kwargs)
+
+    def _brain_runtime_active_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._brain_runtime_active_locked(*args, **kwargs)
+
+    def _assert_manual_tick_allowed_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._assert_manual_tick_allowed_locked(*args, **kwargs)
+
+    def stop_terminus(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control.stop_terminus(*args, **kwargs)
+
+    def quick_start_terminus(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control.quick_start_terminus(*args, **kwargs)
+
+    def terminus_tick(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control.terminus_tick(*args, **kwargs)
+
+    def _request_brain_stop(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._request_brain_stop(*args, **kwargs)
+
+    def _finalize_brain_stop_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._finalize_brain_stop_locked(*args, **kwargs)
+
+    def _join_brain_thread(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._join_brain_thread(*args, **kwargs)
+
+    def _request_brain_stop_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._request_brain_stop_locked(*args, **kwargs)
+
+    def _brain_loop(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._brain_loop(*args, **kwargs)
+
+    def _run_brain_tick_once(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_control._run_brain_tick_once(*args, **kwargs)
+
+    def _provider_query_family_priority_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return TerminusAutonomyMixin._provider_query_family_priority_locked(self, *args, **kwargs)
+
+    def _provider_topic_family_priority_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return TerminusAutonomyMixin._provider_topic_family_priority_locked(self, *args, **kwargs)
+
+    def _normalize_brain_source_spec(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_brain_source_spec(*args, **kwargs)
+
+    def _normalize_sensory_source_spec(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_sensory_source_spec(*args, **kwargs)
+
+    def _normalize_catalog_candidate_spec(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_catalog_candidate_spec(*args, **kwargs)
+
+    def _normalize_autonomy_candidate_spec(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_autonomy_candidate_spec(*args, **kwargs)
+
+    def _normalize_provider_curriculum(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_provider_curriculum(*args, **kwargs)
+
+    def _default_autonomy_candidate_bank(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._default_autonomy_candidate_bank(*args, **kwargs)
+
+    def _normalize_autonomy_config(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_autonomy_config(*args, **kwargs)
+
+    def _normalize_brain_config(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_brain_config(*args, **kwargs)
+
+    def _normalize_ingestion_config(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_ingestion_config(*args, **kwargs)
+
+    def _normalize_sensory_config(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_config._normalize_sensory_config(*args, **kwargs)
+
+    def _background_focus_terms_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._background_focus_terms_locked(*args, **kwargs)
+
+    def _brain_source_semantic_match_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._brain_source_semantic_match_locked(*args, **kwargs)
+
+    def _selected_evidence_weight_map(self, *args: Any, **kwargs: Any) -> Any:
+        return SourceFocusScorer._selected_evidence_weight_map(*args, **kwargs)
+
+    def _consequence_query_terms(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._consequence_query_terms(*args, **kwargs)
+
+    def _query_progress_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._query_progress_snapshot_locked(*args, **kwargs)
+
+    def _delayed_consequence_query_examples(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_query_examples(*args, **kwargs)
+
+    def _delayed_consequence_match_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_match_score_locked(*args, **kwargs)
+
+    def _recent_action_contradiction_signal_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._recent_action_contradiction_signal_locked(*args, **kwargs)
+
+    def _delayed_consequence_support_multiplier(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_support_multiplier(*args, **kwargs)
+
+    def _delayed_consequence_trajectory_totals(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_trajectory_totals(*args, **kwargs)
+
+    def _delayed_consequence_trajectory_balance(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_trajectory_balance(*args, **kwargs)
+
+    def _delayed_consequence_trajectory_recent_signal(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_trajectory_recent_signal(*args, **kwargs)
+
+    def _delayed_consequence_trajectory_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_trajectory_state(*args, **kwargs)
+
+    def _delayed_consequence_trajectory_support_multiplier(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_trajectory_support_multiplier(*args, **kwargs)
+
+    def _delayed_consequence_family_support_multiplier(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_family_support_multiplier(*args, **kwargs)
+
+    def _grounded_family_summary_score(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._grounded_family_summary_score(*args, **kwargs)
+
+    def _update_delayed_consequence_trajectory_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._update_delayed_consequence_trajectory_locked(*args, **kwargs)
+
+    def _delayed_consequence_branch_examples(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_branch_examples(*args, **kwargs)
+
+    def _update_delayed_consequence_branch_partition_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._update_delayed_consequence_branch_partition_locked(*args, **kwargs)
+
+    def _delayed_consequence_query_text_overlap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_query_text_overlap_locked(*args, **kwargs)
+
+    def _delayed_consequence_branch_overlap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_branch_overlap_locked(*args, **kwargs)
+
+    def _build_delayed_consequence_split_child_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._build_delayed_consequence_split_child_locked(*args, **kwargs)
+
+    def _split_divergent_delayed_consequence_families_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._split_divergent_delayed_consequence_families_locked(*args, **kwargs)
+
+    def _should_remerge_delayed_consequence_split_group_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._should_remerge_delayed_consequence_split_group_locked(*args, **kwargs)
+
+    def _build_remerged_delayed_consequence_family_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._build_remerged_delayed_consequence_family_locked(*args, **kwargs)
+
+    def _remerge_converged_delayed_consequence_families_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._remerge_converged_delayed_consequence_families_locked(*args, **kwargs)
+
+    def _delayed_consequence_weight_overlap(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_weight_overlap(*args, **kwargs)
+
+    def _delayed_consequence_provenance_overlap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_provenance_overlap_locked(*args, **kwargs)
+
+    def _delayed_consequence_aggregation_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_aggregation_score_locked(*args, **kwargs)
+
+    def _merge_delayed_consequence_records_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._merge_delayed_consequence_records_locked(*args, **kwargs)
+
+    def _upsert_delayed_consequence_record_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._upsert_delayed_consequence_record_locked(*args, **kwargs)
+
+    def _compact_delayed_consequence_records_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._compact_delayed_consequence_records_locked(*args, **kwargs)
+
+    def _cool_delayed_consequence_records_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._cool_delayed_consequence_records_locked(*args, **kwargs)
+
+    def _apply_background_source_delayed_penalty_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_background_source_delayed_penalty_locked(*args, **kwargs)
+
+    def _apply_background_source_forgiveness_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_background_source_forgiveness_locked(*args, **kwargs)
+
+    def _apply_background_source_delayed_consequence_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_background_source_delayed_consequence_locked(*args, **kwargs)
+
+    def _apply_background_source_family_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_background_source_family_summary_locked(*args, **kwargs)
+
+    def _apply_provider_delayed_penalty_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_provider_delayed_penalty_locked(*args, **kwargs)
+
+    def _apply_provider_forgiveness_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_provider_forgiveness_locked(*args, **kwargs)
+
+    def _apply_provider_delayed_consequence_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_provider_delayed_consequence_locked(*args, **kwargs)
+
+    def _apply_provider_family_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_provider_family_summary_locked(*args, **kwargs)
+
+    def _apply_delayed_query_consequence_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_delayed_query_consequence_locked(*args, **kwargs)
+
+    def _record_response_consequence_candidate_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._record_response_consequence_candidate_locked(*args, **kwargs)
+
+    def _apply_background_source_response_provenance_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_background_source_response_provenance_locked(*args, **kwargs)
+
+    def _apply_background_source_outcome_calibration_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._apply_background_source_outcome_calibration_locked(*args, **kwargs)
+
+    def _delayed_consequence_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._delayed_consequence_summary_locked(*args, **kwargs)
+
+    def _normalize_delayed_consequence_record(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence._normalize_delayed_consequence_record(*args, **kwargs)
+
+    def restore_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._delayed_consequence.restore_state(*args, **kwargs)
+
+    def _focus_gap_terms_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._focus_gap_terms_locked(*args, **kwargs)
+
+    def _brain_source_memory_metadata(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._brain_source_memory_metadata(*args, **kwargs)
+
+    def _brain_source_topic_terms(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._brain_source_topic_terms(*args, **kwargs)
+
+    def _brain_source_selection_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._brain_source_selection_score_locked(*args, **kwargs)
+
+    def _background_focus_overlap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._background_focus_overlap_locked(*args, **kwargs)
+
+    def _response_grounded_outcome_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._source_focus._response_grounded_outcome_score_locked(*args, **kwargs)
+
+    def _normalize_cortex_query_hint(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._normalize_cortex_query_hint(*args, **kwargs)
+
+    def _remember_cortex_query_hint_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._remember_cortex_query_hint_locked(*args, **kwargs)
+
+    def _consume_cortex_query_hint_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._consume_cortex_query_hint_locked(*args, **kwargs)
+
+    def _cortex_active(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._cortex_active(*args, **kwargs)
+
+    def _cortex_factories_are_mocked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._cortex_factories_are_mocked(*args, **kwargs)
+
+    def _inject_action_record_into_loop(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._inject_action_record_into_loop(*args, **kwargs)
+
+    def _build_cortex_thought_loop(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._build_cortex_thought_loop(*args, **kwargs)
+
+    def _start_cortex_initialization(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._start_cortex_initialization(*args, **kwargs)
+
+    def _ensure_cortex_initialized(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._ensure_cortex_initialized(*args, **kwargs)
+
+    def _request_cortex_sleep_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._request_cortex_sleep_locked(*args, **kwargs)
+
+    def _handle_cortex_sleep_intent_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._handle_cortex_sleep_intent_locked(*args, **kwargs)
+
+    def _on_cortex_sleep_cycle(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._on_cortex_sleep_cycle(*args, **kwargs)
+
+    def _cortex_action_query_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._cortex_action_query_locked(*args, **kwargs)
+
+    def _filter_cortex_action_records_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._filter_cortex_action_records_locked(*args, **kwargs)
+
+    def _cortex_action_type(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._cortex_action_type(*args, **kwargs)
+
+    def _cortex_action_trigger_reason(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._cortex_action_trigger_reason(*args, **kwargs)
+
+    def _handle_cortex_action_intent_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._handle_cortex_action_intent_locked(*args, **kwargs)
+
+    def _on_cortex_thought(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller._on_cortex_thought(*args, **kwargs)
+
+    def cortex_ask(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller.cortex_ask(*args, **kwargs)
+
+    def cortex_sleep(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller.cortex_sleep(*args, **kwargs)
+
+    def cortex_thoughts(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller.cortex_thoughts(*args, **kwargs)
+
+    def cortex_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cortex_controller.cortex_snapshot(*args, **kwargs)
+
+    def _runtime_environment_summary(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_runtime_environment_summary', self, *args, **kwargs)
+
+    def _multimodal_runtime_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_multimodal_runtime_summary_locked', self, *args, **kwargs)
+
+    def _ingestion_ready_source_count_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_ingestion_ready_source_count_locked', self, *args, **kwargs)
+
+    def _ingestion_full_queue_source_count_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_ingestion_full_queue_source_count_locked', self, *args, **kwargs)
+
+    def _ingestion_startup_state_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_ingestion_startup_state_locked', self, *args, **kwargs)
+
+    def _maybe_mark_ingestion_warm_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_maybe_mark_ingestion_warm_locked', self, *args, **kwargs)
+
+    def _ingestion_runtime_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_ingestion_runtime_summary_locked', self, *args, **kwargs)
+
+    def _sensory_ready_source_count_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_sensory_ready_source_count_locked', self, *args, **kwargs)
+
+    def _sensory_full_queue_source_count_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_sensory_full_queue_source_count_locked', self, *args, **kwargs)
+
+    def _sensory_startup_state_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_sensory_startup_state_locked', self, *args, **kwargs)
+
+    def _maybe_mark_sensory_warm_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_maybe_mark_sensory_warm_locked', self, *args, **kwargs)
+
+    def _sensory_runtime_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_sensory_runtime_summary_locked', self, *args, **kwargs)
+
+    def _huggingface_runtime_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(StatusRuntimeMixin, '_huggingface_runtime_summary_locked', self, *args, **kwargs)
+
+    def run_grounding_probe(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ServiceReportingMixin, 'run_grounding_probe', self, *args, **kwargs)
+
+    def _cross_modal_confidence_means_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_cross_modal_confidence_means_locked', self, *args, **kwargs)
+
+    def _sensory_runtime_modalities(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_runtime_modalities', self, *args, **kwargs)
+
+    def _sensory_focus_terms_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_focus_terms_locked', self, *args, **kwargs)
+
+    def _sensory_source_topic_terms(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_source_topic_terms', self, *args, **kwargs)
+
+    def _sensory_episode_terms(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_episode_terms', self, *args, **kwargs)
+
+    def _sensory_episode_semantic_match_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_episode_semantic_match_locked', self, *args, **kwargs)
+
+    def _sensory_semantic_match_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_semantic_match_locked', self, *args, **kwargs)
+
+    def _sensory_selection_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_selection_score_locked', self, *args, **kwargs)
+
+    def _select_sensory_runtime_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_select_sensory_runtime_locked', self, *args, **kwargs)
+
+    def _sensory_item_retrieval_config_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_item_retrieval_config_locked', self, *args, **kwargs)
+
+    def _prefetch_sensory_runtime_unlocked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_prefetch_sensory_runtime_unlocked', self, *args, **kwargs)
+
+    def _prefetch_sensory_queues_unlocked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_prefetch_sensory_queues_unlocked', self, *args, **kwargs)
+
+    def _commit_prefetched_sensory_runtime_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_commit_prefetched_sensory_runtime_locked', self, *args, **kwargs)
+
+    def _next_sensory_episode_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_next_sensory_episode_locked', self, *args, **kwargs)
+
+    def _sensory_modality_need_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_modality_need_locked', self, *args, **kwargs)
+
+    def _sensory_window_budget_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_sensory_window_budget_locked', self, *args, **kwargs)
+
+    def _inject_sensory_observation_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_inject_sensory_observation_locked', self, *args, **kwargs)
+
+    def _record_sensory_preview_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_record_sensory_preview_locked', self, *args, **kwargs)
+
+    def _run_real_sensory_episode_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(SensoryRuntimeMixin, '_run_real_sensory_episode_locked', self, *args, **kwargs)
+
+    def _request_active_execution_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_request_active_execution_locked', self, *args, **kwargs)
+
+    def _release_active_execution_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_release_active_execution_locked', self, *args, **kwargs)
+
+    def _request_active_execution(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_request_active_execution', self, *args, **kwargs)
+
+    def _release_active_execution(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_release_active_execution', self, *args, **kwargs)
+
+    def _wait_for_remote_prewarm_clearance(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_wait_for_remote_prewarm_clearance', self, *args, **kwargs)
+
+    def _remote_warm_promotion_text_needed_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_remote_warm_promotion_text_needed_locked', self, *args, **kwargs)
+
+    def _remote_warm_promotion_sensory_needed_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_remote_warm_promotion_sensory_needed_locked', self, *args, **kwargs)
+
+    def _request_remote_warm_promotion_stop(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_request_remote_warm_promotion_stop', self, *args, **kwargs)
+
+    def _join_remote_warm_promotion_thread(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_join_remote_warm_promotion_thread', self, *args, **kwargs)
+
+    def _record_remote_warm_promotion_completed_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_record_remote_warm_promotion_completed_locked', self, *args, **kwargs)
+
+    def _start_remote_warm_promotion_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_start_remote_warm_promotion_locked', self, *args, **kwargs)
+
+    def _remaining_budget_seconds(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_remaining_budget_seconds', self, *args, **kwargs)
+
+    def _run_budgeted_call(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_run_budgeted_call', self, *args, **kwargs)
+
+    def _remote_text_bootstrap_candidates_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_remote_text_bootstrap_candidates_locked', self, *args, **kwargs)
+
+    def _fetch_remote_text_bootstrap_rows(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_fetch_remote_text_bootstrap_rows', self, *args, **kwargs)
+
+    def _apply_remote_text_bootstrap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_apply_remote_text_bootstrap_locked', self, *args, **kwargs)
+
+    def _remote_sensory_bootstrap_candidates_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_remote_sensory_bootstrap_candidates_locked', self, *args, **kwargs)
+
+    def _fetch_remote_sensory_bootstrap_episodes(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_fetch_remote_sensory_bootstrap_episodes', self, *args, **kwargs)
+
+    def _apply_remote_sensory_bootstrap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_apply_remote_sensory_bootstrap_locked', self, *args, **kwargs)
+
+    def _promote_ready_remote_brain_items_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_promote_ready_remote_brain_items_locked', self, *args, **kwargs)
+
+    def _promote_ready_remote_sensory_items_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_promote_ready_remote_sensory_items_locked', self, *args, **kwargs)
+
+    def _remote_warm_promotion_loop(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_remote_warm_promotion_loop', self, *args, **kwargs)
+
+    def _request_ingestion_prewarm_stop(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_request_ingestion_prewarm_stop', self, *args, **kwargs)
+
+    def _join_ingestion_prewarm_thread(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_join_ingestion_prewarm_thread', self, *args, **kwargs)
+
+    def _start_ingestion_prewarm_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_start_ingestion_prewarm_locked', self, *args, **kwargs)
+
+    def _apply_detached_brain_prewarm_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_apply_detached_brain_prewarm_locked', self, *args, **kwargs)
+
+    def _apply_detached_sensory_prewarm_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_apply_detached_sensory_prewarm_locked', self, *args, **kwargs)
+
+    def _ingestion_prewarm_loop(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimePrewarmMixin, '_ingestion_prewarm_loop', self, *args, **kwargs)
+
+    def _replay_dataset_count_map(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_count_map', self, *args, **kwargs)
+
+    def _replay_dataset_latest_history_timestamp_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_latest_history_timestamp_locked', self, *args, **kwargs)
+
+    def _replay_dataset_summary_from_payload(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_summary_from_payload', self, *args, **kwargs)
+
+    def _replay_dataset_preview_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_preview_payload_locked', self, *args, **kwargs)
+
+    def _replay_dataset_preview_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_preview_summary_locked', self, *args, **kwargs)
+
+    def export_runtime_trace_examples(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, 'export_runtime_trace_examples', self, *args, **kwargs)
+
+    def replay_dataset_preview(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, 'replay_dataset_preview', self, *args, **kwargs)
+
+    def replay_dataset_candidates(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, 'replay_dataset_candidates', self, *args, **kwargs)
+
+    def replay_dataset_history(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, 'replay_dataset_history', self, *args, **kwargs)
+
+    def _append_runtime_episode_trace_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_append_runtime_episode_trace_locked', self, *args, **kwargs)
+
+    def _runtime_episode_trace_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_episode_trace_locked', self, *args, **kwargs)
+
+    def _replace_runtime_episode_trace_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replace_runtime_episode_trace_locked', self, *args, **kwargs)
+
+    def _normalize_runtime_trace_export_filter(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_normalize_runtime_trace_export_filter', self, *args, **kwargs)
+
+    def _runtime_trace_export_endpoint(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_trace_export_endpoint', self, *args, **kwargs)
+
+    def _runtime_trace_state_by_trace_id_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_trace_state_by_trace_id_locked', self, *args, **kwargs)
+
+    def _runtime_trace_export_example_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_trace_export_example_locked', self, *args, **kwargs)
+
+    def _replay_dataset_candidates_by_target(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_candidates_by_target', self, *args, **kwargs)
+
+    def _replay_dataset_sample_links_by_target_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_sample_links_by_target_locked', self, *args, **kwargs)
+
+    def _replay_dataset_verification_label(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_verification_label', self, *args, **kwargs)
+
+    def _replay_dataset_output_or_none(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_output_or_none', self, *args, **kwargs)
+
+    def _replay_dataset_item_from_trace_example(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_item_from_trace_example', self, *args, **kwargs)
+
+    def _runtime_trace_export_policy_decision_summary(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_trace_export_policy_decision_summary', self, *args, **kwargs)
+
+    def _runtime_trace_export_key_is_safe(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_trace_export_key_is_safe', self, *args, **kwargs)
+
+    def _runtime_trace_export_int(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_trace_export_int', self, *args, **kwargs)
+
+    def _runtime_feedback_summary_from_targets(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_feedback_summary_from_targets', self, *args, **kwargs)
+
+    def _runtime_episode_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_episode_payload_locked', self, *args, **kwargs)
+
+    def acquire(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, 'acquire', self, *args, **kwargs)
+
+    def _build_query_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_build_query_locked', self, *args, **kwargs)
+
+    def _learn_from_turn_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_learn_from_turn_locked', self, *args, **kwargs)
+
+    def _observe_concepts_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_observe_concepts_locked', self, *args, **kwargs)
+
+    def _runtime_concept_callback_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_runtime_concept_callback_locked', self, *args, **kwargs)
+
+    def _observe_runtime_concepts_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_observe_runtime_concepts_locked', self, *args, **kwargs)
+
+    def _plan_gaps_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_plan_gaps_locked', self, *args, **kwargs)
+
+    def _record_recent_query_gap_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(InteractionRuntimeMixin, '_record_recent_query_gap_locked', self, *args, **kwargs)
+
+    def replay_dataset_bundle(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, 'replay_dataset_bundle', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_fraction(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_fraction', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_terms(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_terms', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_item_fingerprint(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_item_fingerprint', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_exclusion_reasons(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_exclusion_reasons', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_filter_items(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_filter_items', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_split_items(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_split_items', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_split_summary(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_split_summary', self, *args, **kwargs)
+
+    def _replay_dataset_bundle_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_payload_locked', self, *args, **kwargs)
+
+    def _autonomy_focus_plan_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_autonomy_focus_plan_locked', self, *args, **kwargs)
+
+    def _merge_focus_plans_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_merge_focus_plans_locked', self, *args, **kwargs)
+
+    def _recent_query_focus_plan_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_recent_query_focus_plan_locked', self, *args, **kwargs)
+
+    def _autonomy_candidate_specs_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_autonomy_candidate_specs_locked', self, *args, **kwargs)
+
+    def _curiosity_ready_weak_concept_count_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_curiosity_ready_weak_concept_count_locked', self, *args, **kwargs)
+
+    def _provider_curriculum_focus_terms_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_curriculum_focus_terms_locked', self, *args, **kwargs)
+
+    def _autonomy_focus_pressure_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_autonomy_focus_pressure_locked', self, *args, **kwargs)
+
+    def _provider_topic_family_match_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_topic_family_match_score_locked', self, *args, **kwargs)
+
+    def _provider_topic_family_details_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_topic_family_details_locked', self, *args, **kwargs)
+
+    def _provider_query_family_match_score_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_query_family_match_score_locked', self, *args, **kwargs)
+
+    def _provider_query_family_details_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_query_family_details_locked', self, *args, **kwargs)
+
+    def _provider_curriculum_priority_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_curriculum_priority_locked', self, *args, **kwargs)
+
+    def _provider_curriculum_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_curriculum_snapshot_locked', self, *args, **kwargs)
+
+    def _provider_curriculum_signal_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_provider_curriculum_signal_locked', self, *args, **kwargs)
+
+    def _adaptive_autonomy_settings_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_adaptive_autonomy_settings_locked', self, *args, **kwargs)
+
+    def _apply_provider_response_outcome_calibration_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_apply_provider_response_outcome_calibration_locked', self, *args, **kwargs)
+
+    def _apply_provider_outcome_calibration_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_apply_provider_outcome_calibration_locked', self, *args, **kwargs)
+
+    def _apply_provider_curriculum_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_apply_provider_curriculum_locked', self, *args, **kwargs)
+
+    def _update_provider_curriculum_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_update_provider_curriculum_locked', self, *args, **kwargs)
+
+    def _candidate_pool_size_hint(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_candidate_pool_size_hint', self, *args, **kwargs)
+
+    def _autonomy_shortlist_settings_locked(self, *args: Any, **kwargs: Any) -> Any:
+        return _call_mixin_delegate(TerminusAutonomyMixin, '_autonomy_shortlist_settings_locked', self, *args, **kwargs)
 
 
 def _install_state_property(
@@ -1093,42 +2120,7 @@ _install_state_property("_thought_loop", "_cortex_controller")
 for _name in DELAYED_CONSEQUENCE_STATE_FIELDS:
     _install_state_property(_name, "_delayed_consequence")
 
-for _module_attr, _module_cls in (
-    ("_runtime_persistence", RuntimePersistence),
-    ("_replay_controller", ReplayController),
-    ("_interaction_pipeline", InteractionPipeline),
-    ("_status_read_model", StatusReadModel),
-    ("_runtime_sources", RuntimeSources),
-    ("_brain_runtime", BrainRuntime),
-    ("_runtime_control", RuntimeControl),
-    ("_runtime_config", RuntimeConfig),
-    ("_delayed_consequence", DelayedConsequenceTracker),
-    ("_autonomy_planner", AutonomyPlanner),
-    ("_source_focus", SourceFocusScorer),
-    ("_cortex_controller", CortexController),
-):
-    for _name in _module_cls.__dict__:
-        if _name.startswith("__") or _name in _PUBLIC_DUNDER:
-            continue
-        if _module_cls is RuntimePersistence and _name in _RUNTIME_PERSISTENCE_INTERNAL_DELEGATE_NAMES:
-            continue
-        if callable(getattr(_module_cls, _name, None)):
-            _install_module_delegate(_name, _module_attr)
+def _call_mixin_delegate(mixin_cls: type, method_name: str, instance: HECSNServiceManager, *args: Any, **kwargs: Any) -> Any:
+    descriptor = mixin_cls.__dict__[method_name]
+    return descriptor.__get__(instance, type(instance))(*args, **kwargs)
 
-for _mixin_cls in (
-    StatusRuntimeMixin,
-    LivingStatusMixin,
-    SensoryPreviewMixin,
-    ServiceReportingMixin,
-    SensoryRuntimeMixin,
-    RuntimePrewarmMixin,
-    RuntimeEvidenceMixin,
-    InteractionRuntimeMixin,
-    ReplayDatasetBundleMixin,
-    TerminusAutonomyMixin,
-):
-    for _name, _value in _mixin_cls.__dict__.items():
-        if _name.startswith("__") or _name in HECSNServiceManager.__dict__:
-            continue
-        if callable(_value) or isinstance(_value, (staticmethod, classmethod)):
-            _install_mixin_delegate(_name, _mixin_cls)

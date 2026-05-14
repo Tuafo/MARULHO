@@ -607,5 +607,3 @@ _install_dependency_forwarders(RuntimeControl, (
 ))
 
 
-RuntimeControlMixin = RuntimeControl
-

@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.manager import HECSNServiceManager
-from hecsn.service.runtime_control import RuntimeControl, RuntimeControlMixin
+from hecsn.service.runtime_control import RuntimeControl
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
@@ -76,11 +76,8 @@ class _FakeThread:
 
 
 class RuntimeControlTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(RuntimeControlMixin, RuntimeControl)
-
     def test_manager_uses_explicit_runtime_control_seam(self) -> None:
-        self.assertNotIn(RuntimeControlMixin, HECSNServiceManager.__mro__)
+        self.assertNotIn(RuntimeControl, HECSNServiceManager.__mro__)
 
     def test_manager_runtime_control_state_lives_on_controller(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

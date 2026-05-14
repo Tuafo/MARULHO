@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from hecsn.service.autonomy_planner import AutonomyPlanner, AutonomyPlannerMixin
+from hecsn.service.autonomy_planner import AutonomyPlanner
 
 
 class _FakeInteractionPipeline:
@@ -144,9 +144,6 @@ class _PlannerManager:
 
 
 class AutonomyPlannerTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(AutonomyPlannerMixin, AutonomyPlanner)
-
     def test_planner_no_longer_uses_manager_bound_transition_base(self) -> None:
         source = Path("src/hecsn/service/autonomy_planner.py").read_text(encoding="utf-8")
 

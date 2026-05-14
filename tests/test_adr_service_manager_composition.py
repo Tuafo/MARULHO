@@ -266,6 +266,33 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "Owner-forwarder transition code remains:\n" + "\n".join(violations),
         )
 
+    def test_dynamic_delegate_installers_removed(self) -> None:
+        """Manager facade methods must be explicit, not installed by import-time loops."""
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        forbidden = (
+            "_install_module_delegate",
+            "_install_mixin_delegate",
+            "for _module_attr, _module_cls in",
+            "for _mixin_cls in",
+        )
+        violations = [marker for marker in forbidden if marker in manager_text]
+        self.assertFalse(
+            violations,
+            "Dynamic manager delegate installation remains: " + ", ".join(violations),
+        )
+
+    def test_no_module_level_mixin_aliases_remain(self) -> None:
+        """Compatibility aliases like FooMixin = Foo must be retired."""
+        violations: list[str] = []
+        for path in sorted(_SERVICE_SRC_ROOT.rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"(?m)^\s*[A-Za-z_][A-Za-z0-9_]*Mixin\s*=", text):
+                violations.append(f"{path.relative_to(_REPO_ROOT)}:{text[:match.start()].count(chr(10)) + 1}")
+        self.assertFalse(
+            violations,
+            "Module-level mixin compatibility aliases remain:\n" + "\n".join(violations),
+        )
+
     def test_brain_runtime_has_explicit_dependencies(self) -> None:
         """BrainRuntime must not recover owner access through transition helpers."""
         brain_runtime_path = _SERVICE_SRC_ROOT / "brain_runtime.py"

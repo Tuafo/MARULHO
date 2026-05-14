@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any
 import unittest
 
-from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies, BrainRuntimeMixin
+from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 
@@ -348,11 +348,8 @@ class _SnapshotManager(_BrainRuntimeFixtureBase):
 
 
 class BrainRuntimeSeamTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(BrainRuntimeMixin, BrainRuntime)
-
     def test_manager_uses_explicit_brain_runtime_seam(self) -> None:
-        self.assertNotIn(BrainRuntimeMixin, HECSNServiceManager.__mro__)
+        self.assertNotIn(BrainRuntime, HECSNServiceManager.__mro__)
 
     def test_finalize_tick_updates_source_runtime_and_injects_grounded_observation(self) -> None:
         manager = _FinalizeTickManager()

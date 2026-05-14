@@ -1574,6 +1574,3 @@ for _name in (
 
 _install_dependency_object_property("_concept_store", "concept_store")
 _install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")
-
-
-BrainRuntimeMixin = BrainRuntime

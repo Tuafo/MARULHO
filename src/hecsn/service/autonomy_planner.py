@@ -54,6 +54,3 @@ _install_dependency_forwarders(AutonomyPlanner, (
     "_selected_evidence_weight_map",
     "_source_text_overlap",
 ))
-
-
-AutonomyPlannerMixin = AutonomyPlanner

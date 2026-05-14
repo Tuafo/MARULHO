@@ -15,7 +15,7 @@ Module structure:
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior
-- interaction_runtime.py: Query/feed/respond/acquire operator interaction flow and compatibility delegates
+- interaction_runtime.py: Query/feed/respond/acquire operator interaction flow helpers
 - living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
 - runtime_config.py: Operator runtime/source configuration normalization with explicit priority callbacks
 - runtime_control.py: Terminus configure/start/stop/tick runtime control with explicit dependency access
@@ -25,12 +25,12 @@ Module structure:
 - source_focus.py: Text-source focus and semantic scoring with explicit dependencies
 - autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum) with explicit dependency access
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
-- sensory_preview.py: Legacy sensory preview payload helpers; status_read_model owns the active read path
+- sensory_preview.py: Sensory preview payload helpers; status_read_model owns the active read path
 - replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging
 - terminus_presets.py: Quick-start preset configurations
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources
 - terminus_sensory.py: Real Hugging Face multimodal stream adapters
-- terminus_autonomy.py: legacy TerminusAutonomyMixin compatibility module
+- terminus_autonomy.py: Autonomy focus, provider curriculum, and shortlist helpers
 - api.py: FastAPI route definitions
 - schemas.py: Request/response Pydantic models
 - server.py: CLI entry point (uvicorn launcher)
