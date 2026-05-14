@@ -156,6 +156,7 @@ from hecsn.service.interaction_runtime import InteractionRuntimeMixin
 from hecsn.service.living_status import LivingStatusMixin
 from hecsn.service.runtime_config import RuntimeConfig
 from hecsn.service.runtime_control import RUNTIME_CONTROL_STATE_FIELDS, RuntimeControl
+from hecsn.service.runtime_facade import RuntimeFacade
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
 from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime, _SensorySourceRuntime
@@ -183,63 +184,6 @@ from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_epi
 
 
 from hecsn.service.terminus_autonomy import _canonical_provider_term  # noqa: E402
-
-def _public_names(cls: type) -> frozenset[str]:
-    """Return the set of non-dunder attribute names defined on *cls*."""
-    return frozenset(name for name in cls.__dict__ if not name.startswith("__"))
-
-
-_PUBLIC_DUNDER = frozenset({"__dict__", "__doc__", "__init__", "__module__", "__qualname__"})
-
-_BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
-_BRAIN_RUNTIME_DELEGATE_ATTRS = BRAIN_RUNTIME_STATE_FIELDS | _BRAIN_RUNTIME_DELEGATE_NAMES
-_RUNTIME_CONTROL_DELEGATE_NAMES = frozenset(RuntimeControl.__dict__)
-_RUNTIME_CONTROL_DELEGATE_ATTRS = RUNTIME_CONTROL_STATE_FIELDS | _RUNTIME_CONTROL_DELEGATE_NAMES
-# CortexController methods that just pass through to self._manager should
-# NOT be routed from the manager back to the controller (recursion risk).
-_CORTEX_CONTROLLER_PASSTHROUGH_NAMES = frozenset({
-    "_action_focus_query_text",
-    "_action_history_memory_metadata",
-    "_action_query_terms",
-    "_action_record_relevance_score_locked",
-    "_action_record_to_response_episodes_locked",
-    "_augment_query_result_with_action_records_locked",
-    "_query_api_url_candidate",
-    "_query_web_url_candidate",
-    "_query_workspace_path_candidate_locked",
-    "_recent_relevant_action_records_locked",
-    "_record_brain_event_locked",
-})
-_CORTEX_CONTROLLER_DELEGATE_NAMES = frozenset(
-    name for name in CortexController.__dict__
-    if not name.startswith("__") and name not in _CORTEX_CONTROLLER_PASSTHROUGH_NAMES
-)
-_DELAYED_CONSEQUENCE_DELEGATE_NAMES = _public_names(DelayedConsequenceTracker)
-_DELAYED_CONSEQUENCE_DELEGATE_ATTRS = DELAYED_CONSEQUENCE_STATE_FIELDS | _DELAYED_CONSEQUENCE_DELEGATE_NAMES
-_RUNTIME_EVIDENCE_DELEGATE_NAMES = _public_names(RuntimeEvidenceMixin)
-_INTERACTION_RUNTIME_DELEGATE_NAMES = _public_names(InteractionRuntimeMixin)
-_LIVING_STATUS_DELEGATE_NAMES = _public_names(LivingStatusMixin)
-_STATUS_RUNTIME_DELEGATE_NAMES = _public_names(StatusRuntimeMixin)
-_SENSORY_RUNTIME_DELEGATE_NAMES = _public_names(SensoryRuntimeMixin)
-_RUNTIME_PREWARM_DELEGATE_NAMES = _public_names(RuntimePrewarmMixin)
-_RUNTIME_SOURCES_DELEGATE_NAMES = _public_names(RuntimeSources)
-_RUNTIME_CONFIG_DELEGATE_NAMES = _public_names(RuntimeConfig)
-_REPLAY_DATASET_BUNDLE_DELEGATE_NAMES = _public_names(ReplayDatasetBundleMixin)
-_SENSORY_PREVIEW_DELEGATE_NAMES = _public_names(SensoryPreviewMixin)
-_SERVICE_REPORTING_DELEGATE_NAMES = _public_names(ServiceReportingMixin)
-_TERMINUS_AUTONOMY_DELEGATE_NAMES = _public_names(TerminusAutonomyMixin)
-_REPLAY_CONTROLLER_DELEGATE_NAMES = _public_names(ReplayController)
-_SOURCE_FOCUS_DELEGATE_NAMES = _public_names(SourceFocusScorer)
-_RUNTIME_PERSISTENCE_INTERNAL_DELEGATE_NAMES = frozenset({
-    "_brain_persisted_state_locked",
-    "_brain_runtime_snapshot_locked",
-    "_join_brain_thread",
-    "_normalize_background_source_utility_state",
-    "_normalize_delayed_consequence_record",
-    "_rebuild_brain_sources_locked",
-    "_replay_action_history_into_cortex_locked",
-    "_request_brain_stop",
-})
 
 
 class _TimedCallFailure:
@@ -273,21 +217,6 @@ class HECSNServiceManager:
       _runtime_sources      � source stream construction and caches
       _source_focus         � source selection scoring and utility EMA
     """
-
-    def start_terminus(self) -> dict[str, Any]:
-        return self._runtime_control.start_terminus()
-
-    @staticmethod
-    def quick_start_presets() -> list[dict[str, Any]]:
-        return RuntimeControl.quick_start_presets()
-
-    @staticmethod
-    def _build_source_stream_from_spec(
-        spec: dict[str, Any],
-        encoder: Any,
-        window_size: int,
-    ) -> Iterator[tuple[str, "torch.Tensor"]]:
-        return BrainRuntime._build_source_stream_from_spec(spec, encoder, window_size)
 
     def __init__(
         self,
@@ -361,7 +290,7 @@ class HECSNServiceManager:
                 action_record_to_response_episodes=self._action_record_to_response_episodes_locked,
                 augment_query_result_with_action_records=self._augment_query_result_with_action_records_locked,
                 brain_running=lambda: self._brain_running,
-                execute_digital_action=self.execute_digital_action,
+                execute_digital_action=lambda *args, **kwargs: self._action_executor.execute_digital_action(*args, **kwargs),
             )
         )
         service_state = dict(self._metadata.get("service_state", {}))
@@ -448,6 +377,11 @@ class HECSNServiceManager:
             runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
         )
         self._feedback_applier = self._build_feedback_applier()
+        self._runtime_facade = RuntimeFacade(self)
+
+    @property
+    def runtime_facade(self) -> RuntimeFacade:
+        return self._runtime_facade
 
     def _build_status_read_model(self) -> StatusReadModel:
         return StatusReadModel(
@@ -625,30 +559,11 @@ class HECSNServiceManager:
         return self._interaction_pipeline.runtime_episode_trace_history
 
     # --- Action Executor / Feedback Applier delegation ---
-    def action_history(self, limit: int = 20) -> dict[str, Any]:
-        return self._action_executor.action_history(limit=limit)
-
     def action_record(self, action_id: str) -> dict[str, Any] | None:
         return self._action_executor.action_record(action_id)
 
     def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None:
         return self._action_executor.replace_action_record(action_id, record)
-
-    def execute_digital_action(
-        self,
-        action: Mapping[str, Any],
-        *,
-        trigger_reason: str | None = None,
-        trigger_query_text: str | None = None,
-    ) -> dict[str, Any]:
-        return self._action_executor.execute_digital_action(
-            action,
-            trigger_reason=trigger_reason,
-            trigger_query_text=trigger_query_text,
-        )
-
-    def record_runtime_feedback(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
-        return self._feedback_applier.record_runtime_feedback(feedback)
 
     @staticmethod
     def _normalize_action_text(value: Any) -> str:
@@ -919,42 +834,13 @@ class HECSNServiceManager:
     def _action_loop_summary_locked(self) -> dict[str, Any]:
         return self._action_executor.action_loop_summary()
 
-    # --- Status Read Model delegation (ADR 0003) ---
-    def status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
-        """Delegate to StatusReadModel for status snapshots."""
-        return self._status_read_model.status(fresh_wait_seconds=fresh_wait_seconds)
-
-    def terminus_status(self, *, fresh_wait_seconds: float | None = None) -> dict[str, Any]:
-        """Delegate to StatusReadModel for terminus status snapshots."""
-        return self._status_read_model.terminus_status(fresh_wait_seconds=fresh_wait_seconds)
-
-    def sensory_previews(self, limit: int = 6) -> dict[str, Any]:
-        """Delegate to StatusReadModel for sensory preview payloads."""
-        return self._status_read_model.sensory_previews(limit=limit)
-
-    def architecture_summary(self) -> dict[str, Any]:
-        """Delegate to StatusReadModel for architecture summary."""
-        return self._status_read_model.architecture_summary()
-
     def _architecture_summary_impl(self) -> dict[str, Any]:
         """Build the architecture summary under lock (called by read model callback)."""
         return ServiceReportingMixin.architecture_summary(self)
 
-    def telemetry_snapshot(self) -> dict[str, Any]:
-        """Delegate to StatusReadModel for telemetry snapshots."""
-        return self._status_read_model.telemetry_snapshot()
-
-    def living_loop_status(self) -> dict[str, Any]:
-        """Delegate to StatusReadModel for living loop status snapshots."""
-        return self._status_read_model.living_loop_status()
-
     def _living_loop_status_impl(self) -> dict[str, Any]:
         """Build living loop status under lock (called by read model callback)."""
         return LivingStatusMixin.living_loop_status(self)
-
-    def policy_actuator_status(self) -> dict[str, Any]:
-        """Delegate to StatusReadModel for policy actuator status snapshots."""
-        return self._status_read_model.policy_actuator_status()
 
     def _policy_actuator_status_impl(self) -> dict[str, Any]:
         """Build policy actuator status under lock (called by read model callback)."""
@@ -1038,23 +924,11 @@ class HECSNServiceManager:
     # --- Explicit compatibility facade methods (ADR 0003) ---
     # Generated once from the former broad delegate surface so manager.py has
     # named methods instead of import-time dynamic delegate installation.
-    def checkpoint_list(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.checkpoint_list(*args, **kwargs)
-
-    def recent_traces(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.recent_traces(*args, **kwargs)
-
     def persist_trace(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence.persist_trace(*args, **kwargs)
 
     def load_persisted_traces(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence.load_persisted_traces(*args, **kwargs)
-
-    def save_checkpoint(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.save_checkpoint(*args, **kwargs)
-
-    def restore_checkpoint(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.restore_checkpoint(*args, **kwargs)
 
     def _service_state_snapshot(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._service_state_snapshot(*args, **kwargs)
@@ -1088,18 +962,6 @@ class HECSNServiceManager:
 
     def _runtime_trace_export_safe_value(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceMixin._runtime_trace_export_safe_value(self, *args, **kwargs)
-
-    def load_replay_sample_history(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.load_replay_sample_history(*args, **kwargs)
-
-    def replay_plan_status(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.replay_plan_status(*args, **kwargs)
-
-    def replay_sample(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.replay_sample(*args, **kwargs)
-
-    def replay_sample_history(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.replay_sample_history(*args, **kwargs)
 
     def _replay_sample_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._replay_sample_summary_locked(*args, **kwargs)
@@ -1200,12 +1062,6 @@ class HECSNServiceManager:
     def _feed_text_for_request_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._feed_text_for_request_locked(*args, **kwargs)
 
-    def feed(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.feed(*args, **kwargs)
-
-    def query(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.query(*args, **kwargs)
-
     def _build_respond_request(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._build_respond_request(*args, **kwargs)
 
@@ -1235,9 +1091,6 @@ class HECSNServiceManager:
 
     def _apply_action_assist_to_action(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._apply_action_assist_to_action(*args, **kwargs)
-
-    def respond(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.respond(*args, **kwargs)
 
     def _replay_dataset_summary_from_runtime(self, *args: Any, **kwargs: Any) -> Any:
         return self._status_read_model._replay_dataset_summary_from_runtime(*args, **kwargs)
@@ -1416,23 +1269,11 @@ class HECSNServiceManager:
     def _brain_persisted_state_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._brain_runtime._brain_persisted_state_locked(*args, **kwargs)
 
-    def configure_terminus(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_control.configure_terminus(*args, **kwargs)
-
     def _brain_runtime_active_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_control._brain_runtime_active_locked(*args, **kwargs)
 
     def _assert_manual_tick_allowed_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_control._assert_manual_tick_allowed_locked(*args, **kwargs)
-
-    def stop_terminus(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_control.stop_terminus(*args, **kwargs)
-
-    def quick_start_terminus(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_control.quick_start_terminus(*args, **kwargs)
-
-    def terminus_tick(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_control.terminus_tick(*args, **kwargs)
 
     def _request_brain_stop(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_control._request_brain_stop(*args, **kwargs)
@@ -1704,18 +1545,6 @@ class HECSNServiceManager:
     def _on_cortex_thought(self, *args: Any, **kwargs: Any) -> Any:
         return self._cortex_controller._on_cortex_thought(*args, **kwargs)
 
-    def cortex_ask(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller.cortex_ask(*args, **kwargs)
-
-    def cortex_sleep(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller.cortex_sleep(*args, **kwargs)
-
-    def cortex_thoughts(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller.cortex_thoughts(*args, **kwargs)
-
-    def cortex_snapshot(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller.cortex_snapshot(*args, **kwargs)
-
     def _runtime_environment_summary(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(StatusRuntimeMixin, '_runtime_environment_summary', self, *args, **kwargs)
 
@@ -1754,9 +1583,6 @@ class HECSNServiceManager:
 
     def _huggingface_runtime_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(StatusRuntimeMixin, '_huggingface_runtime_summary_locked', self, *args, **kwargs)
-
-    def run_grounding_probe(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(ServiceReportingMixin, 'run_grounding_probe', self, *args, **kwargs)
 
     def _cross_modal_confidence_means_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(SensoryRuntimeMixin, '_cross_modal_confidence_means_locked', self, *args, **kwargs)
@@ -1914,18 +1740,6 @@ class HECSNServiceManager:
     def _replay_dataset_preview_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(RuntimeEvidenceMixin, '_replay_dataset_preview_summary_locked', self, *args, **kwargs)
 
-    def export_runtime_trace_examples(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(RuntimeEvidenceMixin, 'export_runtime_trace_examples', self, *args, **kwargs)
-
-    def replay_dataset_preview(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(RuntimeEvidenceMixin, 'replay_dataset_preview', self, *args, **kwargs)
-
-    def replay_dataset_candidates(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(RuntimeEvidenceMixin, 'replay_dataset_candidates', self, *args, **kwargs)
-
-    def replay_dataset_history(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(RuntimeEvidenceMixin, 'replay_dataset_history', self, *args, **kwargs)
-
     def _append_runtime_episode_trace_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(RuntimeEvidenceMixin, '_append_runtime_episode_trace_locked', self, *args, **kwargs)
 
@@ -1977,9 +1791,6 @@ class HECSNServiceManager:
     def _runtime_episode_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_episode_payload_locked', self, *args, **kwargs)
 
-    def acquire(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, 'acquire', self, *args, **kwargs)
-
     def _build_query_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(InteractionRuntimeMixin, '_build_query_locked', self, *args, **kwargs)
 
@@ -2000,9 +1811,6 @@ class HECSNServiceManager:
 
     def _record_recent_query_gap_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(InteractionRuntimeMixin, '_record_recent_query_gap_locked', self, *args, **kwargs)
-
-    def replay_dataset_bundle(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(ReplayDatasetBundleMixin, 'replay_dataset_bundle', self, *args, **kwargs)
 
     def _replay_dataset_bundle_fraction(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_fraction', self, *args, **kwargs)

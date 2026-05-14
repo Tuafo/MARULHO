@@ -755,15 +755,16 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = HECSNServiceManager(_build_checkpoint(root), trace_dir=root / "traces", env_root=root)
+            runtime = manager.runtime_facade
             try:
-                feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day. " * 4)
-                query_result = manager.query(query_text="cats chase mice", top_k_memories=4)
-                respond_result = manager.respond(
+                feed_result = runtime.feed(text="Cats chase mice at night. Cats rest indoors during the day. " * 4)
+                query_result = runtime.query(query_text="cats chase mice", top_k_memories=4)
+                respond_result = runtime.respond(
                     query_text="cats chase mice",
                     top_k_memories=4,
                     learn_mode="none",
                 )
-                feedback_result = manager.record_runtime_feedback(
+                feedback_result = runtime.record_runtime_feedback(
                     {
                         "target_type": "runtime_episode",
                         "target_id": respond_result["runtime_episode"]["episode_id"],
@@ -779,7 +780,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                         "evaluator_id": "qa-1",
                     }
                 )
-                living_loop = manager.living_loop_status()["living_loop"]
+                living_loop = runtime.living_loop_status()["living_loop"]
                 with manager._lock:
                     latest = manager._runtime_episode_traces[0]
                     latest.setdefault("request", {})["raw_environment"] = {"NVIDIA_API_KEY": "secret-value"}
@@ -787,8 +788,8 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                     latest.setdefault("prediction", {})["api_key"] = "secret-value"
                     latest.setdefault("actual_output", {})["dotenv_path"] = str(root / ".env")
                     latest.setdefault("verification", {})["password"] = "secret-value"
-                trace_export = manager.export_runtime_trace_examples(limit=2)
-                respond_export = manager.export_runtime_trace_examples(limit=5, endpoint="respond")
+                trace_export = runtime.export_runtime_trace_examples(limit=2)
+                respond_export = runtime.export_runtime_trace_examples(limit=5, endpoint="respond")
                 trace_paths_exist = (
                     Path(feed_result["runtime_episode"]["trace_path"]).exists()
                     and Path(query_result["runtime_episode"]["trace_path"]).exists()

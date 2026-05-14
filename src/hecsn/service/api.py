@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .manager import HECSNServiceManager, MAX_RUNTIME_TRACE_EXPORT_LIMIT
+from .runtime_control import RuntimeControl
 from .schemas import (
     ActionHistoryResponse,
     CheckpointActionResponse,
@@ -167,6 +168,8 @@ def create_app(
         description="Strict-evidence local service for querying and steering a checkpoint-backed HECSN Terminus runtime.",
     )
     app.state.hecsn_manager = manager
+    runtime = manager.runtime_facade
+    app.state.hecsn_runtime = runtime
     app.router.on_shutdown.append(manager.close)
     app.add_middleware(
         CORSMiddleware,
@@ -198,27 +201,27 @@ def create_app(
 
     @app.get("/status", response_model=StatusResponse)
     def status() -> StatusResponse:
-        return StatusResponse(**manager.status())
+        return StatusResponse(**runtime.status())
 
     @app.get("/checkpoints", response_model=CheckpointListResponse)
     def checkpoints() -> CheckpointListResponse:
-        return CheckpointListResponse(checkpoints=[CheckpointRecord(**item) for item in manager.checkpoint_list()])
+        return CheckpointListResponse(checkpoints=[CheckpointRecord(**item) for item in runtime.checkpoint_list()])
 
     @app.post("/checkpoint/save", response_model=CheckpointActionResponse)
     def save_checkpoint(request: CheckpointSaveRequest) -> CheckpointActionResponse:
-        return CheckpointActionResponse(**manager.save_checkpoint(request.path))
+        return CheckpointActionResponse(**runtime.save_checkpoint(request.path))
 
     @app.post("/checkpoint/restore", response_model=CheckpointActionResponse)
     def restore_checkpoint(request: CheckpointRestoreRequest) -> CheckpointActionResponse:
-        return CheckpointActionResponse(**manager.restore_checkpoint(request.path))
+        return CheckpointActionResponse(**runtime.restore_checkpoint(request.path))
 
     @app.post("/feed", response_model=FeedResponse)
     def feed(request: FeedRequest) -> FeedResponse:
-        return FeedResponse(**manager.feed(text=request.text))
+        return FeedResponse(**runtime.feed(text=request.text))
 
     @app.post("/query", response_model=QueryResponse)
     def query(request: QueryRequest) -> QueryResponse:
-        result = manager.query(
+        result = runtime.query(
             query_text=request.query_text,
             context_text=request.context_text,
             top_k_candidates=request.top_k_candidates,
@@ -237,7 +240,7 @@ def create_app(
     def respond(request: RespondRequest) -> ResponseBundle:
         try:
             return ResponseBundle(
-                **manager.respond(
+                **runtime.respond(
                     query_text=request.query_text,
                     context_text=request.context_text,
                     top_k_candidates=request.top_k_candidates,
@@ -252,24 +255,24 @@ def create_app(
 
     @app.get("/terminus", response_model=TerminusRuntimeResponse)
     def terminus_status() -> TerminusRuntimeResponse:
-        return TerminusRuntimeResponse(**manager.terminus_status())
+        return TerminusRuntimeResponse(**runtime.terminus_status())
 
     @app.get("/terminus/living-loop")
     def terminus_living_loop() -> dict[str, Any]:
-        return manager.living_loop_status()
+        return runtime.living_loop_status()
 
     @app.get("/terminus/policy-actuator", response_model=PolicyActuatorResponse)
     def terminus_policy_actuator() -> PolicyActuatorResponse:
-        return PolicyActuatorResponse(**manager.policy_actuator_status())
+        return PolicyActuatorResponse(**runtime.policy_actuator_status())
 
     @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)
     def terminus_replay_plan(limit: int = Query(20, ge=1, le=50)) -> ReplayPlanResponse:
-        return ReplayPlanResponse(**manager.replay_plan_status(limit=limit))
+        return ReplayPlanResponse(**runtime.replay_plan_status(limit=limit))
 
     def _replay_sample_response(request: ReplaySampleRequest) -> ReplaySampleResponse:
         try:
             return ReplaySampleResponse(
-                **manager.replay_sample(
+                **runtime.replay_sample(
                     mode=request.mode,
                     candidate_id=request.candidate_id,
                     target_type=request.target_type,
@@ -296,11 +299,11 @@ def create_app(
 
     @app.get("/terminus/replay-sample/history", response_model=ReplaySampleHistoryResponse)
     def terminus_replay_sample_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
-        return ReplaySampleHistoryResponse(**manager.replay_sample_history(limit=limit))
+        return ReplaySampleHistoryResponse(**runtime.replay_sample_history(limit=limit))
 
     @app.get("/terminus/replay-execute/history", response_model=ReplaySampleHistoryResponse)
     def terminus_replay_execute_history(limit: int = Query(20, ge=1, le=256)) -> ReplaySampleHistoryResponse:
-        return ReplaySampleHistoryResponse(**manager.replay_sample_history(limit=limit))
+        return ReplaySampleHistoryResponse(**runtime.replay_sample_history(limit=limit))
 
     @app.get("/terminus/runtime-traces/export", response_model=RuntimeTraceExportResponse)
     def terminus_runtime_trace_export(
@@ -309,7 +312,7 @@ def create_app(
         trace_type: str | None = Query(None, alias="type", min_length=1, max_length=32),
     ) -> RuntimeTraceExportResponse:
         return RuntimeTraceExportResponse(
-            **manager.export_runtime_trace_examples(limit=limit, endpoint=endpoint or trace_type)
+            **runtime.export_runtime_trace_examples(limit=limit, endpoint=endpoint or trace_type)
         )
 
     @app.get("/terminus/replay-dataset/preview", response_model=ReplayDatasetPreviewResponse)
@@ -319,24 +322,24 @@ def create_app(
         trace_type: str | None = Query(None, alias="type", min_length=1, max_length=32),
     ) -> ReplayDatasetPreviewResponse:
         return ReplayDatasetPreviewResponse(
-            **manager.replay_dataset_preview(limit=limit, endpoint=endpoint or trace_type)
+            **runtime.replay_dataset_preview(limit=limit, endpoint=endpoint or trace_type)
         )
 
     @app.get("/terminus/replay-dataset/candidates", response_model=ReplayDatasetCandidatesResponse)
     def terminus_replay_dataset_candidates(
         limit: int = Query(20, ge=1, le=MAX_RUNTIME_TRACE_EXPORT_LIMIT),
     ) -> ReplayDatasetCandidatesResponse:
-        return ReplayDatasetCandidatesResponse(**manager.replay_dataset_candidates(limit=limit))
+        return ReplayDatasetCandidatesResponse(**runtime.replay_dataset_candidates(limit=limit))
 
     @app.get("/terminus/replay-dataset/history", response_model=ReplayDatasetHistoryResponse)
     def terminus_replay_dataset_history(limit: int = Query(20, ge=1, le=256)) -> ReplayDatasetHistoryResponse:
-        return ReplayDatasetHistoryResponse(**manager.replay_dataset_history(limit=limit))
+        return ReplayDatasetHistoryResponse(**runtime.replay_dataset_history(limit=limit))
 
     @app.post("/terminus/replay-dataset/bundle", response_model=ReplayDatasetBundleResponse)
     def terminus_replay_dataset_bundle(request: ReplayDatasetBundleRequest) -> ReplayDatasetBundleResponse:
         try:
             return ReplayDatasetBundleResponse(
-                **manager.replay_dataset_bundle(
+                **runtime.replay_dataset_bundle(
                     operator_id=request.operator_id,
                     operator_note=request.operator_note,
                     confirmation=request.confirmation,
@@ -356,7 +359,7 @@ def create_app(
     def terminus_configure(request: TerminusConfigureRequest) -> TerminusRuntimeResponse:
         try:
             return TerminusRuntimeResponse(
-                **manager.configure_terminus(
+                **runtime.configure_terminus(
                     source_bank=[_model_to_dict(item) for item in request.source_bank],
                     tick_tokens=request.tick_tokens,
                     sleep_interval_seconds=request.sleep_interval_seconds,
@@ -372,57 +375,57 @@ def create_app(
     @app.post("/terminus/start", response_model=TerminusRuntimeResponse)
     def terminus_start() -> TerminusRuntimeResponse:
         try:
-            return TerminusRuntimeResponse(**manager.start_terminus())
+            return TerminusRuntimeResponse(**runtime.start_terminus())
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/terminus/stop", response_model=TerminusRuntimeResponse)
     def terminus_stop() -> TerminusRuntimeResponse:
-        return TerminusRuntimeResponse(**manager.stop_terminus())
+        return TerminusRuntimeResponse(**runtime.stop_terminus())
 
     @app.post("/terminus/tick", response_model=TerminusRuntimeResponse)
     def terminus_tick(request: TerminusTickRequest) -> TerminusRuntimeResponse:
         try:
-            return TerminusRuntimeResponse(**manager.terminus_tick(steps=request.steps))
+            return TerminusRuntimeResponse(**runtime.terminus_tick(steps=request.steps))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/terminus/quick-start")
     def terminus_quick_start(preset: str = Query("curriculum")) -> dict[str, Any]:
         try:
-            return manager.quick_start_terminus(preset=preset)
+            return runtime.quick_start_terminus(preset=preset)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/terminus/presets")
     def terminus_presets() -> list[dict[str, Any]]:
-        return HECSNServiceManager.quick_start_presets()
+        return RuntimeControl.quick_start_presets()
 
     # --- Cortex (LLM thought loop) endpoints ---
 
     @app.post("/terminus/ask")
     def terminus_ask(query: str = Query(..., min_length=1, max_length=2000)) -> dict[str, Any]:
         """Submit a question for the cortex to answer asynchronously."""
-        return manager.cortex_ask(query)
+        return runtime.cortex_ask(query)
 
     @app.get("/terminus/thoughts")
     def terminus_thoughts(limit: int = Query(20, ge=1, le=50)) -> dict[str, Any]:
         """Get recent thoughts from the cortex."""
-        return manager.cortex_thoughts(limit=limit)
+        return runtime.cortex_thoughts(limit=limit)
 
     @app.get("/terminus/cortex")
     def terminus_cortex() -> dict[str, Any]:
         """Full cortex snapshot (drives, memories, stats)."""
-        return manager.cortex_snapshot()
+        return runtime.cortex_snapshot()
 
     @app.post("/terminus/cortex/sleep")
     def terminus_cortex_sleep(request: CortexSleepRequest) -> dict[str, Any]:
         """Request an explicit cortex sleep cycle on the maintained control path."""
-        return manager.cortex_sleep(reason=request.reason)
+        return runtime.cortex_sleep(reason=request.reason)
 
     @app.get("/terminus/actions", response_model=ActionHistoryResponse)
     def terminus_actions(limit: int = Query(20, ge=1, le=100)) -> ActionHistoryResponse:
-        return ActionHistoryResponse(**manager.action_history(limit=limit))
+        return ActionHistoryResponse(**runtime.action_history(limit=limit))
 
     @app.get("/terminus/validation/reports")
     def terminus_validation_reports(limit: int = Query(40, ge=1, le=200)) -> dict[str, Any]:
@@ -471,33 +474,33 @@ def create_app(
     @app.post("/terminus/action", response_model=DigitalActionResponse)
     def terminus_action(request: DigitalActionRequest) -> DigitalActionResponse:
         try:
-            return DigitalActionResponse(**manager.execute_digital_action(_model_to_dict(request)))
+            return DigitalActionResponse(**runtime.execute_digital_action(_model_to_dict(request)))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/terminus/runtime-feedback", response_model=RuntimeFeedbackResponse)
     def terminus_runtime_feedback(request: RuntimeFeedbackRequest) -> RuntimeFeedbackResponse:
         try:
-            return RuntimeFeedbackResponse(**manager.record_runtime_feedback(_model_to_dict(request)))
+            return RuntimeFeedbackResponse(**runtime.record_runtime_feedback(_model_to_dict(request)))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/terminus/sensory/recent")
     def terminus_sensory_recent(limit: int = Query(6, ge=1, le=12)) -> dict[str, Any]:
         """Recent real sensory previews (images/audio) for the UI."""
-        return manager.sensory_previews(limit=limit)
+        return runtime.sensory_previews(limit=limit)
 
     @app.get("/traces", response_model=TraceHistoryResponse)
     def traces(limit: int = Query(20, ge=1, le=200)) -> TraceHistoryResponse:
-        return TraceHistoryResponse(traces=manager.recent_traces(limit=limit))
+        return TraceHistoryResponse(traces=runtime.recent_traces(limit=limit))
 
     @app.get("/architecture")
     def architecture() -> dict[str, Any]:
-        return manager.architecture_summary()
+        return runtime.architecture_summary()
 
     @app.post("/grounding-probe/run")
     def grounding_probe_run() -> dict[str, Any]:
-        return manager.run_grounding_probe()
+        return runtime.run_grounding_probe()
 
     @app.get("/stream/status")
     async def stream_status(interval: float = Query(1.0, ge=0.25, le=10.0)) -> StreamingResponse:
@@ -505,7 +508,7 @@ def create_app(
             last_payload = ""
             heartbeat_counter = 0
             while True:
-                payload = json.dumps(manager.telemetry_snapshot())
+                payload = json.dumps(runtime.telemetry_snapshot())
                 if payload != last_payload:
                     yield f"event: status\ndata: {payload}\n\n"
                     last_payload = payload

@@ -469,9 +469,10 @@ def run_acceptance_harness(
             trace_dir=root / "traces",
             env_root=root,
         )
+        runtime = manager.runtime_facade
         try:
             manager._ensure_cortex_initialized(wait_seconds=max(0.0, float(cortex_wait_s)))
-            cortex_snapshot = manager.cortex_snapshot()
+            cortex_snapshot = runtime.cortex_snapshot()
             if not bool(cortex_snapshot.get("enabled", False)) or getattr(manager, "_thought_loop", None) is None:
                 checks.append(
                     _acceptance_check(
@@ -483,9 +484,9 @@ def run_acceptance_harness(
                 )
             else:
                 manager._thought_loop.start()
-                before = manager.cortex_snapshot()
+                before = runtime.cortex_snapshot()
                 time.sleep(max(0.0, float(idle_wait_s)))
-                after = manager.cortex_snapshot()
+                after = runtime.cortex_snapshot()
                 thoughts_before = int(before.get("thoughts_generated", 0) or 0)
                 thoughts_after = int(after.get("thoughts_generated", 0) or 0)
                 passed = thoughts_before == 0 and thoughts_after == 0 and not list(after.get("recent_thoughts", []))
@@ -502,7 +503,7 @@ def run_acceptance_harness(
                     )
                 )
 
-            response_bundle = manager.respond(
+            response_bundle = runtime.respond(
                 query_text="What does notes.md say cats chase at night?",
                 max_evidence_items=3,
                 learn_mode="none",
@@ -548,7 +549,7 @@ def run_acceptance_harness(
                 )
             )
 
-            config_result = manager.configure_terminus(
+            config_result = runtime.configure_terminus(
                 source_bank=[
                     {
                         "name": "acceptance_stream",
@@ -567,7 +568,7 @@ def run_acceptance_harness(
                 },
             )
             token_before = int(config_result.get("token_count", 0) or 0)
-            tick_result = manager.terminus_tick(steps=max(1, int(tick_steps)))
+            tick_result = runtime.terminus_tick(steps=max(1, int(tick_steps)))
             runtime = tick_result.get("terminus_runtime") if isinstance(tick_result.get("terminus_runtime"), Mapping) else {}
             runtime_progress_passed = (
                 int(tick_result.get("token_count", 0) or 0) > token_before
@@ -677,7 +678,7 @@ def classify_test_report(
 
 
 def _collect_snapshot(
-    manager: Any,
+    runtime: Any,
     *,
     start_perf: float,
     last_thoughts_count: int,
@@ -686,7 +687,7 @@ def _collect_snapshot(
     seen_thought_texts: set[str],
     fresh_wait_seconds: float,
 ) -> tuple[MetricSnapshot, int]:
-    status = manager.status(fresh_wait_seconds=fresh_wait_seconds)
+    status = runtime.status(fresh_wait_seconds=fresh_wait_seconds)
     snapshot = MetricSnapshot(timestamp=time.time())
     snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
     terminus_runtime = status.get("terminus_runtime") if isinstance(status.get("terminus_runtime"), Mapping) else {}
@@ -695,7 +696,7 @@ def _collect_snapshot(
     action_loop = terminus_runtime.get("action_loop") if isinstance(terminus_runtime.get("action_loop"), Mapping) else {}
     ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), Mapping) else {}
     runtime_truth = status.get("runtime_truth") if isinstance(status.get("runtime_truth"), Mapping) else {}
-    thoughts_data = manager.cortex_thoughts(limit=10)
+    thoughts_data = runtime.cortex_thoughts(limit=10)
 
     snapshot.token_count = int(status.get("token_count", 0) or 0)
     snapshot.thoughts_total = int(thoughts_data.get("thoughts_generated", 0) or 0)
@@ -846,11 +847,12 @@ def run_long_test(
             trace_dir=tmpdir / "traces",
             env_root=Path.cwd(),
         )
-        initial_status = manager.status()
+        runtime = manager.runtime_facade
+        initial_status = runtime.status()
         report.initial_token_count = int(initial_status.get("token_count", 0) or 0)
 
         try:
-            config_result = manager.quick_start_terminus(preset=preset)
+            config_result = runtime.quick_start_terminus(preset=preset)
             logger.info("Quick start result: %s", config_result.get("status"))
         except Exception as exc:
             long_run_error = f"Quick start failed: {exc}"
@@ -866,7 +868,7 @@ def run_long_test(
             )
 
         time.sleep(2.0)
-        cortex_snapshot = manager.cortex_snapshot()
+        cortex_snapshot = runtime.cortex_snapshot()
         report.cortex_available = bool(cortex_snapshot.get("enabled", False))
         report.cortex_model = str(cortex_snapshot.get("model", ""))
 
@@ -893,7 +895,7 @@ def run_long_test(
                     time.sleep(sleep_time)
                 try:
                     snapshot, last_thoughts_count = _collect_snapshot(
-                        manager,
+                        runtime,
                         start_perf=start_perf,
                         last_thoughts_count=last_thoughts_count,
                         all_topics=all_topics,
@@ -901,7 +903,7 @@ def run_long_test(
                         seen_thought_texts=seen_thought_texts,
                         fresh_wait_seconds=max(5.0, float(sample_interval_s)),
                     )
-                    for thought in manager.cortex_thoughts(limit=10).get("thoughts", []):
+                    for thought in runtime.cortex_thoughts(limit=10).get("thoughts", []):
                         if not isinstance(thought, Mapping):
                             continue
                         latency_ms = float(thought.get("latency_ms", 0.0) or 0.0)
@@ -939,7 +941,7 @@ def run_long_test(
                 )
                 try:
                     final_snapshot, last_thoughts_count = _await_final_thought_settle(
-                        manager,
+                        runtime,
                         start_perf=start_perf,
                         last_thoughts_count=last_thoughts_count,
                         all_topics=all_topics,

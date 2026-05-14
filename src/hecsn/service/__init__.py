@@ -1,7 +1,8 @@
 """HECSN Service layer -- REST API, Terminus brain loop, and autonomy.
 
 Module structure:
-- manager.py: HECSNServiceManager facade and live runtime orchestration
+- manager.py: HECSNServiceManager composition root and lifecycle cleanup
+- runtime_facade.py: Operator-facing runtime interface over the deep modules
 - runtime_state.py: Shared dirty-state, revision, and brain event container
 - status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cortex-signal snapshots
 - runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports

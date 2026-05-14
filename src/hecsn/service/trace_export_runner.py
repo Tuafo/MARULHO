@@ -73,14 +73,14 @@ def export_runtime_trace_dataset(
         env_root=env_root,
     )
     try:
-        dataset = manager.export_runtime_trace_examples(limit=limit, endpoint=endpoint)
+        dataset = manager.runtime_facade.export_runtime_trace_examples(limit=limit, endpoint=endpoint)
     finally:
         manager.close()
 
     metadata: dict[str, Any] = {
         "source": "checkpoint_runtime_episode_traces",
         "generated_by": "hecsn.service.trace_export_runner",
-        "sanitization": "HECSNServiceManager.export_runtime_trace_examples",
+        "sanitization": "RuntimeFacade.export_runtime_trace_examples",
         "empty_export_behavior": _EMPTY_EXPORT_BEHAVIOR,
         "contains_examples": bool(dataset.get("count", 0)),
     }

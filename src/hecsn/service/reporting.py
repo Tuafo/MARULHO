@@ -16,7 +16,11 @@ class ServiceReportingMixin:
             sensory = self._brain_config.get("sensory") or {}
             autonomy = self._brain_config.get("autonomy") or {}
             predictive_enabled = bool(getattr(model, "predictive", None) is not None)
-            cortex_snapshot = self.cortex_snapshot() if self._thought_loop is not None else {"enabled": False}
+            cortex_snapshot = (
+                self._cortex_controller.cortex_snapshot()
+                if self._thought_loop is not None
+                else {"enabled": False}
+            )
             layers: list[dict[str, Any]] = []
             layers.append({
                 "id": "input_encoding",

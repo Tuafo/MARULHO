@@ -25,6 +25,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "hecsn" / "service"
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0003-service-manager-deep-module-split.md"
+_ADR_0004_PATH = _REPO_ROOT / "docs" / "adr" / "0004-runtime-facade-manager-max-removal.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 
 # Legacy mixin classes that must not appear in HECSNServiceManager.__bases__
@@ -337,6 +338,81 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
                 f"Manager __init__ must construct deep module attribute '{module_attr}'",
             )
 
+    def test_manager_constructs_runtime_facade(self) -> None:
+        """Manager must expose the ADR 0004 runtime facade instead of being the runtime interface."""
+        from hecsn.service.manager import HECSNServiceManager
+        from hecsn.service.runtime_facade import RuntimeFacade
+
+        init_source = inspect.getsource(HECSNServiceManager.__init__)
+        self.assertIn("_runtime_facade", init_source)
+        self.assertIsInstance(HECSNServiceManager.runtime_facade, property)
+        self.assertTrue(issubclass(RuntimeFacade, object))
+
+    def test_manager_does_not_expose_operator_runtime_methods(self) -> None:
+        """Operator-facing runtime methods belong on RuntimeFacade, not the manager class."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_runtime_methods = (
+            "status",
+            "terminus_status",
+            "sensory_previews",
+            "architecture_summary",
+            "telemetry_snapshot",
+            "living_loop_status",
+            "policy_actuator_status",
+            "checkpoint_list",
+            "recent_traces",
+            "save_checkpoint",
+            "restore_checkpoint",
+            "feed",
+            "query",
+            "respond",
+            "acquire",
+            "configure_terminus",
+            "start_terminus",
+            "stop_terminus",
+            "quick_start_terminus",
+            "terminus_tick",
+            "replay_plan_status",
+            "replay_sample",
+            "replay_sample_history",
+            "cortex_ask",
+            "cortex_sleep",
+            "cortex_thoughts",
+            "cortex_snapshot",
+            "action_history",
+            "execute_digital_action",
+            "record_runtime_feedback",
+            "export_runtime_trace_examples",
+            "replay_dataset_preview",
+            "replay_dataset_candidates",
+            "replay_dataset_history",
+            "replay_dataset_bundle",
+            "run_grounding_probe",
+            "quick_start_presets",
+        )
+        leaked = [name for name in removed_runtime_methods if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes runtime methods: " + ", ".join(leaked))
+
+    def test_fastapi_routes_use_runtime_facade(self) -> None:
+        """FastAPI must call RuntimeFacade for runtime behaviour, not manager pass-through methods."""
+        api_text = (_SERVICE_SRC_ROOT / "api.py").read_text(encoding="utf-8")
+        self.assertIn("runtime = manager.runtime_facade", api_text)
+        forbidden_calls = (
+            "manager.status(",
+            "manager.feed(",
+            "manager.query(",
+            "manager.respond(",
+            "manager.terminus_status(",
+            "manager.replay_sample(",
+            "manager.configure_terminus(",
+            "manager.terminus_tick(",
+            "manager.cortex_snapshot(",
+            "manager.execute_digital_action(",
+        )
+        violations = [call for call in forbidden_calls if call in api_text]
+        self.assertFalse(violations, "FastAPI still calls manager runtime methods: " + ", ".join(violations))
+
     def test_manager_init_does_not_define_adr_owned_state(self) -> None:
         """ADR-owned state fields must not be newly assigned in manager __init__."""
         init_fields = _parse_manager_init_self_assigns()
@@ -435,6 +511,21 @@ class TestADR0003ConsistencyWithPriorADRs(unittest.TestCase):
             self.assertIn(field, self.adr3_text)
 
 
+class TestADR0004RuntimeFacade(unittest.TestCase):
+    """ADR 0004 records the runtime facade max-removal decision."""
+
+    def test_adr4_file_exists_and_is_accepted(self) -> None:
+        self.assertTrue(_ADR_0004_PATH.exists(), f"ADR file not found at {_ADR_0004_PATH}")
+        text = _ADR_0004_PATH.read_text(encoding="utf-8")
+        self.assertRegex(text, r"## Status\s*\n\s*Accepted")
+
+    def test_adr4_names_runtime_facade_and_composition_root(self) -> None:
+        text = _ADR_0004_PATH.read_text(encoding="utf-8")
+        self.assertIn("RuntimeFacade", text)
+        self.assertIn("composition root", text.lower())
+        self.assertIn("operator-facing runtime interface", text)
+
+
 class TestContextMdADR0003Alignment(unittest.TestCase):
     """CONTEXT.md must match the ADR 0003 Service Manager module inventory."""
 
@@ -445,6 +536,11 @@ class TestContextMdADR0003Alignment(unittest.TestCase):
     def test_context_mentions_adr_0003(self) -> None:
         """CONTEXT.md must reference ADR 0003."""
         self.assertIn("ADR 0003", self.context_text)
+
+    def test_context_mentions_adr_0004_runtime_facade(self) -> None:
+        """CONTEXT.md must describe the ADR 0004 Runtime Facade."""
+        self.assertIn("ADR 0004", self.context_text)
+        self.assertIn("**Runtime Facade**", self.context_text)
 
     def test_context_lists_all_15_deep_modules(self) -> None:
         """CONTEXT.md must list all 15 deep modules from ADR 0003."""

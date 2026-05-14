@@ -73,14 +73,14 @@ def export_replay_dataset_preview(
         env_root=env_root,
     )
     try:
-        dataset = manager.replay_dataset_preview(limit=limit, endpoint=endpoint)
+        dataset = manager.runtime_facade.replay_dataset_preview(limit=limit, endpoint=endpoint)
     finally:
         manager.close()
 
     metadata: dict[str, Any] = {
         "source": "checkpoint_runtime_episode_traces_with_replay_context",
         "generated_by": "hecsn.service.replay_dataset_runner",
-        "sanitization": "HECSNServiceManager.replay_dataset_preview",
+        "sanitization": "RuntimeFacade.replay_dataset_preview",
         "empty_export_behavior": _EMPTY_EXPORT_BEHAVIOR,
         "contains_items": bool(dataset.get("count", 0)),
         "preview_only": True,

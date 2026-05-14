@@ -110,7 +110,7 @@ def export_replay_dataset_bundle(
         env_root=env_root,
     )
     try:
-        bundle = manager.replay_dataset_bundle(
+        bundle = manager.runtime_facade.replay_dataset_bundle(
             operator_id=operator_id,
             operator_note=operator_note,
             confirmation=confirmation,
@@ -128,7 +128,7 @@ def export_replay_dataset_bundle(
     metadata: dict[str, Any] = {
         "source": "checkpoint_replay_dataset_preview_package_gate",
         "generated_by": "hecsn.service.replay_dataset_bundle_runner",
-        "sanitization": "HECSNServiceManager.replay_dataset_bundle",
+        "sanitization": "RuntimeFacade.replay_dataset_bundle",
         "contains_items": bool(bundle.get("count", 0)),
         "operator_approved": bool(bundle.get("operator_approval", {}).get("approved", False))
         if isinstance(bundle.get("operator_approval"), Mapping)

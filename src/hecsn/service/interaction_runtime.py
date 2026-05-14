@@ -132,7 +132,7 @@ class InteractionRuntimeMixin:
 
             checkpoint_save = None
             if save_checkpoint_path is not None:
-                checkpoint_save = self.save_checkpoint(save_checkpoint_path)
+                checkpoint_save = self._runtime_persistence.save_checkpoint(save_checkpoint_path)
 
             trace = {
                 "trace_id": str(uuid4()),

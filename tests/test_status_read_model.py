@@ -1637,30 +1637,30 @@ class StatusReadModelCortexSignalReadonlyTests(unittest.TestCase):
         self.assertFalse(runtime_state.dirty_state)
 
 
-class ServiceManagerDelegationTests(unittest.TestCase):
-    """Service Manager delegates status() and terminus_status() to StatusReadModel."""
+class RuntimeFacadeDelegationTests(unittest.TestCase):
+    """RuntimeFacade delegates status projections to StatusReadModel."""
 
-    def test_manager_status_delegates_to_read_model(self) -> None:
-        """The manager's status() method delegates to its StatusReadModel."""
+    def test_runtime_facade_status_delegates_to_read_model(self) -> None:
+        """The runtime facade's status() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="delegation")
             try:
                 self.assertIsNotNone(manager._status_read_model)
                 self.assertIsInstance(manager._status_read_model, StatusReadModel)
-                result = manager.status()
+                result = manager.runtime_facade.status()
                 self.assertIn("runtime_truth", result)
                 self.assertIn("checkpoint_path", result)
             finally:
                 manager.close()
 
-    def test_manager_terminus_status_delegates_to_read_model(self) -> None:
-        """The manager's terminus_status() method delegates to its StatusReadModel."""
+    def test_runtime_facade_terminus_status_delegates_to_read_model(self) -> None:
+        """The runtime facade's terminus_status() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="delegation")
             try:
-                result = manager.terminus_status()
+                result = manager.runtime_facade.terminus_status()
                 self.assertIn("runtime_truth", result)
                 self.assertIn("terminus_runtime", result)
                 self.assertIn("multimodal", result)
@@ -1668,13 +1668,13 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_manager_terminus_status_multimodal_preserved_through_read_model(self) -> None:
+    def test_runtime_facade_terminus_status_multimodal_preserved_through_read_model(self) -> None:
         """terminus_status() preserves the full multimodal payload through the read model."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="multimodal_preserved")
             try:
-                result = manager.terminus_status()
+                result = manager.runtime_facade.terminus_status()
                 multimodal = result["multimodal"]
                 expected_keys = {
                     "enabled",
@@ -1690,8 +1690,8 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_manager_sensory_previews_delegates_to_read_model(self) -> None:
-        """The manager's sensory_previews() method delegates to its StatusReadModel."""
+    def test_runtime_facade_sensory_previews_delegates_to_read_model(self) -> None:
+        """The runtime facade's sensory_previews() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             from hecsn.service.manager import HECSNServiceManager
@@ -1704,7 +1704,7 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             )
             manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
-                result = manager.sensory_previews()
+                result = manager.runtime_facade.sensory_previews()
                 self.assertIn("count", result)
                 self.assertIn("latest_preview_id", result)
                 self.assertIn("previews", result)
@@ -1714,8 +1714,8 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_manager_architecture_summary_delegates_to_read_model(self) -> None:
-        """The manager's architecture_summary() method delegates to its StatusReadModel."""
+    def test_runtime_facade_architecture_summary_delegates_to_read_model(self) -> None:
+        """The runtime facade's architecture_summary() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             from hecsn.service.manager import HECSNServiceManager
@@ -1728,7 +1728,7 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             )
             manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
-                result = manager.architecture_summary()
+                result = manager.runtime_facade.architecture_summary()
                 self.assertEqual(result["model_name"], "Terminus")
                 self.assertEqual(result["core_name"], "GPCSN")
                 self.assertIn("layers", result)
@@ -1740,13 +1740,13 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_manager_telemetry_snapshot_delegates_to_read_model(self) -> None:
-        """The manager's telemetry_snapshot() method delegates to its StatusReadModel."""
+    def test_runtime_facade_telemetry_snapshot_delegates_to_read_model(self) -> None:
+        """The runtime facade's telemetry_snapshot() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="telemetry_delegation")
             try:
-                result = manager.telemetry_snapshot()
+                result = manager.runtime_facade.telemetry_snapshot()
                 self.assertIn("animation", result)
                 self.assertIn("terminus_runtime", result)
                 self.assertIn("token_count", result)
@@ -1754,8 +1754,8 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_manager_living_loop_status_delegates_to_read_model(self) -> None:
-        """The manager's living_loop_status() method delegates to its StatusReadModel."""
+    def test_runtime_facade_living_loop_status_delegates_to_read_model(self) -> None:
+        """The runtime facade's living_loop_status() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             from hecsn.service.manager import HECSNServiceManager
@@ -1766,15 +1766,15 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             )
             manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
-                result = manager.living_loop_status()
+                result = manager.runtime_facade.living_loop_status()
                 self.assertIn("living_loop", result)
                 self.assertIn("token_count", result)
                 self.assertIn("state_revision", result)
             finally:
                 manager.close()
 
-    def test_manager_policy_actuator_status_delegates_to_read_model(self) -> None:
-        """The manager's policy_actuator_status() method delegates to its StatusReadModel."""
+    def test_runtime_facade_policy_actuator_status_delegates_to_read_model(self) -> None:
+        """The runtime facade's policy_actuator_status() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             from hecsn.service.manager import HECSNServiceManager
@@ -1785,7 +1785,7 @@ class ServiceManagerDelegationTests(unittest.TestCase):
             )
             manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
-                result = manager.policy_actuator_status()
+                result = manager.runtime_facade.policy_actuator_status()
                 self.assertIn("schema_version", result)
                 self.assertIn("recommendation", result)
                 self.assertIn("action", result)

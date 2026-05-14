@@ -265,6 +265,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 env_root=root,
             )
             manager = app.state.hecsn_manager
+            runtime = app.state.hecsn_runtime
             with TestClient(app) as client:
                 action_response = client.post(
                     "/terminus/action",
@@ -274,11 +275,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "predicted_outcome": "I expect to find evidence about cats chasing mice.",
                     },
                 )
-                before_history = manager.action_history()["count"]
-                before_revision = manager.status()["state_revision"]
+                before_history = runtime.action_history()["count"]
+                before_revision = runtime.status()["state_revision"]
                 policy_response = client.get("/terminus/policy-actuator")
-                after_history = manager.action_history()["count"]
-                after_revision = manager.status()["state_revision"]
+                after_history = runtime.action_history()["count"]
+                after_revision = runtime.status()["state_revision"]
 
         self.assertEqual(action_response.status_code, 200)
         self.assertEqual(policy_response.status_code, 200)
@@ -305,6 +306,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 env_root=root,
             )
             manager = app.state.hecsn_manager
+            runtime = app.state.hecsn_runtime
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
@@ -319,11 +321,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "corrected_output": {"summary": "Cats chase mice at night."},
                     },
                 )
-                before_revision = manager.status()["state_revision"]
-                before_history = manager.action_history()["count"]
+                before_revision = runtime.status()["state_revision"]
+                before_history = runtime.action_history()["count"]
                 replay_response = client.get("/terminus/replay-plan?limit=5")
-                after_revision = manager.status()["state_revision"]
-                after_history = manager.action_history()["count"]
+                after_revision = runtime.status()["state_revision"]
+                after_history = runtime.action_history()["count"]
 
         self.assertEqual(feed_response.status_code, 200)
         self.assertEqual(feedback_response.status_code, 200)
@@ -351,6 +353,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 env_root=root,
             )
             manager = app.state.hecsn_manager
+            runtime = app.state.hecsn_runtime
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
@@ -367,8 +370,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 plan_response = client.get("/terminus/replay-plan?limit=5")
                 candidate = plan_response.json()["candidates"][0]
-                before_revision = manager.status()["state_revision"]
-                before_history = manager.action_history()["count"]
+                before_revision = runtime.status()["state_revision"]
+                before_history = runtime.action_history()["count"]
                 rejected_response = client.post(
                     "/terminus/replay-sample",
                     json={
@@ -438,8 +441,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     alpha=1.0,
                     seed=1,
                 )
-                after_revision = manager.status()["state_revision"]
-                after_history = manager.action_history()["count"]
+                after_revision = runtime.status()["state_revision"]
+                after_history = runtime.action_history()["count"]
 
         self.assertEqual(feed_response.status_code, 200)
         self.assertEqual(feedback_response.status_code, 200)
@@ -596,6 +599,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 env_root=root,
             )
             manager = app.state.hecsn_manager
+            runtime = app.state.hecsn_runtime
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
@@ -613,8 +617,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 plan_response = client.get("/terminus/replay-plan?limit=5")
                 candidate = plan_response.json()["candidates"][0]
                 candidate_id = candidate["candidate_id"]
-                saved_checkpoint = manager.save_checkpoint()
-                before_state = manager.status()
+                saved_checkpoint = runtime.save_checkpoint()
+                before_state = runtime.status()
                 sample_response = client.post(
                     "/terminus/replay-sample",
                     json={
@@ -628,9 +632,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "seed": 123,
                     },
                 )
-                after_state = manager.status()
-                restore_result = manager.restore_checkpoint(saved_checkpoint["path"])
-                restored_state = manager.status()
+                after_state = runtime.status()
+                restore_result = runtime.restore_checkpoint(saved_checkpoint["path"])
+                restored_state = runtime.status()
 
         self.assertEqual(feed_response.status_code, 200)
         self.assertEqual(feedback_response.status_code, 200)
