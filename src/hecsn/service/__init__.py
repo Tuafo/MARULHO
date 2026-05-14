@@ -10,19 +10,19 @@ Module structure:
 - action_runtime.py: Digital action execution and audit summaries
 - brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
-- persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers
+- persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
 - cortex_controller.py: Cortex ask/sleep/thought/action-intent control helpers
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior
 - interaction_runtime.py: Query/feed/respond/acquire operator interaction flow and compatibility delegates
 - living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
-- runtime_config.py: Operator runtime/source configuration normalization
+- runtime_config.py: Operator runtime/source configuration normalization with explicit priority callbacks
 - runtime_control.py: Terminus configure/start/stop/tick runtime control with explicit dependency access
 - runtime_prewarm.py: Remote warm promotion and ingestion prewarm loops
-- runtime_sources.py: Runtime source streams, live-remote wrapping, and caches
+- runtime_sources.py: Runtime source streams, live-remote wrapping, and caches with explicit dependencies
 - sensory_runtime.py: Multimodal sensory selection, prefetch, and injection
-- source_focus.py: Text-source focus and semantic scoring
+- source_focus.py: Text-source focus and semantic scoring with explicit dependencies
 - autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum) with explicit dependency access
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
 - sensory_preview.py: Legacy sensory preview payload helpers; status_read_model owns the active read path

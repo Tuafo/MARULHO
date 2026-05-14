@@ -2,20 +2,28 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.service.runtime_config import RuntimeConfig, RuntimeConfigMixin
+from hecsn.service.runtime_config import RuntimeConfig
 
 
-class _RuntimeConfigManagerFake:
-    def _provider_topic_family_priority_locked(self, family_entry):
+class _RuntimeConfigPriorityFake:
+    def provider_topic_family_priority(self, family_entry):
         return float(family_entry.get("commits", 0)) + 0.5 * float(family_entry.get("successes", 0))
 
-    def _provider_query_family_priority_locked(self, family_entry):
+    def provider_query_family_priority(self, family_entry):
         return float(family_entry.get("commits", 0)) + 0.5 * float(family_entry.get("successes", 0))
+
+
+def _runtime_config() -> RuntimeConfig:
+    fake = _RuntimeConfigPriorityFake()
+    return RuntimeConfig(
+        provider_query_family_priority=fake.provider_query_family_priority,
+        provider_topic_family_priority=fake.provider_topic_family_priority,
+    )
 
 
 class RuntimeConfigSeamTests(unittest.TestCase):
     def test_normalize_brain_config_preserves_operator_shape(self) -> None:
-        module = RuntimeConfig(_RuntimeConfigManagerFake())
+        module = _runtime_config()
 
         normalized = module._normalize_brain_config(
             {
@@ -66,10 +74,7 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         self.assertGreaterEqual(normalized["ingestion"]["queue_target_tokens"], 128)
         self.assertTrue(normalized["ingestion"]["prewarm_on_startup"])
 
-    def test_runtime_config_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(RuntimeConfigMixin, RuntimeConfig)
-
     def test_normalize_brain_config_rejects_non_object(self) -> None:
-        module = RuntimeConfig(_RuntimeConfigManagerFake())
+        module = _runtime_config()
         with self.assertRaises(ValueError):
             module._normalize_brain_config("not a config")

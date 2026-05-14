@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import random
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 from uuid import uuid4
 
 from hecsn.service.living_loop import (
@@ -12,27 +13,83 @@ from hecsn.service.living_loop import (
     build_replay_plan,
     replay_candidate_safety_flags,
 )
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 
 
-class ReplayController(ExplicitOwnerModule):
+@dataclass(frozen=True)
+class ReplayControllerDependencies:
+    action_history: Callable[[], Sequence[Mapping[str, Any]]]
+    cortex_unavailable_snapshot: Callable[[], Mapping[str, Any]]
+    living_loop_snapshot: Callable[..., Mapping[str, Any]]
+    lock: Any
+    normalize_action_text: Callable[[Any], str]
+    normalize_feedback_text: Callable[..., str]
+    replay_plan_summary: Callable[[Any], Mapping[str, Any]]
+    runtime_feedback_summary: Callable[[], Mapping[str, Any]]
+    runtime_state: Any
+    runtime_trace_export_safe_value: Callable[[Any], Any]
+    thought_loop: Callable[[], Any | None]
+    trainer: Callable[[], Any]
+
+
+class ReplayController:
     """Advisory replay planning and operator-gated replay sampling helpers."""
 
     def __init__(
         self,
-        manager: Any | None = None,
+        dependencies: ReplayControllerDependencies,
         *,
         replay_sample_history: Sequence[Mapping[str, Any]] | None = None,
         history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
     ) -> None:
-        super().__init__(manager)
+        self._dependencies = dependencies
         self._history_maxlen = max(1, int(history_maxlen))
         self._replay_sample_history: deque[dict[str, Any]] = deque(maxlen=self._history_maxlen)
         self.load_replay_sample_history(replay_sample_history or [])
+
+    @property
+    def _action_history(self) -> Sequence[Mapping[str, Any]]:
+        return self._dependencies.action_history()
+
+    @property
+    def _lock(self) -> Any:
+        return self._dependencies.lock
+
+    @property
+    def _runtime_state(self) -> Any:
+        return self._dependencies.runtime_state
+
+    @property
+    def _thought_loop_actual(self) -> Any | None:
+        return self._dependencies.thought_loop()
+
+    @property
+    def _trainer(self) -> Any:
+        return self._dependencies.trainer()
+
+    def _cortex_unavailable_snapshot(self) -> Mapping[str, Any]:
+        return self._dependencies.cortex_unavailable_snapshot()
+
+    def _living_loop_snapshot_locked(self, **kwargs: Any) -> Mapping[str, Any]:
+        return self._dependencies.living_loop_snapshot(**kwargs)
+
+    def _normalize_action_text(self, value: Any) -> str:
+        return self._dependencies.normalize_action_text(value)
+
+    def _normalize_feedback_text(self, value: Any, **kwargs: Any) -> str:
+        return self._dependencies.normalize_feedback_text(value, **kwargs)
+
+    def _replay_plan_summary(self, replay_plan: Any) -> Mapping[str, Any]:
+        return self._dependencies.replay_plan_summary(replay_plan)
+
+    def _runtime_feedback_summary_locked(self) -> Mapping[str, Any]:
+        return self._dependencies.runtime_feedback_summary()
+
+    def _runtime_trace_export_safe_value(self, value: Any) -> Any:
+        return self._dependencies.runtime_trace_export_safe_value(value)
 
     @property
     def history(self) -> deque[dict[str, Any]]:
@@ -452,23 +509,3 @@ class ReplayController(ExplicitOwnerModule):
             "after": _counts(data.get("after")),
             "plan_summary": dict(data.get("plan_summary", {})) if isinstance(data.get("plan_summary"), Mapping) else {},
         }
-
-
-install_owner_forwarders(ReplayController, (
-    "_action_history",
-    "_cortex_unavailable_snapshot",
-    "_living_loop_snapshot_locked",
-    "_lock",
-    "_normalize_action_text",
-    "_normalize_feedback_text",
-    "_replay_plan_summary",
-    "_runtime_feedback_summary_locked",
-    "_runtime_state",
-    "_runtime_trace_export_safe_value",
-    "_thought_loop_actual",
-    "_trainer",
-))
-
-
-ReplayRuntimeMixin = ReplayController
-

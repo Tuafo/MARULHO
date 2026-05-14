@@ -14,13 +14,12 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Sequence, cast
+from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 
 import torch
 
 from hecsn.data.corpus_loader import BackgroundPrefetchIterator, SourceType, StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.terminus_sensory import SensoryEpisode, build_sensory_stream
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -99,7 +98,63 @@ class _SensorySourceRuntime:
 
 
 
-class RuntimeSources(ExplicitOwnerModule):
+@dataclass(frozen=True)
+class RuntimeSourcesDependencies:
+    brain_config: Callable[[], Mapping[str, Any]]
+    brain_source_runtimes: Callable[[], Sequence[_BrainSourceRuntime]]
+    set_brain_source_runtimes: Callable[[Sequence[_BrainSourceRuntime]], None]
+    checkpoint_dir: Callable[[], Path]
+    checkpoint_path: Callable[[], Path]
+    encoder: Callable[[], Any]
+    sensory_queue_target_items: Callable[[], int]
+    sensory_source_runtimes: Callable[[], Sequence[_SensorySourceRuntime]]
+    set_sensory_source_runtimes: Callable[[Sequence[_SensorySourceRuntime]], None]
+    trainer: Callable[[], Any]
+
+
+class RuntimeSources:
+    def __init__(self, dependencies: RuntimeSourcesDependencies) -> None:
+        self._dependencies = dependencies
+
+    @property
+    def _brain_config(self) -> Mapping[str, Any]:
+        return self._dependencies.brain_config()
+
+    @property
+    def _brain_source_runtimes(self) -> Sequence[_BrainSourceRuntime]:
+        return self._dependencies.brain_source_runtimes()
+
+    @_brain_source_runtimes.setter
+    def _brain_source_runtimes(self, value: Sequence[_BrainSourceRuntime]) -> None:
+        self._dependencies.set_brain_source_runtimes(value)
+
+    @property
+    def _checkpoint_dir(self) -> Path:
+        return self._dependencies.checkpoint_dir()
+
+    @property
+    def _checkpoint_path(self) -> Path:
+        return self._dependencies.checkpoint_path()
+
+    @property
+    def _encoder(self) -> Any:
+        return self._dependencies.encoder()
+
+    @property
+    def _sensory_source_runtimes(self) -> Sequence[_SensorySourceRuntime]:
+        return self._dependencies.sensory_source_runtimes()
+
+    @_sensory_source_runtimes.setter
+    def _sensory_source_runtimes(self, value: Sequence[_SensorySourceRuntime]) -> None:
+        self._dependencies.set_sensory_source_runtimes(value)
+
+    @property
+    def _trainer(self) -> Any:
+        return self._dependencies.trainer()
+
+    def _sensory_queue_target_items_locked(self) -> int:
+        return int(self._dependencies.sensory_queue_target_items())
+
     @staticmethod
     def _source_spec_uses_live_remote(spec: Mapping[str, Any]) -> bool:
         source_type = str(spec.get("source_type", "auto") or "auto").strip().lower()
@@ -398,17 +453,3 @@ class RuntimeSources(ExplicitOwnerModule):
         self._interrupt_sensory_sources_locked()
         self._sensory_source_runtimes = []
 
-
-install_owner_forwarders(RuntimeSources, (
-    "_brain_config",
-    "_brain_source_runtimes",
-    "_checkpoint_dir",
-    "_checkpoint_path",
-    "_encoder",
-    "_sensory_queue_target_items_locked",
-    "_sensory_source_runtimes",
-    "_trainer",
-))
-
-
-RuntimeSourcesMixin = RuntimeSources

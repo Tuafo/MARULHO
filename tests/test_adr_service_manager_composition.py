@@ -250,6 +250,22 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "ManagerBoundModule remains in service modules:\n" + "\n".join(violations),
         )
 
+    def test_owner_forwarder_helper_removed(self) -> None:
+        """The transition owner-forwarder helper must not remain in service code."""
+        helper_path = _SERVICE_SRC_ROOT / "manager_bound_module.py"
+        self.assertFalse(helper_path.exists(), "manager_bound_module.py must be removed")
+
+        violations: list[str] = []
+        for path in sorted(_SERVICE_SRC_ROOT.rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for marker in ("ExplicitOwnerModule", "install_owner_forwarders", "manager_bound_module"):
+                if marker in text:
+                    violations.append(f"{path.relative_to(_REPO_ROOT)} contains {marker}")
+        self.assertFalse(
+            violations,
+            "Owner-forwarder transition code remains:\n" + "\n".join(violations),
+        )
+
     def test_brain_runtime_has_explicit_dependencies(self) -> None:
         """BrainRuntime must not recover owner access through transition helpers."""
         brain_runtime_path = _SERVICE_SRC_ROOT / "brain_runtime.py"

@@ -7,17 +7,50 @@ delayed consequence tracker.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Mapping, Sequence
 
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
-class SourceFocusScorer(ExplicitOwnerModule):
+@dataclass(frozen=True)
+class SourceFocusDependencies:
+    autonomy_focus_plan: Callable[[], Mapping[str, Any] | None]
+    background_source_utility_entry: Callable[[_BrainSourceRuntime], Mapping[str, Any]]
+    brain_source_runtimes: Callable[[], Sequence[_BrainSourceRuntime]]
+    concept_store_snapshot: Callable[[int], Mapping[str, Any]]
+    geometric_curiosity_focus_plan: Callable[[int], Mapping[str, Any] | None]
+    interaction_recent_query_gaps: Callable[[], Sequence[Mapping[str, Any]]]
+    normalize_action_text: Callable[[Any], str]
+    source_text_overlap: Callable[[str, str], float]
+    thought_loop: Callable[[], Any | None]
+
+
+class SourceFocusScorer:
+    def __init__(self, dependencies: SourceFocusDependencies) -> None:
+        self._dependencies = dependencies
+
+    @property
+    def _brain_source_runtimes(self) -> Sequence[_BrainSourceRuntime]:
+        return self._dependencies.brain_source_runtimes()
+
+    @property
+    def _thought_loop_actual(self) -> Any | None:
+        return self._dependencies.thought_loop()
+
+    def _background_source_utility_entry_locked(self, runtime: _BrainSourceRuntime) -> Mapping[str, Any]:
+        return self._dependencies.background_source_utility_entry(runtime)
+
+    def _normalize_action_text(self, value: Any) -> str:
+        return self._dependencies.normalize_action_text(value)
+
+    def _source_text_overlap(self, left: str, right: str) -> float:
+        return self._dependencies.source_text_overlap(left, right)
+
     def _focus_gap_terms_locked(self, limit: int = 4) -> list[str]:
         terms: list[str] = []
 
@@ -28,7 +61,7 @@ class SourceFocusScorer(ExplicitOwnerModule):
             terms.append(exploration_target)
 
         try:
-            plan = self._geometric_curiosity.focus_plan(top_n=max(1, limit))
+            plan = self._dependencies.geometric_curiosity_focus_plan(max(1, limit))
             for item in list((plan or {}).get("geometric_gaps", []))[:limit]:
                 concept = " ".join(str(item.get("concept", "")).split()).strip()
                 if concept:
@@ -37,7 +70,7 @@ class SourceFocusScorer(ExplicitOwnerModule):
             pass
 
         try:
-            snap = self._concept_store.snapshot(limit=max(1, limit))
+            snap = self._dependencies.concept_store_snapshot(max(1, limit))
             for concept in list(snap.get("top_concepts", []))[:limit]:
                 if not isinstance(concept, dict):
                     continue
@@ -68,7 +101,7 @@ class SourceFocusScorer(ExplicitOwnerModule):
         *,
         focus_plan: Mapping[str, Any] | None = None,
     ) -> list[str]:
-        plan = focus_plan if focus_plan is not None else self._bound_module("_autonomy_planner")._autonomy_focus_plan_locked()
+        plan = focus_plan if focus_plan is not None else self._dependencies.autonomy_focus_plan()
         phrases: list[str] = []
         if isinstance(plan, Mapping):
             phrases.extend(str(item) for item in list(plan.get("query_terms") or []) if str(item).strip())
@@ -88,7 +121,7 @@ class SourceFocusScorer(ExplicitOwnerModule):
                     for item in list(raw_concept.get("top_terms") or [])
                     if str(item).strip()
                 )
-        recent_query_gaps = self._interaction_pipeline.recent_query_gaps()
+        recent_query_gaps = list(self._dependencies.interaction_recent_query_gaps())
         if not phrases and recent_query_gaps:
             recent_gap = recent_query_gaps[0]
             phrases.append(str(recent_gap.get("query_text", "")))
@@ -354,18 +387,3 @@ class SourceFocusScorer(ExplicitOwnerModule):
                 score *= 0.25
         return float(max(0.0, min(1.0, score)))
 
-
-install_owner_forwarders(SourceFocusScorer, (
-    "_autonomy_planner",
-    "_background_source_utility_entry_locked",
-    "_brain_source_runtimes",
-    "_concept_store",
-    "_geometric_curiosity",
-    "_interaction_pipeline",
-    "_normalize_action_text",
-    "_source_text_overlap",
-    "_thought_loop_actual",
-))
-
-
-SourceFocusMixin = SourceFocusScorer

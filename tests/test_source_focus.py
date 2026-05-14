@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import torch
 
 from hecsn.service.runtime_sources import _BrainSourceRuntime
-from hecsn.service.source_focus import SourceFocusMixin, SourceFocusScorer
+from hecsn.service.source_focus import SourceFocusDependencies, SourceFocusScorer
 
 
 class _FakeRuntimeState:
@@ -21,7 +21,7 @@ class _FakeRuntimeState:
 
 
 class _FakeGeometricCuriosity:
-    def focus_plan(self, *, query_text: str | None = None):
+    def focus_plan(self, *, top_n: int = 4, query_text: str | None = None):
         return {
             "geometric_gaps": [
                 {"concept": "phase transitions"},
@@ -117,6 +117,22 @@ class _FakeManager:
         return float(len(left_terms & right_terms)) / float(max(1, min(len(left_terms), len(right_terms))))
 
 
+def _source_focus_from_fake(fake: _FakeManager) -> SourceFocusScorer:
+    return SourceFocusScorer(
+        SourceFocusDependencies(
+            autonomy_focus_plan=fake._autonomy_focus_plan_locked,
+            background_source_utility_entry=fake._background_source_utility_entry_locked,
+            brain_source_runtimes=lambda: fake._brain_source_runtimes,
+            concept_store_snapshot=lambda limit: fake._concept_store.snapshot(limit=limit),
+            geometric_curiosity_focus_plan=lambda top_n: fake._geometric_curiosity.focus_plan(top_n=top_n),
+            interaction_recent_query_gaps=lambda: fake._interaction_pipeline.recent_query_gaps(),
+            normalize_action_text=lambda value: " ".join(str(value).split()).strip(),
+            source_text_overlap=fake._source_text_overlap,
+            thought_loop=lambda: fake._thought_loop_actual,
+        )
+    )
+
+
 class _FakeAutonomyPlanner:
     def __init__(self, plan: dict[str, object]) -> None:
         self.plan = plan
@@ -136,14 +152,27 @@ class _PlannerBackedManager:
                 "unsupported_terms": ["mice"],
             }
         )
+        self._brain_source_runtimes = []
+        self._concept_store = _FakeConceptStore()
+        self._geometric_curiosity = _FakeGeometricCuriosity()
+        self._thought_loop_actual = None
+        self._brain_source_utility = {}
+
+    def _background_source_utility_entry_locked(self, runtime):
+        return {}
+
+    def _autonomy_focus_plan_locked(self):
+        return self._autonomy_planner._autonomy_focus_plan_locked()
+
+    @staticmethod
+    def _source_text_overlap(left: str, right: str) -> float:
+        return _FakeManager._source_text_overlap(left, right)
 
 
 class SourceFocusSeamTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(SourceFocusMixin, SourceFocusScorer)
-
     def test_focus_terms_and_selection_score_are_semantic(self) -> None:
-        module = SourceFocusScorer(_FakeManager())
+        fake = _FakeManager()
+        module = _source_focus_from_fake(fake)
         runtime = _BrainSourceRuntime(
             spec={
                 "name": "science_source",
@@ -214,9 +243,10 @@ class SourceFocusSeamTests(unittest.TestCase):
         self.assertIn("archive.md", source_weighted)
 
     def test_background_focus_terms_use_autonomy_planner_module_when_available(self) -> None:
-        module = SourceFocusScorer(_PlannerBackedManager())
+        fake = _PlannerBackedManager()
+        module = _source_focus_from_fake(fake)
 
         terms = module._background_focus_terms_locked(limit=4)
 
         self.assertEqual(terms[:2], ["quantum", "mice"])
-        self.assertEqual(module._autonomy_planner.calls, 1)
+        self.assertEqual(fake._autonomy_planner.calls, 1)

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import torch
 
-from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesMixin, _BrainSourceRuntime
+from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime
 
 
 class _FakeTrainerConfig:
@@ -37,9 +37,28 @@ class _FakeManager:
             "tick_tokens": 4,
             "ingestion": {"enabled": True, "queue_target_tokens": 4},
         }
+        self._brain_source_runtimes = []
+        self._sensory_source_runtimes = []
 
     def _sensory_queue_target_items_locked(self) -> int:
         return 2
+
+
+def _runtime_sources(fake: _FakeManager) -> RuntimeSources:
+    return RuntimeSources(
+        RuntimeSourcesDependencies(
+            brain_config=lambda: fake._brain_config,
+            brain_source_runtimes=lambda: fake._brain_source_runtimes,
+            set_brain_source_runtimes=lambda value: setattr(fake, "_brain_source_runtimes", list(value)),
+            checkpoint_dir=lambda: fake._checkpoint_dir,
+            checkpoint_path=lambda: fake._checkpoint_path,
+            encoder=lambda: fake._encoder,
+            sensory_queue_target_items=fake._sensory_queue_target_items_locked,
+            sensory_source_runtimes=lambda: fake._sensory_source_runtimes,
+            set_sensory_source_runtimes=lambda value: setattr(fake, "_sensory_source_runtimes", list(value)),
+            trainer=lambda: fake._trainer,
+        )
+    )
 
 
 class _FakeLoader:
@@ -64,11 +83,8 @@ class _FakePrefetchIterator:
 
 
 class RuntimeSourcesSeamTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(RuntimeSourcesMixin, RuntimeSources)
-
     def test_remote_detection_and_window_reconstruction(self) -> None:
-        module = RuntimeSources(object())
+        module = _runtime_sources(_FakeManager(Path(".")))
 
         self.assertTrue(module._source_spec_uses_live_remote({"source": "https://example.com"}))
         self.assertFalse(module._source_spec_uses_live_remote({"source": "notes.txt", "source_type": "file"}))
@@ -81,7 +97,7 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
     def test_build_brain_source_stream_wraps_remote_sources(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            module = RuntimeSources(_FakeManager(root))
+            module = _runtime_sources(_FakeManager(root))
 
             with patch("hecsn.service.runtime_sources.StreamingCorpusLoader", _FakeLoader), patch(
                 "hecsn.service.runtime_sources.labeled_pattern_stream",
@@ -104,7 +120,7 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
     def test_brain_runtime_cache_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            module = RuntimeSources(_FakeManager(root))
+            module = _runtime_sources(_FakeManager(root))
             runtime = _BrainSourceRuntime(
                 spec={
                     "name": "remote_source",

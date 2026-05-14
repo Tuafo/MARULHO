@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging as _logging
 from pathlib import Path
 from threading import Event, Lock, Thread
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
-
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 
 DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS = 2.0
 
@@ -86,11 +85,33 @@ class _LazyThoughtLoop:
         return getattr(self._get(), name)
 
 
-class CortexController(ExplicitOwnerModule):
+@dataclass(frozen=True)
+class CortexControllerDependencies:
+    action_history: Callable[[], Sequence[Mapping[str, Any]]]
+    action_history_memory_metadata: Callable[[Mapping[str, Any]], dict[str, Any]]
+    action_query_terms: Callable[[str], tuple[str, ...]]
+    action_focus_query_text: Callable[[str], str]
+    api_request_record_matches_explicit_url: Callable[[Mapping[str, Any], str], bool]
+    checkpoint_dir: Callable[[], Path]
+    cortex_signal_state: Callable[[], dict[str, Any]]
+    lock: Any
+    query_api_url_candidate: Callable[[str], str]
+    query_web_url_candidate: Callable[[str], str]
+    query_workspace_path_candidate: Callable[[str], str]
+    recent_relevant_action_records: Callable[..., list[dict[str, Any]]]
+    record_brain_event: Callable[[Mapping[str, Any]], None]
+    action_record_relevance_score: Callable[[Mapping[str, Any], str], float]
+    action_record_to_response_episodes: Callable[..., list[dict[str, Any]]]
+    augment_query_result_with_action_records: Callable[..., int]
+    brain_running: Callable[[], bool]
+    execute_digital_action: Callable[..., dict[str, Any]]
+
+
+class CortexController:
     """Cortex ask/sleep/thought/action-intent control helpers."""
 
-    def __init__(self, manager: Any | None = None) -> None:
-        super().__init__(manager)
+    def __init__(self, dependencies: CortexControllerDependencies) -> None:
+        self._dependencies = dependencies
         for field_name, initial_value in _build_cortex_controller_initial_state().items():
             object.__setattr__(self, field_name, initial_value)
         object.__setattr__(self, "_lazy_thought_loop", _LazyThoughtLoop(self))
@@ -164,26 +185,51 @@ class CortexController(ExplicitOwnerModule):
     def _cortex_active(self) -> bool:
         return self._thought_loop_actual is not None and self._thought_loop_actual.is_running
 
+    @property
+    def _action_history(self) -> Sequence[Mapping[str, Any]]:
+        return self._dependencies.action_history()
+
+    @property
+    def _brain_running(self) -> bool:
+        return bool(self._dependencies.brain_running())
+
+    @property
+    def _checkpoint_dir(self) -> Path:
+        return self._dependencies.checkpoint_dir()
+
+    @property
+    def _lock(self) -> Any:
+        return self._dependencies.lock
+
     def _record_brain_event_locked(self, event: Mapping[str, Any]) -> None:
-        return self._manager._record_brain_event_locked(event)
+        return self._dependencies.record_brain_event(event)
 
     def _action_history_memory_metadata(self, record: Mapping[str, Any]) -> dict[str, Any]:
-        return self._manager._action_history_memory_metadata(record)
+        return self._dependencies.action_history_memory_metadata(record)
 
     def _action_query_terms(self, query_text: str) -> tuple[str, ...]:
-        return self._manager._action_query_terms(query_text)
+        return self._dependencies.action_query_terms(query_text)
 
     def _action_focus_query_text(self, query_text: str) -> str:
-        return self._manager._action_focus_query_text(query_text)
+        return self._dependencies.action_focus_query_text(query_text)
 
     def _query_workspace_path_candidate_locked(self, query_text: str) -> str:
-        return self._manager._query_workspace_path_candidate_locked(query_text)
+        return self._dependencies.query_workspace_path_candidate(query_text)
 
     def _query_web_url_candidate(self, query_text: str) -> str:
-        return self._manager._query_web_url_candidate(query_text)
+        return self._dependencies.query_web_url_candidate(query_text)
 
     def _query_api_url_candidate(self, query_text: str) -> str:
-        return self._manager._query_api_url_candidate(query_text)
+        return self._dependencies.query_api_url_candidate(query_text)
+
+    def _api_request_record_matches_explicit_url(self, record: Mapping[str, Any], explicit_url: str) -> bool:
+        return self._dependencies.api_request_record_matches_explicit_url(record, explicit_url)
+
+    def _cortex_signal_state(self) -> dict[str, Any]:
+        return self._dependencies.cortex_signal_state()
+
+    def execute_digital_action(self, inputs: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return self._dependencies.execute_digital_action(inputs, **kwargs)
 
     def _recent_relevant_action_records_locked(
         self,
@@ -192,14 +238,14 @@ class CortexController(ExplicitOwnerModule):
         statuses: Sequence[str] | None = None,
         limit: int = 4,
     ) -> list[dict[str, Any]]:
-        return self._manager._recent_relevant_action_records_locked(
+        return self._dependencies.recent_relevant_action_records(
             query_text,
             statuses=statuses,
             limit=limit,
         )
 
     def _action_record_relevance_score_locked(self, record: Mapping[str, Any], query_text: str) -> float:
-        return self._manager._action_record_relevance_score_locked(record, query_text)
+        return self._dependencies.action_record_relevance_score(record, query_text)
 
     def _action_record_to_response_episodes_locked(
         self,
@@ -208,7 +254,7 @@ class CortexController(ExplicitOwnerModule):
         query_text: str,
         limit: int = 3,
     ) -> list[dict[str, Any]]:
-        return self._manager._action_record_to_response_episodes_locked(
+        return self._dependencies.action_record_to_response_episodes(
             record,
             query_text=query_text,
             limit=limit,
@@ -221,7 +267,7 @@ class CortexController(ExplicitOwnerModule):
         query_text: str,
         records: Sequence[Mapping[str, Any]],
     ) -> int:
-        return self._manager._augment_query_result_with_action_records_locked(
+        return self._dependencies.augment_query_result_with_action_records(
             query_result,
             query_text=query_text,
             records=records,
@@ -695,28 +741,3 @@ class CortexController(ExplicitOwnerModule):
             return self._cortex_unavailable_snapshot()
         return self._thought_loop_actual.snapshot()
 
-
-install_owner_forwarders(CortexController, (
-    "_action_history",
-    "_action_history_memory_metadata",
-    "_action_query_terms",
-    "_action_focus_query_text",
-    "_api_request_record_matches_explicit_url",
-    "_checkpoint_dir",
-    "_cortex_signal_state",
-    "_lock",
-    "_normalize_action_text",
-    "_query_api_url_candidate",
-    "_query_web_url_candidate",
-    "_query_workspace_path_candidate_locked",
-    "_recent_relevant_action_records_locked",
-    "_record_brain_event_locked",
-    "_action_record_relevance_score_locked",
-    "_action_record_to_response_episodes_locked",
-    "_augment_query_result_with_action_records_locked",
-    "_brain_running",
-    "execute_digital_action",
-))
-
-
-CortexRuntimeMixin = CortexController

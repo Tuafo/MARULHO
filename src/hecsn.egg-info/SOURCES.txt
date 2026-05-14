@@ -90,7 +90,6 @@ src/hecsn/service/api.py
 src/hecsn/service/autonomy_planner.py
 src/hecsn/service/brain_runtime.py
 src/hecsn/service/cortex_controller.py
-src/hecsn/service/cortex_runtime.py
 src/hecsn/service/delayed_consequence.py
 src/hecsn/service/feedback_applier.py
 src/hecsn/service/history_store.py
@@ -104,7 +103,6 @@ src/hecsn/service/living_loop_replay.py
 src/hecsn/service/living_loop_self_model.py
 src/hecsn/service/living_status.py
 src/hecsn/service/manager.py
-src/hecsn/service/manager_bound_module.py
 src/hecsn/service/persistence.py
 src/hecsn/service/replay_dataset_bundle.py
 src/hecsn/service/replay_dataset_bundle_runner.py

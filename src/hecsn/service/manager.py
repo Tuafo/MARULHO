@@ -147,24 +147,24 @@ from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
 from hecsn.service.action_executor import ActionExecutor
 from hecsn.service.feedback_applier import FeedbackApplier
 from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
-from hecsn.service.delayed_consequence import DELAYED_CONSEQUENCE_STATE_FIELDS, DelayedConsequenceTracker
-from hecsn.service.persistence import RuntimePersistence
-from hecsn.service.cortex_controller import CORTEX_CONTROLLER_STATE_FIELDS, CortexController
+from hecsn.service.delayed_consequence import DELAYED_CONSEQUENCE_STATE_FIELDS, DelayedConsequenceDependencies, DelayedConsequenceTracker
+from hecsn.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
+from hecsn.service.cortex_controller import CORTEX_CONTROLLER_STATE_FIELDS, CortexController, CortexControllerDependencies
 from hecsn.service.reporting import ServiceReportingMixin
-from hecsn.service.replay_runtime import ReplayController
+from hecsn.service.replay_runtime import ReplayController, ReplayControllerDependencies
 from hecsn.service.interaction_runtime import InteractionRuntimeMixin
 from hecsn.service.living_status import LivingStatusMixin
 from hecsn.service.runtime_config import RuntimeConfig
 from hecsn.service.runtime_control import RUNTIME_CONTROL_STATE_FIELDS, RuntimeControl
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
-from hecsn.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
+from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.sensory_runtime import SensoryRuntimeMixin
 from hecsn.service.autonomy_planner import AutonomyPlanner
 from hecsn.service.status_runtime import StatusRuntimeMixin
 from hecsn.service.status_read_model import StatusReadModel
 from hecsn.service.sensory_preview import SensoryPreviewMixin
-from hecsn.service.source_focus import SourceFocusScorer
+from hecsn.service.source_focus import SourceFocusDependencies, SourceFocusScorer
 from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
 from hecsn.service.living_loop import (
     ActionExecutionRecord,
@@ -230,6 +230,16 @@ _SERVICE_REPORTING_DELEGATE_NAMES = _public_names(ServiceReportingMixin)
 _TERMINUS_AUTONOMY_DELEGATE_NAMES = _public_names(TerminusAutonomyMixin)
 _REPLAY_CONTROLLER_DELEGATE_NAMES = _public_names(ReplayController)
 _SOURCE_FOCUS_DELEGATE_NAMES = _public_names(SourceFocusScorer)
+_RUNTIME_PERSISTENCE_INTERNAL_DELEGATE_NAMES = frozenset({
+    "_brain_persisted_state_locked",
+    "_brain_runtime_snapshot_locked",
+    "_join_brain_thread",
+    "_normalize_background_source_utility_state",
+    "_normalize_delayed_consequence_record",
+    "_rebuild_brain_sources_locked",
+    "_replay_action_history_into_cortex_locked",
+    "_request_brain_stop",
+})
 
 
 class _TimedCallFailure:
@@ -299,17 +309,81 @@ class HECSNServiceManager:
         self._trainer, self._metadata = load_trainer_checkpoint(self._checkpoint_path)
         self._encoder = self._trainer.encoder
         self._responder = EvidenceResponder()
-        self._runtime_config = RuntimeConfig(self)
-        self._runtime_sources = RuntimeSources(self)
-        self._source_focus = SourceFocusScorer(self)
+        self._runtime_config = RuntimeConfig(
+            provider_query_family_priority=self._provider_query_family_priority_locked,
+            provider_topic_family_priority=self._provider_topic_family_priority_locked,
+        )
+        self._runtime_sources = RuntimeSources(
+            RuntimeSourcesDependencies(
+                brain_config=lambda: self._brain_config,
+                brain_source_runtimes=lambda: self._brain_source_runtimes,
+                set_brain_source_runtimes=lambda value: setattr(self, "_brain_source_runtimes", list(value)),
+                checkpoint_dir=lambda: self._checkpoint_dir,
+                checkpoint_path=lambda: self._checkpoint_path,
+                encoder=lambda: self._encoder,
+                sensory_queue_target_items=self._sensory_queue_target_items_locked,
+                sensory_source_runtimes=lambda: self._sensory_source_runtimes,
+                set_sensory_source_runtimes=lambda value: setattr(self, "_sensory_source_runtimes", list(value)),
+                trainer=lambda: self._trainer,
+            )
+        )
+        self._source_focus = SourceFocusScorer(
+            SourceFocusDependencies(
+                autonomy_focus_plan=self._autonomy_focus_plan_locked,
+                background_source_utility_entry=self._background_source_utility_entry_locked,
+                brain_source_runtimes=lambda: self._brain_source_runtimes,
+                concept_store_snapshot=lambda limit: self._concept_store.snapshot(limit=limit),
+                geometric_curiosity_focus_plan=lambda top_n: self._geometric_curiosity.focus_plan(top_n=top_n),
+                interaction_recent_query_gaps=lambda: self._interaction_pipeline.recent_query_gaps(),
+                normalize_action_text=self._normalize_action_text,
+                source_text_overlap=self._source_text_overlap,
+                thought_loop=lambda: self._thought_loop_actual,
+            )
+        )
         self._autonomy_planner = AutonomyPlanner(self)
         self._runtime_control = RuntimeControl(self)
-        self._cortex_controller = CortexController(self)
+        self._cortex_controller = CortexController(
+            CortexControllerDependencies(
+                action_history=lambda: self._action_history,
+                action_history_memory_metadata=self._action_history_memory_metadata,
+                action_query_terms=self._action_query_terms,
+                action_focus_query_text=self._action_focus_query_text,
+                api_request_record_matches_explicit_url=self._api_request_record_matches_explicit_url,
+                checkpoint_dir=lambda: self._checkpoint_dir,
+                cortex_signal_state=self._cortex_signal_state,
+                lock=self._lock,
+                query_api_url_candidate=self._query_api_url_candidate,
+                query_web_url_candidate=self._query_web_url_candidate,
+                query_workspace_path_candidate=self._query_workspace_path_candidate_locked,
+                recent_relevant_action_records=self._recent_relevant_action_records_locked,
+                record_brain_event=self._record_brain_event_locked,
+                action_record_relevance_score=self._action_record_relevance_score_locked,
+                action_record_to_response_episodes=self._action_record_to_response_episodes_locked,
+                augment_query_result_with_action_records=self._augment_query_result_with_action_records_locked,
+                brain_running=lambda: self._brain_running,
+                execute_digital_action=self.execute_digital_action,
+            )
+        )
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
         self._concept_store = ConceptStore.from_state_dict(concept_state)
-        self._runtime_persistence = RuntimePersistence(self, trace_history_limit=trace_history_limit)
+        self._runtime_persistence = RuntimePersistence(
+            RuntimePersistenceDependencies(
+                get_state=lambda name: object.__getattribute__(self, name),
+                set_state=lambda name, value: setattr(self, name, value),
+                brain_persisted_state=lambda: self._brain_runtime._brain_persisted_state_locked(),
+                brain_runtime_snapshot=self._brain_runtime_snapshot_locked,
+                join_brain_thread=lambda *args, **kwargs: self._runtime_control._join_brain_thread(*args, **kwargs),
+                lock=self._lock,
+                normalize_background_source_utility_state=self._normalize_background_source_utility_state,
+                normalize_delayed_consequence_record=self._normalize_delayed_consequence_record,
+                rebuild_brain_sources=lambda: self._brain_runtime._rebuild_brain_sources_locked(),
+                replay_action_history_into_cortex=self._replay_action_history_into_cortex_locked,
+                request_brain_stop=lambda *args, **kwargs: self._runtime_control._request_brain_stop(*args, **kwargs),
+            ),
+            trace_history_limit=trace_history_limit,
+        )
         self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
             self._trainer.model.abstraction_layer,
             cast(dict[str, Any] | None, terminus_state.get("geometric_curiosity")),
@@ -323,10 +397,40 @@ class HECSNServiceManager:
             action_history=list(terminus_state.get("action_history") or [])
         )
         self._replay_controller = ReplayController(
-            self,
+            ReplayControllerDependencies(
+                action_history=lambda: self._action_history,
+                cortex_unavailable_snapshot=self._cortex_unavailable_snapshot,
+                living_loop_snapshot=lambda **kwargs: LivingStatusMixin._living_loop_snapshot_locked(self, **kwargs),
+                lock=self._lock,
+                normalize_action_text=self._normalize_action_text,
+                normalize_feedback_text=self._normalize_feedback_text,
+                replay_plan_summary=lambda replay_plan: RuntimeEvidenceMixin._replay_plan_summary(self, replay_plan),
+                runtime_feedback_summary=lambda: RuntimeEvidenceMixin._runtime_feedback_summary_locked(self),
+                runtime_state=self._runtime_state,
+                runtime_trace_export_safe_value=lambda value: RuntimeEvidenceMixin._runtime_trace_export_safe_value(self, value),
+                thought_loop=lambda: self._thought_loop_actual,
+                trainer=lambda: self._trainer,
+            ),
             replay_sample_history=list(terminus_state.get("replay_sample_history") or []),
         )
-        self._delayed_consequence = DelayedConsequenceTracker(self)
+        self._delayed_consequence = DelayedConsequenceTracker(
+            DelayedConsequenceDependencies(
+                action_record_relevance_score=self._action_record_relevance_score_locked,
+                background_focus_terms=self._background_focus_terms_locked,
+                background_source_utility_entry=self._background_source_utility_entry_locked,
+                brain_config=lambda: self._brain_config,
+                brain_source_runtimes=lambda: self._brain_source_runtimes,
+                brain_source_semantic_match=self._brain_source_semantic_match_locked,
+                normalize_action_text=self._normalize_action_text,
+                normalize_provider_curriculum=self._normalize_provider_curriculum,
+                recent_relevant_action_records=self._recent_relevant_action_records_locked,
+                record_brain_event=self._record_brain_event_locked,
+                runtime_state=self._runtime_state,
+                selected_evidence_weight_map=self._selected_evidence_weight_map,
+                source_text_overlap=self._source_text_overlap,
+                trainer=lambda: self._trainer,
+            )
+        )
         self._delayed_consequence.restore_state(terminus_state)
         self._rebuild_brain_sources_locked()
         self._runtime_state.restore_event_history(
@@ -1005,6 +1109,8 @@ for _module_attr, _module_cls in (
 ):
     for _name in _module_cls.__dict__:
         if _name.startswith("__") or _name in _PUBLIC_DUNDER:
+            continue
+        if _module_cls is RuntimePersistence and _name in _RUNTIME_PERSISTENCE_INTERNAL_DELEGATE_NAMES:
             continue
         if callable(getattr(_module_cls, _name, None)):
             _install_module_delegate(_name, _module_attr)

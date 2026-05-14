@@ -42,7 +42,7 @@
 - **Operational Self-Model** (`living_loop_self_model.py`) — OperationalSelfModel, build_runtime_benchmark_telemetry, and telemetry helpers (Layer D). Maps to **Runtime Truth / Living Loop self-model** in domain vocabulary. Depends on Helpers, Records, Policy, and Replay.
 - The original `living_loop.py` is now a backward-compatible re-export shim (no implementation code).
 
-**Service Manager** — the composition root through which the FastAPI layer reaches the runtime (ADR 0003). Wires and exposes the following deep modules but owns no business logic or ADR-owned runtime state itself. It has no legacy inherited mixin stack, no manager-level catch-all attribute router, and no manager-bound fallback path; internal compatibility is expressed through explicit delegates and explicit state properties.
+**Service Manager** — the composition root through which the FastAPI layer reaches the runtime (ADR 0003). Wires and exposes the following deep modules but owns no business logic or ADR-owned runtime state itself. It has no legacy inherited mixin stack, no manager-level catch-all attribute router, no manager-bound fallback path, and no owner-forwarder helper module; internal compatibility is expressed through explicit delegates, explicit dependency objects, and explicit state properties.
 
 - **Runtime State** — owns the shared mutation flag (`dirty_state`), revision counter, brain event history, and the externally visible `last_event` / `recent_events` payloads. Every other deep module receives it as a dependency.
 - **Delayed Consequence Tracker** — long-horizon utility learning for sources and providers. Owns consequence records and the cooling/compaction/splitting/remerging state machines.
@@ -55,7 +55,7 @@
 - **Status Read Model** — read-only projection of all runtime state into status/telemetry/terminus snapshots, including direct sensory preview projection.
 - **Action Executor** — digital action execution with path sandboxing, outcome calibration scoring, action history, and action-assist query augmentation.
 - **Cortex Controller** — cortex ask/sleep/thoughts, action intent handling, cortex query hints.
-- **Runtime Persistence** — checkpoint save/restore and trace persistence. Runtime State owns the brain event history.
+- **Runtime Persistence** — checkpoint save/restore and trace persistence. Runtime State owns the brain event history. Uses an explicit dependency object instead of owner-forwarded manager fields.
 - **Runtime Config** — input validation and normalization gate for all operator configs. Stateless.
 - **Runtime Sources** — stream construction, cache I/O, serialization, window reconstruction.
 - **Replay Controller** — advisory replay planning, operator-gated sampling, dataset bundling with decontamination and splitting. Replay sampling intentionally uses Runtime State's dirty-without-revision path so audit-only samples stay dirty without advancing `state_revision`.

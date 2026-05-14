@@ -8,9 +8,8 @@ mutate replay datasets; it only turns operator config into normalized dicts.
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.terminus_autonomy import (
     AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT,
     AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT,
@@ -29,7 +28,28 @@ DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_INGESTION_QUEUE_MULTIPLIER = 2
 
 
-class RuntimeConfig(ExplicitOwnerModule):
+class RuntimeConfig:
+    """Stateless normalization gate for operator runtime configuration."""
+
+    def __init__(
+        self,
+        *,
+        provider_query_family_priority: Callable[[Mapping[str, Any]], float] | None = None,
+        provider_topic_family_priority: Callable[[Mapping[str, Any]], float] | None = None,
+    ) -> None:
+        self._provider_query_family_priority = provider_query_family_priority
+        self._provider_topic_family_priority = provider_topic_family_priority
+
+    def _provider_query_family_priority_locked(self, family_entry: Mapping[str, Any]) -> float:
+        if self._provider_query_family_priority is None:
+            return 0.0
+        return float(self._provider_query_family_priority(family_entry))
+
+    def _provider_topic_family_priority_locked(self, family_entry: Mapping[str, Any]) -> float:
+        if self._provider_topic_family_priority is None:
+            return 0.0
+        return float(self._provider_topic_family_priority(family_entry))
+
     def _normalize_brain_source_spec(self, spec: Any, index: int) -> dict[str, Any]:
         if not isinstance(spec, dict):
             raise ValueError("Each Terminus source must be an object")
@@ -514,11 +534,3 @@ class RuntimeConfig(ExplicitOwnerModule):
             "prewarm_max_seconds": max(0.05, float(config.get("prewarm_max_seconds", 5.0))),
         }
 
-
-install_owner_forwarders(RuntimeConfig, (
-    "_provider_query_family_priority_locked",
-    "_provider_topic_family_priority_locked",
-))
-
-
-RuntimeConfigMixin = RuntimeConfig

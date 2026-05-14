@@ -8,7 +8,7 @@ import unittest
 from threading import RLock
 from unittest.mock import patch
 
-from hecsn.service.persistence import RuntimePersistence, ServicePersistenceMixin
+from hecsn.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
 
 
 @dataclass
@@ -74,6 +74,9 @@ class _FakePersistenceManager:
             "delayed_consequence_remerged_total": self._delayed_consequence_remerged_total,
         }
 
+    def _brain_runtime_snapshot_locked(self, **kwargs: object) -> dict[str, object]:
+        return self._brain_persisted_state_locked()
+
     @staticmethod
     def _normalize_background_source_utility_state(value: object) -> dict[str, object]:
         return {} if value is None else dict(value)  # pragma: no cover - defensive
@@ -110,15 +113,31 @@ class _FakePersistenceManager:
     _interaction_pipeline = _InteractionPipelineStub()
 
 
-class RuntimePersistenceTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(ServicePersistenceMixin, RuntimePersistence)
+def _runtime_persistence(manager: _FakePersistenceManager, *, trace_history_limit: int = 2) -> RuntimePersistence:
+    return RuntimePersistence(
+        RuntimePersistenceDependencies(
+            get_state=lambda name: getattr(manager, name),
+            set_state=lambda name, value: setattr(manager, name, value),
+            brain_persisted_state=manager._brain_persisted_state_locked,
+            brain_runtime_snapshot=manager._brain_runtime_snapshot_locked,
+            join_brain_thread=manager._join_brain_thread,
+            lock=manager._lock,
+            normalize_background_source_utility_state=manager._normalize_background_source_utility_state,
+            normalize_delayed_consequence_record=manager._normalize_delayed_consequence_record,
+            rebuild_brain_sources=manager._rebuild_brain_sources_locked,
+            replay_action_history_into_cortex=manager._replay_action_history_into_cortex_locked,
+            request_brain_stop=manager._request_brain_stop,
+        ),
+        trace_history_limit=trace_history_limit,
+    )
 
+
+class RuntimePersistenceTests(unittest.TestCase):
     def test_persist_trace_is_owned_by_runtime_persistence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _FakePersistenceManager(root)
-            persistence = RuntimePersistence(manager, trace_history_limit=2)
+            persistence = _runtime_persistence(manager, trace_history_limit=2)
 
             trace_path = persistence.persist_trace(
                 {
@@ -137,7 +156,7 @@ class RuntimePersistenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _FakePersistenceManager(root)
-            persistence = RuntimePersistence(manager, trace_history_limit=2)
+            persistence = _runtime_persistence(manager, trace_history_limit=2)
 
             history = persistence.trace_history
             persistence.trace_history = [
@@ -162,7 +181,7 @@ class RuntimePersistenceTests(unittest.TestCase):
                     "selected_candidate_ids": ["candidate-1"],
                 }
             )
-            persistence = RuntimePersistence(manager, trace_history_limit=2)
+            persistence = _runtime_persistence(manager, trace_history_limit=2)
 
             captured: dict[str, object] = {}
 

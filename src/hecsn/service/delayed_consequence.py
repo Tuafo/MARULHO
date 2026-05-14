@@ -10,13 +10,13 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 from uuid import uuid4
 
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
@@ -66,12 +66,80 @@ def _restore_non_negative_int(state: dict[str, Any], key: str) -> int:
     return max(0, int(state.get(key, 0) or 0))
 
 
-class DelayedConsequenceTracker(ExplicitOwnerModule):
+@dataclass(frozen=True)
+class DelayedConsequenceDependencies:
+    action_record_relevance_score: Callable[[Mapping[str, Any], str], float]
+    background_focus_terms: Callable[..., list[str]]
+    background_source_utility_entry: Callable[[_BrainSourceRuntime], dict[str, Any]]
+    brain_config: Callable[[], Mapping[str, Any]]
+    brain_source_runtimes: Callable[[], Sequence[_BrainSourceRuntime]]
+    brain_source_semantic_match: Callable[[_BrainSourceRuntime, Sequence[str] | None], float]
+    normalize_action_text: Callable[[Any], str]
+    normalize_provider_curriculum: Callable[[Any], dict[str, Any]]
+    recent_relevant_action_records: Callable[..., list[dict[str, Any]]]
+    record_brain_event: Callable[[Mapping[str, Any]], None]
+    runtime_state: Any
+    selected_evidence_weight_map: Callable[..., dict[str, float]]
+    source_text_overlap: Callable[[str, str], float]
+    trainer: Callable[[], Any]
 
-    def __init__(self, manager: Any | None = None) -> None:
-        object.__setattr__(self, "_manager", manager)
+
+class DelayedConsequenceTracker:
+
+    def __init__(self, dependencies: DelayedConsequenceDependencies) -> None:
+        self._dependencies = dependencies
         for field_name, initial_value in _build_delayed_consequence_initial_state().items():
             object.__setattr__(self, field_name, initial_value)
+
+    @property
+    def _brain_config(self) -> Mapping[str, Any]:
+        return self._dependencies.brain_config()
+
+    @property
+    def _brain_source_runtimes(self) -> Sequence[_BrainSourceRuntime]:
+        return self._dependencies.brain_source_runtimes()
+
+    @property
+    def _runtime_state(self) -> Any:
+        return self._dependencies.runtime_state
+
+    @property
+    def _trainer(self) -> Any:
+        return self._dependencies.trainer()
+
+    def _action_record_relevance_score_locked(self, record: Mapping[str, Any], query_text: str) -> float:
+        return self._dependencies.action_record_relevance_score(record, query_text)
+
+    def _background_focus_terms_locked(self, **kwargs: Any) -> list[str]:
+        return self._dependencies.background_focus_terms(**kwargs)
+
+    def _background_source_utility_entry_locked(self, runtime: _BrainSourceRuntime) -> dict[str, Any]:
+        return self._dependencies.background_source_utility_entry(runtime)
+
+    def _brain_source_semantic_match_locked(
+        self,
+        runtime: _BrainSourceRuntime,
+        focus_terms: Sequence[str] | None = None,
+    ) -> float:
+        return self._dependencies.brain_source_semantic_match(runtime, focus_terms)
+
+    def _normalize_action_text(self, value: Any) -> str:
+        return self._dependencies.normalize_action_text(value)
+
+    def _normalize_provider_curriculum(self, value: Any) -> dict[str, Any]:
+        return self._dependencies.normalize_provider_curriculum(value)
+
+    def _recent_relevant_action_records_locked(self, query_text: str, **kwargs: Any) -> list[dict[str, Any]]:
+        return self._dependencies.recent_relevant_action_records(query_text, **kwargs)
+
+    def _record_brain_event_locked(self, event: Mapping[str, Any]) -> None:
+        self._dependencies.record_brain_event(event)
+
+    def _selected_evidence_weight_map(self, response: Mapping[str, Any], **kwargs: Any) -> dict[str, float]:
+        return self._dependencies.selected_evidence_weight_map(response, **kwargs)
+
+    def _source_text_overlap(self, left: str, right: str) -> float:
+        return self._dependencies.source_text_overlap(left, right)
 
     @staticmethod
     def _consequence_query_terms(value: Any) -> list[str]:
@@ -2738,22 +2806,3 @@ class DelayedConsequenceTracker(ExplicitOwnerModule):
             terminus_state, "delayed_consequence_remerged_total",
         )
 
-install_owner_forwarders(DelayedConsequenceTracker, (
-    "_action_record_relevance_score_locked",
-    "_background_focus_terms_locked",
-    "_background_source_utility_entry_locked",
-    "_brain_config",
-    "_brain_source_runtimes",
-    "_brain_source_semantic_match_locked",
-    "_normalize_action_text",
-    "_normalize_provider_curriculum",
-    "_recent_relevant_action_records_locked",
-    "_record_brain_event_locked",
-    "_runtime_state",
-    "_selected_evidence_weight_map",
-    "_source_text_overlap",
-    "_trainer",
-))
-
-
-DelayedConsequenceMixin = DelayedConsequenceTracker

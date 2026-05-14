@@ -6,7 +6,7 @@ from threading import RLock
 import unittest
 from unittest.mock import patch
 
-from hecsn.service.replay_runtime import ReplayController, ReplayRuntimeMixin
+from hecsn.service.replay_runtime import ReplayController, ReplayControllerDependencies
 
 
 @dataclass
@@ -87,13 +87,29 @@ class _FakeReplayManager:
         return {"feedback_count": 0}
 
 
-class ReplayControllerTests(unittest.TestCase):
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(ReplayRuntimeMixin, ReplayController)
+def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
+    return ReplayController(
+        ReplayControllerDependencies(
+            action_history=lambda: manager._action_history,
+            cortex_unavailable_snapshot=manager._cortex_unavailable_snapshot,
+            living_loop_snapshot=manager._living_loop_snapshot_locked,
+            lock=manager._lock,
+            normalize_action_text=manager._normalize_action_text,
+            normalize_feedback_text=manager._normalize_feedback_text,
+            replay_plan_summary=manager._replay_plan_summary,
+            runtime_feedback_summary=manager._runtime_feedback_summary_locked,
+            runtime_state=manager._runtime_state,
+            runtime_trace_export_safe_value=manager._runtime_trace_export_safe_value,
+            thought_loop=lambda: manager._thought_loop_actual,
+            trainer=lambda: manager._trainer,
+        )
+    )
 
+
+class ReplayControllerTests(unittest.TestCase):
     def test_replay_sample_history_is_controller_owned(self) -> None:
         manager = _FakeReplayManager()
-        controller = ReplayController(manager)
+        controller = _replay_controller(manager)
         controller.history.appendleft(
             {
                 "schema_version": 1,
@@ -114,7 +130,7 @@ class ReplayControllerTests(unittest.TestCase):
 
     def test_history_setter_preserves_existing_deque_reference(self) -> None:
         manager = _FakeReplayManager()
-        controller = ReplayController(manager)
+        controller = _replay_controller(manager)
 
         history = controller.history
         controller.history = [
@@ -134,7 +150,7 @@ class ReplayControllerTests(unittest.TestCase):
 
     def test_replay_sample_marks_dirty_without_revision(self) -> None:
         manager = _FakeReplayManager()
-        controller = ReplayController(manager)
+        controller = _replay_controller(manager)
 
         plan_payload = {
             "endpoint": "/terminus/replay-plan",

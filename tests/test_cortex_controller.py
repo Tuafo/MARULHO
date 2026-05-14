@@ -12,8 +12,7 @@ from unittest.mock import patch
 from typing import Any
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.service.cortex_controller import CortexController, CORTEX_CONTROLLER_STATE_FIELDS
-from hecsn.service.cortex_runtime import CortexRuntimeMixin
+from hecsn.service.cortex_controller import CortexController, CortexControllerDependencies, CORTEX_CONTROLLER_STATE_FIELDS
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
@@ -192,6 +191,19 @@ class _FakeManager:
     ) -> list[dict[str, Any]]:
         return [deepcopy(record)]
 
+    def _action_record_relevance_score_locked(self, record: dict[str, Any], query_text: str) -> float:
+        return 1.0
+
+    def _augment_query_result_with_action_records_locked(
+        self,
+        query_result: dict[str, Any],
+        *,
+        query_text: str,
+        records: list[dict[str, Any]],
+    ) -> int:
+        query_result["action_records"] = [deepcopy(record) for record in records]
+        return len(records)
+
     def execute_digital_action(
         self,
         action: dict[str, Any],
@@ -226,10 +238,32 @@ class _FakeManager:
         return {"prediction_error_mean": 0.0, "prediction_error_max": 0.0, "predictive_confidence_mean": 0.5, "predictive_confidence_min": 0.5, "recent_concepts": []}
 
 
-class CortexControllerTests(unittest.TestCase):
-    def test_runtime_mixin_alias_points_to_controller(self) -> None:
-        self.assertIs(CortexRuntimeMixin, CortexController)
+def _cortex_controller(fake: _FakeManager) -> CortexController:
+    return CortexController(
+        CortexControllerDependencies(
+            action_history=lambda: fake._action_history,
+            action_history_memory_metadata=fake._action_history_memory_metadata,
+            action_query_terms=fake._action_query_terms,
+            action_focus_query_text=fake._action_focus_query_text,
+            api_request_record_matches_explicit_url=fake._api_request_record_matches_explicit_url,
+            checkpoint_dir=lambda: fake._checkpoint_dir,
+            cortex_signal_state=fake._cortex_signal_state,
+            lock=fake._lock,
+            query_api_url_candidate=fake._query_api_url_candidate,
+            query_web_url_candidate=fake._query_web_url_candidate,
+            query_workspace_path_candidate=fake._query_workspace_path_candidate_locked,
+            recent_relevant_action_records=fake._recent_relevant_action_records_locked,
+            record_brain_event=fake._record_brain_event_locked,
+            action_record_relevance_score=fake._action_record_relevance_score_locked,
+            action_record_to_response_episodes=fake._action_record_to_response_episodes_locked,
+            augment_query_result_with_action_records=fake._augment_query_result_with_action_records_locked,
+            brain_running=lambda: fake._brain_running,
+            execute_digital_action=fake.execute_digital_action,
+        )
+    )
 
+
+class CortexControllerTests(unittest.TestCase):
     def test_manager_routes_cortex_state_to_controller(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -244,7 +278,7 @@ class CortexControllerTests(unittest.TestCase):
 
     def test_query_hint_sleep_and_thoughts_use_controller_state(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("."))
-        controller = CortexController(fake_manager)
+        controller = _cortex_controller(fake_manager)
         loop = _FakeThoughtLoop()
 
         controller._thought_loop = loop
@@ -267,7 +301,7 @@ class CortexControllerTests(unittest.TestCase):
 
     def test_build_thought_loop_injects_action_history(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))
-        controller = CortexController(fake_manager)
+        controller = _cortex_controller(fake_manager)
         injected_loop = _FakeThoughtLoop()
 
         def _create_cortex() -> _FakeCortex:
@@ -303,7 +337,7 @@ class CortexControllerTests(unittest.TestCase):
     def test_delayed_initialization_starts_loop_when_runtime_active(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))
         fake_manager._brain_running = True
-        controller = CortexController(fake_manager)
+        controller = _cortex_controller(fake_manager)
         loop = _FakeThoughtLoop()
 
         with patch.object(controller, "_build_cortex_thought_loop", return_value=loop) as build_loop:
@@ -317,7 +351,7 @@ class CortexControllerTests(unittest.TestCase):
 
     def test_action_intent_reuses_recent_verified_action(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))
-        controller = CortexController(fake_manager)
+        controller = _cortex_controller(fake_manager)
         fake_manager.relevant_records = [
             {
                 "action_id": "action-1",

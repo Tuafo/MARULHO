@@ -23,7 +23,7 @@ import torch
 from hecsn.data.corpus_loader import StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.runtime_sources import RuntimeSourcesMixin, SourceType, _BrainSourceRuntime, _SensorySourceRuntime
+from hecsn.service.runtime_sources import RuntimeSources, SourceType, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -622,7 +622,7 @@ class BrainRuntime:
             window_size,
             learn_chunking=True,
         )
-        return cast(Iterator[tuple[str, torch.Tensor]], RuntimeSourcesMixin._wrap_remote_stream(spec, stream, is_sensory=False))
+        return cast(Iterator[tuple[str, torch.Tensor]], RuntimeSources._wrap_remote_stream(spec, stream, is_sensory=False))
 
     @staticmethod
     def _source_text_overlap(left: str, right: str) -> float:

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from hecsn.service.delayed_consequence import (
     DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
-    DelayedConsequenceMixin,
+    DelayedConsequenceDependencies,
     DelayedConsequenceTracker,
 )
 
@@ -50,10 +50,55 @@ class _FakeManager:
     def _record_brain_event_locked(self, event: dict[str, object]) -> None:
         self.events.append(event)
 
+    def _action_record_relevance_score_locked(self, record, query_text: str) -> float:
+        return 0.0
+
+    def _background_focus_terms_locked(self, **kwargs):
+        return []
+
+    def _background_source_utility_entry_locked(self, runtime):
+        return self._brain_source_utility.setdefault(runtime.name, {})
+
+    def _brain_source_semantic_match_locked(self, runtime, focus_terms=None) -> float:
+        return 0.0
+
+    @staticmethod
+    def _normalize_provider_curriculum(value):
+        return dict(value or {}) if isinstance(value, dict) else {}
+
+    def _recent_relevant_action_records_locked(self, query_text: str, **kwargs):
+        return []
+
+    @staticmethod
+    def _selected_evidence_weight_map(response, **kwargs):
+        return {}
+
+
+def _delayed_consequence_tracker(fake: _FakeManager | None = None) -> DelayedConsequenceTracker:
+    fake = fake or _FakeManager()
+    return DelayedConsequenceTracker(
+        DelayedConsequenceDependencies(
+            action_record_relevance_score=fake._action_record_relevance_score_locked,
+            background_focus_terms=fake._background_focus_terms_locked,
+            background_source_utility_entry=fake._background_source_utility_entry_locked,
+            brain_config=lambda: fake._brain_config,
+            brain_source_runtimes=lambda: fake._brain_source_runtimes,
+            brain_source_semantic_match=fake._brain_source_semantic_match_locked,
+            normalize_action_text=fake._normalize_action_text,
+            normalize_provider_curriculum=fake._normalize_provider_curriculum,
+            recent_relevant_action_records=fake._recent_relevant_action_records_locked,
+            record_brain_event=fake._record_brain_event_locked,
+            runtime_state=fake._runtime_state,
+            selected_evidence_weight_map=fake._selected_evidence_weight_map,
+            source_text_overlap=fake._source_text_overlap,
+            trainer=lambda: fake._trainer,
+        )
+    )
+
 
 class DelayedConsequenceTrackerSeamTests(unittest.TestCase):
     def _build_record(self):
-        tracker = DelayedConsequenceTracker(_FakeManager())
+        tracker = _delayed_consequence_tracker()
         return tracker._normalize_delayed_consequence_record(
             {
                 "record_id": "record-1",
@@ -109,11 +154,8 @@ class DelayedConsequenceTrackerSeamTests(unittest.TestCase):
             }
         )
 
-    def test_alias_points_to_constructed_module(self) -> None:
-        self.assertIs(DelayedConsequenceMixin, DelayedConsequenceTracker)
-
     def test_state_machines_split_remerge_compact_and_cool(self) -> None:
-        tracker = DelayedConsequenceTracker(_FakeManager())
+        tracker = _delayed_consequence_tracker()
         base_record = self._build_record()
         self.assertIsNotNone(base_record)
         assert base_record is not None
