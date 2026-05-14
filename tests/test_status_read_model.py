@@ -284,6 +284,11 @@ class StatusReadModelConstructionTests(unittest.TestCase):
         model, _, _, _ = _build_read_model()
         self.assertIsNotNone(model)
 
+    def test_read_model_owns_sensory_preview_projection(self) -> None:
+        source = Path("src/hecsn/service/status_read_model.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("SensoryPreviewMixin", source)
+
 
 class StatusReadModelStatusTests(unittest.TestCase):
     """StatusReadModel.status() produces valid snapshots with correct payload keys."""

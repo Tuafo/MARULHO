@@ -64,11 +64,9 @@ def _remote_promotion_bootstrap_grace_seconds() -> float:
 
 
 def _source_stream_builder(owner: Any) -> Any:
-    manager = getattr(owner, "_manager", None)
-    if manager is not None:
-        builder = getattr(manager, "_build_source_stream_from_spec", None)
-        if builder is not None:
-            return builder
+    builder = getattr(owner, "_build_source_stream_from_spec", None)
+    if builder is not None:
+        return builder
     return type(owner)._build_source_stream_from_spec
 
 

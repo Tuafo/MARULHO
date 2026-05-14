@@ -125,10 +125,19 @@ class RuntimeControlTests(unittest.TestCase):
         self.assertIn("_ingestion_prewarm_thread", controller.__dict__)
         self.assertIn("_remote_warm_promotion_thread", controller.__dict__)
         self.assertIn("_active_execution_requests", controller.__dict__)
-        self.assertNotIn("_brain_thread", controller._manager.__dict__)
-        self.assertNotIn("_ingestion_prewarm_thread", controller._manager.__dict__)
-        self.assertNotIn("_remote_warm_promotion_thread", controller._manager.__dict__)
-        self.assertNotIn("_active_execution_requests", controller._manager.__dict__)
+        self.assertIs(controller.dependencies, controller_any._dependencies)
+        self.assertNotIn("_brain_thread", controller.dependencies.__dict__)
+        self.assertNotIn("_ingestion_prewarm_thread", controller.dependencies.__dict__)
+        self.assertNotIn("_remote_warm_promotion_thread", controller.dependencies.__dict__)
+        self.assertNotIn("_active_execution_requests", controller.dependencies.__dict__)
+
+    def test_controller_no_longer_uses_manager_bound_transition_base(self) -> None:
+        source = Path("src/hecsn/service/runtime_control.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("ExplicitOwnerModule", source)
+        self.assertNotIn("install_owner_forwarders", source)
+        self.assertNotIn('"_manager"', source)
+        self.assertNotIn("'_manager'", source)
 
     def test_request_and_finalize_brain_stop_transition_state(self) -> None:
         manager = _FakeManager()

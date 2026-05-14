@@ -7,7 +7,6 @@ import time
 from typing import Any
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
@@ -63,13 +62,17 @@ def _build_runtime_control_initial_state() -> dict[str, Any]:
 RUNTIME_CONTROL_STATE_FIELDS = frozenset(_build_runtime_control_initial_state())
 
 
-class RuntimeControl(ExplicitOwnerModule, RuntimePrewarmMixin):
+class RuntimeControl(RuntimePrewarmMixin):
     """Terminus configure/start/stop/tick runtime control helpers."""
 
-    def __init__(self, manager: Any | None = None) -> None:
-        object.__setattr__(self, "_manager", manager)
+    def __init__(self, dependencies: Any | None = None) -> None:
+        object.__setattr__(self, "_dependencies", dependencies)
         for field_name, initial_value in _build_runtime_control_initial_state().items():
             object.__setattr__(self, field_name, initial_value)
+
+    @property
+    def dependencies(self) -> Any:
+        return object.__getattribute__(self, "_dependencies")
 
     def configure_terminus(
         self,
@@ -521,7 +524,29 @@ class RuntimeControl(ExplicitOwnerModule, RuntimePrewarmMixin):
             )
 
 
-install_owner_forwarders(RuntimeControl, (
+def _install_dependency_forwarders(cls: type, names: tuple[str, ...]) -> None:
+    for raw_name in names:
+        name = str(raw_name)
+        if not name or hasattr(cls, name):
+            continue
+
+        def _get(self: RuntimeControl, *, _name: str = name) -> Any:
+            dependencies = object.__getattribute__(self, "_dependencies")
+            if dependencies is None:
+                raise AttributeError(_name)
+            return getattr(dependencies, _name)
+
+        def _set(self: RuntimeControl, value: Any, *, _name: str = name) -> None:
+            dependencies = object.__getattribute__(self, "_dependencies")
+            if dependencies is None:
+                object.__setattr__(self, _name, value)
+                return
+            setattr(dependencies, _name, value)
+
+        setattr(cls, name, property(_get, _set))
+
+
+_install_dependency_forwarders(RuntimeControl, (
     "_brain_config",
     "_brain_execution_lock",
     "_brain_last_acquisition_summary",
@@ -534,6 +559,7 @@ install_owner_forwarders(RuntimeControl, (
     "_brain_source_utility",
     "_brain_stream_epoch",
     "_brain_tick_idle_locked",
+    "_build_source_stream_from_spec",
     "_build_sensory_stream_from_spec",
     "_collect_chunk_unlocked",
     "_commit_collected_runtime_locked",
