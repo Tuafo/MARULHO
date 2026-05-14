@@ -9,7 +9,7 @@ import time
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
-from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 
 DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS = 2.0
 
@@ -86,7 +86,7 @@ class _LazyThoughtLoop:
         return getattr(self._get(), name)
 
 
-class CortexController(ManagerBoundModule):
+class CortexController(ExplicitOwnerModule):
     """Cortex ask/sleep/thought/action-intent control helpers."""
 
     def __init__(self, manager: Any | None = None) -> None:
@@ -116,15 +116,6 @@ class CortexController(ManagerBoundModule):
             object.__setattr__(self, "_cortex_init_error", str(exc))
             self._cortex_init_event.set()
             _cortex_logger.info("Cortex module unavailable: %s", exc)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_thought_loop":
-            setter = type(self)._thought_loop.fset
-            if setter is None:
-                raise AttributeError("_thought_loop")
-            setter(self, value)
-            return
-        object.__setattr__(self, name, value)
 
     @staticmethod
     def _normalize_action_text(value: Any) -> str:
@@ -703,6 +694,29 @@ class CortexController(ManagerBoundModule):
         if self._thought_loop_actual is None:
             return self._cortex_unavailable_snapshot()
         return self._thought_loop_actual.snapshot()
+
+
+install_owner_forwarders(CortexController, (
+    "_action_history",
+    "_action_history_memory_metadata",
+    "_action_query_terms",
+    "_action_focus_query_text",
+    "_api_request_record_matches_explicit_url",
+    "_checkpoint_dir",
+    "_cortex_signal_state",
+    "_lock",
+    "_normalize_action_text",
+    "_query_api_url_candidate",
+    "_query_web_url_candidate",
+    "_query_workspace_path_candidate_locked",
+    "_recent_relevant_action_records_locked",
+    "_record_brain_event_locked",
+    "_action_record_relevance_score_locked",
+    "_action_record_to_response_episodes_locked",
+    "_augment_query_result_with_action_records_locked",
+    "_brain_running",
+    "execute_digital_action",
+))
 
 
 CortexRuntimeMixin = CortexController

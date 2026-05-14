@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Mapping, Sequence, cast
 
-from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.terminus_autonomy import (
     AUTO_REMOTE_PROVIDER_QUERY_FAMILY_LIMIT,
     AUTO_REMOTE_PROVIDER_TOPIC_TERM_LIMIT,
@@ -29,7 +29,7 @@ DEFAULT_AUTONOMY_TRIGGER_INTERVAL_TOKENS = 4096
 DEFAULT_INGESTION_QUEUE_MULTIPLIER = 2
 
 
-class RuntimeConfig(ManagerBoundModule):
+class RuntimeConfig(ExplicitOwnerModule):
     def _normalize_brain_source_spec(self, spec: Any, index: int) -> dict[str, Any]:
         if not isinstance(spec, dict):
             raise ValueError("Each Terminus source must be an object")
@@ -513,6 +513,12 @@ class RuntimeConfig(ManagerBoundModule):
             "prewarm_on_startup": bool(config.get("prewarm_on_startup", False)),
             "prewarm_max_seconds": max(0.05, float(config.get("prewarm_max_seconds", 5.0))),
         }
+
+
+install_owner_forwarders(RuntimeConfig, (
+    "_provider_query_family_priority_locked",
+    "_provider_topic_family_priority_locked",
+))
 
 
 RuntimeConfigMixin = RuntimeConfig

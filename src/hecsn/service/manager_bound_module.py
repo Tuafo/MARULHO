@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 
-class ManagerBoundModule:
-    """Forward attribute access to the owning manager when bound.
+class ExplicitOwnerModule:
+    """Base for transition modules that keep an explicit owner reference.
 
-    Seam objects use this so extracted helpers can run either as standalone
-    modules in direct tests or as manager-bound delegates in production.
+    This intentionally does not implement catch-all ``__getattr__`` or
+    ``__setattr__``. Any compatibility access back to the owner must be
+    installed as a named property via ``install_owner_forwarders``.
     """
 
     def __init__(self, manager: Any | None = None) -> None:
@@ -15,24 +16,36 @@ class ManagerBoundModule:
 
     def _bound_module(self, attribute_name: str) -> Any:
         module = getattr(self, attribute_name, None)
-        return module if module is not None else self
-
-    def __getattr__(self, name: str) -> Any:
+        if module is not None:
+            return module
         manager = object.__getattribute__(self, "_manager")
-        if manager is None:
-            raise AttributeError(name)
-        return getattr(manager, name)
+        if manager is not None:
+            module = getattr(manager, attribute_name, None)
+            if module is not None:
+                return module
+            return manager
+        return self
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_manager":
-            object.__setattr__(self, name, value)
-            return
-        try:
+
+def install_owner_forwarders(cls: type, names: Iterable[str]) -> None:
+    """Install explicit owner-backed properties for transition dependencies."""
+
+    for raw_name in names:
+        name = str(raw_name)
+        if not name or hasattr(cls, name):
+            continue
+
+        def _get(self: ExplicitOwnerModule, *, _name: str = name) -> Any:
             manager = object.__getattribute__(self, "_manager")
-        except AttributeError:
-            object.__setattr__(self, name, value)
-            return
-        if manager is None or manager is self:
-            object.__setattr__(self, name, value)
-            return
-        setattr(manager, name, value)
+            if manager is None:
+                raise AttributeError(_name)
+            return getattr(manager, _name)
+
+        def _set(self: ExplicitOwnerModule, value: Any, *, _name: str = name) -> None:
+            manager = object.__getattribute__(self, "_manager")
+            if manager is None:
+                object.__setattr__(self, _name, value)
+                return
+            setattr(manager, _name, value)
+
+        setattr(cls, name, property(_get, _set))

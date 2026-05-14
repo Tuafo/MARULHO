@@ -20,7 +20,7 @@ import torch
 
 from hecsn.data.corpus_loader import BackgroundPrefetchIterator, SourceType, StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
-from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.terminus_sensory import SensoryEpisode, build_sensory_stream
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -99,7 +99,7 @@ class _SensorySourceRuntime:
 
 
 
-class RuntimeSources(ManagerBoundModule):
+class RuntimeSources(ExplicitOwnerModule):
     @staticmethod
     def _source_spec_uses_live_remote(spec: Mapping[str, Any]) -> bool:
         source_type = str(spec.get("source_type", "auto") or "auto").strip().lower()
@@ -397,6 +397,18 @@ class RuntimeSources(ManagerBoundModule):
     def _close_sensory_sources_locked(self) -> None:
         self._interrupt_sensory_sources_locked()
         self._sensory_source_runtimes = []
+
+
+install_owner_forwarders(RuntimeSources, (
+    "_brain_config",
+    "_brain_source_runtimes",
+    "_checkpoint_dir",
+    "_checkpoint_path",
+    "_encoder",
+    "_sensory_queue_target_items_locked",
+    "_sensory_source_runtimes",
+    "_trainer",
+))
 
 
 RuntimeSourcesMixin = RuntimeSources

@@ -11,13 +11,14 @@ from uuid import uuid4
 from hecsn.config.runtime_env import load_runtime_env
 from hecsn.reporting.io import write_json_file
 from hecsn.semantics import ConceptStore, GeometricCuriosityController
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 
 
-class RuntimePersistence:
+class RuntimePersistence(ExplicitOwnerModule):
     """Checkpoint, trace-history, and JSON-safe persistence helpers."""
 
     def __init__(
@@ -27,15 +28,9 @@ class RuntimePersistence:
         trace_history_limit: int = 200,
         trace_history: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
-        self._manager = manager
+        super().__init__(manager)
         self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
         self.load_persisted_traces(trace_history or [])
-
-    def __getattr__(self, name: str) -> Any:
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None:
-            raise AttributeError(name)
-        return getattr(manager, name)
 
     @property
     def trace_history(self) -> deque[dict[str, Any]]:
@@ -229,6 +224,46 @@ class RuntimePersistence:
 
     def _record_brain_event_locked(self, event: dict[str, Any]) -> None:
         self._runtime_state.record_event(event)
+
+
+install_owner_forwarders(RuntimePersistence, (
+    "_action_history",
+    "_action_root",
+    "_brain_config",
+    "_brain_last_acquisition_summary",
+    "_brain_last_acquisition_token_count",
+    "_brain_last_error",
+    "_brain_persisted_state_locked",
+    "_brain_runtime_snapshot_locked",
+    "_brain_source_utility",
+    "_checkpoint_dir",
+    "_checkpoint_path",
+    "_concept_store",
+    "_delayed_consequence_compacted_total",
+    "_delayed_consequence_cooled_total",
+    "_delayed_consequence_records",
+    "_delayed_consequence_remerged_total",
+    "_delayed_consequence_retired_total",
+    "_delayed_consequence_split_total",
+    "_encoder",
+    "_env_root",
+    "_geometric_curiosity",
+    "_interaction_pipeline",
+    "_join_brain_thread",
+    "_lock",
+    "_metadata",
+    "_normalize_background_source_utility_state",
+    "_normalize_delayed_consequence_record",
+    "_rebuild_brain_sources_locked",
+    "_replay_action_history_into_cortex_locked",
+    "_replay_sample_history",
+    "_request_brain_stop",
+    "_runtime_config",
+    "_runtime_env",
+    "_runtime_state",
+    "_trace_dir",
+    "_trainer",
+))
 
 
 ServicePersistenceMixin = RuntimePersistence

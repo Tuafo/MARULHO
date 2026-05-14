@@ -42,20 +42,20 @@
 - **Operational Self-Model** (`living_loop_self_model.py`) — OperationalSelfModel, build_runtime_benchmark_telemetry, and telemetry helpers (Layer D). Maps to **Runtime Truth / Living Loop self-model** in domain vocabulary. Depends on Helpers, Records, Policy, and Replay.
 - The original `living_loop.py` is now a backward-compatible re-export shim (no implementation code).
 
-**Service Manager** — the composition root through which the FastAPI layer reaches the runtime (ADR 0003). Wires and exposes the following deep modules but owns no business logic itself:
+**Service Manager** — the composition root through which the FastAPI layer reaches the runtime (ADR 0003). Wires and exposes the following deep modules but owns no business logic or ADR-owned runtime state itself. It has no legacy inherited mixin stack, no manager-level catch-all attribute router, and no manager-bound fallback path; internal compatibility is expressed through explicit delegates and explicit state properties.
 
 - **Runtime State** — owns the shared mutation flag (`dirty_state`), revision counter, brain event history, and the externally visible `last_event` / `recent_events` payloads. Every other deep module receives it as a dependency.
 - **Delayed Consequence Tracker** — long-horizon utility learning for sources and providers. Owns consequence records and the cooling/compaction/splitting/remerging state machines.
 - **Autonomy Planner** — gap-based focus planning, provider curriculum prioritization, autonomy candidate selection, and query family scoring.
-- **Brain Runtime** — source rebuilding, tick collection/training, grounded source observation injection, autonomy scheduling. Owns brain source runtimes, source utility, tick counters, and ingestion/sensory thread state.
+- **Brain Runtime** — source rebuilding, tick collection/training, grounded source observation injection, autonomy scheduling. Owns source runtimes, source utility, tick counters, stream epochs, and sensory episode/preview counters.
 - **Interaction Pipeline** — query/feed/respond/acquire behaviour and the evidence capture that turns live interactions into runtime traces. Owns query gap history.
 - **Feedback Applier** — verdict state machine, feedback normalization, and feedback application with provenance tracking.
 - **Source Focus Scorer** — multi-factor selection scoring, semantic match scoring, utility EMA updates, and evidence weight mapping.
-- **Runtime Controller** — runtime lifecycle state machine (configure/start/stop/tick), brain loop orchestration, thread lifecycle, and prewarm management.
+- **Runtime Controller** — runtime lifecycle state machine (configure/start/stop/tick), brain loop orchestration, active execution counters, thread lifecycle, and prewarm management.
 - **Status Read Model** — read-only projection of all runtime state into status/telemetry/terminus snapshots.
 - **Action Executor** — digital action execution with path sandboxing, outcome calibration scoring, action history, and action-assist query augmentation.
 - **Cortex Controller** — cortex ask/sleep/thoughts, action intent handling, cortex query hints.
-- **Runtime Persistence** — checkpoint save/restore, trace persistence, brain event recording.
+- **Runtime Persistence** — checkpoint save/restore and trace persistence. Runtime State owns the brain event history.
 - **Runtime Config** — input validation and normalization gate for all operator configs. Stateless.
 - **Runtime Sources** — stream construction, cache I/O, serialization, window reconstruction.
 - **Replay Controller** — advisory replay planning, operator-gated sampling, dataset bundling with decontamination and splitting. Replay sampling intentionally uses Runtime State's dirty-without-revision path so audit-only samples stay dirty without advancing `state_revision`.

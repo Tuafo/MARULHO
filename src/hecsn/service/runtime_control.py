@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
@@ -62,23 +62,13 @@ def _build_runtime_control_initial_state() -> dict[str, Any]:
 RUNTIME_CONTROL_STATE_FIELDS = frozenset(_build_runtime_control_initial_state())
 
 
-class RuntimeControl(ManagerBoundModule):
+class RuntimeControl(ExplicitOwnerModule):
     """Terminus configure/start/stop/tick runtime control helpers."""
 
     def __init__(self, manager: Any | None = None) -> None:
         object.__setattr__(self, "_manager", manager)
         for field_name, initial_value in _build_runtime_control_initial_state().items():
             object.__setattr__(self, field_name, initial_value)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_manager" or name in RUNTIME_CONTROL_STATE_FIELDS:
-            object.__setattr__(self, name, value)
-            return
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None or manager is self:
-            object.__setattr__(self, name, value)
-            return
-        setattr(manager, name, value)
 
     def configure_terminus(
         self,
@@ -528,6 +518,50 @@ class RuntimeControl(ManagerBoundModule):
                 last_metrics,
                 evidence_windows,
             )
+
+
+install_owner_forwarders(RuntimeControl, (
+    "_brain_config",
+    "_brain_execution_lock",
+    "_brain_last_acquisition_summary",
+    "_brain_last_acquisition_token_count",
+    "_brain_last_error",
+    "_brain_runtime_snapshot_locked",
+    "_brain_source_index",
+    "_brain_source_memory_metadata",
+    "_brain_source_runtimes",
+    "_brain_source_utility",
+    "_brain_stream_epoch",
+    "_brain_tick_idle_locked",
+    "_collect_chunk_unlocked",
+    "_commit_collected_runtime_locked",
+    "_encoder",
+    "_ensure_cortex_initialized",
+    "_finalize_tick_locked",
+    "_interrupt_brain_sources_locked",
+    "_interrupt_sensory_sources_locked",
+    "_join_ingestion_prewarm_thread",
+    "_join_remote_warm_promotion_thread",
+    "_last_real_sensory_episode_time",
+    "_last_real_sensory_episode_token_count",
+    "_lock",
+    "_ordered_brain_runtime_indices_locked",
+    "_real_sensory_last_error",
+    "_rebuild_brain_sources_locked",
+    "_record_brain_event_locked",
+    "_release_active_execution",
+    "_request_active_execution",
+    "_request_ingestion_prewarm_stop",
+    "_request_remote_warm_promotion_stop",
+    "_runtime_config",
+    "_runtime_state",
+    "_start_ingestion_prewarm_locked",
+    "_start_remote_warm_promotion_locked",
+    "_thought_loop",
+    "_train_chunk_in_sub_batches",
+    "_trainer",
+    "_update_brain_runtime_cache_locked",
+))
 
 
 RuntimeControlMixin = RuntimeControl

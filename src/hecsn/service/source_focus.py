@@ -10,14 +10,14 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
 DEFAULT_UTILITY_PENALTY_WEIGHT = 0.65
 
 
-class SourceFocusScorer(ManagerBoundModule):
+class SourceFocusScorer(ExplicitOwnerModule):
     def _focus_gap_terms_locked(self, limit: int = 4) -> list[str]:
         terms: list[str] = []
 
@@ -353,6 +353,19 @@ class SourceFocusScorer(ManagerBoundModule):
             elif bool(verification.get("contradiction", False)):
                 score *= 0.25
         return float(max(0.0, min(1.0, score)))
+
+
+install_owner_forwarders(SourceFocusScorer, (
+    "_autonomy_planner",
+    "_background_source_utility_entry_locked",
+    "_brain_source_runtimes",
+    "_concept_store",
+    "_geometric_curiosity",
+    "_interaction_pipeline",
+    "_normalize_action_text",
+    "_source_text_overlap",
+    "_thought_loop_actual",
+))
 
 
 SourceFocusMixin = SourceFocusScorer

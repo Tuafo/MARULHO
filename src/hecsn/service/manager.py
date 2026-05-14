@@ -146,7 +146,7 @@ from hecsn.service.interaction_pipeline import InteractionPipeline
 from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
 from hecsn.service.action_executor import ActionExecutor
 from hecsn.service.feedback_applier import FeedbackApplier
-from hecsn.service.brain_runtime import BrainRuntime
+from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime
 from hecsn.service.delayed_consequence import DELAYED_CONSEQUENCE_STATE_FIELDS, DelayedConsequenceTracker
 from hecsn.service.persistence import RuntimePersistence
 from hecsn.service.cortex_controller import CORTEX_CONTROLLER_STATE_FIELDS, CortexController
@@ -192,6 +192,7 @@ def _public_names(cls: type) -> frozenset[str]:
 _PUBLIC_DUNDER = frozenset({"__dict__", "__doc__", "__init__", "__module__", "__qualname__"})
 
 _BRAIN_RUNTIME_DELEGATE_NAMES = frozenset(BrainRuntime.__dict__)
+_BRAIN_RUNTIME_DELEGATE_ATTRS = BRAIN_RUNTIME_STATE_FIELDS | _BRAIN_RUNTIME_DELEGATE_NAMES
 _RUNTIME_CONTROL_DELEGATE_NAMES = frozenset(RuntimeControl.__dict__)
 _RUNTIME_CONTROL_DELEGATE_ATTRS = RUNTIME_CONTROL_STATE_FIELDS | _RUNTIME_CONTROL_DELEGATE_NAMES
 # CortexController methods that just pass through to self._manager should
@@ -263,82 +264,6 @@ class HECSNServiceManager:
       _source_focus         � source selection scoring and utility EMA
     """
 
-    def __getattr__(self, name: str) -> Any:
-        brain_runtime = self.__dict__.get("_brain_runtime")
-        if brain_runtime is not None and name in _BRAIN_RUNTIME_DELEGATE_NAMES:
-            return getattr(brain_runtime, name)
-        runtime_control = self.__dict__.get("_runtime_control")
-        if runtime_control is not None and name in _RUNTIME_CONTROL_DELEGATE_ATTRS:
-            return getattr(runtime_control, name)
-        cortex_controller = self.__dict__.get("_cortex_controller")
-        if cortex_controller is not None and (
-            name in CORTEX_CONTROLLER_STATE_FIELDS or name in _CORTEX_CONTROLLER_DELEGATE_NAMES
-        ):
-            return getattr(cortex_controller, name)
-        delayed_consequence = self.__dict__.get("_delayed_consequence")
-        if delayed_consequence is not None and name in _DELAYED_CONSEQUENCE_DELEGATE_ATTRS:
-            return getattr(delayed_consequence, name)
-        # Remaining mixin delegation: route to the deep module that actually defines the name.
-        # This preserves compatibility while the mixin methods are fully ported.
-        # Only route to modules that actually contain the method in their class __dict__
-        # to avoid ManagerBoundModule.__getattr__ -> manager -> module loops.
-        _module_delegation = [
-            ("_runtime_persistence", frozenset(RuntimePersistence.__dict__) - _PUBLIC_DUNDER),
-            ("_replay_controller", _REPLAY_CONTROLLER_DELEGATE_NAMES),
-            ("_interaction_pipeline", frozenset(InteractionPipeline.__dict__) - _PUBLIC_DUNDER),
-            ("_status_read_model", frozenset(StatusReadModel.__dict__) - _PUBLIC_DUNDER),
-            ("_runtime_sources", _RUNTIME_SOURCES_DELEGATE_NAMES),
-            ("_brain_runtime", _BRAIN_RUNTIME_DELEGATE_NAMES),
-            ("_runtime_control", frozenset(RuntimeControl.__dict__) - _PUBLIC_DUNDER),
-            ("_runtime_config", _RUNTIME_CONFIG_DELEGATE_NAMES),
-            ("_delayed_consequence", _DELAYED_CONSEQUENCE_DELEGATE_NAMES),
-            ("_autonomy_planner", frozenset(AutonomyPlanner.__dict__) - _PUBLIC_DUNDER),
-            ("_source_focus", _SOURCE_FOCUS_DELEGATE_NAMES),
-        ]
-        for attr, names in _module_delegation:
-            module = self.__dict__.get(attr)
-            if module is not None and name in names:
-                return getattr(module, name)
-        # Last resort: route to unbound mixin methods that have not yet been
-        # fully ported to deep modules.  This preserves behavioural
-        # compatibility while those methods are migrated.
-        _unbound_mixin_fallback = [
-            StatusRuntimeMixin,
-            LivingStatusMixin,
-            SensoryPreviewMixin,
-            ServiceReportingMixin,
-            SensoryRuntimeMixin,
-            RuntimePrewarmMixin,
-            RuntimeEvidenceMixin,
-            InteractionRuntimeMixin,
-            ReplayDatasetBundleMixin,
-            TerminusAutonomyMixin,
-        ]
-        for mixin_cls in _unbound_mixin_fallback:
-            if name in mixin_cls.__dict__:
-                return mixin_cls.__dict__[name].__get__(self, type(self))
-        raise AttributeError(name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        cortex_controller = self.__dict__.get("_cortex_controller")
-        if cortex_controller is not None and name == "_thought_loop":
-            setattr(cortex_controller, name, value)
-            return
-        runtime_control = self.__dict__.get("_runtime_control")
-        if runtime_control is not None and name in RUNTIME_CONTROL_STATE_FIELDS:
-            setattr(runtime_control, name, value)
-            return
-        if cortex_controller is not None and (
-            name in CORTEX_CONTROLLER_STATE_FIELDS or name in _CORTEX_CONTROLLER_DELEGATE_NAMES
-        ):
-            setattr(cortex_controller, name, value)
-            return
-        delayed_consequence = self.__dict__.get("_delayed_consequence")
-        if delayed_consequence is not None and name in DELAYED_CONSEQUENCE_STATE_FIELDS:
-            setattr(delayed_consequence, name, value)
-            return
-        object.__setattr__(self, name, value)
-
     def start_terminus(self) -> dict[str, Any]:
         return self._runtime_control.start_terminus()
 
@@ -393,17 +318,7 @@ class HECSNServiceManager:
         self._brain_config = self._runtime_config._normalize_brain_config(
             terminus_state
         )
-        self._brain_source_runtimes: list[_BrainSourceRuntime] = []
-        self._sensory_source_runtimes: list[_SensorySourceRuntime] = []
-        self._brain_source_index = 0
-        self._sensory_source_index = 0
-        self._brain_tick_count = 0
-        self._brain_background_tokens = 0
-        self._brain_autonomy_tokens = 0
-        self._brain_source_utility = self._normalize_background_source_utility_state(
-            terminus_state.get("background_source_utility")
-        )
-        self._brain_last_error: str | None = None
+        self._brain_runtime.restore_runtime_state(terminus_state)
         self._action_executor = self._build_action_executor(
             action_history=list(terminus_state.get("action_history") or [])
         )
@@ -413,22 +328,6 @@ class HECSNServiceManager:
         )
         self._delayed_consequence = DelayedConsequenceTracker(self)
         self._delayed_consequence.restore_state(terminus_state)
-        self._brain_last_acquisition_summary: dict[str, Any] | None = None
-        self._brain_last_acquisition_token_count = int(self._trainer.token_count)
-        self._brain_last_tick_completed_at: str | None = None
-        self._brain_last_tick_duration_ms: float | None = None
-        self._brain_last_tick_token_delta = 0
-        self._brain_last_work_at: str | None = None
-        self._last_real_sensory_episode_time = 0.0
-        self._last_real_sensory_episode_token_count = int(self._trainer.token_count)
-        self._real_sensory_last_error: str | None = None
-        self._last_sensory_focus_terms: tuple[str, ...] = ()
-        self._sensory_preview_history: deque[dict[str, Any]] = deque(maxlen=8)
-        self._real_sensory_episodes_completed = 0
-        self._real_visual_accepted = 0
-        self._real_audio_accepted = 0
-        self._brain_stream_epoch = 0
-        self._sensory_stream_epoch = 0
         self._rebuild_brain_sources_locked()
         self._runtime_state.restore_event_history(
             last_event=terminus_state.get("last_event"),
@@ -444,10 +343,7 @@ class HECSNServiceManager:
             recent_query_gaps=list(terminus_state.get("recent_query_gaps") or []),
             runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
         )
-        self._brain_recent_query_gaps = self._interaction_pipeline.recent_query_gap_history
-        self._runtime_episode_traces = self._interaction_pipeline.runtime_episode_trace_history
         self._feedback_applier = self._build_feedback_applier()
-        self._brain_skip_next_autonomy_for_grounded_query = False
 
     def _build_status_read_model(self) -> StatusReadModel:
         return StatusReadModel(
@@ -581,6 +477,14 @@ class HECSNServiceManager:
     @_replay_sample_history.setter
     def _replay_sample_history(self, value: Sequence[Mapping[str, Any]]) -> None:
         self._replay_controller.history = value
+
+    @property
+    def _brain_recent_query_gaps(self) -> deque[dict[str, Any]]:
+        return self._interaction_pipeline.recent_query_gap_history
+
+    @property
+    def _runtime_episode_traces(self) -> deque[dict[str, Any]]:
+        return self._interaction_pipeline.runtime_episode_trace_history
 
     # --- Action Executor / Feedback Applier delegation ---
     def action_history(self, limit: int = 20) -> dict[str, Any]:
@@ -991,3 +895,100 @@ class HECSNServiceManager:
         with self._lock:
             self._close_brain_sources_locked()
             self._close_sensory_sources_locked()
+
+
+def _install_module_delegate(
+    name: str,
+    module_attr: str,
+) -> None:
+    if name in HECSNServiceManager.__dict__:
+        return
+
+    def _delegated(self: HECSNServiceManager, *args: Any, **kwargs: Any) -> Any:
+        module = object.__getattribute__(self, module_attr)
+        return getattr(module, name)(*args, **kwargs)
+
+    _delegated.__name__ = name
+    setattr(HECSNServiceManager, name, _delegated)
+
+
+def _install_mixin_delegate(
+    name: str,
+    mixin_cls: type,
+) -> None:
+    if name in HECSNServiceManager.__dict__:
+        return
+    descriptor = mixin_cls.__dict__[name]
+
+    def _delegated(self: HECSNServiceManager, *args: Any, **kwargs: Any) -> Any:
+        return descriptor.__get__(self, type(self))(*args, **kwargs)
+
+    _delegated.__name__ = name
+    setattr(HECSNServiceManager, name, _delegated)
+
+
+def _install_state_property(
+    name: str,
+    module_attr: str,
+) -> None:
+    if name in HECSNServiceManager.__dict__:
+        return
+
+    def _get(self: HECSNServiceManager) -> Any:
+        module = object.__getattribute__(self, module_attr)
+        return getattr(module, name)
+
+    def _set(self: HECSNServiceManager, value: Any) -> None:
+        module = object.__getattribute__(self, module_attr)
+        setattr(module, name, value)
+
+    setattr(HECSNServiceManager, name, property(_get, _set))
+
+
+for _name in BRAIN_RUNTIME_STATE_FIELDS:
+    _install_state_property(_name, "_brain_runtime")
+for _name in RUNTIME_CONTROL_STATE_FIELDS:
+    _install_state_property(_name, "_runtime_control")
+for _name in CORTEX_CONTROLLER_STATE_FIELDS:
+    _install_state_property(_name, "_cortex_controller")
+_install_state_property("_thought_loop", "_cortex_controller")
+for _name in DELAYED_CONSEQUENCE_STATE_FIELDS:
+    _install_state_property(_name, "_delayed_consequence")
+
+for _module_attr, _module_cls in (
+    ("_runtime_persistence", RuntimePersistence),
+    ("_replay_controller", ReplayController),
+    ("_interaction_pipeline", InteractionPipeline),
+    ("_status_read_model", StatusReadModel),
+    ("_runtime_sources", RuntimeSources),
+    ("_brain_runtime", BrainRuntime),
+    ("_runtime_control", RuntimeControl),
+    ("_runtime_config", RuntimeConfig),
+    ("_delayed_consequence", DelayedConsequenceTracker),
+    ("_autonomy_planner", AutonomyPlanner),
+    ("_source_focus", SourceFocusScorer),
+    ("_cortex_controller", CortexController),
+):
+    for _name in _module_cls.__dict__:
+        if _name.startswith("__") or _name in _PUBLIC_DUNDER:
+            continue
+        if callable(getattr(_module_cls, _name, None)):
+            _install_module_delegate(_name, _module_attr)
+
+for _mixin_cls in (
+    StatusRuntimeMixin,
+    LivingStatusMixin,
+    SensoryPreviewMixin,
+    ServiceReportingMixin,
+    SensoryRuntimeMixin,
+    RuntimePrewarmMixin,
+    RuntimeEvidenceMixin,
+    InteractionRuntimeMixin,
+    ReplayDatasetBundleMixin,
+    TerminusAutonomyMixin,
+):
+    for _name, _value in _mixin_cls.__dict__.items():
+        if _name.startswith("__") or _name in HECSNServiceManager.__dict__:
+            continue
+        if callable(_value) or isinstance(_value, (staticmethod, classmethod)):
+            _install_mixin_delegate(_name, _mixin_cls)

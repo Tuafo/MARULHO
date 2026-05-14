@@ -145,13 +145,13 @@ def _parse_manager_init_self_assigns() -> set[str]:
 
     assigned_fields: set[str] = set()
 
-    # Walk only top-level class/function definitions to find __init__,
-    # then walk within that function node. This avoids the bug where
-    # ast.walk visits nodes in undefined order, causing an in_init flag
-    # to be reset by a later non-__init__ function.
     for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
-            for child in ast.walk(node):
+        if not isinstance(node, ast.ClassDef) or node.name != "HECSNServiceManager":
+            continue
+        for class_child in node.body:
+            if not isinstance(class_child, ast.FunctionDef) or class_child.name != "__init__":
+                continue
+            for child in ast.walk(class_child):
                 if (
                     isinstance(child, ast.Assign)
                     and len(child.targets) == 1
@@ -160,7 +160,7 @@ def _parse_manager_init_self_assigns() -> set[str]:
                     and child.targets[0].value.id == "self"
                 ):
                     assigned_fields.add(child.targets[0].attr)
-            break
+            return assigned_fields
 
     return assigned_fields
 
@@ -220,6 +220,34 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         self.assertFalse(
             legacy_in_mro,
             f"Legacy mixin classes still in HECSNServiceManager.__mro__: {sorted(legacy_in_mro)}",
+        )
+
+    def test_manager_has_no_getattr_router(self) -> None:
+        """Manager must not use catch-all attribute routing for module behavior."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        self.assertNotIn("__getattr__", HECSNServiceManager.__dict__)
+        self.assertNotIn("__setattr__", HECSNServiceManager.__dict__)
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        self.assertNotIn("_unbound_mixin_fallback", manager_text)
+
+    def test_no_manager_bound_module_base_remains(self) -> None:
+        """Deep modules must declare owner dependencies explicitly."""
+        violations: list[str] = []
+        for path in sorted(_SERVICE_SRC_ROOT.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name == "ManagerBoundModule":
+                    violations.append(f"{path.relative_to(_REPO_ROOT)}:{node.lineno}")
+                if (
+                    isinstance(node, ast.Name)
+                    and node.id == "ManagerBoundModule"
+                    and path.name != "manager.py"
+                ):
+                    violations.append(f"{path.relative_to(_REPO_ROOT)}:{node.lineno}")
+        self.assertFalse(
+            violations,
+            "ManagerBoundModule remains in service modules:\n" + "\n".join(violations),
         )
 
     def test_manager_constructs_deep_modules(self) -> None:

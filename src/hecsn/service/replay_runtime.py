@@ -12,13 +12,14 @@ from hecsn.service.living_loop import (
     build_replay_plan,
     replay_candidate_safety_flags,
 )
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 
 
-class ReplayController:
+class ReplayController(ExplicitOwnerModule):
     """Advisory replay planning and operator-gated replay sampling helpers."""
 
     def __init__(
@@ -28,16 +29,10 @@ class ReplayController:
         replay_sample_history: Sequence[Mapping[str, Any]] | None = None,
         history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
     ) -> None:
-        self._manager = manager
+        super().__init__(manager)
         self._history_maxlen = max(1, int(history_maxlen))
         self._replay_sample_history: deque[dict[str, Any]] = deque(maxlen=self._history_maxlen)
         self.load_replay_sample_history(replay_sample_history or [])
-
-    def __getattr__(self, name: str) -> Any:
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None:
-            raise AttributeError(name)
-        return getattr(manager, name)
 
     @property
     def history(self) -> deque[dict[str, Any]]:
@@ -457,6 +452,22 @@ class ReplayController:
             "after": _counts(data.get("after")),
             "plan_summary": dict(data.get("plan_summary", {})) if isinstance(data.get("plan_summary"), Mapping) else {},
         }
+
+
+install_owner_forwarders(ReplayController, (
+    "_action_history",
+    "_cortex_unavailable_snapshot",
+    "_living_loop_snapshot_locked",
+    "_lock",
+    "_normalize_action_text",
+    "_normalize_feedback_text",
+    "_replay_plan_summary",
+    "_runtime_feedback_summary_locked",
+    "_runtime_state",
+    "_runtime_trace_export_safe_value",
+    "_thought_loop_actual",
+    "_trainer",
+))
 
 
 ReplayRuntimeMixin = ReplayController

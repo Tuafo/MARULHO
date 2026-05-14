@@ -16,7 +16,7 @@ from typing import Any, Mapping, Sequence, cast
 from uuid import uuid4
 
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.manager_bound_module import ManagerBoundModule
+from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 from hecsn.service.terminus_autonomy import _canonical_provider_term
 
@@ -66,22 +66,12 @@ def _restore_non_negative_int(state: dict[str, Any], key: str) -> int:
     return max(0, int(state.get(key, 0) or 0))
 
 
-class DelayedConsequenceTracker(ManagerBoundModule):
+class DelayedConsequenceTracker(ExplicitOwnerModule):
 
     def __init__(self, manager: Any | None = None) -> None:
         object.__setattr__(self, "_manager", manager)
         for field_name, initial_value in _build_delayed_consequence_initial_state().items():
             object.__setattr__(self, field_name, initial_value)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name == "_manager" or name in DELAYED_CONSEQUENCE_STATE_FIELDS:
-            object.__setattr__(self, name, value)
-            return
-        manager = object.__getattribute__(self, "_manager")
-        if manager is None or manager is self:
-            object.__setattr__(self, name, value)
-            return
-        setattr(manager, name, value)
 
     @staticmethod
     def _consequence_query_terms(value: Any) -> list[str]:
@@ -2747,5 +2737,23 @@ class DelayedConsequenceTracker(ManagerBoundModule):
         self._delayed_consequence_remerged_total = _restore_non_negative_int(
             terminus_state, "delayed_consequence_remerged_total",
         )
+
+install_owner_forwarders(DelayedConsequenceTracker, (
+    "_action_record_relevance_score_locked",
+    "_background_focus_terms_locked",
+    "_background_source_utility_entry_locked",
+    "_brain_config",
+    "_brain_source_runtimes",
+    "_brain_source_semantic_match_locked",
+    "_normalize_action_text",
+    "_normalize_provider_curriculum",
+    "_recent_relevant_action_records_locked",
+    "_record_brain_event_locked",
+    "_runtime_state",
+    "_selected_evidence_weight_map",
+    "_source_text_overlap",
+    "_trainer",
+))
+
 
 DelayedConsequenceMixin = DelayedConsequenceTracker
