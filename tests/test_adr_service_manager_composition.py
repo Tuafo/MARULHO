@@ -250,6 +250,24 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "ManagerBoundModule remains in service modules:\n" + "\n".join(violations),
         )
 
+    def test_brain_runtime_has_explicit_dependencies(self) -> None:
+        """BrainRuntime must not recover owner access through transition helpers."""
+        brain_runtime_path = _SERVICE_SRC_ROOT / "brain_runtime.py"
+        text = brain_runtime_path.read_text(encoding="utf-8")
+        forbidden = (
+            "ExplicitOwnerModule",
+            "install_owner_forwarders(BrainRuntime",
+            "_bound_module(",
+            '"_manager"',
+            "'_manager'",
+        )
+        violations = [value for value in forbidden if value in text]
+        self.assertFalse(
+            violations,
+            "BrainRuntime still uses owner-backed transition helpers: "
+            + ", ".join(violations),
+        )
+
     def test_manager_constructs_deep_modules(self) -> None:
         """Manager must construct key ADR 0003 deep modules explicitly."""
         from hecsn.service.manager import HECSNServiceManager

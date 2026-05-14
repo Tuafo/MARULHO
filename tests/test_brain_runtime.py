@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
+from threading import RLock
 from types import SimpleNamespace
 from typing import Any
 import unittest
 
-from hecsn.service.brain_runtime import BrainRuntime, BrainRuntimeMixin
+from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies, BrainRuntimeMixin
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.runtime_sources import _BrainSourceRuntime
 
@@ -125,6 +126,7 @@ class _BrainRuntimeFixtureBase:
         self._initialize_runtime_state()
         self._thought_loop_actual = _FakeThoughtLoop()
         self._concept_store = _FakeConceptStore()
+        self._geometric_curiosity = SimpleNamespace(summary=lambda: {}, state_dict=lambda: {})
         self._autonomy_planner = _FakeAutonomyPlanner()
         self._interaction_pipeline = SimpleNamespace(
             recent_query_gaps=lambda: [],
@@ -143,6 +145,8 @@ class _BrainRuntimeFixtureBase:
             ),
         )
         self._runtime_state = _FakeRuntimeState()
+        self._action_history: deque[dict[str, object]] = deque()
+        self._replay_sample_history: deque[dict[str, object]] = deque()
         self._brain_events: list[dict[str, object]] = []
 
     def _initialize_runtime_state(self) -> None:
@@ -264,6 +268,49 @@ class _BrainRuntimeFixtureBase:
         return {"enabled": False}
 
 
+def _brain_runtime_dependencies(fixture: _BrainRuntimeFixtureBase) -> BrainRuntimeDependencies:
+    return BrainRuntimeDependencies(
+        lock=RLock(),
+        trainer=fixture._trainer,
+        encoder=getattr(fixture, "_encoder", None),
+        runtime_state=fixture._runtime_state,
+        brain_config=lambda: fixture._brain_config,
+        runtime_control=lambda: fixture,
+        runtime_sources=lambda: fixture,
+        delayed_consequence=lambda: fixture,
+        autonomy_planner=lambda: fixture._autonomy_planner,
+        source_focus=lambda: fixture,
+        interaction_pipeline=lambda: fixture._interaction_pipeline,
+        action_executor=lambda: fixture,
+        replay_controller=lambda: fixture,
+        cortex_controller=lambda: fixture,
+        concept_store=lambda: fixture._concept_store,
+        geometric_curiosity=lambda: fixture._geometric_curiosity,
+        runtime_environment_summary=fixture._runtime_environment_summary,
+        huggingface_runtime_summary_locked=fixture._huggingface_runtime_summary_locked,
+        ingestion_runtime_summary_locked=fixture._ingestion_runtime_summary_locked,
+        multimodal_runtime_summary_locked=fixture._multimodal_runtime_summary_locked,
+        sensory_runtime_summary_locked=lambda sensory: {},
+        living_loop_snapshot_locked=fixture._living_loop_snapshot_locked,
+        maybe_mark_ingestion_warm_locked=lambda **kwargs: None,
+        maybe_mark_sensory_warm_locked=lambda **kwargs: None,
+        observe_runtime_concepts_locked=lambda **kwargs: None,
+        runtime_concept_callback_locked=lambda **kwargs: None,
+        run_real_sensory_episode_locked=fixture._run_real_sensory_episode_locked,
+        record_brain_event_locked=fixture._record_brain_event_locked,
+        build_brain_source_stream_locked=lambda spec: iter(()),
+        build_sensory_stream_locked=lambda spec: iter(()),
+    )
+
+
+def _brain_runtime_from_fixture(fixture: _BrainRuntimeFixtureBase) -> BrainRuntime:
+    module = BrainRuntime(_brain_runtime_dependencies(fixture))
+    for field_name in BRAIN_RUNTIME_STATE_FIELDS:
+        if hasattr(fixture, field_name):
+            setattr(module, field_name, deepcopy(getattr(fixture, field_name)))
+    return module
+
+
 class _FinalizeTickManager(_BrainRuntimeFixtureBase):
     pass
 
@@ -309,7 +356,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
 
     def test_finalize_tick_updates_source_runtime_and_injects_grounded_observation(self) -> None:
         manager = _FinalizeTickManager()
-        module = BrainRuntime(manager)
+        module = _brain_runtime_from_fixture(manager)
         runtime = _BrainSourceRuntime(
             spec=_source_spec("science_source", "science.txt", topic_terms=["cats", "mice"]),
             stream=iter(()),
@@ -356,7 +403,7 @@ class BrainRuntimeSeamTests(unittest.TestCase):
 
     def test_brain_runtime_snapshot_exposes_source_progress_and_status_state(self) -> None:
         manager = _SnapshotManager()
-        module = BrainRuntime(manager)
+        module = _brain_runtime_from_fixture(manager)
 
         snapshot = module._brain_runtime_snapshot_locked(include_replay_dataset_summary=False)
 

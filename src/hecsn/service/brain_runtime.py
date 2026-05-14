@@ -10,19 +10,19 @@ from __future__ import annotations
 
 from collections import deque
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Event
 import re
 import sys
 import time
-from typing import Any, Iterator, Mapping, Sequence, cast
+from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 
 import torch
 
 from hecsn.data.corpus_loader import StreamingCorpusLoader
 from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
 from hecsn.service.runtime_sources import RuntimeSourcesMixin, SourceType, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 
@@ -92,6 +92,42 @@ BRAIN_RUNTIME_STATE_FIELDS = frozenset({
 })
 
 
+@dataclass(frozen=True)
+class BrainRuntimeDependencies:
+    """Explicit production adapters for the Brain Runtime module."""
+
+    lock: Any
+    trainer: Any
+    encoder: Any
+    runtime_state: Any
+    brain_config: Callable[[], dict[str, Any]]
+    runtime_control: Callable[[], Any]
+    runtime_sources: Callable[[], Any]
+    delayed_consequence: Callable[[], Any]
+    autonomy_planner: Callable[[], Any]
+    source_focus: Callable[[], Any]
+    interaction_pipeline: Callable[[], Any]
+    action_executor: Callable[[], Any]
+    replay_controller: Callable[[], Any]
+    cortex_controller: Callable[[], Any]
+    concept_store: Callable[[], Any]
+    geometric_curiosity: Callable[[], Any]
+    runtime_environment_summary: Callable[[], dict[str, Any]]
+    huggingface_runtime_summary_locked: Callable[[], dict[str, Any]]
+    ingestion_runtime_summary_locked: Callable[[], dict[str, Any]]
+    multimodal_runtime_summary_locked: Callable[[], dict[str, Any]]
+    sensory_runtime_summary_locked: Callable[[dict[str, Any]], dict[str, Any]]
+    living_loop_snapshot_locked: Callable[..., dict[str, Any]]
+    maybe_mark_ingestion_warm_locked: Callable[..., None]
+    maybe_mark_sensory_warm_locked: Callable[..., None]
+    observe_runtime_concepts_locked: Callable[..., dict[str, Any] | None]
+    runtime_concept_callback_locked: Callable[..., Any]
+    run_real_sensory_episode_locked: Callable[[], dict[str, Any] | None]
+    record_brain_event_locked: Callable[[dict[str, Any]], None]
+    build_brain_source_stream_locked: Callable[[dict[str, Any]], Iterator[tuple[str, Any]]]
+    build_sensory_stream_locked: Callable[[dict[str, Any]], Iterator[Any]]
+
+
 def _manager_symbol(name: str, fallback: Any) -> Any:
     manager_module = sys.modules.get("hecsn.service.manager")
     if manager_module is None:
@@ -108,66 +144,58 @@ def _run_live_acquisition_func() -> Any:
 
 
 def _source_stream_builder(owner: Any) -> Any:
-    manager = getattr(owner, "_manager", None)
-    if manager is not None:
-        builder = getattr(manager, "_build_source_stream_from_spec", None)
-        if builder is not None:
-            return builder
     return type(owner)._build_source_stream_from_spec
 
 
-class BrainRuntime(ExplicitOwnerModule):
-    def __init__(self, manager: Any | None = None) -> None:
-        object.__setattr__(self, "_manager", manager)
-        trainer = getattr(manager, "_trainer", None)
+class BrainRuntime:
+    def __init__(self, dependencies: BrainRuntimeDependencies) -> None:
+        self._deps = dependencies
+        self._lock = dependencies.lock
+        self._trainer = dependencies.trainer
+        self._encoder = dependencies.encoder
+        self._runtime_state = dependencies.runtime_state
+        self._runtime_environment_summary = dependencies.runtime_environment_summary
+        self._huggingface_runtime_summary_locked = dependencies.huggingface_runtime_summary_locked
+        self._ingestion_runtime_summary_locked = dependencies.ingestion_runtime_summary_locked
+        self._multimodal_runtime_summary_locked = dependencies.multimodal_runtime_summary_locked
+        self._sensory_runtime_summary_locked = dependencies.sensory_runtime_summary_locked
+        self._living_loop_snapshot_locked = dependencies.living_loop_snapshot_locked
+        self._maybe_mark_ingestion_warm_locked = dependencies.maybe_mark_ingestion_warm_locked
+        self._maybe_mark_sensory_warm_locked = dependencies.maybe_mark_sensory_warm_locked
+        self._observe_runtime_concepts_locked = dependencies.observe_runtime_concepts_locked
+        self._runtime_concept_callback_locked = dependencies.runtime_concept_callback_locked
+        self._run_real_sensory_episode_locked = dependencies.run_real_sensory_episode_locked
+        self._record_brain_event_locked = dependencies.record_brain_event_locked
+        self._build_brain_source_stream_locked = dependencies.build_brain_source_stream_locked
+        self._build_sensory_stream_locked = dependencies.build_sensory_stream_locked
+        trainer = dependencies.trainer
         token_count = int(getattr(trainer, "token_count", 0) or 0)
-        manager_state = getattr(manager, "__dict__", {}) if manager is not None else {}
-
-        def initial(name: str, default: Any) -> Any:
-            return manager_state.get(name, default)
-
-        object.__setattr__(self, "_brain_source_runtimes", initial("_brain_source_runtimes", []))
-        object.__setattr__(self, "_sensory_source_runtimes", initial("_sensory_source_runtimes", []))
-        object.__setattr__(self, "_brain_source_index", initial("_brain_source_index", 0))
-        object.__setattr__(self, "_sensory_source_index", initial("_sensory_source_index", 0))
-        object.__setattr__(self, "_brain_tick_count", initial("_brain_tick_count", 0))
-        object.__setattr__(self, "_brain_background_tokens", initial("_brain_background_tokens", 0))
-        object.__setattr__(self, "_brain_autonomy_tokens", initial("_brain_autonomy_tokens", 0))
-        object.__setattr__(self, "_brain_source_utility", initial("_brain_source_utility", {}))
-        object.__setattr__(self, "_brain_last_error", initial("_brain_last_error", None))
-        object.__setattr__(self, "_brain_last_acquisition_summary", initial("_brain_last_acquisition_summary", None))
-        object.__setattr__(
-            self,
-            "_brain_last_acquisition_token_count",
-            initial("_brain_last_acquisition_token_count", token_count),
-        )
-        object.__setattr__(self, "_brain_last_tick_completed_at", initial("_brain_last_tick_completed_at", None))
-        object.__setattr__(self, "_brain_last_tick_duration_ms", initial("_brain_last_tick_duration_ms", None))
-        object.__setattr__(self, "_brain_last_tick_token_delta", initial("_brain_last_tick_token_delta", 0))
-        object.__setattr__(self, "_brain_last_work_at", initial("_brain_last_work_at", None))
-        object.__setattr__(self, "_last_real_sensory_episode_time", initial("_last_real_sensory_episode_time", 0.0))
-        object.__setattr__(
-            self,
-            "_last_real_sensory_episode_token_count",
-            initial("_last_real_sensory_episode_token_count", token_count),
-        )
-        object.__setattr__(self, "_real_sensory_last_error", initial("_real_sensory_last_error", None))
-        object.__setattr__(self, "_last_sensory_focus_terms", initial("_last_sensory_focus_terms", ()))
-        object.__setattr__(
-            self,
-            "_sensory_preview_history",
-            initial("_sensory_preview_history", deque(maxlen=8)),
-        )
-        object.__setattr__(self, "_real_sensory_episodes_completed", initial("_real_sensory_episodes_completed", 0))
-        object.__setattr__(self, "_real_visual_accepted", initial("_real_visual_accepted", 0))
-        object.__setattr__(self, "_real_audio_accepted", initial("_real_audio_accepted", 0))
-        object.__setattr__(self, "_brain_stream_epoch", initial("_brain_stream_epoch", 0))
-        object.__setattr__(self, "_sensory_stream_epoch", initial("_sensory_stream_epoch", 0))
-        object.__setattr__(
-            self,
-            "_brain_skip_next_autonomy_for_grounded_query",
-            initial("_brain_skip_next_autonomy_for_grounded_query", False),
-        )
+        self._brain_source_runtimes: list[_BrainSourceRuntime] = []
+        self._sensory_source_runtimes: list[_SensorySourceRuntime] = []
+        self._brain_source_index = 0
+        self._sensory_source_index = 0
+        self._brain_tick_count = 0
+        self._brain_background_tokens = 0
+        self._brain_autonomy_tokens = 0
+        self._brain_source_utility: dict[str, dict[str, Any]] = {}
+        self._brain_last_error = None
+        self._brain_last_acquisition_summary = None
+        self._brain_last_acquisition_token_count = token_count
+        self._brain_last_tick_completed_at = None
+        self._brain_last_tick_duration_ms = None
+        self._brain_last_tick_token_delta = 0
+        self._brain_last_work_at = None
+        self._last_real_sensory_episode_time = 0.0
+        self._last_real_sensory_episode_token_count = token_count
+        self._real_sensory_last_error = None
+        self._last_sensory_focus_terms: tuple[str, ...] = ()
+        self._sensory_preview_history: deque[dict[str, Any]] = deque(maxlen=8)
+        self._real_sensory_episodes_completed = 0
+        self._real_visual_accepted = 0
+        self._real_audio_accepted = 0
+        self._brain_stream_epoch = 0
+        self._sensory_stream_epoch = 0
+        self._brain_skip_next_autonomy_for_grounded_query = False
 
     def restore_runtime_state(self, state: Mapping[str, Any]) -> None:
         self._brain_source_utility = self._normalize_background_source_utility_state(
@@ -185,7 +213,7 @@ class BrainRuntime(ExplicitOwnerModule):
         excluded_indices: set[int] | None = None,
     ) -> tuple[list[int], list[str], float]:
         excluded = excluded_indices or set()
-        autonomy_planner = self._bound_module("_autonomy_planner")
+        autonomy_planner = self._autonomy_planner
         focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
         focus_pressure, _focus_pressure_details = autonomy_planner._autonomy_focus_pressure_locked(focus_plan)
@@ -826,7 +854,7 @@ class BrainRuntime(ExplicitOwnerModule):
         total_trained: int,
     ) -> None:
         entry = self._background_source_utility_entry_locked(runtime)
-        autonomy_planner = self._bound_module("_autonomy_planner")
+        autonomy_planner = self._autonomy_planner
         focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         focus_terms = self._background_focus_terms_locked(focus_plan=focus_plan)
         semantic_alignment = max(0.0, min(1.0, float(runtime.last_semantic_match)))
@@ -1030,7 +1058,7 @@ class BrainRuntime(ExplicitOwnerModule):
         if not autonomy or not bool(autonomy.get("enabled", False)):
             return None
         token_delta = int(self._trainer.token_count) - int(self._brain_last_acquisition_token_count)
-        autonomy_planner = self._bound_module("_autonomy_planner")
+        autonomy_planner = self._autonomy_planner
         focus_plan = autonomy_planner._autonomy_focus_plan_locked()
         adaptive_learning = autonomy_planner._adaptive_autonomy_settings_locked(autonomy, focus_plan)
         trigger_interval = int(
@@ -1194,7 +1222,7 @@ class BrainRuntime(ExplicitOwnerModule):
             next_source_name = self._brain_source_runtimes[0].name
             background_selection_order = [self._brain_source_runtimes[0].name]
         elif len(self._brain_source_runtimes) > 1:
-            autonomy_planner = self._bound_module("_autonomy_planner")
+            autonomy_planner = self._autonomy_planner
             background_focus_plan = autonomy_planner._autonomy_focus_plan_locked()
             background_focus_terms = self._background_focus_terms_locked(focus_plan=background_focus_plan)
             background_focus_pressure, _background_focus_pressure_details = autonomy_planner._autonomy_focus_pressure_locked(background_focus_plan)
@@ -1218,7 +1246,7 @@ class BrainRuntime(ExplicitOwnerModule):
         sensory_tokens_until_trigger = None
         sensory_trigger_ready = None
         if autonomy is not None:
-            autonomy_planner = self._bound_module("_autonomy_planner")
+            autonomy_planner = self._autonomy_planner
             if autonomy_focus_plan is None:
                 autonomy_focus_plan = autonomy_planner._autonomy_focus_plan_locked()
             autonomy_provider_curriculum = autonomy_planner._provider_curriculum_snapshot_locked(autonomy, autonomy_focus_plan)
@@ -1423,39 +1451,51 @@ class BrainRuntime(ExplicitOwnerModule):
         }
 
 
-install_owner_forwarders(BrainRuntime, (
-    "_action_history",
-    "_action_loop_summary_locked",
+def _install_dependency_property(name: str, provider_name: str) -> None:
+    def _provider(self: BrainRuntime) -> Any:
+        provider = getattr(self._deps, provider_name)
+        return provider()
+
+    def _get(self: BrainRuntime) -> Any:
+        return getattr(_provider(self), name)
+
+    def _set(self: BrainRuntime, value: Any) -> None:
+        setattr(_provider(self), name, value)
+
+    setattr(BrainRuntime, name, property(_get, _set))
+
+
+def _install_dependency_object_property(name: str, provider_name: str) -> None:
+    def _get(self: BrainRuntime) -> Any:
+        return getattr(self._deps, provider_name)()
+
+    setattr(BrainRuntime, name, property(_get))
+
+
+def _install_dependency_alias_property(name: str, provider_name: str, target_name: str) -> None:
+    def _provider(self: BrainRuntime) -> Any:
+        provider = getattr(self._deps, provider_name)
+        return provider()
+
+    def _get(self: BrainRuntime) -> Any:
+        return getattr(_provider(self), target_name)
+
+    def _set(self: BrainRuntime, value: Any) -> None:
+        setattr(_provider(self), target_name, value)
+
+    setattr(BrainRuntime, name, property(_get, _set))
+
+
+for _name in (
     "_active_execution_idle_event",
     "_active_execution_requests",
-    "_background_focus_terms_locked",
-    "_brain_config",
     "_brain_last_stop_duration_ms",
     "_brain_running_since",
     "_brain_runtime_active_locked",
-    "_brain_source_selection_score_locked",
     "_brain_stop_requested_at",
     "_brain_stop_requested_perf",
     "_brain_stop_requested_reason",
     "_brain_stop_timed_out",
-    "_build_brain_source_stream_locked",
-    "_build_sensory_stream_locked",
-    "_close_brain_sources_locked",
-    "_close_sensory_sources_locked",
-    "_compact_delayed_consequence_records_locked",
-    "_concept_store",
-    "_cool_delayed_consequence_records_locked",
-    "_cortex_unavailable_snapshot",
-    "_delayed_consequence_compacted_total",
-    "_delayed_consequence_cooled_total",
-    "_delayed_consequence_records",
-    "_delayed_consequence_remerged_total",
-    "_delayed_consequence_retired_total",
-    "_delayed_consequence_split_total",
-    "_delayed_consequence_summary_locked",
-    "_encoder",
-    "_geometric_curiosity",
-    "_huggingface_runtime_summary_locked",
     "_ingestion_configured_at",
     "_ingestion_configured_perf",
     "_ingestion_prewarm_budget_exhausted",
@@ -1469,46 +1509,71 @@ install_owner_forwarders(BrainRuntime, (
     "_ingestion_prewarm_started_perf",
     "_ingestion_prewarm_stop_event",
     "_ingestion_prewarm_thread",
-    "_ingestion_runtime_summary_locked",
     "_ingestion_startup_warm_latency_ms",
     "_ingestion_warm_ready_at",
-    "_interaction_pipeline",
-    "_living_loop_snapshot_locked",
-    "_lock",
-    "_maybe_mark_ingestion_warm_locked",
-    "_maybe_mark_sensory_warm_locked",
-    "_multimodal_runtime_summary_locked",
-    "_next_stream_item",
-    "_observe_runtime_concepts_locked",
-    "_record_brain_event_locked",
     "_record_remote_warm_promotion_completed_locked",
-    "_remerge_converged_delayed_consequence_families_locked",
     "_remote_warm_promotion_last_trigger",
     "_remote_warm_promotion_running",
     "_remote_warm_promotion_sensory_needed_locked",
     "_remote_warm_promotion_stop_event",
     "_remote_warm_promotion_text_needed_locked",
     "_remote_warm_promotion_thread",
-    "_replay_sample_history",
-    "_restore_brain_runtime_cache_locked",
-    "_restore_sensory_runtime_cache_locked",
-    "_run_real_sensory_episode_locked",
-    "_runtime_concept_callback_locked",
-    "_runtime_environment_summary",
-    "_runtime_state",
     "_sensory_configured_at",
     "_sensory_configured_perf",
     "_sensory_prewarm_budget_exhausted",
-    "_sensory_runtime_summary_locked",
     "_sensory_startup_warm_latency_ms",
     "_sensory_warm_ready_at",
-    "_source_spec_uses_live_remote",
-    "_split_divergent_delayed_consequence_families_locked",
     "_start_remote_warm_promotion_locked",
-    "_thought_loop_actual",
-    "_trainer",
+):
+    _install_dependency_property(_name, "runtime_control")
+
+for _name in (
+    "_close_brain_sources_locked",
+    "_close_sensory_sources_locked",
+    "_next_stream_item",
+    "_restore_brain_runtime_cache_locked",
+    "_restore_sensory_runtime_cache_locked",
+    "_source_spec_uses_live_remote",
     "_update_brain_runtime_cache_locked",
-))
+):
+    _install_dependency_property(_name, "runtime_sources")
+
+for _name in (
+    "_compact_delayed_consequence_records_locked",
+    "_cool_delayed_consequence_records_locked",
+    "_delayed_consequence_compacted_total",
+    "_delayed_consequence_cooled_total",
+    "_delayed_consequence_records",
+    "_delayed_consequence_remerged_total",
+    "_delayed_consequence_retired_total",
+    "_delayed_consequence_split_total",
+    "_delayed_consequence_summary_locked",
+    "_remerge_converged_delayed_consequence_families_locked",
+    "_split_divergent_delayed_consequence_families_locked",
+):
+    _install_dependency_property(_name, "delayed_consequence")
+
+for _name in (
+    "_background_focus_terms_locked",
+    "_brain_source_selection_score_locked",
+):
+    _install_dependency_property(_name, "source_focus")
+
+_install_dependency_object_property("_autonomy_planner", "autonomy_planner")
+_install_dependency_object_property("_brain_config", "brain_config")
+_install_dependency_object_property("_interaction_pipeline", "interaction_pipeline")
+_install_dependency_alias_property("_action_history", "action_executor", "history")
+_install_dependency_property("_action_loop_summary_locked", "action_executor")
+_install_dependency_alias_property("_replay_sample_history", "replay_controller", "history")
+
+for _name in (
+    "_cortex_unavailable_snapshot",
+    "_thought_loop_actual",
+):
+    _install_dependency_property(_name, "cortex_controller")
+
+_install_dependency_object_property("_concept_store", "concept_store")
+_install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")
 
 
 BrainRuntimeMixin = BrainRuntime

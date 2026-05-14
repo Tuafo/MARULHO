@@ -612,7 +612,7 @@ class RuntimePrewarmMixin:
                 except StopIteration:
                     if repeat_sources:
                         cycles += 1
-                        rebuilt = type(self)._build_sensory_stream_from_spec(
+                        rebuilt = self._build_sensory_stream_from_spec(
                             runtime.spec,
                             visual_dim=int(getattr(self._trainer.config, "cross_modal_dim_visual", 64)),
                             audio_dim=int(getattr(self._trainer.config, "cross_modal_dim_audio", 64)),
@@ -1053,7 +1053,7 @@ class RuntimePrewarmMixin:
         detached_sensory_runtimes = [
             _SensorySourceRuntime(
                 spec=spec,
-                stream=type(self)._build_sensory_stream_from_spec(
+                stream=self._build_sensory_stream_from_spec(
                     spec,
                     visual_dim=visual_dim,
                     audio_dim=audio_dim,

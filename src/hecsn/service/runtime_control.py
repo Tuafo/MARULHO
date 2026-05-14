@@ -8,6 +8,7 @@ from typing import Any
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.manager_bound_module import ExplicitOwnerModule, install_owner_forwarders
+from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
@@ -62,7 +63,7 @@ def _build_runtime_control_initial_state() -> dict[str, Any]:
 RUNTIME_CONTROL_STATE_FIELDS = frozenset(_build_runtime_control_initial_state())
 
 
-class RuntimeControl(ExplicitOwnerModule):
+class RuntimeControl(ExplicitOwnerModule, RuntimePrewarmMixin):
     """Terminus configure/start/stop/tick runtime control helpers."""
 
     def __init__(self, manager: Any | None = None) -> None:
@@ -533,19 +534,26 @@ install_owner_forwarders(RuntimeControl, (
     "_brain_source_utility",
     "_brain_stream_epoch",
     "_brain_tick_idle_locked",
+    "_build_sensory_stream_from_spec",
     "_collect_chunk_unlocked",
     "_commit_collected_runtime_locked",
+    "_commit_prefetched_sensory_runtime_locked",
     "_encoder",
     "_ensure_cortex_initialized",
     "_finalize_tick_locked",
     "_interrupt_brain_sources_locked",
     "_interrupt_sensory_sources_locked",
+    "_ingestion_full_queue_source_count_locked",
+    "_ingestion_ready_source_count_locked",
     "_join_ingestion_prewarm_thread",
     "_join_remote_warm_promotion_thread",
     "_last_real_sensory_episode_time",
     "_last_real_sensory_episode_token_count",
     "_lock",
+    "_next_stream_item",
     "_ordered_brain_runtime_indices_locked",
+    "_prefetch_sensory_queues_unlocked",
+    "_prefetch_source_queues_unlocked",
     "_real_sensory_last_error",
     "_rebuild_brain_sources_locked",
     "_record_brain_event_locked",
@@ -555,12 +563,21 @@ install_owner_forwarders(RuntimeControl, (
     "_request_remote_warm_promotion_stop",
     "_runtime_config",
     "_runtime_state",
+    "_sensory_full_queue_source_count_locked",
+    "_sensory_queue_target_items_locked",
+    "_sensory_ready_source_count_locked",
+    "_sensory_source_runtimes",
+    "_sensory_spec_uses_live_remote",
+    "_sensory_stream_epoch",
+    "_source_spec_uses_live_remote",
     "_start_ingestion_prewarm_locked",
     "_start_remote_warm_promotion_locked",
+    "_stream_supports_ready_reads",
     "_thought_loop",
     "_train_chunk_in_sub_batches",
     "_trainer",
     "_update_brain_runtime_cache_locked",
+    "_update_sensory_runtime_cache_locked",
 ))
 
 

@@ -146,7 +146,7 @@ from hecsn.service.interaction_pipeline import InteractionPipeline
 from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
 from hecsn.service.action_executor import ActionExecutor
 from hecsn.service.feedback_applier import FeedbackApplier
-from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime
+from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
 from hecsn.service.delayed_consequence import DELAYED_CONSEQUENCE_STATE_FIELDS, DelayedConsequenceTracker
 from hecsn.service.persistence import RuntimePersistence
 from hecsn.service.cortex_controller import CORTEX_CONTROLLER_STATE_FIELDS, CortexController
@@ -303,7 +303,6 @@ class HECSNServiceManager:
         self._runtime_sources = RuntimeSources(self)
         self._source_focus = SourceFocusScorer(self)
         self._autonomy_planner = AutonomyPlanner(self)
-        self._brain_runtime = BrainRuntime(self)
         self._runtime_control = RuntimeControl(self)
         self._cortex_controller = CortexController(self)
         service_state = dict(self._metadata.get("service_state", {}))
@@ -318,6 +317,7 @@ class HECSNServiceManager:
         self._brain_config = self._runtime_config._normalize_brain_config(
             terminus_state
         )
+        self._brain_runtime = BrainRuntime(self._build_brain_runtime_dependencies())
         self._brain_runtime.restore_runtime_state(terminus_state)
         self._action_executor = self._build_action_executor(
             action_history=list(terminus_state.get("action_history") or [])
@@ -364,6 +364,40 @@ class HECSNServiceManager:
             living_loop_status_fn=self._living_loop_status_impl,
             policy_actuator_status_fn=self._policy_actuator_status_impl,
             cortex_signal_state_fn=self._cortex_signal_state_impl,
+        )
+
+    def _build_brain_runtime_dependencies(self) -> BrainRuntimeDependencies:
+        return BrainRuntimeDependencies(
+            lock=self._lock,
+            trainer=self._trainer,
+            encoder=self._encoder,
+            runtime_state=self._runtime_state,
+            brain_config=lambda: self._brain_config,
+            runtime_control=lambda: self._runtime_control,
+            runtime_sources=lambda: self._runtime_sources,
+            delayed_consequence=lambda: self._delayed_consequence,
+            autonomy_planner=lambda: self._autonomy_planner,
+            source_focus=lambda: self._source_focus,
+            interaction_pipeline=lambda: self._interaction_pipeline,
+            action_executor=lambda: self._action_executor,
+            replay_controller=lambda: self._replay_controller,
+            cortex_controller=lambda: self._cortex_controller,
+            concept_store=lambda: self._concept_store,
+            geometric_curiosity=lambda: self._geometric_curiosity,
+            runtime_environment_summary=self._runtime_environment_summary,
+            huggingface_runtime_summary_locked=self._huggingface_runtime_summary_locked,
+            ingestion_runtime_summary_locked=self._ingestion_runtime_summary_locked,
+            multimodal_runtime_summary_locked=self._multimodal_runtime_summary_locked,
+            sensory_runtime_summary_locked=self._sensory_runtime_summary_locked,
+            living_loop_snapshot_locked=self._living_loop_snapshot_locked,
+            maybe_mark_ingestion_warm_locked=self._maybe_mark_ingestion_warm_locked,
+            maybe_mark_sensory_warm_locked=self._maybe_mark_sensory_warm_locked,
+            observe_runtime_concepts_locked=self._observe_runtime_concepts_locked,
+            runtime_concept_callback_locked=self._runtime_concept_callback_locked,
+            run_real_sensory_episode_locked=self._run_real_sensory_episode_locked,
+            record_brain_event_locked=self._record_brain_event_locked,
+            build_brain_source_stream_locked=lambda spec: self._build_brain_source_stream_locked(spec),
+            build_sensory_stream_locked=lambda spec: self._build_sensory_stream_locked(spec),
         )
 
     def _autonomy_planner_or_self(self) -> Any:
