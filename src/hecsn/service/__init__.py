@@ -18,14 +18,14 @@ Module structure:
 - interaction_runtime.py: Query/feed/respond/acquire operator interaction flow and compatibility delegates
 - living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
 - runtime_config.py: Operator runtime/source configuration normalization
-- runtime_control.py: Terminus configure/start/stop/tick runtime control
+- runtime_control.py: Terminus configure/start/stop/tick runtime control with explicit dependency access
 - runtime_prewarm.py: Remote warm promotion and ingestion prewarm loops
 - runtime_sources.py: Runtime source streams, live-remote wrapping, and caches
 - sensory_runtime.py: Multimodal sensory selection, prefetch, and injection
 - source_focus.py: Text-source focus and semantic scoring
-- autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum)
+- autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum) with explicit dependency access
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
-- sensory_preview.py: Sensory preview payload helpers (now delegates through status_read_model)
+- sensory_preview.py: Legacy sensory preview payload helpers; status_read_model owns the active read path
 - replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging
 - terminus_presets.py: Quick-start preset configurations
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources

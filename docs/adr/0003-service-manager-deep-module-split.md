@@ -29,7 +29,7 @@ The accepted implementation goes further than simple mixin extraction:
 - `HECSNServiceManager` does not use catch-all `__getattr__`, `__setattr__`, or legacy unbound mixin fallback routing.
 - Manager-owned ADR runtime state is moved behind the owning modules. Brain Runtime owns source runtimes, source utility, tick counters, stream epochs, and sensory episode/preview counters. Interaction Pipeline owns query gap history and runtime episode traces. RuntimeState owns mutation truth and brain event history.
 - Public Service Manager methods remain stable, but internal compatibility is expressed as explicit delegate methods and explicit state properties, not manager-bound attribute magic.
-- Deep modules no longer inherit from `ManagerBoundModule`. Transitional owner access uses explicit named forwarders only where production compatibility still needs a manager-backed dependency.
+- Deep modules no longer inherit from `ManagerBoundModule`. RuntimeController and AutonomyPlanner use explicit dependency adapters instead of manager-backed owner forwarders; StatusReadModel owns the sensory preview projection directly.
 
 ### Module inventory
 
@@ -37,13 +37,13 @@ The accepted implementation goes further than simple mixin extraction:
 |---|---|---|---|
 | RuntimeState | new | ~50 | `dirty_state`, `state_revision`, `last_event`, `recent_events`, brain event log |
 | DelayedConsequenceTracker | DelayedConsequenceMixin | 2644 | consequence records, cooled/retired/compacted/split/remerged totals |
-| AutonomyPlanner | TerminusAutonomyMixin | 1771 | (reads shared state via interfaces) |
+| AutonomyPlanner | TerminusAutonomyMixin behavior | 1771 | (reads shared state through an explicit dependency adapter) |
 | BrainRuntime | BrainRuntimeMixin | 1148 | source runtimes, source utility, tick counters, stream epochs, sensory episode/preview counters |
 | InteractionPipeline | InteractionRuntimeMixin + RuntimeEvidenceMixin | ~2000 | query gap history, runtime episode traces |
 | FeedbackApplier | RuntimeFeedbackMixin | 244 | (applies to targets, no persistent own state) |
 | SourceFocusScorer | SourceFocusMixin | 373 | (scoring is stateless per call) |
-| RuntimeController | RuntimeControlMixin + RuntimePrewarmMixin | ~1600 | brain thread, stop event, active execution counters, prewarm thread lifecycle |
-| StatusReadModel | StatusRuntimeMixin + LivingStatusMixin + SensoryPreviewMixin + shallow ReportingMixin | ~1000 | cached status/telemetry/terminus snapshots |
+| RuntimeController | RuntimeControlMixin + RuntimePrewarmMixin behavior | ~1600 | brain thread, stop event, active execution counters, prewarm thread lifecycle |
+| StatusReadModel | StatusRuntimeMixin + LivingStatusMixin + sensory preview + shallow ReportingMixin behavior | ~1000 | cached status/telemetry/terminus snapshots |
 | ActionExecutor | ActionRuntimeMixin + ActionAssistMixin | ~750 | action history |
 | CortexController | CortexRuntimeMixin | 350 | cortex query hint text/timestamp |
 | RuntimePersistence | PersistenceMixin | 233 | trace history and checkpoint save/restore orchestration |
@@ -53,15 +53,15 @@ The accepted implementation goes further than simple mixin extraction:
 
 ### Design constraints
 
-1. **Constructor injection and explicit owner dependencies.** Each module declares its production dependencies through constructor wiring or an explicit named owner-forwarder during the transition. No module may rely on a catch-all manager-bound base class.
+1. **Constructor injection and explicit dependencies.** Each module declares its production dependencies through constructor wiring, explicit dependency adapters, or narrow owner interfaces. No module may rely on a catch-all manager-bound base class.
 2. **Writer owns state.** The module that mutates a piece of state owns it. Other modules access it through the owner's read methods. Key ownership assignments:
  - `brain_source_utility` → BrainRuntime (mutated by DelayedConsequence via `brain_runtime.update_source_utility()`)
  - `brain_recent_query_gaps` → InteractionPipeline (read by Autonomy and SourceFocus via `interaction.recent_query_gaps()`)
  - `action_history` → ActionExecutor (read by 8+ modules via `action_executor.action_history()` and `action_executor.recent_relevant_actions()`)
 3. **Shared RLock.** Each module receives the RLock as a constructor parameter. No module owns the lock. This avoids deadlock while preserving the current thread-safety model (brain thread + FastAPI handlers).
-4. **Direct references between modules.** Modules hold references to each other through injected dependencies or explicit forwarders. No event bus, no manager orchestration. The dependency graph must stay visible in code.
+4. **Direct references between modules.** Modules hold references to each other through injected dependencies or explicit dependency adapters. No event bus, no manager orchestration. The dependency graph must stay visible in code.
 5. **RuntimeState for cross-cutting concerns.** A tiny module owns `dirty_state`, `state_revision`, and the brain event log. Modules call `runtime_state.mark_mutated()` and `runtime_state.record_event()` instead of depending on the Service Manager's internals.
-6. **Shallow modules collapsed.** LivingStatusMixin, SensoryPreviewMixin, and the shallow half of ReportingMixin collapse into StatusReadModel. They don't earn their own modules.
+6. **Shallow modules collapsed.** LivingStatusMixin, SensoryPreviewMixin, and the shallow half of ReportingMixin collapse into StatusReadModel. StatusReadModel owns sensory preview serialization directly; the old mixin does not sit on the read-model path.
 7. **InteractionRuntime + RuntimeEvidence merged.** Every interaction (query/feed/respond) produces an episode trace — they're tightly coupled (10 cross-reads) and form a single interaction pipeline.
 
 ### Relationship to ADR 0001 and ADR 0002
@@ -76,10 +76,10 @@ Compatibility imports such as `RuntimeControlMixin = RuntimeControl` may remain 
 
 ### Migration strategy
 
-This migration is implemented far enough that the Service Manager is no longer a legacy mixin inheritance surface and no longer has catch-all attribute routing. Remaining compatibility work should continue by replacing transitional owner forwarders with narrower constructor parameters and module interfaces.
+This migration is implemented far enough that the Service Manager is no longer a legacy mixin inheritance surface and no longer has catch-all attribute routing. RuntimeController and AutonomyPlanner have also moved off manager-backed owner forwarders. Remaining compatibility work should continue by replacing any remaining transitional dependency access with narrower constructor parameters and module interfaces.
 
 1. Keep the ADR guard in `tests/test_adr_service_manager_composition.py` as the first regression target for future service-manager architecture work.
-2. When touching a transitional owner-forwarded dependency, prefer replacing it with a concrete constructor dependency or an interface method on the true owner.
+2. When touching transitional dependency access, prefer replacing it with a concrete constructor dependency or an interface method on the true owner.
 3. Keep service-level tests focused on public behavior. Module tests should use fakes/adapters at the same interfaces production uses.
 4. Delete compatibility aliases only when import compatibility no longer requires them.
 
@@ -119,7 +119,7 @@ Per-module locks create deadlock risk (A holds lock_A, waits for B which holds l
 
 - Constructor signatures get larger — the BrainRuntime module, as the central hub, will have many dependencies
 - Wiring code in the Service Manager's composition root must be maintained
-- Some compatibility aliases and transitional explicit forwarders remain while older tests/imports are retired
+- Some compatibility aliases remain while older tests/imports are retired
 - Some cross-module calls that were previously `self.method()` become `other_module.method()`, which is a shallow syntax change with no semantic difference — but it adds a reference that must be managed
 
 ### Neutral
