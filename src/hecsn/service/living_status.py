@@ -8,6 +8,7 @@ mutation is performed here.
 from __future__ import annotations
 
 from copy import deepcopy
+import time
 from typing import Any, Mapping, cast
 
 from hecsn.service.living_loop import (
@@ -223,6 +224,9 @@ class LivingStatusMixin:
                 pass
 
             payload = {
+                "schema_version": "cognitive_signal.v1",
+                "source": "service.living_status",
+                "sampled_at": time.time(),
                 "prediction_error_mean": 0.0,
                 "prediction_error_max": 0.0,
                 "predictive_confidence_mean": 0.5,

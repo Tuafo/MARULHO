@@ -222,6 +222,30 @@ class AbstractionLayer:
             "feedback_strength": float(self.feedback_strength),
         }
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for abstraction state."""
+        return {
+            "module": "abstraction",
+            "device": str(self.device),
+            "feedforward_device": str(self.feedforward.device),
+            "feedback_device": str(self.feedback.device),
+            "fast_state_device": str(self.fast_state.device),
+            "slow_state_device": str(self.slow_state.device),
+            "slow_var_device": str(self.slow_var.device),
+            "concept_stability_device": str(self.concept_stability.device),
+            "concept_certainty_device": str(self.concept_certainty.device),
+            "last_activations_device": (
+                None if self.last_activations is None else str(self.last_activations.device)
+            ),
+            "last_input_device": None if self.last_input is None else str(self.last_input.device),
+            "stable_cache_device": (
+                None if self._stable_cache is None else str(self._stable_cache.device)
+            ),
+            "n_columns": int(self.n_columns),
+            "n_concepts": int(self.n_concepts),
+            "updates": int(self.updates),
+        }
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "feedforward": self.feedforward.detach().clone().cpu(),

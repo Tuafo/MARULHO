@@ -16,11 +16,6 @@ class ServiceReportingMixin:
             sensory = self._brain_config.get("sensory") or {}
             autonomy = self._brain_config.get("autonomy") or {}
             predictive_enabled = bool(getattr(model, "predictive", None) is not None)
-            cortex_snapshot = (
-                self._cortex_controller.cortex_snapshot()
-                if self._thought_loop is not None
-                else {"enabled": False}
-            )
             layers: list[dict[str, Any]] = []
             layers.append({
                 "id": "input_encoding",
@@ -30,6 +25,11 @@ class ServiceReportingMixin:
                 "params": {
                     "input_dim": int(config.input_dim),
                     "representation": config.input_representation,
+                    "encoder_device": (
+                        self._encoder.device_report()
+                        if hasattr(self._encoder, "device_report")
+                        else None
+                    ),
                     "background_sources": int(len(self._brain_source_runtimes)),
                     "background_routing": "focus_aware_allocation",
                     "sensory_sources": int(len(self._sensory_source_runtimes)),
@@ -111,17 +111,6 @@ class ServiceReportingMixin:
                 },
             })
             layers.append({
-                "id": "nim_cortex",
-                "name": "NIM Mind Layer",
-                "enabled": bool(cortex_snapshot.get("enabled", False)),
-                "type": "cortex",
-                "params": {
-                    "thoughts_generated": int(cortex_snapshot.get("thoughts_generated", 0) or 0),
-                    "working_memory": bool(cortex_snapshot.get("working_memory") is not None),
-                    "narrative_self": bool(cortex_snapshot.get("narrative_self") is not None),
-                } if bool(cortex_snapshot.get("enabled", False)) else {},
-            })
-            layers.append({
                 "id": "autonomy_guidance",
                 "name": "Active Exploration + Grounded-Family-Summary Lineage-Reconvergent Divergence-Split Trajectory-Sensitive Compacted Age-Sensitive Consequence-Calibrated Real-Source Guidance",
                 "enabled": bool(autonomy.get("enabled", False)) or bool(sensory.get("enabled", False)),
@@ -150,7 +139,7 @@ class ServiceReportingMixin:
                 "model_name": "Terminus",
                 "core_name": "GPCSN",
                 "version": "current",
-                "family": "hybrid_snn_llm",
+                "family": "subcortex_runtime",
                 "layers": layers,
                 "config": {
                     "context_mode": config.context_mode,

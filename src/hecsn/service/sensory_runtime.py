@@ -543,6 +543,8 @@ class SensoryRuntimeMixin:
             focus_terms=deduped_topics[:4],
             extra={
                 "adapter": runtime.adapter,
+                "device": str(episode.metadata.get("device", "")),
+                "encoder": deepcopy(episode.metadata.get("encoder")),
                 "semantic_match": float(semantic_score),
                 "item_semantic_match": float(runtime.last_item_semantic_match),
             },
@@ -558,6 +560,8 @@ class SensoryRuntimeMixin:
             "source_name": runtime.name,
             "source_type": "sensory",
             "adapter": runtime.adapter,
+            "device": str(episode.metadata.get("device", "")),
+            "encoder": deepcopy(episode.metadata.get("encoder")),
             "modality": modality,
             "content": text,
             "topics": deduped_topics,

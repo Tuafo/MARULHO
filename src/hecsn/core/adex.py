@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 
@@ -51,6 +52,18 @@ class AdExNeuron:
         self.V = torch.full((self.n,), self.E_L, device=self.device, dtype=torch.float32)
         self.w = torch.zeros(self.n, device=self.device, dtype=torch.float32)
         self.spike_times = torch.full((self.n,), -1.0, device=self.device, dtype=torch.float32)
+
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible tensor placement for this neuron population."""
+        return {
+            "module": "adex_neuron",
+            "device": str(self.device),
+            "n_neurons": int(self.n),
+            "voltage_device": str(self.V.device),
+            "adaptation_device": str(self.w.device),
+            "spike_times_device": str(self.spike_times.device),
+            "cuda": self.device.type == "cuda",
+        }
 
     def _current(self, I_syn: torch.Tensor) -> torch.Tensor:
         current = torch.as_tensor(I_syn, dtype=torch.float32, device=self.device).flatten()
@@ -104,6 +117,53 @@ class AdExNeuron:
         self.V.fill_(self.E_L)
         self.w.zero_()
         self.spike_times.fill_(-1.0)
+
+    def state_dict(self) -> dict[str, Any]:
+        """Serialize neuron state with CPU tensors for portable checkpoints."""
+        return {
+            "n_neurons": int(self.n),
+            "dt": float(self.dt),
+            "burst_mode": bool(self.burst_mode),
+            "C_m": float(self.C_m),
+            "g_L": float(self.g_L),
+            "E_L": float(self.E_L),
+            "V_T": float(self.V_T),
+            "delta_T": float(self.delta_T),
+            "tau_w": float(self.tau_w),
+            "a": float(self.a),
+            "b": float(self.b),
+            "V_reset": float(self.V_reset),
+            "V_peak": float(self.V_peak),
+            "V": self.V.detach().clone().cpu(),
+            "w": self.w.detach().clone().cpu(),
+            "spike_times": self.spike_times.detach().clone().cpu(),
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore neuron state onto this instance's configured device."""
+        for attr in (
+            "C_m",
+            "g_L",
+            "E_L",
+            "V_T",
+            "delta_T",
+            "tau_w",
+            "a",
+            "b",
+            "V_reset",
+            "V_peak",
+        ):
+            if attr in state:
+                setattr(self, attr, float(state[attr]))
+        if "dt" in state:
+            self.dt = float(state["dt"])
+        if "burst_mode" in state:
+            self.burst_mode = bool(state["burst_mode"])
+        for attr in ("V", "w", "spike_times"):
+            value = state.get(attr)
+            current = getattr(self, attr)
+            if isinstance(value, torch.Tensor) and tuple(value.shape) == tuple(current.shape):
+                setattr(self, attr, value.detach().clone().to(self.device).float())
 
     @classmethod
     def inhibitory(

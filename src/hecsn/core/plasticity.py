@@ -455,6 +455,40 @@ class LocalPlasticityCircuit:
         self.o1_trace[indices] = 0.0
         self.o2_trace[indices] = 0.0
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for plasticity state."""
+        report: dict[str, object] = {
+            "module": "local_plasticity",
+            "device": str(self.device),
+            "spike_backend": str(self.spike_backend),
+            "plasticity_rule": str(self.plasticity_rule),
+            "pre_trace_device": str(self.pre_trace.device),
+            "post_trace_device": str(self.post_trace.device),
+            "projected_trace_device": str(self.projected_trace.device),
+            "assembly_trace_device": str(self.assembly_trace.device),
+            "r1_trace_device": str(self.r1_trace.device),
+            "r2_trace_device": str(self.r2_trace.device),
+            "o1_trace_device": str(self.o1_trace.device),
+            "o2_trace_device": str(self.o2_trace.device),
+            "input_eligibility_device": str(self.input_eligibility.device),
+            "projection_eligibility_device": str(self.projection_eligibility.device),
+            "assembly_projection_eligibility_device": str(
+                self.assembly_projection_eligibility.device
+            ),
+            "firing_rate_ema_device": str(self.firing_rate_ema.device),
+            "synaptic_scale_device": str(self.synaptic_scale.device),
+            "inhibitory_trace_device": str(self.inhibitory_trace.device),
+            "inhibitory_tone_device": str(self.inhibitory_tone.device),
+        }
+        if self.adex_neurons is not None:
+            adex_report = self.adex_neurons.device_report()
+            report["adex"] = adex_report
+            report["adex_device"] = adex_report["device"]
+            report["adex_voltage_device"] = adex_report["voltage_device"]
+            report["adex_adaptation_device"] = adex_report["adaptation_device"]
+            report["adex_spike_times_device"] = adex_report["spike_times_device"]
+        return report
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "pre_trace": self.pre_trace.detach().clone().cpu(),
@@ -472,7 +506,10 @@ class LocalPlasticityCircuit:
             "synaptic_scale": self.synaptic_scale.detach().clone().cpu(),
             "inhibitory_trace": self.inhibitory_trace.detach().clone().cpu(),
             "inhibitory_tone": self.inhibitory_tone.detach().clone().cpu(),
+            "spike_backend": self.spike_backend,
             "plasticity_rule": self.plasticity_rule,
+            "adex_step": int(self.adex_step),
+            "adex_neurons": None if self.adex_neurons is None else self.adex_neurons.state_dict(),
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:
@@ -496,3 +533,7 @@ class LocalPlasticityCircuit:
             value = snapshot.get(attr)
             if isinstance(value, torch.Tensor):
                 setattr(self, attr, value.to(self.device))
+        self.adex_step = int(snapshot.get("adex_step", self.adex_step))
+        adex_state = snapshot.get("adex_neurons")
+        if self.adex_neurons is not None and isinstance(adex_state, dict):
+            self.adex_neurons.load_state_dict(adex_state)

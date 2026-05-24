@@ -515,7 +515,7 @@ def _policy_suggested_endpoint_and_input(
         )
     elif action == "consolidate_or_sleep":
         return (
-            "/terminus/cortex/sleep",
+            "/terminus/living-loop",
             {"reason": "policy_actuator_advisory_memory_or_fatigue_pressure"},
         )
     elif action == "reduce_scope_or_wait":

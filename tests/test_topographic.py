@@ -168,6 +168,36 @@ class TestSpatialBindingLayer:
         assert state.shape == (16,)
         assert isinstance(strength, float)
 
+    def test_device_report_exposes_live_tensor_devices(self, binding):
+        report = binding.device_report()
+
+        assert report["device"] == "cpu"
+        assert report["binding_state_device"] == str(binding.binding_state.device)
+        assert report["neighbor_ids_device"] == str(binding.neighbor_ids.device)
+        assert report["neighbor_weights_device"] == str(binding.neighbor_weights.device)
+        assert report["learned_weights_device"] == str(binding.learned_weights.device)
+        assert report["grid"]["grid_positions_device"] == str(binding.grid.grid_positions.device)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices_after_bind(self):
+        binding = SpatialBindingLayer(
+            n_columns=16,
+            device=torch.device("cuda"),
+            k_neighbors=4,
+            sigma=1.5,
+        )
+        ctx = torch.randn(16, device=torch.device("cuda")).abs()
+        asm = torch.randn(16, device=torch.device("cuda")).abs()
+        binding.bind(ctx, asm)
+
+        report = binding.device_report()
+
+        assert str(report["device"]).startswith("cuda")
+        assert str(report["binding_state_device"]).startswith("cuda")
+        assert str(report["neighbor_ids_device"]).startswith("cuda")
+        assert str(report["learned_weights_device"]).startswith("cuda")
+        assert str(report["grid"]["neighbor_ids_device"]).startswith("cuda")
+
     def test_interface_modulation_gain(self, binding):
         """modulation_gain() returns [n_columns] gains."""
         ctx = torch.randn(16).abs()
@@ -305,6 +335,10 @@ class TestSpatialBindingConfig:
         )
         model = HECSNModel(cfg)
         assert isinstance(model.binding_layer, SpatialBindingLayer)
+        report = model.subcortex_device_report()["binding"]
+        assert report is not None
+        assert report["module"] == "spatial_binding"
+        assert report["neighbor_ids_device"] == str(model.binding_layer.neighbor_ids.device)
 
     def test_model_creates_dense_binding(self):
         from hecsn.config.model_config import HECSNConfig

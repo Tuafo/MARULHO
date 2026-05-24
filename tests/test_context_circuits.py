@@ -13,6 +13,50 @@ from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class ContextCircuitTests(unittest.TestCase):
+    def test_context_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = ContextLayer(
+            n_columns=4,
+            device=torch.device("cpu"),
+        )
+        report = layer.device_report()
+
+        self.assertEqual(report["module"], "context_fixed")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["fast_state_device"], str(layer.fast_state.device))
+        self.assertEqual(report["medium_state_device"], str(layer.medium_state.device))
+        self.assertEqual(report["slow_state_device"], str(layer.slow_state.device))
+        self.assertEqual(report["recurrent_device"], str(layer.recurrent.device))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_context_cuda_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = ContextLayer(
+            n_columns=4,
+            device=torch.device("cuda"),
+        )
+        layer.observe(torch.randn(4, device=torch.device("cuda")).abs())
+        report = layer.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["fast_state_device"]).startswith("cuda"))
+        self.assertTrue(str(report["recurrent_device"]).startswith("cuda"))
+
+    def test_model_subcortex_device_report_includes_fixed_context(self) -> None:
+        cfg = HECSNConfig(
+            n_columns=4,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            enable_context_layer=True,
+            context_mode="fixed",
+        )
+        model = HECSNModel(cfg)
+        report = model.subcortex_device_report()["context"]
+
+        self.assertIsNotNone(report)
+        assert model.context_layer is not None
+        self.assertEqual(report["module"], "context_fixed")
+        self.assertEqual(report["state_device"], str(model.context_layer.state.device))
+
     def test_multiscale_context_retains_past_while_tracking_present(self) -> None:
         torch.manual_seed(0)
         layer = ContextLayer(
@@ -93,6 +137,35 @@ class ContextCircuitTests(unittest.TestCase):
 
 
 class BindingCircuitTests(unittest.TestCase):
+    def test_binding_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = BindingLayer(
+            n_columns=4,
+            n_bindings=8,
+            fan_in=2,
+            device=torch.device("cpu"),
+        )
+        report = layer.device_report()
+
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["binding_state_device"], str(layer.binding_state.device))
+        self.assertEqual(report["coincidence_trace_device"], str(layer.coincidence_trace.device))
+        self.assertEqual(report["connectivity_device"], str(layer.connectivity.device))
+        self.assertEqual(report["output_weights_device"], str(layer.output_weights.device))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_binding_cuda_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = BindingLayer(
+            n_columns=4,
+            n_bindings=8,
+            fan_in=2,
+            device=torch.device("cuda"),
+        )
+        report = layer.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["binding_state_device"]).startswith("cuda"))
+        self.assertTrue(str(report["connectivity_device"]).startswith("cuda"))
+
     def test_binding_facilitation_strengthens_repeated_coincidence(self) -> None:
         torch.manual_seed(3)
         layer = BindingLayer(

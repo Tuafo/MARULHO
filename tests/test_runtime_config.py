@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+import torch
+
+from hecsn.config.model_config import HECSNConfig
 from hecsn.service.runtime_config import RuntimeConfig
 
 
@@ -78,3 +82,24 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         module = _runtime_config()
         with self.assertRaises(ValueError):
             module._normalize_brain_config("not a config")
+
+    def test_model_config_device_report_exposes_cpu_fallback_evidence(self) -> None:
+        cfg = HECSNConfig(device="auto")
+
+        with patch.dict("os.environ", {"HECSN_DEVICE": "cpu"}):
+            report = cfg.device_report()
+
+        self.assertEqual(report["requested_device"], "auto")
+        self.assertEqual(report["env_device"], "cpu")
+        self.assertEqual(report["resolved_device"], "cpu")
+        self.assertFalse(report["cuda_selected"])
+
+    def test_model_config_device_report_exposes_explicit_cuda_selection_without_gpu(self) -> None:
+        cfg = HECSNConfig(device="cuda")
+
+        report = cfg.device_report()
+
+        self.assertEqual(report["requested_device"], "cuda")
+        self.assertEqual(report["resolved_device"], "cuda")
+        self.assertEqual(report["cuda_selected"], True)
+        self.assertEqual(report["cuda_available"], torch.cuda.is_available())

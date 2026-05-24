@@ -520,6 +520,10 @@ def _build_s1_episode_from_row(
         metadata={
             "adapter": "s1_mmalign",
             "source": source,
+            "device": str(device),
+            "encoder": visual_encoder.device_report(),
+            "spike_device": str(visual_spikes.device),
+            "spike_is_cuda": bool(visual_spikes.is_cuda),
             "image_path": image_path,
             "title": title,
             "categories": categories,
@@ -590,6 +594,10 @@ def _build_audiocaps_episode_from_row(
         metadata={
             "adapter": "audiocaps",
             "source": source,
+            "device": str(device),
+            "encoder": audio_encoder.device_report(),
+            "spike_device": str(audio_spikes.device),
+            "spike_is_cuda": bool(audio_spikes.is_cuda),
             "youtube_id": _normalize_text(row.get("youtube_id")),
             "audiocap_id": int(row.get("audiocap_id", 0) or 0),
             "start_time": int(row.get("start_time", 0) or 0),

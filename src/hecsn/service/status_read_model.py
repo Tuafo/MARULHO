@@ -38,7 +38,7 @@ def _default_architecture_snapshot() -> dict[str, Any]:
         "model_name": "Terminus",
         "core_name": "GPCSN",
         "version": "current",
-        "family": "hybrid_snn_llm",
+        "family": "subcortex_runtime",
         "layers": [],
         "config": {},
     }
@@ -217,6 +217,7 @@ class StatusReadModel:
         """Build the Runtime Truth contract. Reads self._trainer for token_count only."""
         cortex = terminus_runtime.get("cortex") if isinstance(terminus_runtime, Mapping) else {}
         cortex_available = bool(isinstance(cortex, Mapping) and cortex.get("enabled"))
+        cortex_retired = bool(isinstance(cortex, Mapping) and cortex.get("retired"))
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
         last_error = str(terminus_runtime.get("last_error") or "").strip()
@@ -241,9 +242,6 @@ class StatusReadModel:
         elif not configured:
             verdict = "partial"
             recommended_action = "configure_terminus_sources"
-        elif not cortex_available:
-            verdict = "partial"
-            recommended_action = "initialize_or_configure_cortex"
         elif not progress_observed:
             verdict = "degraded"
             recommended_action = "run_tick_or_start_runtime"
@@ -299,6 +297,7 @@ class StatusReadModel:
             "verdict": verdict,
             "recommended_action": recommended_action,
             "cortex_available": cortex_available,
+            "cortex_retired": cortex_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -318,6 +317,7 @@ class StatusReadModel:
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
                 "cortex_enabled": cortex_available,
+                "cortex_retired": cortex_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
             },
@@ -347,6 +347,18 @@ class StatusReadModel:
             **self._runtime_state.mutation_summary(),
             "token_count": int(self._trainer.token_count),
         }
+
+    def _runtime_scope_report_locked(self) -> dict[str, Any]:
+        """Return model runtime scope enriched with trainer-owned encoder evidence."""
+        runtime_scope = deepcopy(self._trainer.model.runtime_scope_report())
+        encoder = getattr(self._trainer, "encoder", None)
+        encoder_report = encoder.device_report() if hasattr(encoder, "device_report") else None
+        cuda_runtime = runtime_scope.get("cuda_first_runtime")
+        if isinstance(cuda_runtime, dict):
+            cuda_runtime["encoder_device_report"] = deepcopy(encoder_report)
+        else:
+            runtime_scope["cuda_first_runtime"] = {"encoder_device_report": deepcopy(encoder_report)}
+        return runtime_scope
 
     # ------------------------------------------------------------------
     # Internal snapshot builders (must be called under self._lock)
@@ -378,7 +390,7 @@ class StatusReadModel:
             "serotonin": float(self._trainer.model.surprise.serotonin),
             "acetylcholine": float(self._trainer.model.surprise.acetylcholine),
             "norepinephrine": float(self._trainer.model.surprise.norepinephrine),
-            "runtime_scope": self._trainer.model.runtime_scope_report(),
+            "runtime_scope": self._runtime_scope_report_locked(),
             "memory_store": memory_store,
             "concept_store": self._concept_store_snapshot_fn(),
             "terminus_runtime": terminus_runtime,

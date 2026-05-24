@@ -87,7 +87,6 @@ def validate_live_long_run(
         "liveness_verdict_present": liveness_verdict in {"alive", "degraded", "dead", "passed", "partial", "failed"},
         "latency_present": bool(long_test_report.get("avg_latency_ms") is not None and benchmark_report.get("total_latency_ms") is not None),
         "cost_recorded": "cost" in benchmark_report or "cost_usd" in benchmark_report or True,
-        "cortex_availability_present": "cortex_available" in long_test_report,
         "embedding_health_present": bool(embedder),
         "replay_safety_status_present": bool(replay_safety),
         "replay_safety_no_mutation": all(replay_safety.get(flag) is not True for flag in SAFE_REPLAY_FLAGS),
@@ -112,9 +111,9 @@ def validate_live_long_run(
             "benchmark_total_latency_ms": benchmark_report.get("total_latency_ms"),
             "cost_usd": benchmark_report.get("cost_usd", 0),
         },
-        "cortex_availability": {
+        "retired_cortex": {
             "available": bool(long_test_report.get("cortex_available", False)),
-            "model": long_test_report.get("cortex_model", ""),
+            "retired": bool(_mapping(runtime_truth.get("evidence")).get("cortex_retired", False)),
         },
         "embedding_health": dict(embedder),
         "replay_safety_status": replay_safety,

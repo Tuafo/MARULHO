@@ -1,8 +1,7 @@
-"""Tests for the CorticalCore -- the LLM neocortex wrapper.
+"""Tests for replaceable cortex backend contracts.
 
 Covers: ContextPacket building, ThoughtResult parsing, MockCortex
 deterministic behaviour, and transport error handling.
-No Ollama -- uses NVIDIA NIM in production, MockCortex in tests.
 """
 
 from __future__ import annotations
@@ -258,6 +257,16 @@ class TestMockCortex:
         cortex = MockCortex()
         assert cortex.is_available()
 
+    def test_backend_report_marks_mock_as_replaceable_non_llm(self):
+        cortex = MockCortex()
+        report = cortex.backend_report()
+        assert report["implementation"] == "MockCortex"
+        assert report["backend_kind"] == "deterministic_mock"
+        assert report["llm_backed"] is False
+        assert report["external_service"] is None
+        assert report["replaceable"] is True
+        assert report["retention_gate"] == "runtime_evidence"
+
 
 # ---------------------------------------------------------------------------
 # CorticalCore (abstract base)
@@ -272,6 +281,15 @@ class TestCorticalCoreBase:
     def test_is_available_false_by_default(self):
         core = CorticalCore()
         assert not core.is_available()
+
+    def test_backend_report_does_not_probe_availability(self):
+        class ExplodingAvailabilityCortex(CorticalCore):
+            def is_available(self):
+                raise AssertionError("backend_report must not perform active probes")
+
+        report = ExplodingAvailabilityCortex().backend_report()
+        assert report["backend_kind"] == "abstract"
+        assert report["available"] is None
 
 
 # ---------------------------------------------------------------------------

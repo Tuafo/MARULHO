@@ -828,7 +828,7 @@ def run_stage_1(
         cfg = _make_config_for_stage(1, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = build_encoder(cfg)
+        encoder = build_encoder(cfg, device=cfg.resolve_device())
 
     trainer.developmental_stage = 1
 
@@ -955,7 +955,7 @@ def run_stage_2(
         cfg = _make_config_for_stage(2, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = build_encoder(cfg)
+        encoder = build_encoder(cfg, device=cfg.resolve_device())
 
     trainer.developmental_stage = 2
     # Preserve bootstrap counter if continuing from prior state;
@@ -1129,7 +1129,7 @@ def run_stage_3(
         cfg = _make_config_for_stage(3, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = build_encoder(cfg)
+        encoder = build_encoder(cfg, device=cfg.resolve_device())
 
     trainer.developmental_stage = 3
 
@@ -1274,7 +1274,7 @@ def run_stage_4(
         cfg = _make_config_for_stage(4, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = build_encoder(cfg)
+        encoder = build_encoder(cfg, device=cfg.resolve_device())
 
     trainer.developmental_stage = 4
 
@@ -1392,7 +1392,7 @@ def run_stage_5(
         cfg = _make_config_for_stage(5, config)
         model = HECSNModel(cfg)
         trainer = HECSNTrainer(model, cfg)
-        encoder = build_encoder(cfg)
+        encoder = build_encoder(cfg, device=cfg.resolve_device())
 
     trainer.developmental_stage = 5
 

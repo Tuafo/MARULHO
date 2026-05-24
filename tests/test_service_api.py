@@ -1223,51 +1223,6 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertEqual(action_body["result"]["verification"]["status"], "verified")
             self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in action_body["result"]["verification"]["evidence"]))
 
-    def test_terminus_cortex_sleep_endpoint_requests_sleep_cycle(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                app = create_app(
-                    _build_checkpoint(root, test_case="service_api_cortex_sleep"),
-                    trace_dir=root / "traces",
-                    env_root=root,
-                )
-            manager = app.state.hecsn_manager
-            manager._thought_loop.sleep_dream_count = 1
-            manager._thought_loop.start()
-            try:
-                with TestClient(app) as client:
-                    sleep_response = client.post(
-                        "/terminus/cortex/sleep",
-                        json={"reason": "Operator requested a consolidation cycle."},
-                    )
-
-                    deadline = time.time() + 2.0
-                    cortex_snapshot = {}
-                    terminus_runtime = {}
-                    while time.time() < deadline:
-                        cortex_snapshot = client.get("/terminus/cortex").json()
-                        terminus_runtime = client.get("/terminus").json()["terminus_runtime"]
-                        if cortex_snapshot.get("sleep_control", {}).get("requested_cycles_completed", 0) >= 1:
-                            break
-                        time.sleep(0.02)
-
-                self.assertEqual(sleep_response.status_code, 200)
-                sleep_body = sleep_response.json()
-                self.assertTrue(sleep_body["accepted"])
-                self.assertEqual(sleep_body["request"]["source"], "operator")
-                self.assertEqual(cortex_snapshot.get("sleep_control", {}).get("last_cycle", {}).get("trigger"), "requested")
-                self.assertTrue(any(event.get("type") == "cortex_sleep_requested" for event in terminus_runtime.get("recent_events", [])))
-                self.assertTrue(any(event.get("type") == "cortex_sleep_completed" for event in terminus_runtime.get("recent_events", [])))
-            finally:
-                manager.close()
-
     def test_respond_endpoint_auto_executes_workspace_action_for_gap_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -2758,7 +2713,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertIn("competitive_routing", layer_ids)
             self.assertIn("predictive_columns", layer_ids)
             self.assertIn("memory_consolidation", layer_ids)
-            self.assertIn("nim_cortex", layer_ids)
+            self.assertNotIn("cortex_backend", layer_ids)
             for layer in layers:
                 self.assertIn("id", layer)
                 self.assertIn("name", layer)

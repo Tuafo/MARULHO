@@ -62,6 +62,9 @@ class NIMCortex(CorticalCore):
                 "Accept": "application/json",
             },
         )
+        self.backend_kind = "external_llm"
+        self.llm_backed = True
+        self.external_service = "nvidia_nim"
         self._generation_count = 0
         self._rate_limiter = SharedRateLimiter.for_key(self._api_key, max_rpm=max_rpm)
         self._consecutive_failures = 0
@@ -224,6 +227,20 @@ class MultiCortex(CorticalCore):
     ) -> None:
         self._fast = fast_cortex
         self._deep = deep_cortex or fast_cortex
+        self.backend_kind = "tiered_cortex"
+        self.llm_backed = any(
+            bool(getattr(cortex, "llm_backed", False))
+            for cortex in (self._fast, self._deep)
+        )
+        services = {
+            str(service)
+            for service in (
+                getattr(self._fast, "external_service", None),
+                getattr(self._deep, "external_service", None),
+            )
+            if service
+        }
+        self.external_service = ",".join(sorted(services)) if services else None
         self._generation_count = 0
         self._temperature_override: float | None = None
 
@@ -285,6 +302,21 @@ class MultiCortex(CorticalCore):
     @property
     def generation_count(self) -> int:
         return self._generation_count
+
+    def backend_report(self) -> dict[str, Any]:
+        return {
+            "implementation": type(self).__name__,
+            "model": self.model,
+            "backend_kind": self.backend_kind,
+            "llm_backed": self.llm_backed,
+            "external_service": self.external_service,
+            "replaceable": True,
+            "retention_gate": "runtime_evidence",
+            "available": None,
+            "generation_count": int(self.generation_count),
+            "fast": self._fast.backend_report(),
+            "deep": self._deep.backend_report(),
+        }
 
     def close(self) -> None:
         self._fast.close()

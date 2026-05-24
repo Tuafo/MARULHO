@@ -14,6 +14,41 @@ from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
 
 class AbstractionLayerTests(unittest.TestCase):
+    def test_abstraction_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = AbstractionLayer(
+            n_columns=4,
+            n_concepts=3,
+            device=torch.device("cpu"),
+        )
+        layer.observe(torch.tensor([1.0, 0.0, 0.0, 0.0]), update_weights=True)
+        report = layer.device_report()
+
+        self.assertEqual(report["module"], "abstraction")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["feedforward_device"], str(layer.feedforward.device))
+        self.assertEqual(report["feedback_device"], str(layer.feedback.device))
+        self.assertEqual(report["slow_state_device"], str(layer.slow_state.device))
+        self.assertEqual(report["last_input_device"], str(layer.last_input.device))
+        self.assertEqual(report["stable_cache_device"], str(layer._stable_cache.device))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_abstraction_cuda_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = AbstractionLayer(
+            n_columns=4,
+            n_concepts=3,
+            device=torch.device("cuda"),
+        )
+        layer.observe(
+            torch.tensor([1.0, 0.0, 0.0, 0.0], device=torch.device("cuda")),
+            update_weights=True,
+        )
+        report = layer.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["feedforward_device"]).startswith("cuda"))
+        self.assertTrue(str(report["slow_state_device"]).startswith("cuda"))
+        self.assertTrue(str(report["last_input_device"]).startswith("cuda"))
+
     def test_repeated_pattern_builds_top_down_bias(self) -> None:
         torch.manual_seed(0)
         layer = AbstractionLayer(
@@ -134,6 +169,33 @@ class AbstractionTrainerIntegrationTests(unittest.TestCase):
         self.assertIn("abstraction_gain_mean", metrics)
         self.assertTrue(bool(scope["supports_first_class_abstraction"]))
         self.assertEqual(scope["abstraction_architecture"], "slow_feature_feedback_layer")
+        subcortex_devices = scope["cuda_first_runtime"]["subcortex_tensor_devices"]
+        self.assertEqual(
+            subcortex_devices["competitive"]["prototypes_device"],
+            str(trainer.model.competitive.prototypes.device),
+        )
+        self.assertEqual(
+            subcortex_devices["predictive"]["location_device"],
+            str(trainer.model.predictive.location.device),
+        )
+        self.assertEqual(
+            subcortex_devices["assembly_projection_device"],
+            str(trainer.model.W_assembly_project.device),
+        )
+        self.assertIsNotNone(subcortex_devices["abstraction"])
+        assert trainer.model.abstraction_layer is not None
+        self.assertEqual(
+            subcortex_devices["abstraction"]["feedforward_device"],
+            str(trainer.model.abstraction_layer.feedforward.device),
+        )
+        self.assertEqual(
+            subcortex_devices["abstraction"]["feedback_device"],
+            str(trainer.model.abstraction_layer.feedback.device),
+        )
+        self.assertEqual(
+            subcortex_devices["abstraction"]["slow_state_device"],
+            str(trainer.model.abstraction_layer.slow_state.device),
+        )
 
     def test_checkpoint_roundtrip_preserves_abstraction_state(self) -> None:
         cfg = HECSNConfig(

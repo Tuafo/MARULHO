@@ -31,6 +31,14 @@ class TestCochleagramEncoder(unittest.TestCase):
     def test_output_dim(self) -> None:
         self.assertEqual(self.enc.output_dim, 64)
 
+    def test_device_report_exposes_encoder_state_devices(self) -> None:
+        report = self.enc.device_report()
+        self.assertEqual(report["encoder"], "cochleagram")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["filterbank_device"], "cpu")
+        self.assertEqual(report["baseline_device"], "cpu")
+        self.assertEqual(report["trace_device"], "cpu")
+
     def test_encode_pure_tone(self) -> None:
         """A 1 kHz tone should activate some bands."""
         t = torch.linspace(0, 0.032, 512)  # ~32ms at 16kHz

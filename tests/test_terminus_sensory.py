@@ -69,6 +69,11 @@ def test_s1_mmalign_stream_yields_visual_episode() -> None:
     assert episode.visual_spikes.shape == (64,)
     assert float(episode.visual_spikes.sum().item()) > 0.0
     assert episode.metadata["adapter"] == "s1_mmalign"
+    assert episode.metadata["device"] == "cpu"
+    assert episode.metadata["encoder"]["encoder"] == "event_camera"
+    assert episode.metadata["encoder"]["device"] == "cpu"
+    assert episode.metadata["spike_device"] == "cpu"
+    assert episode.metadata["spike_is_cuda"] is False
     assert episode.visual_preview is not None
     assert episode.visual_preview["mime_type"] == "image/png"
     assert episode.visual_preview["width"] > 0
@@ -92,6 +97,11 @@ def test_audiocaps_stream_yields_audio_episode() -> None:
     assert float(episode.audio_spikes.sum().item()) > 0.0
     assert "woman talks" in episode.text
     assert episode.metadata["adapter"] == "audiocaps"
+    assert episode.metadata["device"] == "cpu"
+    assert episode.metadata["encoder"]["encoder"] == "cochleagram"
+    assert episode.metadata["encoder"]["device"] == "cpu"
+    assert episode.metadata["spike_device"] == "cpu"
+    assert episode.metadata["spike_is_cuda"] is False
     assert episode.audio_preview is not None
     assert episode.audio_preview["mime_type"] == "audio/wav"
     assert episode.audio_preview["duration_s"] > 0.0

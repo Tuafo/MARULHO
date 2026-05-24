@@ -20,7 +20,7 @@ from hecsn.cortex.drives import (
     ThalamicGate,
     AntiRuminationCircuit,
 )
-from hecsn.cortex.thought_loop import ThoughtLoop, BrainStats
+from hecsn.cortex.thought_loop import CognitiveSignalState, ThoughtLoop, BrainStats
 from hecsn.cortex.working_memory import WMItemType
 
 
@@ -504,6 +504,32 @@ class TestDriveSystem:
         for _ in range(100):
             ds.tick()
         assert ds.state.fatigue < 0.5
+
+    def test_cognitive_signal_state_accepts_typed_provider_payload(self):
+        signal = CognitiveSignalState(
+            source="test.subcortex",
+            sampled_at=123.0,
+            prediction_error_mean=0.4,
+            prediction_error_max=0.6,
+            predictive_confidence_mean=0.3,
+            predictive_confidence_min=0.2,
+            recent_concepts=("reef chemistry",),
+        )
+        loop = ThoughtLoop(
+            cortex=MockCortex(),
+            min_thought_interval_s=0.0,
+            signal_provider=lambda: signal,
+        )
+
+        refreshed = loop._refresh_cognitive_signals()
+        snap = loop.snapshot()
+
+        assert refreshed is signal
+        assert loop.drives.pending_substrate_wakes == 1
+        assert snap["cognitive_signals"]["schema_version"] == "cognitive_signal.v1"
+        assert snap["cognitive_signals"]["source"] == "test.subcortex"
+        assert snap["cognitive_signals"]["sampled_at"] == 123.0
+        assert "reef chemistry" in snap["cognitive_signals"]["recent_concepts"]
 
 
 # ---------------------------------------------------------------------------
@@ -1225,6 +1251,14 @@ class TestThoughtLoop:
         snap = loop.snapshot()
         assert snap["episodic_memory"]["embedder"]["kind"] == "SimpleEmbedder"
         assert snap["episodic_memory"]["embedder"]["available"] is False
+
+    def test_snapshot_reports_replaceable_non_llm_backend(self):
+        loop = ThoughtLoop(cortex=MockCortex(), min_thought_interval_s=0.0)
+        backend = loop.snapshot()["cortex_backend"]
+        assert backend["backend_kind"] == "deterministic_mock"
+        assert backend["llm_backed"] is False
+        assert backend["replaceable"] is True
+        assert backend["retention_gate"] == "runtime_evidence"
 
 
 # ---------------------------------------------------------------------------

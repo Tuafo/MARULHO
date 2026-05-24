@@ -468,7 +468,7 @@ def _replay_endpoint_for_action(action: str) -> str:
     if action in {"review_contradiction", "verify_pending_evidence"}:
         return "/terminus/runtime-feedback"
     elif action == "sleep_consolidation_advisory":
-        return "/terminus/cortex/sleep"
+        return "/terminus/living-loop"
     elif action == "replay_episode_for_grounding":
         return "/terminus/runtime-traces/export"
     elif action == "reduce_scope_or_wait":

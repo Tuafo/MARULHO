@@ -67,7 +67,9 @@ class SemanticEncoder:
         learned_chunk_association_blend: float = 0.35,
         learned_chunk_association_lr: float = 0.15,
         learned_chunk_association_decay: float = 0.995,
+        device: torch.device | str | None = None,
     ) -> None:
+        self.device = torch.device("cpu" if device is None else device)
         self.n_buckets = int(n_buckets)
         self.embed_dim = int(embed_dim)
         self.window_size = int(window_size)
@@ -79,9 +81,9 @@ class SemanticEncoder:
         self.learned_chunk_blend = float(learned_chunk_blend)
 
         # Bucket embeddings [n_buckets, embed_dim]
-        self.bucket_embeddings = torch.randn(n_buckets, embed_dim, dtype=torch.float32) * 0.01
+        self.bucket_embeddings = torch.randn(n_buckets, embed_dim, dtype=torch.float32, device=self.device) * 0.01
         # Trainable diagonal adapter
-        self.adapter = torch.ones(embed_dim, dtype=torch.float32)
+        self.adapter = torch.ones(embed_dim, dtype=torch.float32, device=self.device)
         self._glove_initialized = False
 
         self.learned_chunking = (
@@ -95,13 +97,14 @@ class SemanticEncoder:
                 association_blend=learned_chunk_association_blend,
                 association_lr=learned_chunk_association_lr,
                 association_decay=learned_chunk_association_decay,
+                device=self.device,
             )
             if enable_learned_chunking
             else None
         )
 
     @classmethod
-    def from_config(cls, config: "HECSNConfig") -> "SemanticEncoder":
+    def from_config(cls, config: "HECSNConfig", device: torch.device | str | None = None) -> "SemanticEncoder":
         return cls(
             n_buckets=config.semantic_n_buckets,
             embed_dim=config.semantic_embed_dim,
@@ -120,7 +123,17 @@ class SemanticEncoder:
             learned_chunk_association_blend=config.learned_chunk_association_blend,
             learned_chunk_association_lr=config.learned_chunk_association_lr,
             learned_chunk_association_decay=config.learned_chunk_association_decay,
+            device=config.resolve_device() if device is None else device,
         )
+
+    def device_report(self) -> dict[str, object]:
+        return {
+            "encoder": "semantic",
+            "device": str(self.device),
+            "bucket_embeddings_device": str(self.bucket_embeddings.device),
+            "adapter_device": str(self.adapter.device),
+            "learned_chunking": None if self.learned_chunking is None else self.learned_chunking.device_report(),
+        }
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -191,13 +204,13 @@ class SemanticEncoder:
     def _raw_semantic_vector(self, codes: Sequence[int]) -> torch.Tensor:
         """Compute raw semantic embedding from character codes."""
         if not codes:
-            return torch.zeros(self.embed_dim, dtype=torch.float32)
+            return torch.zeros(self.embed_dim, dtype=torch.float32, device=self.device)
 
         buckets = self._collect_ngram_buckets(codes)
         if not buckets:
-            return torch.zeros(self.embed_dim, dtype=torch.float32)
+            return torch.zeros(self.embed_dim, dtype=torch.float32, device=self.device)
 
-        bucket_indices = torch.tensor(buckets, dtype=torch.long)
+        bucket_indices = torch.tensor(buckets, dtype=torch.long, device=self.device)
         raw = self.bucket_embeddings[bucket_indices].mean(dim=0)
         return raw * self.adapter
 
@@ -238,7 +251,8 @@ class SemanticEncoder:
     # ── Chunk handling (same logic as RTFEncoder) ───────────────────────
 
     def _project_chunk_vector(self, detector_vector: torch.Tensor) -> torch.Tensor:
-        projected = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32)
+        detector_vector = detector_vector.to(self.device)
+        projected = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32, device=self.device)
         if detector_vector.numel() == 0 or float(detector_vector.sum().item()) <= 0.0:
             return projected
         if int(detector_vector.numel()) == int(projected.numel()):
@@ -250,7 +264,7 @@ class SemanticEncoder:
         return _normalize(projected)
 
     def _chunk_signature_vector(self, chunk_codes: Sequence[int]) -> torch.Tensor:
-        signature = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32)
+        signature = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32, device=self.device)
         if not chunk_codes:
             return signature
         rolling = 2166136261
@@ -271,7 +285,7 @@ class SemanticEncoder:
         chunk_codes: Sequence[int] | None = None,
     ) -> torch.Tensor:
         if self.learned_chunking is None or chunk_state is None:
-            return torch.zeros(self.chunk_output_dim, dtype=torch.float32)
+            return torch.zeros(self.chunk_output_dim, dtype=torch.float32, device=self.device)
         projected = self._project_chunk_vector(chunk_state)
         signature = self._chunk_signature_vector(chunk_codes or [])
         chunk_projection = _normalize(projected + signature)
@@ -313,7 +327,7 @@ class SemanticEncoder:
 
     def _current_chunk_state(self, context: torch.Tensor, chunk_codes: Sequence[int]) -> torch.Tensor:
         if self.learned_chunking is None:
-            return torch.zeros(0, dtype=torch.float32)
+            return torch.zeros(0, dtype=torch.float32, device=self.device)
         current = self.learned_chunking.detector_activations(chunk_codes)
         if float(current.sum().item()) <= 0.0:
             return context
@@ -341,9 +355,9 @@ class SemanticEncoder:
         token_codes: List[int] = []
         chunk_codes: List[int] = []
         chunk_context = (
-            torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32)
+            torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32, device=self.device)
             if self.learned_chunking is not None
-            else torch.zeros(0, dtype=torch.float32)
+            else torch.zeros(0, dtype=torch.float32, device=self.device)
         )
 
         for ch in chars:
@@ -405,7 +419,7 @@ class SemanticEncoder:
         segments: list[str] = []
         chunk_codes: list[int] = []
         chunk_chars: list[str] = []
-        chunk_context = torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32)
+        chunk_context = torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32, device=self.device)
         sentence_punct = {".", "!", "?"}
 
         for ch in text:
@@ -465,8 +479,8 @@ class SemanticEncoder:
 
     def state_dict(self) -> dict[str, Any]:
         return {
-            "bucket_embeddings": self.bucket_embeddings.clone(),
-            "adapter": self.adapter.clone(),
+            "bucket_embeddings": self.bucket_embeddings.detach().clone().cpu(),
+            "adapter": self.adapter.detach().clone().cpu(),
             "glove_initialized": self._glove_initialized,
             "learned_chunking": (
                 None if self.learned_chunking is None else self.learned_chunking.state_dict()
@@ -475,9 +489,9 @@ class SemanticEncoder:
 
     def load_state_dict(self, state: dict[str, Any]) -> None:
         if "bucket_embeddings" in state:
-            self.bucket_embeddings = state["bucket_embeddings"]
+            self.bucket_embeddings = state["bucket_embeddings"].detach().clone().to(self.device).float()
         if "adapter" in state:
-            self.adapter = state["adapter"]
+            self.adapter = state["adapter"].detach().clone().to(self.device).float()
         if "glove_initialized" in state:
             self._glove_initialized = state["glove_initialized"]
         if self.learned_chunking is not None:
@@ -512,7 +526,7 @@ class SemanticEncoder:
             try:
                 cached = torch.load(cache_file, weights_only=True)
                 if cached["n_buckets"] == self.n_buckets and cached["embed_dim"] == self.embed_dim:
-                    self.bucket_embeddings = cached["bucket_embeddings"]
+                    self.bucket_embeddings = cached["bucket_embeddings"].detach().clone().to(self.device).float()
                     self._glove_initialized = True
                     logger.info("Loaded cached semantic bucket embeddings from %s", cache_file)
                     return {"source": "cache", "file": cache_file}
@@ -570,7 +584,7 @@ class SemanticEncoder:
             AtY,
         )
 
-        self.bucket_embeddings = torch.from_numpy(E.astype(np.float32))
+        self.bucket_embeddings = torch.from_numpy(E.astype(np.float32)).to(self.device)
         self._glove_initialized = True
 
         # Evaluate reconstruction quality on a sample
@@ -592,7 +606,7 @@ class SemanticEncoder:
             {
                 "n_buckets": self.n_buckets,
                 "embed_dim": self.embed_dim,
-                "bucket_embeddings": self.bucket_embeddings,
+                "bucket_embeddings": self.bucket_embeddings.detach().clone().cpu(),
                 "explained_var": explained_var,
                 "mean_cos_sim": mean_cos,
             },

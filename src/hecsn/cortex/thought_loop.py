@@ -1,8 +1,8 @@
-"""ThoughtLoop — the multi-clock autonomous brain of Terminus.
+"""ThoughtLoop -- the gated cognition orchestrator of Terminus.
 
 Implements the continuous thinking cycle:
   Fast SNN tick (10ms)  → drive updates, surprise, salience
-  Deliberation (event)  → LLM inference triggered by spike threshold
+  Deliberation (event)  → cortex backend inference triggered by spike threshold
   Sleep (periodic)      → replay, compression, dream/hypothesis generation
 
 Deliberation depth (System 1 / System 2):
@@ -30,7 +30,13 @@ from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
-from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtDepth, ThoughtResult
+from hecsn.cortex.core import (
+    CorticalCore,
+    ContextPacket,
+    ThoughtDepth,
+    ThoughtResult,
+    cortex_backend_report,
+)
 from hecsn.cortex.episodic_memory import Episode, EpisodicMemory, Provenance
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
 from hecsn.cortex.narrative_self import NarrativeSelf
@@ -192,6 +198,9 @@ class GroundingDiagnostics:
 class CognitiveSignalState:
     """Recent SNN-side signals that influence deliberation depth."""
 
+    schema_version: str = "cognitive_signal.v1"
+    source: str = "subcortex"
+    sampled_at: float = 0.0
     prediction_error_mean: float = 0.0
     prediction_error_max: float = 0.0
     predictive_confidence_mean: float = 0.5
@@ -202,8 +211,12 @@ class CognitiveSignalState:
     concept_candidates: tuple[dict[str, Any], ...] = ()
 
     @classmethod
-    def from_mapping(cls, payload: dict[str, Any] | None) -> "CognitiveSignalState":
+    def from_mapping(cls, payload: Any | None) -> "CognitiveSignalState":
+        if isinstance(payload, cls):
+            return payload
         payload = payload or {}
+        if not hasattr(payload, "get"):
+            payload = {}
         concepts = payload.get("recent_concepts", ())
         if not isinstance(concepts, (list, tuple)):
             concepts = ()
@@ -232,6 +245,9 @@ class CognitiveSignalState:
                     }
                 )
         return cls(
+            schema_version=str(payload.get("schema_version", "cognitive_signal.v1") or "cognitive_signal.v1"),
+            source=str(payload.get("source", "subcortex") or "subcortex"),
+            sampled_at=max(0.0, float(payload.get("sampled_at", 0.0) or 0.0)),
             prediction_error_mean=max(0.0, min(1.0, float(payload.get("prediction_error_mean", 0.0)))),
             prediction_error_max=max(0.0, min(1.0, float(payload.get("prediction_error_max", 0.0)))),
             predictive_confidence_mean=max(0.0, min(1.0, float(payload.get("predictive_confidence_mean", 0.5)))),
@@ -241,6 +257,21 @@ class CognitiveSignalState:
             recent_concepts=tuple(str(c) for c in concepts[:6] if c),
             concept_candidates=tuple(concept_candidates),
         )
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "source": self.source,
+            "sampled_at": float(self.sampled_at),
+            "prediction_error_mean": float(self.prediction_error_mean),
+            "prediction_error_max": float(self.prediction_error_max),
+            "predictive_confidence_mean": float(self.predictive_confidence_mean),
+            "predictive_confidence_min": float(self.predictive_confidence_min),
+            "dopamine": float(self.dopamine),
+            "norepinephrine": float(self.norepinephrine),
+            "recent_concepts": list(self.recent_concepts),
+            "concept_candidates": [dict(item) for item in self.concept_candidates],
+        }
 
 
 @dataclass
@@ -255,11 +286,11 @@ class ExplorationState:
 
 
 class ThoughtLoop:
-    """The living brain — autonomous multi-clock cognitive loop.
+    """Gated cognition loop for cortex-subcortex interaction.
 
     Architecture:
     - Fast loop: SNN drive updates every tick_interval_ms
-    - Deliberation: LLM fires when drives cross threshold (event-driven)
+    - Deliberation: cortex backend fires when drives cross threshold (event-driven)
     - Sleep: enters when fatigue > threshold, runs dream cycles
     - Anti-rumination: boredom circuit prevents degenerate loops
     """
@@ -383,7 +414,7 @@ class ThoughtLoop:
         """Set or update the curiosity controller for cortex→SNN feedback."""
         self._curiosity_controller = controller
 
-    def set_signal_provider(self, provider: Optional[Callable[[], dict[str, Any]]]) -> None:
+    def set_signal_provider(self, provider: Optional[Callable[[], Any]]) -> None:
         """Set or update the SNN cognitive-signal provider used for depth tuning."""
         self._signal_provider = provider
 
@@ -401,6 +432,7 @@ class ThoughtLoop:
                 "enabled": True,
                 "running": self._running,
                 "model": getattr(self.cortex, "model", type(self.cortex).__name__),
+                "cortex_backend": cortex_backend_report(self.cortex),
                 "thoughts_generated": s.thoughts_generated,
                 "dreams_generated": s.dreams_generated,
                 "sleep_cycles": s.sleep_cycles,
@@ -462,6 +494,9 @@ class ThoughtLoop:
                     "recent_success_count": len(self._thought_history),
                 },
                 "cognitive_signals": {
+                    "schema_version": self._cognitive_signals.schema_version,
+                    "source": self._cognitive_signals.source,
+                    "sampled_at": round(self._cognitive_signals.sampled_at, 3),
                     "prediction_error_mean": round(self._cognitive_signals.prediction_error_mean, 3),
                     "prediction_error_max": round(self._cognitive_signals.prediction_error_max, 3),
                     "predictive_confidence_mean": round(self._cognitive_signals.predictive_confidence_mean, 3),
@@ -469,6 +504,7 @@ class ThoughtLoop:
                     "dopamine": round(self._cognitive_signals.dopamine, 3),
                     "norepinephrine": round(self._cognitive_signals.norepinephrine, 3),
                     "recent_concepts": list(self._cognitive_signals.recent_concepts),
+                    "concept_candidate_count": len(self._cognitive_signals.concept_candidates),
                 },
                 "neuromodulation": {
                     "da_reward": round(self.drives.state.da_reward, 3),
@@ -765,7 +801,7 @@ class ThoughtLoop:
         """Main autonomous loop — runs in background thread.
 
         Lock protocol: hold _lock only for state reads/writes, never across
-        LLM inference (which can block for seconds).  Snapshot state under
+        backend inference (which can block for seconds). Snapshot state under
         the lock, release it, run inference, then reacquire to commit.
         """
         logger.debug("ThoughtLoop entering main loop")
@@ -1454,7 +1490,7 @@ class ThoughtLoop:
     def _deliberate(self) -> ThoughtResult:
         """Fire one deliberation cycle — depth-adapted.
 
-        QUICK: single LLM call (original behavior).
+        QUICK: single backend call.
         STANDARD: observe → question (2 calls).
         DEEP: observe → question → reason → synthesize (4 calls).
 
@@ -1672,7 +1708,7 @@ class ThoughtLoop:
         return result, diagnostics
 
     def _deliberate_quick(self) -> ThoughtResult:
-        """System 1: single LLM call — fast pattern matching."""
+        """System 1: single backend call -- fast pattern matching."""
         packet = self.gate.assemble()
         consumed_exploration = bool(self._exploration_state.target and packet.forced_topic == self._exploration_state.target)
         old_temp = self._set_temperature()

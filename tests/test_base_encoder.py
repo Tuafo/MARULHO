@@ -28,6 +28,16 @@ class BaseEncoderProtocolTests(unittest.TestCase):
         chars = [ord(c) for c in "hello"]
         vec = encoder.feature_vector(chars)
         self.assertEqual(vec.shape, (encoder.output_dim,))
+        self.assertEqual(vec.device.type, "cpu")
+
+    def test_rtf_encoder_reports_default_cpu_device(self) -> None:
+        encoder = RTFEncoder(enable_learned_chunking=True)
+
+        report = encoder.device_report()
+
+        self.assertEqual(report["device"], "cpu")
+        self.assertIsNotNone(report["learned_chunking"])
+        self.assertEqual(report["learned_chunking"]["prototypes_device"], "cpu")
 
     def test_feature_vector_normalized(self) -> None:
         encoder = RTFEncoder()
@@ -67,6 +77,20 @@ class BaseEncoderProtocolTests(unittest.TestCase):
         trace = encoder.spike_trace(chars, context_confidence=0.8)
         self.assertIsInstance(trace, torch.Tensor)
         self.assertGreater(trace.numel(), 0)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA is not available")
+    def test_rtf_encoder_can_keep_outputs_and_chunking_on_cuda(self) -> None:
+        encoder = RTFEncoder(device="cuda", enable_learned_chunking=True)
+        self.assertIsNotNone(encoder.learned_chunking)
+
+        chars = [ord(c) for c in "cuda text"]
+        encoder.learned_chunking.learn_chunk(chars)
+
+        self.assertEqual(encoder.feature_vector(chars).device.type, "cuda")
+        self.assertEqual(encoder.encode(chars, 0.75).device.type, "cuda")
+        self.assertEqual(encoder.spike_trace(chars, 0.75).device.type, "cuda")
+        self.assertEqual(encoder.learned_chunking.prototypes.device.type, "cuda")
+        self.assertEqual(encoder.device_report()["learned_chunking"]["prototypes_device"], "cuda:0")
 
     def test_state_dict_roundtrip(self) -> None:
         encoder = RTFEncoder()

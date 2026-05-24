@@ -14,7 +14,11 @@ def _baseline() -> dict[str, object]:
     return {
         "duration_minutes": 30.0,
         "health_verdict": "alive",
-        "total_thoughts": 14,
+        "initial_token_count": 100,
+        "final_token_count": 180,
+        "max_background_tokens_processed": 80,
+        "final_tick_count": 4,
+        "total_thoughts": 0,
         "p95_latency_ms": 1000.0,
     }
 
@@ -24,12 +28,15 @@ def _multi_hour(memory_fill: float = 0.2, health: str = "alive") -> dict[str, ob
         "duration_minutes": 120.0,
         "health_verdict": health,
         "acceptance_verdict": "passed",
-        "total_thoughts": 42,
+        "initial_token_count": 100,
+        "final_token_count": 400,
+        "max_background_tokens_processed": 300,
+        "final_tick_count": 12,
+        "total_thoughts": 0,
         "unique_topics": 20,
         "topic_diversity_ratio": 0.47,
         "avg_latency_ms": 750.0,
         "p95_latency_ms": 1800.0,
-        "cortex_available": True,
         "final_memory_fill": memory_fill,
         "memory_pressure_report": {
             "final_fill": memory_fill,
@@ -84,6 +91,7 @@ def test_phase14_multi_hour_validation_passes_alive_bounded_run() -> None:
     assert report["passed"] is True
     assert report["status"] == "passed_multi_hour_living_evidence"
     assert report["checks"]["duration_is_multi_hour"] is True
+    assert report["checks"]["runtime_progress_present"] is True
     assert report["operator_visible_report"]["remaining_bottlenecks"] == ["no_blocking_bottleneck_detected"]
 
 

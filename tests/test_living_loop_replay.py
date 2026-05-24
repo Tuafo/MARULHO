@@ -555,7 +555,7 @@ class TestReplayEndpointForAction(unittest.TestCase):
         self.assertEqual(_replay_endpoint_for_action("verify_pending_evidence"), "/terminus/runtime-feedback")
 
     def test_sleep_advisory_endpoint(self) -> None:
-        self.assertEqual(_replay_endpoint_for_action("sleep_consolidation_advisory"), "/terminus/cortex/sleep")
+        self.assertEqual(_replay_endpoint_for_action("sleep_consolidation_advisory"), "/terminus/living-loop")
 
     def test_replay_episode_endpoint(self) -> None:
         self.assertEqual(_replay_endpoint_for_action("replay_episode_for_grounding"), "/terminus/runtime-traces/export")

@@ -327,8 +327,27 @@ class HierarchicalAssemblyIndex:
             "rebuild_threshold": int(self.rebuild_threshold),
             "search_device": self.device.type,
         }
-        if self._backend == "turboquant_plus" and self._tq_store is not None:
-            info["tq_memory"] = self._tq_store.memory_bytes()
+        if self._backend == "torch_topk":
+            info["torch_cache_dirty"] = bool(self._torch_cache_dirty)
+            info["torch_cache_ready"] = not bool(self._torch_cache_dirty)
+            info["torch_vector_cache_device"] = str(self._torch_vectors.device)
+            info["torch_id_cache_device"] = str(self._torch_ids.device)
+            info["torch_vector_cache_count"] = int(self._torch_vectors.shape[0])
+            info["torch_cache_cuda"] = bool(
+                self._torch_vectors.is_cuda and self._torch_ids.is_cuda
+            )
+        if self._backend == "turboquant_plus":
+            info["tq_cache_dirty"] = bool(self._tq_cache_dirty)
+            info["tq_cache_ready"] = (
+                self._tq_store is not None and not bool(self._tq_cache_dirty)
+            )
+            tq_device = self._tq_store.device if self._tq_store is not None else self.device
+            info["tq_device"] = str(tq_device)
+            if self._tq_store is not None:
+                info["tq_memory"] = self._tq_store.memory_bytes()
+                info["tq_fp32_device"] = str(self._tq_store._fp32.device)
+                info["tq_codes_device"] = str(self._tq_store._codes.device)
+                info["tq_residual_device"] = str(self._tq_store._residual_signs.device)
         return info
 
 
@@ -458,4 +477,16 @@ class ShardedHierarchicalAssemblyIndex:
             "per_shard_tombstones": [int(stat["tombstones"]) for stat in shard_stats],
             "shard_balance_ratio": balance_ratio,
             "search_device": shard_stats[0].get("search_device", "cpu") if shard_stats else "cpu",
+            "per_shard_search_device": [
+                str(stat.get("search_device", "cpu")) for stat in shard_stats
+            ],
+            "per_shard_torch_cache_ready": [
+                bool(stat.get("torch_cache_ready", False)) for stat in shard_stats
+            ],
+            "per_shard_torch_vector_cache_device": [
+                str(stat.get("torch_vector_cache_device", "cpu")) for stat in shard_stats
+            ],
+            "per_shard_torch_id_cache_device": [
+                str(stat.get("torch_id_cache_device", "cpu")) for stat in shard_stats
+            ],
         }

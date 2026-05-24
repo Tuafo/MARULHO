@@ -22,6 +22,36 @@ def _make_layer(**overrides) -> CompetitiveColumnLayer:
 class TestStateDict:
     """Verify state_dict / load_state_dict roundtrip fidelity."""
 
+    def test_device_report_exposes_live_tensor_devices(self):
+        layer = _make_layer(plasticity_mode="local_stdp")
+        assert layer.local_plasticity is not None
+
+        report = layer.device_report()
+
+        assert report["device"] == "cpu"
+        assert report["W_project_device"] == str(layer.W_project.device)
+        assert report["input_weights_device"] == str(layer.input_weights.device)
+        assert report["prototypes_device"] == str(layer.prototypes.device)
+        assert report["prototype_velocity_device"] == str(layer.prototype_velocity.device)
+        assert report["thresholds_device"] == str(layer.thresholds.device)
+        assert report["local_plasticity"] is not None
+        assert report["local_plasticity"]["pre_trace_device"] == str(layer.local_plasticity.pre_trace.device)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices(self):
+        layer = _make_layer(
+            device=torch.device("cuda"),
+            plasticity_mode="local_stdp",
+        )
+        assert layer.local_plasticity is not None
+
+        report = layer.device_report()
+
+        assert report["device"].startswith("cuda")
+        assert str(report["prototypes_device"]).startswith("cuda")
+        assert str(report["W_project_device"]).startswith("cuda")
+        assert str(report["local_plasticity"]["pre_trace_device"]).startswith("cuda")
+
     def test_roundtrip_preserves_prototypes(self):
         layer = _make_layer()
         layer.prototypes += torch.randn_like(layer.prototypes) * 0.1

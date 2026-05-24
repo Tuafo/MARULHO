@@ -22,6 +22,60 @@ class TestCrossModalInit(unittest.TestCase):
         self.assertEqual(layer.visual_confidence.sum().item(), 0.0)
         self.assertEqual(layer.audio_confidence.sum().item(), 0.0)
 
+    def test_device_report_exposes_live_tensor_devices(self) -> None:
+        layer = CrossModalGroundingLayer(
+            dim_text=10,
+            dim_visual=20,
+            dim_audio=8,
+            device=torch.device("cpu"),
+        )
+        report = layer.device_report()
+
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["W_tv_device"], str(layer.W_tv.device))
+        self.assertEqual(report["W_vt_device"], str(layer.W_vt.device))
+        self.assertEqual(report["W_ta_device"], str(layer.W_ta.device))
+        self.assertEqual(report["W_at_device"], str(layer.W_at.device))
+        self.assertEqual(report["text_trace_device"], str(layer.text_trace.device))
+        self.assertEqual(report["visual_confidence_device"], str(layer.visual_confidence.device))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices_after_load(self) -> None:
+        layer = CrossModalGroundingLayer(dim_text=10, dim_visual=20, dim_audio=8)
+        layer.on_visual_spike(torch.ones(20))
+        layer.on_text_spike(torch.ones(10))
+        state = layer.state_dict()
+
+        cuda_layer = CrossModalGroundingLayer(
+            dim_text=10,
+            dim_visual=20,
+            dim_audio=8,
+            device=torch.device("cuda"),
+        )
+        cuda_layer.load_state_dict(state)
+        report = cuda_layer.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["W_tv_device"]).startswith("cuda"))
+        self.assertTrue(str(report["text_trace_device"]).startswith("cuda"))
+
+    def test_model_subcortex_report_includes_cross_modal_devices(self) -> None:
+        from hecsn.config.model_config import HECSNConfig
+        from hecsn.training.trainer import HECSNModel
+
+        cfg = HECSNConfig(
+            n_columns=8,
+            column_latent_dim=8,
+            enable_cross_modal=True,
+        )
+        model = HECSNModel(cfg)
+        report = model.subcortex_device_report()["cross_modal"]
+
+        self.assertIsNotNone(report)
+        assert model.cross_modal is not None
+        self.assertEqual(report["W_tv_device"], str(model.cross_modal.W_tv.device))
+        self.assertEqual(report["text_trace_device"], str(model.cross_modal.text_trace.device))
+
 
 class TestSTDPUpdates(unittest.TestCase):
     def setUp(self) -> None:

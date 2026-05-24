@@ -513,6 +513,12 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
         self.assertEqual(stats["index_type"], "turboquant_plus")
         self.assertIn("tq_memory", stats)
         self.assertGreater(stats["tq_memory"]["compression_ratio"], 1.0)
+        self.assertTrue(stats["tq_cache_ready"])
+        self.assertFalse(stats["tq_cache_dirty"])
+        self.assertEqual(stats["tq_device"], "cpu")
+        self.assertEqual(stats["tq_fp32_device"], "cpu")
+        self.assertEqual(stats["tq_codes_device"], "cpu")
+        self.assertEqual(stats["tq_residual_device"], "cpu")
 
     def test_empty_search(self) -> None:
         from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex

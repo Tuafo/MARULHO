@@ -629,6 +629,30 @@ class CompetitiveColumnLayer:
             "last_projected_input": None if self.last_projected_input is None else self.last_projected_input.detach().clone(),
         }
 
+    def device_report(self) -> dict[str, Any]:
+        """Return runtime-visible device placement for column state."""
+        return {
+            "module": "competitive_columns",
+            "device": str(self.device),
+            "W_project_device": str(self.W_project.device),
+            "input_weights_device": str(self.input_weights.device),
+            "prototypes_device": str(self.prototypes.device),
+            "prototype_velocity_device": str(self.prototype_velocity.device),
+            "thresholds_device": str(self.thresholds.device),
+            "win_rate_ema_device": str(self.win_rate_ema.device),
+            "steps_since_win_device": str(self.steps_since_win.device),
+            "last_revived_indices_device": str(self.last_revived_indices.device),
+            "last_input_pattern_device": (
+                None if self.last_input_pattern is None else str(self.last_input_pattern.device)
+            ),
+            "last_projected_input_device": (
+                None if self.last_projected_input is None else str(self.last_projected_input.device)
+            ),
+            "local_plasticity": (
+                None if self.local_plasticity is None else self.local_plasticity.device_report()
+            ),
+        }
+
     def state_dict(self) -> dict[str, Any]:
         """Serialize all learned state for checkpoint persistence."""
         def _clone_opt(t: Optional[torch.Tensor]) -> Optional[torch.Tensor]:

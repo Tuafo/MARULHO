@@ -192,7 +192,6 @@ def _summarize_acceptance_checks(checks: list[dict[str, Any]]) -> tuple[str, int
 
 def _acceptance_failure_details(checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     actions = {
-        "idle_gating": "inspect_thought_loop_wake_policy_and_startup_quiet_state",
         "grounded_source_influence": "verify_workspace_action_assist_and_preserved_source_evidence",
         "runtime_progress": "check_terminus_source_configuration_and_tick_path",
     }
@@ -469,40 +468,8 @@ def run_acceptance_harness(
             trace_dir=root / "traces",
             env_root=root,
         )
-        runtime = manager.runtime_facade
+        runtime = getattr(manager, "runtime_facade", manager)
         try:
-            manager._ensure_cortex_initialized(wait_seconds=max(0.0, float(cortex_wait_s)))
-            cortex_snapshot = runtime.cortex_snapshot()
-            if not bool(cortex_snapshot.get("enabled", False)) or getattr(manager, "_thought_loop", None) is None:
-                checks.append(
-                    _acceptance_check(
-                        "idle_gating",
-                        False,
-                        "Cortex was unavailable, so idle gating could not be exercised.",
-                        {"cortex_enabled": bool(cortex_snapshot.get("enabled", False))},
-                    )
-                )
-            else:
-                manager._thought_loop.start()
-                before = runtime.cortex_snapshot()
-                time.sleep(max(0.0, float(idle_wait_s)))
-                after = runtime.cortex_snapshot()
-                thoughts_before = int(before.get("thoughts_generated", 0) or 0)
-                thoughts_after = int(after.get("thoughts_generated", 0) or 0)
-                passed = thoughts_before == 0 and thoughts_after == 0 and not list(after.get("recent_thoughts", []))
-                checks.append(
-                    _acceptance_check(
-                        "idle_gating",
-                        passed,
-                        "Idle cortex stayed quiet before any explicit query or grounded wake." if passed else "Idle cortex generated unexpected thoughts without an explicit wake.",
-                        {
-                            "thoughts_before": thoughts_before,
-                            "thoughts_after": thoughts_after,
-                            "recent_thought_count": len(list(after.get("recent_thoughts", []))),
-                        },
-                    )
-                )
-
             response_bundle = runtime.respond(
                 query_text="What does notes.md say cats chase at night?",
                 max_evidence_items=3,
@@ -630,17 +597,15 @@ def classify_test_report(
         int(report.final_tick_count or 0),
     )
 
-    if not bool(report.cortex_available):
-        fatal_reasons.append("Cortex was unavailable for the long run.")
     if int(report.samples_collected or 0) < int(merged_thresholds["min_samples"]):
         fatal_reasons.append("No long-test metric samples were collected.")
     if runtime_progress < int(merged_thresholds["min_runtime_progress_tokens"]):
         fatal_reasons.append("No observable runtime progress was recorded.")
     if int(report.total_thoughts or 0) < int(merged_thresholds["min_total_thoughts_alive"]):
         if runtime_progress >= int(merged_thresholds["min_runtime_progress_tokens"]):
-            warning_reasons.append("Runtime progressed, but the cortex produced no thoughts.")
+            warning_reasons.append("Runtime progressed without retired cortex thought output.")
         else:
-            fatal_reasons.append("The cortex produced no thoughts during the run.")
+            fatal_reasons.append("No runtime progress or retired cortex thought output was recorded.")
     if int(report.total_errors or 0) > 0:
         warning_reasons.append(f"{int(report.total_errors)} snapshot or reporting errors were recorded.")
 
@@ -691,17 +656,15 @@ def _collect_snapshot(
     snapshot = MetricSnapshot(timestamp=time.time())
     snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
     terminus_runtime = status.get("terminus_runtime") if isinstance(status.get("terminus_runtime"), Mapping) else {}
-    cortex_snapshot = terminus_runtime.get("cortex") if isinstance(terminus_runtime.get("cortex"), Mapping) else {}
     memory_store = status.get("memory_store") if isinstance(status.get("memory_store"), Mapping) else {}
     action_loop = terminus_runtime.get("action_loop") if isinstance(terminus_runtime.get("action_loop"), Mapping) else {}
     ingestion = terminus_runtime.get("ingestion") if isinstance(terminus_runtime.get("ingestion"), Mapping) else {}
     runtime_truth = status.get("runtime_truth") if isinstance(status.get("runtime_truth"), Mapping) else {}
-    thoughts_data = runtime.cortex_thoughts(limit=10)
 
     snapshot.token_count = int(status.get("token_count", 0) or 0)
-    snapshot.thoughts_total = int(thoughts_data.get("thoughts_generated", 0) or 0)
-    snapshot.thoughts_delta = int(snapshot.thoughts_total - last_thoughts_count)
-    last_thoughts_count = snapshot.thoughts_total
+    snapshot.thoughts_total = 0
+    snapshot.thoughts_delta = 0
+    last_thoughts_count = 0
     snapshot.background_tokens_processed = int(terminus_runtime.get("background_tokens_processed", 0) or 0)
     snapshot.tick_count = int(terminus_runtime.get("tick_count", 0) or 0)
     snapshot.runtime_running = bool(terminus_runtime.get("running", False))
@@ -709,44 +672,15 @@ def _collect_snapshot(
     snapshot.memory_size = int(memory_store.get("size", 0) or 0)
     snapshot.consolidation_mean = float(memory_store.get("mean_consolidation_level", 0.0) or 0.0)
     snapshot.ripple_tagged = int(memory_store.get("ripple_tagged", 0) or 0)
-    snapshot.cortex_model = str(cortex_snapshot.get("model", ""))
-    snapshot.cortex_latency_ms = float(cortex_snapshot.get("avg_inference_ms", 0.0) or 0.0)
-    signal_state = cortex_snapshot.get("cognitive_signals") if isinstance(cortex_snapshot.get("cognitive_signals"), Mapping) else {}
-    snapshot.prediction_error_mean = float(signal_state.get("prediction_error_mean", 0.0) or 0.0)
-    snapshot.prediction_error_max = float(signal_state.get("prediction_error_max", 0.0) or 0.0)
-    drives = cortex_snapshot.get("drives") if isinstance(cortex_snapshot.get("drives"), Mapping) else {}
-    snapshot.da_level = float(drives.get("dopamine", 0.0) or 0.0)
-    snapshot.serotonin_level = float(drives.get("serotonin", 0.0) or 0.0)
-    snapshot.ach_level = float(drives.get("acetylcholine", 0.0) or 0.0)
-    snapshot.ne_level = float(drives.get("norepinephrine", 0.0) or 0.0)
-    quality = cortex_snapshot.get("quality") if isinstance(cortex_snapshot.get("quality"), Mapping) else {}
-    snapshot.dream_verification_rate = float(quality.get("dream_verification_rate", 0.0) or 0.0)
-    depth_policy = cortex_snapshot.get("depth_policy") if isinstance(cortex_snapshot.get("depth_policy"), Mapping) else {}
-    snapshot.depth_counts = dict(depth_policy.get("counts", {}))
-    narrative = cortex_snapshot.get("narrative_self") if isinstance(cortex_snapshot.get("narrative_self"), Mapping) else {}
-    snapshot.narrative_summary = str(narrative.get("summary", ""))
-    active_exploration = cortex_snapshot.get("active_exploration") if isinstance(cortex_snapshot.get("active_exploration"), Mapping) else {}
-    snapshot.exploration_target = str(active_exploration.get("target", ""))
-    snapshot.exploration_reason = str(active_exploration.get("reason", ""))
-    episodic_memory = cortex_snapshot.get("episodic_memory") if isinstance(cortex_snapshot.get("episodic_memory"), Mapping) else {}
-    snapshot.embedder = dict(episodic_memory.get("embedder", {}))
+    snapshot.cortex_model = "retired"
+    snapshot.cortex_latency_ms = 0.0
+    snapshot.embedder = {"kind": "retired_cortex", "available": False}
     snapshot.runtime_truth = dict(runtime_truth)
-    snapshot.thought_lifecycle = _thought_lifecycle_snapshot(cortex_snapshot, thoughts_data)
+    snapshot.thought_lifecycle = {"enabled": False, "retired": True}
     snapshot.memory_pressure = _memory_pressure_snapshot(memory_store, runtime_truth)
-    snapshot.global_workspace = _global_workspace_snapshot(cortex_snapshot)
+    snapshot.global_workspace = {"retired": True, "size": 0, "capacity": 0}
     snapshot.ingestion_state = str(ingestion.get("startup_state", ""))
     snapshot.action_count = int(action_loop.get("actions_recorded", 0) or 0)
-
-    for thought in thoughts_data.get("thoughts", []):
-        if not isinstance(thought, Mapping):
-            continue
-        topics = thought.get("topics", [])
-        if isinstance(topics, (list, tuple)):
-            all_topics.update(str(item) for item in topics if str(item).strip())
-        thought_text = str(thought.get("thought", "")).strip()
-        if thought_text and thought_text not in seen_thought_texts and len(thoughts_seen) < 50:
-            thoughts_seen.append(thought_text)
-            seen_thought_texts.add(thought_text)
 
     snapshot.topic_diversity = int(len(all_topics))
     return snapshot, last_thoughts_count
@@ -847,7 +781,7 @@ def run_long_test(
             trace_dir=tmpdir / "traces",
             env_root=Path.cwd(),
         )
-        runtime = manager.runtime_facade
+        runtime = getattr(manager, "runtime_facade", manager)
         initial_status = runtime.status()
         report.initial_token_count = int(initial_status.get("token_count", 0) or 0)
 
@@ -868,16 +802,13 @@ def run_long_test(
             )
 
         time.sleep(2.0)
-        cortex_snapshot = runtime.cortex_snapshot()
-        report.cortex_available = bool(cortex_snapshot.get("enabled", False))
-        report.cortex_model = str(cortex_snapshot.get("model", ""))
+        report.cortex_available = False
+        report.cortex_model = "retired"
 
-        can_sample = long_run_error is None and report.cortex_available
+        can_sample = long_run_error is None
         if not can_sample:
             if long_run_error is not None:
                 logger.error(long_run_error)
-            if not report.cortex_available:
-                logger.error("Cortex is unavailable — long run will be classified as dead.")
         else:
             duration_s = max(0.0, float(duration_minutes) * 60.0)
             logger.info(
@@ -903,12 +834,6 @@ def run_long_test(
                         seen_thought_texts=seen_thought_texts,
                         fresh_wait_seconds=max(5.0, float(sample_interval_s)),
                     )
-                    for thought in runtime.cortex_thoughts(limit=10).get("thoughts", []):
-                        if not isinstance(thought, Mapping):
-                            continue
-                        latency_ms = float(thought.get("latency_ms", 0.0) or 0.0)
-                        if latency_ms > 0:
-                            latencies.append(latency_ms)
                 except Exception as exc:
                     snapshot = MetricSnapshot(timestamp=time.time(), errors=1)
                     snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
@@ -1151,7 +1076,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Cortex available | {report.cortex_available} |",
+            f"| Retired cortex active | {report.cortex_available} |",
             f"| Terminus configured | {report.terminus_configured} |",
             f"| Final runtime running | {report.terminus_running} |",
             f"| Samples collected | {report.samples_collected} |",

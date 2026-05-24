@@ -23,6 +23,33 @@ class AdExNeuronTests(unittest.TestCase):
         self.assertTrue(torch.all(neuron.V <= neuron.V_peak).item())
         self.assertTrue(torch.all(neuron.V >= neuron.E_L - 20.0).item())
 
+    def test_device_report_exposes_live_tensor_devices(self) -> None:
+        neuron = AdExNeuron(n_neurons=4, dt=0.5, device="cpu")
+
+        report = neuron.device_report()
+
+        self.assertEqual(report["module"], "adex_neuron")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["voltage_device"], str(neuron.V.device))
+        self.assertEqual(report["adaptation_device"], str(neuron.w.device))
+        self.assertEqual(report["spike_times_device"], str(neuron.spike_times.device))
+        self.assertFalse(report["cuda"])
+
+    def test_state_dict_roundtrip_preserves_dynamics_state_on_device(self) -> None:
+        neuron = AdExNeuron(n_neurons=4, dt=0.5, device="cpu")
+        current = torch.full((4,), 25.0)
+        for step in range(16):
+            neuron.step(current, t=float(step) * neuron.dt)
+
+        snapshot = neuron.state_dict()
+        restored = AdExNeuron(n_neurons=4, dt=0.5, device="cpu")
+        restored.load_state_dict(snapshot)
+
+        self.assertEqual(snapshot["V"].device.type, "cpu")
+        self.assertTrue(torch.allclose(restored.V, neuron.V))
+        self.assertTrue(torch.allclose(restored.w, neuron.w))
+        self.assertTrue(torch.allclose(restored.spike_times, neuron.spike_times))
+
     def test_step_resets_voltage_and_records_spike_time(self) -> None:
         neuron = AdExNeuron(n_neurons=4, dt=0.5, device="cpu")
         current = torch.full((4,), 25.0)
@@ -68,6 +95,19 @@ class AdExNeuronTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             neuron.step(torch.ones(3), t=0.0)
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_cuda_device_report_and_load_state_restore_live_tensors_to_cuda(self) -> None:
+        source = AdExNeuron(n_neurons=4, dt=0.5, device="cpu")
+        source.step(torch.full((4,), 25.0), t=0.0)
+        restored = AdExNeuron(n_neurons=4, dt=0.5, device="cuda")
+
+        restored.load_state_dict(source.state_dict())
+        report = restored.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["voltage_device"]).startswith("cuda"))
+        self.assertEqual(restored.V.device.type, "cuda")
 
 
 if __name__ == "__main__":

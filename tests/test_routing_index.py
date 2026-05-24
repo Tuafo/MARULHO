@@ -33,7 +33,49 @@ class RoutingIndexTests(unittest.TestCase):
 
         self.assertEqual(found_ids[0], [0, 1])
         self.assertEqual(dists.shape, (1, 2))
-        self.assertEqual(index.stats()["index_type"], "torch_topk")
+        stats = index.stats()
+        self.assertEqual(stats["index_type"], "torch_topk")
+        self.assertTrue(stats["torch_cache_ready"])
+        self.assertFalse(stats["torch_cache_dirty"])
+        self.assertEqual(stats["torch_vector_cache_device"], "cpu")
+        self.assertEqual(stats["torch_id_cache_device"], "cpu")
+        self.assertEqual(stats["torch_vector_cache_count"], 3)
+        self.assertFalse(stats["torch_cache_cuda"])
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_auto_cuda_index_reports_actual_cache_devices(self) -> None:
+        index = HierarchicalAssemblyIndex(
+            dim=3,
+            rebuild_threshold=2,
+            device=torch.device("cuda"),
+            backend="auto",
+        )
+        vectors = torch.tensor(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=torch.float32,
+            device=torch.device("cuda"),
+        )
+        ids = np.array([0, 1, 2], dtype=np.int64)
+        index.add(vectors, ids)
+
+        query = torch.tensor(
+            [[0.9, 0.1, 0.0]],
+            dtype=torch.float32,
+            device=torch.device("cuda"),
+        )
+        found_ids, _ = index.search(query, k=2)
+
+        stats = index.stats()
+        self.assertEqual(found_ids[0], [0, 1])
+        self.assertEqual(stats["index_type"], "torch_topk")
+        self.assertEqual(stats["search_device"], "cuda")
+        self.assertTrue(str(stats["torch_vector_cache_device"]).startswith("cuda"))
+        self.assertTrue(str(stats["torch_id_cache_device"]).startswith("cuda"))
+        self.assertTrue(stats["torch_cache_cuda"])
 
     def test_sharded_torch_topk_merges_global_topk(self) -> None:
         index = ShardedHierarchicalAssemblyIndex(
@@ -59,7 +101,12 @@ class RoutingIndexTests(unittest.TestCase):
         found_ids, _ = index.search(torch.tensor([[0.95, 0.05]], dtype=torch.float32), k=2)
 
         self.assertEqual(found_ids[0], [0, 1])
-        self.assertEqual(index.stats()["index_type"], "sharded_torch_topk")
+        stats = index.stats()
+        self.assertEqual(stats["index_type"], "sharded_torch_topk")
+        self.assertEqual(stats["per_shard_search_device"], ["cpu", "cpu"])
+        self.assertEqual(stats["per_shard_torch_vector_cache_device"], ["cpu", "cpu"])
+        self.assertEqual(stats["per_shard_torch_id_cache_device"], ["cpu", "cpu"])
+        self.assertEqual(stats["per_shard_torch_cache_ready"], [True, True])
 
     def test_model_runtime_scope_reports_requested_torch_topk_backend(self) -> None:
         cfg = HECSNConfig(
@@ -72,6 +119,22 @@ class RoutingIndexTests(unittest.TestCase):
 
         self.assertEqual(scope["routing_backend_mode"], "torch_topk")
         self.assertEqual(scope["routing_index"]["index_type"], "torch_topk")
+
+    def test_model_runtime_scope_reports_cuda_first_device_evidence(self) -> None:
+        cfg = HECSNConfig(
+            n_columns=4,
+            column_latent_dim=8,
+            routing_index_mode="torch_topk",
+            device="cpu",
+        )
+        model = HECSNModel(cfg)
+        scope = model.runtime_scope_report()
+
+        self.assertEqual(scope["device"]["requested_device"], "cpu")
+        self.assertEqual(scope["device"]["resolved_device"], "cpu")
+        self.assertEqual(scope["cuda_first_runtime"]["tensor_device"], "cpu")
+        self.assertEqual(scope["cuda_first_runtime"]["routing_search_device"], "cpu")
+        self.assertTrue(scope["cuda_first_runtime"]["routing_backend_cuda_capable"])
 
     def test_faiss_search_exact_fills_missing_unique_ids(self) -> None:
         class FakeFaissIndex:

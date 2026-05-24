@@ -20,7 +20,6 @@ from .schemas import (
     CheckpointRecord,
     CheckpointRestoreRequest,
     CheckpointSaveRequest,
-    CortexSleepRequest,
     DigitalActionRequest,
     DigitalActionResponse,
     FeedRequest,
@@ -400,28 +399,6 @@ def create_app(
     @app.get("/terminus/presets")
     def terminus_presets() -> list[dict[str, Any]]:
         return RuntimeControl.quick_start_presets()
-
-    # --- Cortex (LLM thought loop) endpoints ---
-
-    @app.post("/terminus/ask")
-    def terminus_ask(query: str = Query(..., min_length=1, max_length=2000)) -> dict[str, Any]:
-        """Submit a question for the cortex to answer asynchronously."""
-        return runtime.cortex_ask(query)
-
-    @app.get("/terminus/thoughts")
-    def terminus_thoughts(limit: int = Query(20, ge=1, le=50)) -> dict[str, Any]:
-        """Get recent thoughts from the cortex."""
-        return runtime.cortex_thoughts(limit=limit)
-
-    @app.get("/terminus/cortex")
-    def terminus_cortex() -> dict[str, Any]:
-        """Full cortex snapshot (drives, memories, stats)."""
-        return runtime.cortex_snapshot()
-
-    @app.post("/terminus/cortex/sleep")
-    def terminus_cortex_sleep(request: CortexSleepRequest) -> dict[str, Any]:
-        """Request an explicit cortex sleep cycle on the maintained control path."""
-        return runtime.cortex_sleep(reason=request.reason)
 
     @app.get("/terminus/actions", response_model=ActionHistoryResponse)
     def terminus_actions(limit: int = Query(20, ge=1, le=100)) -> ActionHistoryResponse:

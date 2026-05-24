@@ -3068,7 +3068,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 text="A scientific figure shows two sharply separated regions in a lattice.",
                 visual_spikes=torch.ones(64),
                 audio_spikes=None,
-                metadata={"adapter": "s1_mmalign"},
+                metadata={
+                    "adapter": "s1_mmalign",
+                    "device": "cpu",
+                    "encoder": {"encoder": "event_camera", "device": "cpu"},
+                    "spike_device": "cpu",
+                    "spike_is_cuda": False,
+                },
                 visual_preview={
                     "mime_type": "image/png",
                     "bytes": b"fakepng",
@@ -3137,7 +3143,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 finally:
                     manager._trainer.train_step = original_train_step  # type: ignore[assignment]
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 self.assertIsNotNone(summary)
                 self.assertTrue(calls)
                 self.assertEqual(len(calls), 4)
@@ -3151,17 +3157,21 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(observations[0]["metadata"]["observation_kind"], "sensory")
                 self.assertEqual(observations[0]["metadata"]["source_type"], "sensory")
                 self.assertEqual(observations[0]["metadata"]["modality"], "image")
+                self.assertEqual(observations[0]["metadata"]["device"], "cpu")
+                self.assertEqual(observations[0]["metadata"]["encoder"]["encoder"], "event_camera")
                 self.assertGreater(float(observations[0]["metadata"]["grounding_signal"]), 0.3)
                 grounded = summary["sources"][0]["grounded_observation"]
                 self.assertEqual(grounded["observation_kind"], "sensory")
                 self.assertEqual(grounded["modality"], "image")
+                self.assertEqual(grounded["device"], "cpu")
+                self.assertEqual(grounded["encoder"]["device"], "cpu")
                 self.assertIn("lattice", grounded["content"].lower())
                 self.assertEqual(runtime["sensory"]["source_progress"][0]["episodes_processed"], 1)
                 self.assertEqual(runtime["multimodal"]["real_episodes_completed"], 1)
                 self.assertEqual(runtime["multimodal"]["recent_preview_count"], 1)
                 self.assertIsNotNone(runtime["multimodal"]["latest_preview_id"])
                 self.assertGreater(runtime["multimodal"]["real_cross_modal_visual_accepted"], 0)
-                previews = manager.sensory_previews(limit=1)
+                previews = manager.runtime_facade.sensory_previews(limit=1)
                 self.assertEqual(previews["count"], 1)
                 self.assertEqual(len(previews["previews"]), 1)
                 self.assertTrue(previews["previews"][0]["visual"]["data_url"].startswith("data:image/png;base64,"))
@@ -8181,8 +8191,8 @@ class CortexIntegrationTests(unittest.TestCase):
             ) as create_embedder:
                 manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
                 try:
-                    status = manager.status()
-                    snapshot = manager.cortex_snapshot()
+                    status = manager.runtime_facade.status()
+                    snapshot = manager.runtime_facade.cortex_snapshot()
                 finally:
                     manager.close()
 
@@ -8198,15 +8208,15 @@ class CortexIntegrationTests(unittest.TestCase):
             manager = _build_manager(root, test_case="cortex_no_nim_key")
             try:
                 # cortex_ask returns unavailable
-                result = manager.cortex_ask("hello")
+                result = manager.runtime_facade.cortex_ask("hello")
                 self.assertIn("accepted", result)
 
                 # cortex_thoughts returns disabled
-                thoughts = manager.cortex_thoughts()
+                thoughts = manager.runtime_facade.cortex_thoughts()
                 self.assertIn("thoughts", thoughts)
 
                 # cortex_snapshot returns disabled
-                snap = manager.cortex_snapshot()
+                snap = manager.runtime_facade.cortex_snapshot()
                 self.assertIn("enabled", snap)
             finally:
                 manager.close()
@@ -8221,7 +8231,7 @@ class CortexIntegrationTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cortex_snapshot_key")
             try:
-                status = manager.status()
+                status = manager.runtime_facade.status()
                 self.assertIn("cortex", status["terminus_runtime"])
             finally:
                 manager.close()

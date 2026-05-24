@@ -338,6 +338,25 @@ class CrossModalGroundingLayer:
         self.visual_trace.zero_()
         self.audio_trace.zero_()
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for cross-modal grounding."""
+        return {
+            "module": "cross_modal_grounding",
+            "device": str(self.device),
+            "W_tv_device": str(self.W_tv.device),
+            "W_vt_device": str(self.W_vt.device),
+            "W_ta_device": str(self.W_ta.device),
+            "W_at_device": str(self.W_at.device),
+            "text_trace_device": str(self.text_trace.device),
+            "visual_trace_device": str(self.visual_trace.device),
+            "audio_trace_device": str(self.audio_trace.device),
+            "visual_confidence_device": str(self.visual_confidence.device),
+            "audio_confidence_device": str(self.audio_confidence.device),
+            "dim_text": int(self.dim_text),
+            "dim_visual": int(self.dim_visual),
+            "dim_audio": int(self.dim_audio),
+        }
+
     # -- §7.4 self-criticism loop -------------------------------------------
 
     def run_self_criticism(

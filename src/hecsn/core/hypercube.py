@@ -305,6 +305,22 @@ class HypercubeTopology:
             "sparsity_ratio": float(degrees.sum().item()) / max(1, self.n_columns * (self.n_columns - 1)),
         }
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for hypercube topology state."""
+        return {
+            "module": "hypercube_topology",
+            "device": str(self.device),
+            "active_mask_device": str(self.active_mask.device),
+            "neighbor_ids_device": str(self._neighbor_ids.device),
+            "neighbor_weights_device": str(self._neighbor_weights.device),
+            "degree_device": str(self._degree.device),
+            "direct_degree_device": str(self._direct_degree.device),
+            "shortcut_degree_device": str(self._shortcut_degree.device),
+            "n_columns": int(self.n_columns),
+            "dim": int(self.dim),
+            "target_degree": int(self.target_degree),
+        }
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "n_columns": self.n_columns,
@@ -825,6 +841,30 @@ class HypercubeBindingLayer:
         self._hub_extra_connections.zero_()
         self._hub_mask.zero_()
         self._refresh_structural_hub_connectivity()
+
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for hypercube binding state."""
+        return {
+            "module": "hypercube_binding",
+            "device": str(self.device),
+            "binding_state_device": str(self.binding_state.device),
+            "coincidence_trace_device": str(self.coincidence_trace.device),
+            "facilitation_device": str(self.facilitation.device),
+            "resources_device": str(self.resources.device),
+            "binding_usage_device": str(self.binding_usage.device),
+            "pv_inhibition_device": str(self.pv_inhibition.device),
+            "neighbor_ids_device": str(self.neighbor_ids.device),
+            "degree_device": str(self.degree.device),
+            "neighbor_weights_device": str(self.neighbor_weights.device),
+            "learned_weights_device": str(self.learned_weights.device),
+            "hub_activation_ema_device": str(self._hub_activation_ema.device),
+            "hub_strength_device": str(self._hub_strength.device),
+            "hub_extra_connections_device": str(self._hub_extra_connections.device),
+            "hub_mask_device": str(self._hub_mask.device),
+            "topology": self.topology.device_report(),
+            "n_bindings": int(self.n_bindings),
+            "fan_in": int(self.fan_in),
+        }
 
     def state_dict(self) -> dict[str, Any]:
         return {

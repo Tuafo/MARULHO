@@ -20,6 +20,33 @@ class TestPredictiveColumnState:
         # Initial confidence is 0.5
         assert abs(state.confidence.mean().item() - 0.5) < 0.01
 
+    def test_device_report_exposes_live_tensor_devices(self):
+        state = PredictiveColumnState(
+            n_columns=8,
+            location_dim=4,
+            device=torch.device("cpu"),
+        )
+        report = state.device_report()
+
+        assert report["device"] == "cpu"
+        assert report["location_device"] == str(state.location.device)
+        assert report["velocity_device"] == str(state.velocity.device)
+        assert report["prediction_weights_device"] == str(state._prediction_weights.device)
+        assert report["prediction_error_device"] == str(state.prediction_error.device)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices(self):
+        state = PredictiveColumnState(
+            n_columns=8,
+            location_dim=4,
+            device=torch.device("cuda"),
+        )
+        report = state.device_report()
+
+        assert report["device"].startswith("cuda")
+        assert str(report["location_device"]).startswith("cuda")
+        assert str(report["prediction_weights_device"]).startswith("cuda")
+
     def test_predict_returns_correct_shape(self):
         state = PredictiveColumnState(n_columns=16, location_dim=4)
         pred = state.predict(column_dim=16)

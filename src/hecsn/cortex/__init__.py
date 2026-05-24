@@ -1,13 +1,9 @@
-"""Cortical core -- LLM neocortex for the hybrid SNN-LLM architecture.
+"""Cortical backend interfaces for the Terminus cortex-subcortex architecture.
 
-The cortex module wraps NVIDIA NIM cloud LLM(s) as the language/reasoning
-engine of Terminus. The SNN subcortical systems (drives, memory, surprise,
-sleep) control *when*, *what*, and *how* the cortex thinks -- never the
-reverse.
-
-No local Ollama or other local LLM is used. All inference goes through
-NVIDIA NIM (40 req/min free tier), with a shared budget across chat and
-embedding calls. MockCortex is available for testing.
+The cortex module exposes a replaceable expressive/deliberative backend.
+NIMCortex is the current external LLM adapter, while MockCortex and custom
+CorticalCore implementations keep the control loop backend-neutral. The SNN
+subcortical systems control when, what, and how the backend is invoked.
 """
 
 from hecsn.cortex.core import (

@@ -116,27 +116,10 @@ class CortexController:
             object.__setattr__(self, field_name, initial_value)
         object.__setattr__(self, "_lazy_thought_loop", _LazyThoughtLoop(self))
 
-        try:
-            from hecsn.cortex.thought_loop import ThoughtLoop
-            from hecsn.cortex.multi_cortex import create_cortex_from_env, create_embedder_from_env
-            from hecsn.cortex.episodic_memory import EpisodicMemory
-
-            object.__setattr__(
-                self,
-                "_cortex_factory_refs",
-                (
-                    ThoughtLoop,
-                    create_cortex_from_env,
-                    create_embedder_from_env,
-                    EpisodicMemory,
-                ),
-            )
-            _cortex_logger.info("Cortex module available for lazy initialization")
-        except Exception as exc:
-            object.__setattr__(self, "_cortex_init_finished", True)
-            object.__setattr__(self, "_cortex_init_error", str(exc))
-            self._cortex_init_event.set()
-            _cortex_logger.info("Cortex module unavailable: %s", exc)
+        object.__setattr__(self, "_cortex_init_finished", True)
+        object.__setattr__(self, "_cortex_init_error", "Cortex runtime path retired; use Subcortex/Living Loop surfaces.")
+        self._cortex_init_event.set()
+        _cortex_logger.info("Cortex runtime path retired")
 
     @staticmethod
     def _normalize_action_text(value: Any) -> str:
@@ -283,6 +266,9 @@ class CortexController:
     def _cortex_unavailable_snapshot(self) -> dict[str, Any]:
         return {
             "enabled": False,
+            "retired": True,
+            "reason": "cortex_runtime_retired",
+            "replacement": "subcortex_living_loop",
             "initialization": {
                 "started": bool(getattr(self, "_cortex_init_started", False)),
                 "finished": bool(getattr(self, "_cortex_init_finished", False)),
@@ -369,6 +355,11 @@ class CortexController:
             self._cortex_init_thread.start()
 
     def _ensure_cortex_initialized(self, *, wait_seconds: float | None = DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS) -> Any:
+        self._cortex_init_started = False
+        self._cortex_init_finished = True
+        self._cortex_init_error = "Cortex runtime path retired; use Subcortex/Living Loop surfaces."
+        self._cortex_init_event.set()
+        return None
         if self._thought_loop_actual is not None:
             return self._thought_loop_actual
         self._start_cortex_initialization()
@@ -703,7 +694,7 @@ class CortexController:
         """Submit a question to the cortex and return immediately."""
         thought_loop = self._ensure_cortex_initialized()
         if thought_loop is None:
-            return {"accepted": False, "reason": "cortex_unavailable"}
+            return {"accepted": False, "reason": "cortex_runtime_retired", "replacement": "runtime.respond"}
         with self._lock:
             self._remember_cortex_query_hint_locked(query)
         thought_loop.submit_query(query)
@@ -723,7 +714,7 @@ class CortexController:
         """Return recent thoughts from the cortex thought loop."""
         thought_loop = self._thought_loop_actual
         if thought_loop is None:
-            return {"enabled": False, "thoughts": []}
+            return {"enabled": False, "retired": True, "reason": "cortex_runtime_retired", "thoughts": []}
         snap = thought_loop.snapshot()
         thoughts = snap.get("recent_thoughts", [])
         return {

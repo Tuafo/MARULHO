@@ -1,19 +1,18 @@
-"""CorticalCore -- Abstract base class for LLM cortex backends.
+"""CorticalCore -- interface for replaceable cortex backends.
 
-The cortex is the language/reasoning layer of the Terminus hybrid
+The cortex is the expressive/deliberative backend of the Terminus
 architecture. The SNN subcortical systems control what enters the
 context and when inference fires. The cortex never initiates -- it
 only responds when the SNN triggers a deliberation event.
 
 Backends:
-- NIMCortex (production): NVIDIA NIM cloud API
+- NIMCortex: NVIDIA NIM cloud API adapter
 - MockCortex (testing): Deterministic, no network
 
 Design decisions:
 - Sync API (codebase is entirely sync, no pytest-asyncio)
-- JSON-only output contract (not free-text parsing)
+- JSON-like structured output contract (not free-text parsing)
 - Structured memory items with provenance metadata
-- No local Ollama -- NIM cloud only
 """
 
 from __future__ import annotations
@@ -26,6 +25,22 @@ from enum import Enum
 from typing import Any, Literal, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def cortex_backend_report(cortex: CorticalCore) -> dict[str, Any]:
+    """Return backend identity without making backend type claims implicit."""
+    report_fn = getattr(cortex, "backend_report", None)
+    if callable(report_fn):
+        return dict(report_fn())
+    return {
+        "implementation": type(cortex).__name__,
+        "model": str(getattr(cortex, "model", type(cortex).__name__)),
+        "backend_kind": "custom",
+        "llm_backed": None,
+        "external_service": None,
+        "replaceable": True,
+        "retention_gate": "runtime_evidence",
+    }
 
 
 class ThinkingMode(str, Enum):
@@ -253,11 +268,13 @@ class CorticalCore:
     """Abstract base for all cortex implementations.
 
     Subclasses must implement generate() and is_available().
-    No local Ollama. Use NIMCortex for production, MockCortex for tests.
     """
 
     model: str = "abstract"
     temperature: float = 0.7
+    backend_kind: str = "abstract"
+    llm_backed: bool | None = None
+    external_service: str | None = None
 
     def generate(self, context: ContextPacket) -> ThoughtResult:
         """Generate a thought from structured context. Override in subclass."""
@@ -270,6 +287,19 @@ class CorticalCore:
     @property
     def generation_count(self) -> int:
         return 0
+
+    def backend_report(self) -> dict[str, Any]:
+        return {
+            "implementation": type(self).__name__,
+            "model": str(getattr(self, "model", type(self).__name__)),
+            "backend_kind": str(getattr(self, "backend_kind", "custom")),
+            "llm_backed": getattr(self, "llm_backed", None),
+            "external_service": getattr(self, "external_service", None),
+            "replaceable": True,
+            "retention_gate": "runtime_evidence",
+            "available": None,
+            "generation_count": int(self.generation_count),
+        }
 
     def close(self) -> None:
         pass
@@ -290,6 +320,9 @@ class MockCortex(CorticalCore):
         **kwargs: Any,
     ) -> None:
         self.model = "mock-cortex"
+        self.backend_kind = "deterministic_mock"
+        self.llm_backed = False
+        self.external_service = None
         self.temperature = 0.7
         self._generation_count = 0
         self._responses = responses or []
@@ -348,6 +381,11 @@ class MockCortex(CorticalCore):
     @property
     def generation_count(self) -> int:
         return self._generation_count
+
+    def backend_report(self) -> dict[str, Any]:
+        report = super().backend_report()
+        report["available"] = True
+        return report
 
     def close(self) -> None:
         pass

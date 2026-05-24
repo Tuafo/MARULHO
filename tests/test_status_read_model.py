@@ -164,13 +164,6 @@ def _build_architecture_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
         },
     })
     layers.append({
-        "id": "nim_cortex",
-        "name": "NIM Mind Layer",
-        "enabled": False,
-        "type": "cortex",
-        "params": {},
-    })
-    layers.append({
         "id": "autonomy_guidance",
         "name": "Active Exploration + Grounded-Family-Summary Lineage-Reconvergent Divergence-Split Trajectory-Sensitive Compacted Age-Sensitive Consequence-Calibrated Real-Source Guidance",
         "enabled": False,
@@ -199,7 +192,7 @@ def _build_architecture_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
         "model_name": "Terminus",
         "core_name": "GPCSN",
         "version": "current",
-        "family": "hybrid_snn_llm",
+        "family": "subcortex_runtime",
         "layers": layers,
         "config": {
             "context_mode": config.context_mode,
@@ -616,7 +609,7 @@ class StatusReadModelArchitectureSummaryTests(unittest.TestCase):
         model, _, _, _ = _build_read_model()
         result = model.architecture_summary()
         self.assertEqual(result["version"], "current")
-        self.assertEqual(result["family"], "hybrid_snn_llm")
+        self.assertEqual(result["family"], "subcortex_runtime")
 
     def test_architecture_summary_returns_layers(self) -> None:
         """architecture_summary() returns a non-empty layers list with required keys."""
@@ -1175,18 +1168,18 @@ def _build_degraded_brain_snapshot() -> dict[str, Any]:
 
 
 def _build_no_cortex_brain_snapshot() -> dict[str, Any]:
-    """Build a brain snapshot that is configured but has cortex disabled — 'partial' verdict."""
+    """Build a configured snapshot with the retired cortex path disabled."""
     return {
         "configured": True,
         "running": False,
         "running_since": None,
         "last_error": None,
-        "tick_count": 0,
-        "background_tokens_processed": 0,
+        "tick_count": 5,
+        "background_tokens_processed": 100,
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "cortex": {"enabled": False},
+        "cortex": {"enabled": False, "retired": True},
         "living_loop": {},
     }
 
@@ -1245,13 +1238,15 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(truth["verdict"], "partial")
         self.assertEqual(truth["recommended_action"], "configure_terminus_sources")
 
-    def test_verdict_partial_when_no_cortex(self) -> None:
-        """When configured but cortex is disabled, the verdict should be 'partial'."""
+    def test_verdict_alive_when_cortex_retired_but_runtime_progresses(self) -> None:
+        """Retired cortex should not keep an otherwise progressing runtime partial."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_no_cortex_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
-        self.assertEqual(truth["verdict"], "partial")
-        self.assertEqual(truth["recommended_action"], "initialize_or_configure_cortex")
+        self.assertEqual(truth["verdict"], "alive")
+        self.assertEqual(truth["recommended_action"], "continue_monitoring")
+        self.assertFalse(truth["cortex_available"])
+        self.assertTrue(truth["cortex_retired"])
 
     def test_verdict_degraded_when_no_progress(self) -> None:
         """When configured+cortex but no progress, the verdict should be 'degraded'."""
@@ -1275,6 +1270,7 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         result = model.status()
         truth = result["runtime_truth"]
         self.assertTrue(truth["cortex_available"])
+        self.assertFalse(truth["cortex_retired"])
 
     def test_verdict_includes_source_configuration_evidence(self) -> None:
         """Runtime Truth includes source configuration with hash and payload."""
@@ -1523,6 +1519,15 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         ]
         for key in required_keys:
             self.assertIn(key, result, f"status() missing key: {key}")
+
+    def test_status_runtime_scope_includes_trainer_encoder_device_report(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+
+        result = model.status()
+        encoder_report = result["runtime_scope"]["cuda_first_runtime"]["encoder_device_report"]
+
+        self.assertEqual(encoder_report["device"], str(trainer.encoder.device))
+        self.assertEqual(encoder_report["encoder"], "rtf")
 
     def test_terminus_status_payload_keys_match_manager_contract(self) -> None:
         """terminus_status() returns all keys that the Service Manager test surface asserts."""

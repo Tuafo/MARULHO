@@ -357,3 +357,22 @@ class HECSNConfig:
                 return torch.device(env)
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return torch.device(self.device)
+
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device selection evidence."""
+        resolved = self.resolve_device()
+        cuda_available = bool(torch.cuda.is_available())
+        report: dict[str, object] = {
+            "requested_device": str(self.device),
+            "env_device": os.environ.get("HECSN_DEVICE"),
+            "resolved_device": str(resolved),
+            "cuda_available": cuda_available,
+            "cuda_device_count": int(torch.cuda.device_count()) if cuda_available else 0,
+            "cuda_selected": resolved.type == "cuda",
+        }
+        if cuda_available:
+            try:
+                report["cuda_device_name"] = torch.cuda.get_device_name(resolved if resolved.type == "cuda" else 0)
+            except Exception:
+                report["cuda_device_name"] = None
+        return report

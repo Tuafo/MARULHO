@@ -62,6 +62,18 @@ class EventCameraEncoder:
     def output_dim(self) -> int:
         return self._output_dim
 
+    def device_report(self) -> dict[str, Any]:
+        return {
+            "encoder": "event_camera",
+            "device": str(self.device),
+            "output_dim": int(self._output_dim),
+            "height": int(self.height),
+            "width": int(self.width),
+            "pool": int(self.pool),
+            "trace_device": str(self._trace.device),
+            "ref_device": None if self._ref_log_intensity is None else str(self._ref_log_intensity.device),
+        }
+
     def encode(self, frame: torch.Tensor) -> torch.Tensor:
         """Encode a greyscale frame into a binary spike pattern.
 

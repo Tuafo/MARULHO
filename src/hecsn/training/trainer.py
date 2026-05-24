@@ -51,7 +51,7 @@ class HECSNTrainer:
         self._dead_column_census: dict[str, int | float] = {}
         self.column_anchors: dict[int, dict[str, torch.Tensor | float]] = {}
         self.bootstrap = PredictiveBootstrap(device=self.model.device, input_dim=self.config.input_dim)
-        self.encoder: BaseEncoder = build_encoder(self.config)
+        self.encoder: BaseEncoder = build_encoder(self.config, device=self.model.device)
         self._recent_stream_text = ""
         self._last_raw_window_text: str | None = None
         self._cached_episode_text: str | None = None

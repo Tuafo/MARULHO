@@ -87,6 +87,18 @@ class CochleagramEncoder:
     def output_dim(self) -> int:
         return self.n_bands
 
+    def device_report(self) -> dict[str, Any]:
+        return {
+            "encoder": "cochleagram",
+            "device": str(self.device),
+            "output_dim": int(self.n_bands),
+            "n_fft": int(self.n_fft),
+            "sample_rate": int(self.sample_rate),
+            "filterbank_device": str(self._filterbank.device),
+            "baseline_device": str(self._baseline.device),
+            "trace_device": str(self._trace.device),
+        }
+
     def encode(self, waveform: torch.Tensor) -> torch.Tensor:
         """Encode an audio chunk into a binary spike pattern.
 

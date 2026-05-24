@@ -35,7 +35,9 @@ class LearnedChunkingLayer:
         association_blend: float,
         association_lr: float,
         association_decay: float,
+        device: torch.device | str | None = None,
     ) -> None:
+        self.device = torch.device("cpu" if device is None else device)
         self.n_detectors = int(n_detectors)
         self.min_chunk_len = int(min_chunk_len)
         self.max_chunk_len = int(max_chunk_len)
@@ -48,11 +50,27 @@ class LearnedChunkingLayer:
         self.association_lr = float(association_lr)
         self.association_decay = float(association_decay)
         self.prototype_dim = (self.max_chunk_len * 8) + 32
-        self.prototypes = torch.zeros(self.n_detectors, self.prototype_dim, dtype=torch.float32)
-        self.confidence = torch.zeros(self.n_detectors, dtype=torch.float32)
-        self.usage = torch.zeros(self.n_detectors, dtype=torch.float32)
-        self.associations = torch.zeros(self.n_detectors, self.n_detectors, dtype=torch.float32)
-        self._bit_shifts = torch.arange(8, dtype=torch.int64)
+        self.prototypes = torch.zeros(self.n_detectors, self.prototype_dim, dtype=torch.float32, device=self.device)
+        self.confidence = torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
+        self.usage = torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
+        self.associations = torch.zeros(
+            self.n_detectors,
+            self.n_detectors,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self._bit_shifts = torch.arange(8, dtype=torch.int64, device=self.device)
+
+    def device_report(self) -> dict[str, object]:
+        return {
+            "device": str(self.device),
+            "prototypes_device": str(self.prototypes.device),
+            "confidence_device": str(self.confidence.device),
+            "usage_device": str(self.usage.device),
+            "associations_device": str(self.associations.device),
+            "bit_shifts_device": str(self._bit_shifts.device),
+            "cuda": self.device.type == "cuda",
+        }
 
     def set_abstraction_bias(self, mean_certainty: float, max_gap_score: float) -> None:
         """Top-down boundary bias from Abstraction Layer (§3.1).
@@ -110,22 +128,22 @@ class LearnedChunkingLayer:
         usage = state.get("usage")
         associations = state.get("associations")
         if isinstance(prototypes, torch.Tensor) and prototypes.shape == self.prototypes.shape:
-            self.prototypes = prototypes.detach().clone().cpu().float()
+            self.prototypes = prototypes.detach().clone().to(self.device).float()
         if isinstance(confidence, torch.Tensor) and confidence.shape == self.confidence.shape:
-            self.confidence = confidence.detach().clone().cpu().float()
+            self.confidence = confidence.detach().clone().to(self.device).float()
         if isinstance(usage, torch.Tensor) and usage.shape == self.usage.shape:
-            self.usage = usage.detach().clone().cpu().float()
+            self.usage = usage.detach().clone().to(self.device).float()
         if isinstance(associations, torch.Tensor) and associations.shape == self.associations.shape:
-            self.associations = associations.detach().clone().cpu().float()
+            self.associations = associations.detach().clone().to(self.device).float()
 
     def encode_chunk(self, chars: Sequence[int]) -> torch.Tensor:
         window: list[int] = [int(code) for code in list(chars)[-self.max_chunk_len :] if 0 <= int(code) < 128]
-        vector = torch.zeros(self.prototype_dim, dtype=torch.float32)
+        vector = torch.zeros(self.prototype_dim, dtype=torch.float32, device=self.device)
         if not window:
             return vector
 
         n = len(window)
-        codes_t = torch.tensor(window, dtype=torch.int64)
+        codes_t = torch.tensor(window, dtype=torch.int64, device=self.device)
         bit_masks = ((codes_t.unsqueeze(1) >> self._bit_shifts) & 1).float()  # (n, 8)
         for pos in range(n):
             w = self._byte_weight(window[pos]) * max(0.35, 1.0 - 0.04 * pos)
@@ -143,11 +161,12 @@ class LearnedChunkingLayer:
         return _normalize(vector)
 
     def _similarities_from_encoding(self, encoding: torch.Tensor) -> torch.Tensor:
+        encoding = encoding.to(self.device)
         if float(encoding.sum().item()) <= 0.0:
-            return torch.zeros(self.n_detectors, dtype=torch.float32)
+            return torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
         active = self.usage > 0.0
         if not bool(active.any().item()):
-            return torch.zeros(self.n_detectors, dtype=torch.float32)
+            return torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
         sims = torch.mv(self.prototypes, encoding.float())
         sims = torch.clamp(sims, min=0.0) * active.float()
         sims = sims * torch.clamp(self.confidence, min=0.25, max=1.0)
@@ -165,7 +184,7 @@ class LearnedChunkingLayer:
     def detector_activations(self, chars: Sequence[int]) -> torch.Tensor:
         similarities = self._similarities_from_encoding(self.encode_chunk(chars))
         if float(similarities.max().item()) <= 0.0:
-            return torch.zeros(self.n_detectors, dtype=torch.float32)
+            return torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
         active_count = max(1, int((self.usage > 0.0).sum().item()))
         top_k = min(8, active_count)
         values, indices = torch.topk(similarities, k=top_k)
@@ -192,11 +211,12 @@ class LearnedChunkingLayer:
         return max(self.similarity_floor, 0.55 - (0.02 * float(length)))
 
     def _association_context(self, activations: torch.Tensor) -> torch.Tensor:
+        activations = activations.to(self.device)
         if activations.numel() == 0 or float(activations.sum().item()) <= 0.0:
-            return torch.zeros(self.n_detectors, dtype=torch.float32)
+            return torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
         associated = torch.mv(self.associations, activations.float())
         if float(associated.sum().item()) <= 0.0:
-            return torch.zeros(self.n_detectors, dtype=torch.float32)
+            return torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
         associated = associated * (self.usage > 0.0).float()
         return _normalize(torch.clamp(associated, min=0.0))
 
@@ -206,7 +226,7 @@ class LearnedChunkingLayer:
         if context.dim() != 1 or int(context.numel()) != self.n_detectors:
             return
         current_vec = _normalize(torch.clamp(current.float(), min=0.0))
-        context_vec = _normalize(torch.clamp(context.float(), min=0.0))
+        context_vec = _normalize(torch.clamp(context.to(self.device).float(), min=0.0))
         if float(current_vec.sum().item()) <= 0.0 or float(context_vec.sum().item()) <= 0.0:
             return
         pair = torch.outer(context_vec, current_vec) + torch.outer(current_vec, context_vec)
@@ -225,7 +245,7 @@ class LearnedChunkingLayer:
             self.prototypes[index] = encoding
             self.confidence[index] = max(0.5, best_score)
             self.usage[index] = self.usage[index] + 1.0
-            current = torch.zeros(self.n_detectors, dtype=torch.float32)
+            current = torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
             current[index] = 1.0
             self._update_associations(current, context)
             return
@@ -242,7 +262,7 @@ class LearnedChunkingLayer:
             ),
         )
         self.usage[index] = self.usage[index] + 1.0
-        current = torch.zeros(self.n_detectors, dtype=torch.float32)
+        current = torch.zeros(self.n_detectors, dtype=torch.float32, device=self.device)
         current[index] = 1.0
         self._update_associations(current, context)
 
@@ -292,7 +312,9 @@ class RTFEncoder:
         learned_chunk_association_blend: float = 0.35,
         learned_chunk_association_lr: float = 0.15,
         learned_chunk_association_decay: float = 0.995,
+        device: torch.device | str | None = None,
     ) -> None:
+        self.device = torch.device("cpu" if device is None else device)
         self.t_max = float(t_max)
         self.n_bursts_max = int(n_bursts_max)
         self.window_size = int(window_size)
@@ -315,13 +337,14 @@ class RTFEncoder:
                 association_blend=learned_chunk_association_blend,
                 association_lr=learned_chunk_association_lr,
                 association_decay=learned_chunk_association_decay,
+                device=self.device,
             )
             if enable_learned_chunking
             else None
         )
 
     @classmethod
-    def from_config(cls, config: "HECSNConfig") -> "RTFEncoder":
+    def from_config(cls, config: "HECSNConfig", device: torch.device | str | None = None) -> "RTFEncoder":
         return cls(
             window_size=config.window_size,
             representation=config.input_representation,
@@ -341,7 +364,15 @@ class RTFEncoder:
             learned_chunk_association_blend=config.learned_chunk_association_blend,
             learned_chunk_association_lr=config.learned_chunk_association_lr,
             learned_chunk_association_decay=config.learned_chunk_association_decay,
+            device=config.resolve_device() if device is None else device,
         )
+
+    def device_report(self) -> dict[str, object]:
+        return {
+            "encoder": "rtf",
+            "device": str(self.device),
+            "learned_chunking": None if self.learned_chunking is None else self.learned_chunking.device_report(),
+        }
 
     @property
     def base_output_dim(self) -> int:
@@ -387,7 +418,7 @@ class RTFEncoder:
 
     def character_window_to_pattern(self, chars: Iterable[int]) -> torch.Tensor:
         window: List[int] = list(chars)[-self.window_size :]
-        pattern = torch.zeros(128, dtype=torch.float32)
+        pattern = torch.zeros(128, dtype=torch.float32, device=self.device)
         if not window:
             return pattern
 
@@ -406,7 +437,7 @@ class RTFEncoder:
 
     def hashed_ngram_vector(self, chars: Iterable[int]) -> torch.Tensor:
         window: List[int] = [c for c in list(chars)[-self.window_size :] if 0 <= c < 128]
-        vector = torch.zeros(self.hashed_ngram_dim, dtype=torch.float32)
+        vector = torch.zeros(self.hashed_ngram_dim, dtype=torch.float32, device=self.device)
         if not window:
             return vector
 
@@ -429,7 +460,7 @@ class RTFEncoder:
         while len(window) < self.window_size:
             window.insert(0, 0)
 
-        route = torch.zeros(128, dtype=torch.float32)
+        route = torch.zeros(128, dtype=torch.float32, device=self.device)
         for pos, c in enumerate(window):
             if 0 <= c < 128:
                 latency = pos * self.t_spacing
@@ -448,7 +479,8 @@ class RTFEncoder:
         raise ValueError(f"Unsupported representation: {self.representation}")
 
     def _project_chunk_vector(self, detector_vector: torch.Tensor) -> torch.Tensor:
-        projected = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32)
+        detector_vector = detector_vector.to(self.device)
+        projected = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32, device=self.device)
         if detector_vector.numel() == 0 or float(detector_vector.sum().item()) <= 0.0:
             return projected
         if int(detector_vector.numel()) == int(projected.numel()):
@@ -460,7 +492,7 @@ class RTFEncoder:
         return _normalize(projected)
 
     def _chunk_signature_vector(self, chunk_codes: Sequence[int]) -> torch.Tensor:
-        signature = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32)
+        signature = torch.zeros(self.chunk_projection_work_dim, dtype=torch.float32, device=self.device)
         if not chunk_codes:
             return signature
 
@@ -484,7 +516,7 @@ class RTFEncoder:
         chunk_codes: Sequence[int] | None = None,
     ) -> torch.Tensor:
         if self.learned_chunking is None or chunk_state is None:
-            return torch.zeros(self.chunk_output_dim, dtype=torch.float32)
+            return torch.zeros(self.chunk_output_dim, dtype=torch.float32, device=self.device)
         projected = self._project_chunk_vector(chunk_state)
         signature = self._chunk_signature_vector(chunk_codes or [])
         chunk_projection = _normalize(projected + signature)
@@ -541,7 +573,7 @@ class RTFEncoder:
 
     def _current_chunk_state(self, context: torch.Tensor, chunk_codes: Sequence[int]) -> torch.Tensor:
         if self.learned_chunking is None:
-            return torch.zeros(0, dtype=torch.float32)
+            return torch.zeros(0, dtype=torch.float32, device=self.device)
         current = self.learned_chunking.detector_activations(chunk_codes)
         if float(current.sum().item()) <= 0.0:
             return context
@@ -583,9 +615,9 @@ class RTFEncoder:
         window_chars: list[str] = []
         chunk_codes: list[int] = []
         chunk_context = (
-            torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32)
+            torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32, device=self.device)
             if self.learned_chunking is not None
-            else torch.zeros(0, dtype=torch.float32)
+            else torch.zeros(0, dtype=torch.float32, device=self.device)
         )
 
         for ch in chars:
@@ -637,7 +669,7 @@ class RTFEncoder:
         segments: list[str] = []
         chunk_codes: list[int] = []
         chunk_chars: list[str] = []
-        chunk_context = torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32)
+        chunk_context = torch.zeros(self.learned_chunking.n_detectors, dtype=torch.float32, device=self.device)
         sentence_punct = {".", "!", "?"}
         for ch in text:
             code = _ascii_code(ch)
@@ -719,9 +751,9 @@ class RTFEncoder:
         while len(window) < self.window_size:
             window.insert(0, 0)
 
-        spike_times = torch.full((128, self.n_bursts_max), -1.0, dtype=torch.float32)
+        spike_times = torch.full((128, self.n_bursts_max), -1.0, dtype=torch.float32, device=self.device)
         n_spikes = max(1, int(self.n_bursts_max * max(0.0, min(1.0, context_confidence))))
-        burst_offsets = torch.arange(n_spikes, dtype=torch.float32) * 3.0
+        burst_offsets = torch.arange(n_spikes, dtype=torch.float32, device=self.device) * 3.0
 
         for pos, c in enumerate(window):
             if 0 <= c < 128:
@@ -766,7 +798,7 @@ class RTFEncoder:
         # Precompute burst kernel K (cached)
         cache_key = (n_spikes, tau, burst_decay)
         if getattr(self, '_fused_cache_key', None) != cache_key:
-            j = torch.arange(n_spikes, dtype=torch.float32)
+            j = torch.arange(n_spikes, dtype=torch.float32, device=self.device)
             self._fused_K = float(torch.sum(torch.exp(-j * 3.0 / tau) * (burst_decay ** j)).item())
             self._fused_cache_key = cache_key
 
@@ -779,13 +811,13 @@ class RTFEncoder:
                 last_pos[c] = pos
 
         if not last_pos:
-            return torch.zeros(128, dtype=torch.float32)
+            return torch.zeros(128, dtype=torch.float32, device=self.device)
 
-        codes = torch.tensor(list(last_pos.keys()), dtype=torch.long)
-        positions = torch.tensor(list(last_pos.values()), dtype=torch.float32)
+        codes = torch.tensor(list(last_pos.keys()), dtype=torch.long, device=self.device)
+        positions = torch.tensor(list(last_pos.values()), dtype=torch.float32, device=self.device)
         pos_weights = torch.exp(-positions * self.t_spacing / tau) * K
 
-        collapsed = torch.zeros(128, dtype=torch.float32)
+        collapsed = torch.zeros(128, dtype=torch.float32, device=self.device)
         collapsed[codes] = pos_weights
 
         total = collapsed.sum()

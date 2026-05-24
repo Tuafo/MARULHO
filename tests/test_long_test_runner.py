@@ -5,8 +5,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from hecsn.cortex.core import MockCortex
-from hecsn.cortex.episodic_memory import SimpleEmbedder
 from hecsn.training.long_test_runner import (
     MetricSnapshot,
     TestReport as LongTestReport,
@@ -59,7 +57,7 @@ def test_classify_test_report_marks_degraded_when_runtime_progresses_without_tho
     classify_test_report(report)
 
     assert report.health_verdict == "degraded"
-    assert any("produced no thoughts" in reason for reason in report.health_reasons)
+    assert any("retired cortex thought output" in reason for reason in report.health_reasons)
     assert health_exit_code(report) == 1
 
 
@@ -128,37 +126,14 @@ def test_classify_test_report_marks_alive_run() -> None:
     assert health_exit_code(report) == 0
 
 
-def test_run_acceptance_harness_passes_with_mock_cortex() -> None:
+def test_run_acceptance_harness_passes_without_cortex() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-            "hecsn.cortex.multi_cortex.create_embedder_from_env",
-            return_value=SimpleEmbedder(),
-        ):
-            result = run_acceptance_harness(output_dir=tmpdir, env_root=Path.cwd())
+        result = run_acceptance_harness(output_dir=tmpdir, env_root=Path.cwd())
 
     assert result["verdict"] == "passed"
     assert result["failed"] == 0
     check_names = {item["name"] for item in result["checks"]}
-    assert check_names == {"idle_gating", "query_answer", "grounded_source_influence", "runtime_progress"}
-
-
-def test_run_acceptance_harness_reports_partial_when_cortex_initialization_fails() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        with patch(
-            "hecsn.cortex.multi_cortex.create_cortex_from_env",
-            side_effect=RuntimeError("mock cortex unavailable"),
-        ), patch(
-            "hecsn.cortex.multi_cortex.create_embedder_from_env",
-            return_value=SimpleEmbedder(),
-        ):
-            result = run_acceptance_harness(output_dir=tmpdir, env_root=Path.cwd())
-
-    idle_check = next(item for item in result["checks"] if item["name"] == "idle_gating")
-    assert result["verdict"] == "partial"
-    assert result["passed"] > 0
-    assert result["failed"] == 1
-    assert idle_check["passed"] is False
-    assert idle_check["details"]["cortex_enabled"] is False
+    assert check_names == {"query_answer", "grounded_source_influence", "runtime_progress"}
 
 
 def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
@@ -248,7 +223,7 @@ def test_snapshot_has_inflight_thought_when_attempt_is_still_thinking() -> None:
     )
 
 
-def test_await_final_thought_settle_collects_until_attempt_finishes() -> None:
+def test_await_final_thought_settle_returns_without_retired_cortex_wait() -> None:
     class Manager:
         def __init__(self) -> None:
             self.calls = 0
@@ -304,9 +279,9 @@ def test_await_final_thought_settle_collects_until_attempt_finishes() -> None:
     )
 
     assert snapshot is not None
-    assert count == 1
-    assert snapshot.thoughts_total == 1
-    assert snapshot.thought_lifecycle["mode"] == "idle"
+    assert count == 0
+    assert snapshot.thoughts_total == 0
+    assert snapshot.thought_lifecycle["retired"] is True
 
 
 def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:

@@ -70,6 +70,37 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertEqual(replay_entry["raw_window"], "purrs safe.")
         self.assertEqual(replay_entry["text"], "a cat purrs when it feels safe.")
 
+    def test_memory_store_device_report_marks_archival_storage_cpu(self) -> None:
+        store = DualMemoryStore(capacity=8)
+        store.update(
+            torch.tensor([1.0, 0.0], dtype=torch.float32),
+            importance=1.0,
+            token_count=1,
+            bucket_id=2,
+            input_pattern=torch.tensor([0.0, 1.0], dtype=torch.float32),
+            routing_key=torch.tensor([1.0, 0.0], dtype=torch.float32),
+        )
+
+        report = store.device_report()
+
+        self.assertEqual(report["storage_role"], "archival_replay_ledger")
+        self.assertEqual(report["expected_storage_device"], "cpu")
+        self.assertEqual(report["slow_buffer_devices"], {"cpu": 1})
+        self.assertEqual(report["slow_input_pattern_devices"], {"cpu": 1})
+        self.assertEqual(report["slow_routing_key_devices"], {"cpu": 1})
+        self.assertEqual(report["fast_ema_device"], "cpu")
+        self.assertTrue(report["all_archival_tensors_cpu"])
+
+    def test_model_device_report_includes_memory_store_boundary(self) -> None:
+        cfg = HECSNConfig(n_columns=4, column_latent_dim=8, bootstrap_tokens=0, memory_capacity=8)
+        model = HECSNModel(cfg)
+
+        report = model.subcortex_device_report()["memory_store"]
+
+        self.assertEqual(report["storage_role"], "archival_replay_ledger")
+        self.assertEqual(report["expected_storage_device"], "cpu")
+        self.assertTrue(report["all_archival_tensors_cpu"])
+
     def test_sleep_replay_skips_global_activity_state_updates(self) -> None:
         layer = CompetitiveColumnLayer(
             n_columns=2,

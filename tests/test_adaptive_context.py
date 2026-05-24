@@ -19,6 +19,35 @@ class TestAdaptiveContextLayerInit(unittest.TestCase):
         self.device = torch.device("cpu")
         self.ctx = AdaptiveContextLayer(n_columns=64, device=self.device)
 
+    def test_device_report_exposes_live_tensor_devices(self) -> None:
+        report = self.ctx.device_report()
+
+        self.assertEqual(report["module"], "context_adaptive")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["log_tau_device"], str(self.ctx.log_tau.device))
+        self.assertEqual(report["neuron_state_device"], str(self.ctx.neuron_state.device))
+        self.assertEqual(report["state_device"], str(self.ctx.state.device))
+        self.assertEqual(report["w_in_device"], str(self.ctx.w_in.device))
+        self.assertEqual(report["w_out_device"], str(self.ctx.w_out.device))
+
+    def test_device_report_includes_observation_snapshot_device(self) -> None:
+        self.ctx.observe(torch.randn(64).abs(), update_weights=True)
+        report = self.ctx.device_report()
+
+        self.assertEqual(report["context_observation_count"], 1)
+        self.assertEqual(report["latest_context_observation_device"], "cpu")
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices(self) -> None:
+        ctx = AdaptiveContextLayer(n_columns=16, device=torch.device("cuda"))
+        ctx.observe(torch.randn(16, device=torch.device("cuda")).abs(), update_weights=True)
+        report = ctx.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["log_tau_device"]).startswith("cuda"))
+        self.assertTrue(str(report["neuron_state_device"]).startswith("cuda"))
+        self.assertTrue(str(report["latest_context_observation_device"]).startswith("cuda"))
+
     def test_default_n_neurons_equals_n_columns(self) -> None:
         self.assertEqual(self.ctx.n_neurons, 64)
 
@@ -270,6 +299,26 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
 
         cfg = HECSNConfig()
         self.assertEqual(cfg.context_mode, "adaptive")
+
+    def test_model_subcortex_device_report_includes_adaptive_context(self) -> None:
+        from hecsn.config.model_config import HECSNConfig
+        from hecsn.training.trainer import HECSNModel
+
+        cfg = HECSNConfig(
+            n_columns=8,
+            column_latent_dim=8,
+            bootstrap_tokens=0,
+            memory_capacity=32,
+            enable_context_layer=True,
+            context_mode="adaptive",
+        )
+        model = HECSNModel(cfg)
+        report = model.subcortex_device_report()["context"]
+
+        self.assertIsNotNone(report)
+        assert model.context_layer is not None
+        self.assertEqual(report["module"], "context_adaptive")
+        self.assertEqual(report["state_device"], str(model.context_layer.state.device))
 
 
 if __name__ == "__main__":

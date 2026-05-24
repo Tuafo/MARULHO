@@ -319,6 +319,24 @@ class BindingLayer:
             return 0
         return self._append_binding_rows(torch.stack(new_rows, dim=0))
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for binding state."""
+        return {
+            "module": "binding",
+            "device": str(self.device),
+            "binding_state_device": str(self.binding_state.device),
+            "binding_outputs_device": str(self.binding_outputs.device),
+            "coincidence_trace_device": str(self.coincidence_trace.device),
+            "facilitation_device": str(self.facilitation.device),
+            "resources_device": str(self.resources.device),
+            "binding_usage_device": str(self.binding_usage.device),
+            "pv_inhibition_device": str(self.pv_inhibition.device),
+            "connectivity_device": str(self.connectivity.device),
+            "output_weights_device": str(self.output_weights.device),
+            "n_bindings": int(self.n_bindings),
+            "fan_in": int(self.fan_in),
+        }
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "n_bindings": int(self.n_bindings),

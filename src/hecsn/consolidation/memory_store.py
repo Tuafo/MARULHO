@@ -121,6 +121,50 @@ class DualMemoryStore:
         self._cached_summary = None
         self._cached_summary_token = -1
 
+    @staticmethod
+    def _tensor_device_counts(values: Sequence[torch.Tensor | None]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for value in values:
+            if isinstance(value, torch.Tensor):
+                device = str(value.device)
+                counts[device] = counts.get(device, 0) + 1
+        return counts
+
+    def device_report(self) -> dict[str, Any]:
+        """Report archival memory placement without implying CUDA execution."""
+        slow_devices = self._tensor_device_counts(self.slow_buffer)
+        input_devices = self._tensor_device_counts(self.slow_input_patterns)
+        routing_devices = self._tensor_device_counts(self.slow_routing_keys)
+        local_fast_devices = self._tensor_device_counts(list(self.local_fast_ema.values()))
+        local_slow_devices = self._tensor_device_counts(list(self.local_slow_mean.values()))
+        fast_ema_device = str(self.fast_ema.device) if isinstance(self.fast_ema, torch.Tensor) else None
+        slow_mean_device = str(self._slow_mean.device) if isinstance(self._slow_mean, torch.Tensor) else None
+        return {
+            "storage_role": "archival_replay_ledger",
+            "cuda_first_compute_boundary": "replay tensors move to model device when consumed",
+            "expected_storage_device": "cpu",
+            "slow_buffer_devices": slow_devices,
+            "slow_input_pattern_devices": input_devices,
+            "slow_routing_key_devices": routing_devices,
+            "fast_ema_device": fast_ema_device,
+            "slow_mean_device": slow_mean_device,
+            "local_fast_ema_devices": local_fast_devices,
+            "local_slow_mean_devices": local_slow_devices,
+            "all_archival_tensors_cpu": all(
+                device == "cpu"
+                for counts in (
+                    slow_devices,
+                    input_devices,
+                    routing_devices,
+                    local_fast_devices,
+                    local_slow_devices,
+                )
+                for device in counts
+            )
+            and (fast_ema_device in (None, "cpu"))
+            and (slow_mean_device in (None, "cpu")),
+        }
+
     def _tag_tau_tokens(self, strong: bool) -> float:
         duration = self.tag_duration_strong if strong else self.tag_duration_weak
         return max(1.0, float(self.functional_minute) * duration)

@@ -208,6 +208,23 @@ class ContextLayer:
         self.recurrent = _row_normalize(torch.clamp(updated, min=1e-6)) * self.recurrent_scale
         return self.state
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for fixed context state."""
+        return {
+            "module": "context_fixed",
+            "device": str(self.device),
+            "fast_state_device": str(self.fast_state.device),
+            "medium_state_device": str(self.medium_state.device),
+            "slow_state_device": str(self.slow_state.device),
+            "inhibitory_state_device": str(self.inhibitory_state.device),
+            "state_device": str(self.state.device),
+            "feedforward_device": str(self.feedforward.device),
+            "no_self_mask_device": str(self.no_self_mask.device),
+            "recurrent_mask_device": str(self.recurrent_mask.device),
+            "recurrent_device": str(self.recurrent.device),
+            "n_columns": int(self.n_columns),
+        }
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "fast_state": self.fast_state.detach().clone().cpu(),
@@ -493,6 +510,25 @@ class AdaptiveContextLayer:
             "tau_mean": float(tau.mean().item()),
             "tau_std": float(tau.std().item()),
             "tau_median": float(tau.median().item()),
+        }
+
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for adaptive context state."""
+        observation_device = None
+        if self._context_observations:
+            observation_device = str(self._context_observations[-1][1].device)
+        return {
+            "module": "context_adaptive",
+            "device": str(self.device),
+            "log_tau_device": str(self.log_tau.device),
+            "neuron_state_device": str(self.neuron_state.device),
+            "state_device": str(self.state.device),
+            "w_in_device": str(self.w_in.device),
+            "w_out_device": str(self.w_out.device),
+            "context_observation_count": int(len(self._context_observations)),
+            "latest_context_observation_device": observation_device,
+            "n_columns": int(self.n_columns),
+            "n_neurons": int(self.n_neurons),
         }
 
     def state_dict(self) -> dict[str, Any]:

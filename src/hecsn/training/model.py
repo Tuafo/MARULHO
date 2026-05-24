@@ -260,6 +260,32 @@ class HECSNModel:
         """Call after modifying W_assembly_project to refresh the transpose cache."""
         self._W_assembly_project_t = self.W_assembly_project.t().contiguous()
 
+    def subcortex_device_report(self) -> dict[str, Any]:
+        """Return live tensor placement evidence for tensor-heavy subcortex modules."""
+        context_report = None
+        if self.context_layer is not None and hasattr(self.context_layer, "device_report"):
+            context_report = self.context_layer.device_report()
+        abstraction_report = None
+        if self.abstraction_layer is not None:
+            abstraction_report = self.abstraction_layer.device_report()
+        binding_report = None
+        if self.binding_layer is not None and hasattr(self.binding_layer, "device_report"):
+            binding_report = self.binding_layer.device_report()
+        cross_modal_report = None
+        if self.cross_modal is not None:
+            cross_modal_report = self.cross_modal.device_report()
+        return {
+            "competitive": self.competitive.device_report(),
+            "predictive": self.predictive.device_report(),
+            "context": context_report,
+            "abstraction": abstraction_report,
+            "binding": binding_report,
+            "cross_modal": cross_modal_report,
+            "memory_store": self.memory_store.device_report(),
+            "assembly_projection_device": str(self.W_assembly_project.device),
+            "assembly_projection_transpose_device": str(self._W_assembly_project_t.device),
+        }
+
     def routing_key_from_pattern(self, pattern_vec: torch.Tensor) -> torch.Tensor:
         """Route using spike-proxy assembly activations projected to latent space."""
         x = pattern_vec.to(self.device)
@@ -274,6 +300,8 @@ class HECSNModel:
 
     def runtime_scope_report(self) -> dict[str, Any]:
         routing_index_stats = self.hnsw_index.stats()
+        device_report = self.config.device_report()
+        subcortex_device_report = self.subcortex_device_report()
         local_stdp_active = self.config.plasticity_mode == "local_stdp"
         adex_post_spikes = local_stdp_active and self.config.plasticity_spike_backend == "adex"
         sharding_active = self.config.routing_shards > 1
@@ -344,6 +372,19 @@ class HECSNModel:
             "routing_candidate_fraction": float(self.config.k_routing / max(1, self.config.n_columns)),
             "routing_backend_mode": str(self.config.routing_index_mode),
             "routing_index": routing_index_stats,
+            "device": device_report,
+            "cuda_first_runtime": {
+                "enabled_when_available": self.config.device == "auto" and device_report["env_device"] is None,
+                "tensor_device": str(self.device),
+                "routing_search_device": routing_index_stats.get("search_device"),
+                "subcortex_tensor_devices": subcortex_device_report,
+                "routing_backend_cuda_capable": routing_index_stats.get("index_type") in {
+                    "torch_topk",
+                    "sharded_torch_topk",
+                    "turboquant_plus",
+                },
+                "unit_tests_default_cpu": True,
+            },
             "weight_distribution": self.competitive.distribution_proxy_stats(),
         }
 

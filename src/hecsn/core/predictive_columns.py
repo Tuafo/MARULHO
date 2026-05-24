@@ -202,6 +202,21 @@ class PredictiveColumnState:
         # Scale: base 1.0 + up to 2x boost for high-error columns
         return 1.0 + 2.0 * self.prediction_error
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for predictive state."""
+        return {
+            "module": "predictive_columns",
+            "device": str(self.device),
+            "location_device": str(self.location.device),
+            "velocity_device": str(self.velocity.device),
+            "prediction_weights_device": str(self._prediction_weights.device),
+            "prediction_error_device": str(self.prediction_error.device),
+            "confidence_device": str(self.confidence.device),
+            "hypothesis_device": str(self.hypothesis.device),
+            "n_columns": int(self.n_columns),
+            "location_dim": int(self.location_dim),
+        }
+
     def state_dict(self) -> dict[str, torch.Tensor]:
         """Serialize predictive state for checkpointing."""
         return {

@@ -101,8 +101,18 @@ def validate_multi_hour_live_run(
     action_audit = _action_audit(multi_hour_long_test_report, benchmark_report)
     duration_minutes = _number(multi_hour_long_test_report.get("duration_minutes"))
     baseline_duration_minutes = _number(baseline_long_test_report.get("duration_minutes"))
-    total_thoughts = _number(multi_hour_long_test_report.get("total_thoughts"))
-    baseline_total_thoughts = _number(baseline_long_test_report.get("total_thoughts"))
+    runtime_progress = max(
+        _number(multi_hour_long_test_report.get("max_background_tokens_processed")),
+        _number(multi_hour_long_test_report.get("final_tick_count")),
+        _number(multi_hour_long_test_report.get("final_token_count"))
+        - _number(multi_hour_long_test_report.get("initial_token_count")),
+    )
+    baseline_runtime_progress = max(
+        _number(baseline_long_test_report.get("max_background_tokens_processed")),
+        _number(baseline_long_test_report.get("final_tick_count")),
+        _number(baseline_long_test_report.get("final_token_count"))
+        - _number(baseline_long_test_report.get("initial_token_count")),
+    )
     checks = {
         "duration_is_multi_hour": duration_minutes >= MIN_MULTI_HOUR_DURATION_MINUTES,
         "baseline_was_alive_30_minute_run": baseline_duration_minutes >= 30.0
@@ -111,10 +121,9 @@ def validate_multi_hour_live_run(
         and live_validation_report.get("passed") is True,
         "long_test_health_alive": multi_hour_long_test_report.get("health_verdict") == "alive",
         "runtime_truth_alive": runtime_truth.get("verdict") == "alive",
-        "thoughts_present": total_thoughts > 0,
-        "thoughts_not_regressed_to_zero": total_thoughts > 0 and baseline_total_thoughts > 0,
+        "runtime_progress_present": runtime_progress > 0,
+        "runtime_progress_not_regressed_to_zero": runtime_progress > 0 and baseline_runtime_progress > 0,
         "memory_pressure_bounded_or_recovered": _memory_bounded(multi_hour_long_test_report),
-        "cortex_available": multi_hour_long_test_report.get("cortex_available") is True,
         "embedding_health_available": bool(_mapping(multi_hour_long_test_report.get("final_embedder")).get("available")),
         "embedding_health_not_degraded": _mapping(multi_hour_long_test_report.get("final_embedder")).get("degraded")
         is not True,
@@ -149,6 +158,10 @@ def validate_multi_hour_live_run(
             "baseline_total": baseline_long_test_report.get("total_thoughts", 0),
             "unique_topics": multi_hour_long_test_report.get("unique_topics", 0),
             "topic_diversity_ratio": multi_hour_long_test_report.get("topic_diversity_ratio", 0),
+        },
+        "runtime_progress": {
+            "multi_hour": runtime_progress,
+            "baseline": baseline_runtime_progress,
         },
         "latency_and_cost": {
             "avg_latency_ms": multi_hour_long_test_report.get("avg_latency_ms"),

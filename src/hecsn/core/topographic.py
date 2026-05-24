@@ -165,6 +165,19 @@ class TopographicGrid:
                 errors += 1
         return errors / max(self.n_columns, 1)
 
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for grid topology state."""
+        return {
+            "module": "topographic_grid",
+            "device": str(self.device),
+            "grid_positions_device": str(self.grid_positions.device),
+            "distance_matrix_device": str(self._distance_matrix.device),
+            "neighbor_ids_device": str(self._neighbor_ids.device),
+            "neighbor_weights_device": str(self._neighbor_weights.device),
+            "n_columns": int(self.n_columns),
+            "k_neighbors": int(self.k_neighbors),
+        }
+
     def state_dict(self) -> dict[str, Any]:
         return {
             "n_columns": self.n_columns,
@@ -419,6 +432,25 @@ class SpatialBindingLayer:
         self.facilitation.zero_()
         self.resources.fill_(1.0)
         self.pv_inhibition.zero_()
+
+    def device_report(self) -> dict[str, object]:
+        """Return runtime-visible device placement for spatial binding state."""
+        return {
+            "module": "spatial_binding",
+            "device": str(self.device),
+            "binding_state_device": str(self.binding_state.device),
+            "coincidence_trace_device": str(self.coincidence_trace.device),
+            "facilitation_device": str(self.facilitation.device),
+            "resources_device": str(self.resources.device),
+            "binding_usage_device": str(self.binding_usage.device),
+            "pv_inhibition_device": str(self.pv_inhibition.device),
+            "neighbor_ids_device": str(self.neighbor_ids.device),
+            "neighbor_weights_device": str(self.neighbor_weights.device),
+            "learned_weights_device": str(self.learned_weights.device),
+            "grid": self.grid.device_report(),
+            "n_bindings": int(self.n_bindings),
+            "fan_in": int(self.fan_in),
+        }
 
     def state_dict(self) -> dict[str, Any]:
         return {

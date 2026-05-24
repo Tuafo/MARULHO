@@ -96,6 +96,7 @@ class StatusRuntimeMixin:
     ) -> dict[str, Any]:
         cortex = terminus_runtime.get("cortex") if isinstance(terminus_runtime, Mapping) else {}
         cortex_available = bool(isinstance(cortex, Mapping) and cortex.get("enabled"))
+        cortex_retired = bool(isinstance(cortex, Mapping) and cortex.get("retired"))
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
         last_error = str(terminus_runtime.get("last_error") or "").strip()
@@ -120,9 +121,6 @@ class StatusRuntimeMixin:
         elif not configured:
             verdict = "partial"
             recommended_action = "configure_terminus_sources"
-        elif not cortex_available:
-            verdict = "partial"
-            recommended_action = "initialize_or_configure_cortex"
         elif not progress_observed:
             verdict = "degraded"
             recommended_action = "run_tick_or_start_runtime"
@@ -175,6 +173,7 @@ class StatusRuntimeMixin:
             "verdict": verdict,
             "recommended_action": recommended_action,
             "cortex_available": cortex_available,
+            "cortex_retired": cortex_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -194,6 +193,7 @@ class StatusRuntimeMixin:
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
                 "cortex_enabled": cortex_available,
+                "cortex_retired": cortex_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
             },

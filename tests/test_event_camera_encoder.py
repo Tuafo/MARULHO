@@ -16,6 +16,16 @@ class TestEventCameraEncoder(unittest.TestCase):
     def test_output_dim(self) -> None:
         self.assertEqual(self.enc.output_dim, 64)  # (32/4) * (32/4) = 8*8 = 64
 
+    def test_device_report_exposes_encoder_state_devices(self) -> None:
+        report = self.enc.device_report()
+        self.assertEqual(report["encoder"], "event_camera")
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["trace_device"], "cpu")
+        self.assertIsNone(report["ref_device"])
+        self.enc.encode(torch.ones(32, 32) * 0.1)
+        report = self.enc.device_report()
+        self.assertEqual(report["ref_device"], "cpu")
+
     def test_first_frame_returns_zeros(self) -> None:
         frame = torch.rand(32, 32)
         spikes = self.enc.encode(frame)

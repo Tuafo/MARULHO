@@ -20,6 +20,7 @@ class TestSemanticEncoderBasic:
         assert enc.output_dim == 128
         assert enc.n_buckets == 10_000
         assert enc.embed_dim == 64
+        assert enc.device_report()["bucket_embeddings_device"] == "cpu"
 
     def test_implements_base_encoder_protocol(self):
         enc = SemanticEncoder()
@@ -226,11 +227,26 @@ class TestSerialization:
         vec1 = enc1.feature_vector([ord(c) for c in "hello"])
 
         state = enc1.state_dict()
+        assert state["bucket_embeddings"].device.type == "cpu"
+        assert state["adapter"].device.type == "cpu"
         enc2 = SemanticEncoder()
         enc2.load_state_dict(state)
         vec2 = enc2.feature_vector([ord(c) for c in "hello"])
 
         assert torch.allclose(vec1, vec2, atol=1e-6)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+    def test_load_state_dict_restores_live_tensors_to_encoder_device(self):
+        enc1 = SemanticEncoder(n_buckets=128, enable_learned_chunking=True)
+        state = enc1.state_dict()
+
+        enc2 = SemanticEncoder(n_buckets=128, enable_learned_chunking=True, device="cuda")
+        enc2.load_state_dict(state)
+
+        assert enc2.bucket_embeddings.device.type == "cuda"
+        assert enc2.adapter.device.type == "cuda"
+        assert enc2.learned_chunking is not None
+        assert enc2.learned_chunking.prototypes.device.type == "cuda"
 
 
 # ── Config integration ─────────────────────────────────────────────────
@@ -274,3 +290,22 @@ class TestEncoderFactory:
         cfg = HECSNConfig(input_representation="semantic")
         enc = build_encoder(cfg)
         assert isinstance(enc, BaseEncoder)
+
+    def test_factory_accepts_explicit_device(self):
+        cfg = HECSNConfig(input_representation="semantic", semantic_n_buckets=128)
+        enc = build_encoder(cfg, device=torch.device("cpu"))
+        assert isinstance(enc, SemanticEncoder)
+        assert enc.device_report()["bucket_embeddings_device"] == "cpu"
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is not available")
+    def test_semantic_encoder_can_keep_outputs_and_chunking_on_cuda(self):
+        enc = SemanticEncoder(n_buckets=128, enable_learned_chunking=True, device="cuda")
+        chars = [ord(c) for c in "semantic cuda"]
+
+        assert enc.bucket_embeddings.device.type == "cuda"
+        assert enc.adapter.device.type == "cuda"
+        assert enc.feature_vector(chars).device.type == "cuda"
+        assert enc.spike_trace(chars, 0.75).device.type == "cuda"
+        assert next(enc.iter_char_patterns("hi", window_size=2))[1].device.type == "cuda"
+        assert enc.learned_chunking is not None
+        assert enc.learned_chunking.prototypes.device.type == "cuda"

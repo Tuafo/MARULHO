@@ -224,6 +224,35 @@ class TestHypercubeBindingLayer:
         assert layer_32.binding_state.shape == (32,)
         assert layer_32.neighbor_ids.shape[0] == 32
 
+    def test_device_report_exposes_live_tensor_devices(self, layer_32):
+        report = layer_32.device_report()
+
+        assert report["device"] == "cpu"
+        assert report["binding_state_device"] == str(layer_32.binding_state.device)
+        assert report["neighbor_ids_device"] == str(layer_32.neighbor_ids.device)
+        assert report["degree_device"] == str(layer_32.degree.device)
+        assert report["learned_weights_device"] == str(layer_32.learned_weights.device)
+        assert report["hub_activation_ema_device"] == str(layer_32._hub_activation_ema.device)
+        assert report["topology"]["neighbor_ids_device"] == str(layer_32.topology._neighbor_ids.device)
+
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices_after_bind_and_load(self):
+        layer = HypercubeBindingLayer(n_columns=32, device=torch.device("cuda"))
+        ctx = torch.randn(32, device=torch.device("cuda")).abs()
+        asm = torch.randn(32, device=torch.device("cuda")).abs()
+        layer.bind(ctx, asm)
+        state = layer.state_dict()
+
+        restored = HypercubeBindingLayer(n_columns=32, device=torch.device("cuda"))
+        restored.load_state_dict(state)
+        report = restored.device_report()
+
+        assert str(report["device"]).startswith("cuda")
+        assert str(report["binding_state_device"]).startswith("cuda")
+        assert str(report["neighbor_ids_device"]).startswith("cuda")
+        assert str(report["learned_weights_device"]).startswith("cuda")
+        assert str(report["topology"]["degree_device"]).startswith("cuda")
+
     def test_bind_zeros(self, layer_32):
         """Zero inputs → zero output, zero strength."""
         ctx = torch.zeros(32)
@@ -409,6 +438,10 @@ class TestConfigIntegration:
         model = HECSNModel(cfg)
         assert isinstance(model.binding_layer, HypercubeBindingLayer)
         assert model.binding_layer.topology.dim == 5
+        report = model.subcortex_device_report()["binding"]
+        assert report is not None
+        assert report["module"] == "hypercube_binding"
+        assert report["neighbor_ids_device"] == str(model.binding_layer.neighbor_ids.device)
 
 
 # ── Benchmark ──────────────────────────────────────────────────────

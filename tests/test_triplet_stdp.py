@@ -74,6 +74,28 @@ def _apply_step(circuit: LocalPlasticityCircuit, winner: int = 0) -> dict[str, f
 
 
 class TestTripletSTDPInit(unittest.TestCase):
+    def test_device_report_exposes_live_tensor_devices(self) -> None:
+        c = _make_circuit("triplet", spike_backend="adex")
+        report = c.device_report()
+
+        self.assertEqual(report["device"], "cpu")
+        self.assertEqual(report["plasticity_rule"], "triplet")
+        self.assertEqual(report["spike_backend"], "adex")
+        self.assertEqual(report["pre_trace_device"], str(c.pre_trace.device))
+        self.assertEqual(report["input_eligibility_device"], str(c.input_eligibility.device))
+        self.assertEqual(report["adex_voltage_device"], str(c.adex_neurons.V.device))
+        self.assertEqual(report["adex"]["voltage_device"], str(c.adex_neurons.V.device))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA device required")
+    def test_cuda_device_report_exposes_live_tensor_devices(self) -> None:
+        c = _make_circuit("triplet", device=torch.device("cuda"), spike_backend="adex")
+        report = c.device_report()
+
+        self.assertTrue(str(report["device"]).startswith("cuda"))
+        self.assertTrue(str(report["pre_trace_device"]).startswith("cuda"))
+        self.assertTrue(str(report["input_eligibility_device"]).startswith("cuda"))
+        self.assertTrue(str(report["adex_voltage_device"]).startswith("cuda"))
+
     def test_pair_rule_default(self) -> None:
         c = _make_circuit("pair")
         self.assertEqual(c.plasticity_rule, "pair")
@@ -354,6 +376,23 @@ class TestTripletStateDictRoundTrip(unittest.TestCase):
         self.assertTrue(torch.allclose(c1.o1_trace, c2.o1_trace))
         self.assertTrue(torch.allclose(c1.o2_trace, c2.o2_trace))
         self.assertTrue(torch.allclose(c1.r2_trace, c2.r2_trace))
+
+    def test_roundtrip_preserves_adex_state_when_backend_enabled(self) -> None:
+        c1 = _make_circuit("triplet", spike_backend="adex")
+        _apply_step(c1)
+        assert c1.adex_neurons is not None
+        before_voltage = c1.adex_neurons.V.detach().clone()
+        before_adaptation = c1.adex_neurons.w.detach().clone()
+
+        snapshot = c1.state_dict()
+        c2 = _make_circuit("triplet", spike_backend="adex")
+        c2.load_state_dict(snapshot)
+
+        assert c2.adex_neurons is not None
+        self.assertEqual(c2.adex_step, c1.adex_step)
+        self.assertIn("adex_neurons", snapshot)
+        self.assertTrue(torch.allclose(c2.adex_neurons.V, before_voltage))
+        self.assertTrue(torch.allclose(c2.adex_neurons.w, before_adaptation))
 
 
 class TestTripletRevive(unittest.TestCase):
