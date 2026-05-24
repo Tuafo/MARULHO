@@ -12,8 +12,6 @@ from hecsn.training.long_test_runner import (
     health_exit_code,
     run_acceptance_harness,
     _acceptance_failure_details,
-    _await_final_thought_settle,
-    _snapshot_has_inflight_thought,
     _summarize_global_workspace,
     _summarize_memory_pressure,
     _summarize_thought_lifecycle,
@@ -42,7 +40,7 @@ def test_classify_test_report_marks_dead_empty_run() -> None:
     assert health_exit_code(report) == 2
 
 
-def test_classify_test_report_marks_degraded_when_runtime_progresses_without_thoughts() -> None:
+def test_classify_test_report_marks_alive_when_subcortex_progresses_without_thoughts() -> None:
     report = LongTestReport(
         cortex_available=True,
         samples_collected=3,
@@ -56,9 +54,9 @@ def test_classify_test_report_marks_degraded_when_runtime_progresses_without_tho
 
     classify_test_report(report)
 
-    assert report.health_verdict == "degraded"
-    assert any("retired cortex thought output" in reason for reason in report.health_reasons)
-    assert health_exit_code(report) == 1
+    assert report.health_verdict == "alive"
+    assert report.health_reasons == ["Run met the minimum activity and acceptance thresholds."]
+    assert health_exit_code(report) == 0
 
 
 def test_classify_test_report_uses_runtime_truth_contract_warnings() -> None:
@@ -208,82 +206,6 @@ def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
     assert workspace["evidence_boundary"]["hypotheses_promoted_to_fact"] == 0
 
 
-def test_snapshot_has_inflight_thought_when_attempt_is_still_thinking() -> None:
-    assert _snapshot_has_inflight_thought(
-        MetricSnapshot(
-            thoughts_total=0,
-            thought_lifecycle={"attempts": 1, "successful": 0, "mode": "thinking"},
-        )
-    )
-    assert not _snapshot_has_inflight_thought(
-        MetricSnapshot(
-            thoughts_total=1,
-            thought_lifecycle={"attempts": 1, "successful": 1, "mode": "idle"},
-        )
-    )
-
-
-def test_await_final_thought_settle_returns_without_retired_cortex_wait() -> None:
-    class Manager:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def status(self, *, fresh_wait_seconds: float) -> dict:
-            self.calls += 1
-            thoughts_generated = 0 if self.calls == 1 else 1
-            mode = "thinking" if self.calls == 1 else "idle"
-            return {
-                "token_count": 10,
-                "memory_store": {"fill_fraction": 0.1, "size": 1, "capacity": 10},
-                "runtime_truth": {},
-                "terminus_runtime": {
-                    "running": True,
-                    "background_tokens_processed": 1,
-                    "tick_count": 1,
-                    "cortex": {
-                        "enabled": True,
-                        "running": True,
-                        "current_mode": mode,
-                        "thoughts_generated": thoughts_generated,
-                        "thought_lifecycle": {
-                            "attempts": 1,
-                            "successful": thoughts_generated,
-                            "blocked_ticks": 0,
-                        },
-                    },
-                },
-            }
-
-        def cortex_thoughts(self, limit: int = 10) -> dict:
-            if self.calls <= 1:
-                return {"thoughts_generated": 0, "thoughts": []}
-            return {
-                "thoughts_generated": 1,
-                "thoughts": [
-                    {
-                        "thought": "A settled thought about validation.",
-                        "topics": ["validation"],
-                        "latency_ms": 25,
-                    }
-                ],
-            }
-
-    snapshot, count = _await_final_thought_settle(
-        Manager(),
-        start_perf=0.0,
-        last_thoughts_count=0,
-        all_topics=set(),
-        thoughts_seen=[],
-        seen_thought_texts=set(),
-        wait_seconds=1.0,
-    )
-
-    assert snapshot is not None
-    assert count == 0
-    assert snapshot.thoughts_total == 0
-    assert snapshot.thought_lifecycle["retired"] is True
-
-
 def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
     clock = {"now": 1_000.0}
 
@@ -323,15 +245,6 @@ def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
         def quick_start_terminus(self, *, preset: str) -> dict:
             return {"status": "ok", "terminus_runtime": {"configured": True, "running": True}}
 
-        def cortex_snapshot(self) -> dict:
-            return {"enabled": True, "model": "mock", "thoughts_generated": 1}
-
-        def cortex_thoughts(self, limit: int = 10) -> dict:
-            return {
-                "thoughts_generated": 1,
-                "thoughts": [{"thought": "slow snapshot", "topics": ["validation"], "latency_ms": 10}],
-            }
-
         def close(self) -> None:
             self.closed = True
 
@@ -349,7 +262,6 @@ def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
                 duration_minutes=3.0,
                 sample_interval_s=60.0,
                 output_dir=tmpdir,
-                final_thought_wait_s=0.0,
             )
 
     assert Manager.snapshot_status_calls == 1

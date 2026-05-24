@@ -34,10 +34,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_HEALTH_THRESHOLDS: dict[str, int] = {
     "min_samples": 1,
     "min_runtime_progress_tokens": 1,
-    "min_total_thoughts_alive": 1,
 }
 DEFAULT_CORTEX_INIT_WAIT_S = 15.0
-DEFAULT_FINAL_THOUGHT_WAIT_S = 90.0
 DEFAULT_LONG_TEST_MEMORY_CAPACITY = 16_384
 
 
@@ -601,11 +599,6 @@ def classify_test_report(
         fatal_reasons.append("No long-test metric samples were collected.")
     if runtime_progress < int(merged_thresholds["min_runtime_progress_tokens"]):
         fatal_reasons.append("No observable runtime progress was recorded.")
-    if int(report.total_thoughts or 0) < int(merged_thresholds["min_total_thoughts_alive"]):
-        if runtime_progress >= int(merged_thresholds["min_runtime_progress_tokens"]):
-            warning_reasons.append("Runtime progressed without retired cortex thought output.")
-        else:
-            fatal_reasons.append("No runtime progress or retired cortex thought output was recorded.")
     if int(report.total_errors or 0) > 0:
         warning_reasons.append(f"{int(report.total_errors)} snapshot or reporting errors were recorded.")
 
@@ -686,50 +679,11 @@ def _collect_snapshot(
     return snapshot, last_thoughts_count
 
 
-def _snapshot_has_inflight_thought(snapshot: MetricSnapshot) -> bool:
-    lifecycle = snapshot.thought_lifecycle if isinstance(snapshot.thought_lifecycle, Mapping) else {}
-    attempts = int(lifecycle.get("attempts", 0) or 0)
-    successful = int(lifecycle.get("successful", snapshot.thoughts_total) or 0)
-    mode = str(lifecycle.get("mode", "")).lower()
-    return attempts > successful and mode == "thinking"
-
-
-def _await_final_thought_settle(
-    manager: Any,
-    *,
-    start_perf: float,
-    last_thoughts_count: int,
-    all_topics: set[str],
-    thoughts_seen: list[str],
-    seen_thought_texts: set[str],
-    wait_seconds: float,
-) -> tuple[MetricSnapshot | None, int]:
-    deadline = time.time() + max(0.0, float(wait_seconds))
-    last_snapshot: MetricSnapshot | None = None
-    while time.time() < deadline:
-        snapshot, last_thoughts_count = _collect_snapshot(
-            manager,
-            start_perf=start_perf,
-            last_thoughts_count=last_thoughts_count,
-            all_topics=all_topics,
-            thoughts_seen=thoughts_seen,
-            seen_thought_texts=seen_thought_texts,
-            fresh_wait_seconds=min(10.0, max(1.0, float(wait_seconds))),
-        )
-        last_snapshot = snapshot
-        if not _snapshot_has_inflight_thought(snapshot):
-            return snapshot, last_thoughts_count
-        remaining = max(0.0, deadline - time.time())
-        time.sleep(min(1.0, max(0.1, remaining / 2.0)))
-    return last_snapshot, last_thoughts_count
-
-
 def run_long_test(
     duration_minutes: float = 20.0,
     sample_interval_s: float = 30.0,
     preset: str = "curriculum",
     output_dir: str = "reports",
-    final_thought_wait_s: float = DEFAULT_FINAL_THOUGHT_WAIT_S,
     memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY,
 ) -> TestReport:
     """Run a full Terminus brain test for the specified duration."""
@@ -859,28 +813,6 @@ def run_long_test(
                 # If a snapshot overruns its scheduled slot, skip missed slots instead
                 # of trying to catch up with back-to-back expensive snapshots.
                 next_sample_at = min(duration_s, elapsed_after_sample + interval_s)
-            if snapshots and _snapshot_has_inflight_thought(snapshots[-1]) and final_thought_wait_s > 0:
-                logger.info(
-                    "Final sample caught an in-flight cortex thought; waiting up to %.1fs for post-processing",
-                    float(final_thought_wait_s),
-                )
-                try:
-                    final_snapshot, last_thoughts_count = _await_final_thought_settle(
-                        runtime,
-                        start_perf=start_perf,
-                        last_thoughts_count=last_thoughts_count,
-                        all_topics=all_topics,
-                        thoughts_seen=thoughts_seen,
-                        seen_thought_texts=seen_thought_texts,
-                        wait_seconds=float(final_thought_wait_s),
-                    )
-                    if final_snapshot is not None:
-                        snapshots.append(final_snapshot)
-                except Exception as exc:
-                    snapshot = MetricSnapshot(timestamp=time.time(), errors=1)
-                    snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
-                    snapshots.append(snapshot)
-                    logger.warning("Final thought-settle snapshot error: %s", exc)
     except KeyboardInterrupt:
         logger.info("Test interrupted by user")
     finally:
@@ -1214,12 +1146,6 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_LONG_TEST_MEMORY_CAPACITY,
         help=f"Checkpoint memory capacity for the validation run (default: {DEFAULT_LONG_TEST_MEMORY_CAPACITY})",
     )
-    parser.add_argument(
-        "--final-thought-wait",
-        type=float,
-        default=DEFAULT_FINAL_THOUGHT_WAIT_S,
-        help="Seconds to wait when the final sample catches an in-flight thought (default: 90)",
-    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args(argv)
 
@@ -1236,7 +1162,6 @@ def main(argv: list[str] | None = None) -> int:
         sample_interval_s=args.interval,
         preset=args.preset,
         output_dir=args.output,
-        final_thought_wait_s=args.final_thought_wait,
         memory_capacity=args.memory_capacity,
     )
     json_path, md_path = write_report(report, output_dir=args.output)

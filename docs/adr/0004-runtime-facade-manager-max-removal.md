@@ -52,7 +52,7 @@ Introduce `RuntimeFacade` as the single operator-facing runtime interface.
 - `RuntimeFacade` temporarily knows about a few mixin-shaped implementation
   modules for trace export and replay dataset packaging.
 - Some internal manager callback hooks remain until RuntimeControl,
-  BrainRuntime, CortexController, RuntimePersistence, and related modules move
+  BrainRuntime, the retired Cortex compatibility controller, RuntimePersistence, and related modules move
   to narrower dependency objects.
 
 ### Neutral

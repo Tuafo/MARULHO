@@ -45,7 +45,7 @@ The accepted implementation goes further than simple mixin extraction:
 | RuntimeController | RuntimeControlMixin + RuntimePrewarmMixin behavior | ~1600 | brain thread, stop event, active execution counters, prewarm thread lifecycle |
 | StatusReadModel | StatusRuntimeMixin + LivingStatusMixin + sensory preview + shallow ReportingMixin behavior | ~1000 | cached status/telemetry/terminus snapshots |
 | ActionExecutor | ActionRuntimeMixin + ActionAssistMixin | ~750 | action history |
-| CortexController | CortexRuntimeMixin | 350 | cortex query hint text/timestamp |
+| RetiredCortexCompatibilityController | CortexRuntimeMixin | 350 | temporary retired-path status and cleanup hooks |
 | RuntimePersistence | PersistenceMixin | 233 | trace history and checkpoint save/restore orchestration |
 | RuntimeConfig | RuntimeConfigMixin | 513 | (stateless — normalization only) |
 | RuntimeSources | RuntimeSourcesMixin | 390 | source runtime dataclasses |
@@ -113,6 +113,7 @@ Per-module locks create deadlock risk (A holds lock_A, waits for B which holds l
 - Cross-cutting concerns (`mark_mutated`, `record_event`) have a dedicated home
 - Shallow modules are collapsed — no more pass-throughs
 - Future changes to one module don't require re-validating unrelated modules
+- Retired Cortex compatibility is named as cleanup scaffolding, not an active runtime module
 - The 9,277-line test file can decompose into 15 per-module test files
 
 ### Negative

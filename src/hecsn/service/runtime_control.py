@@ -168,34 +168,13 @@ class RuntimeControl(RuntimePrewarmMixin):
                 **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
-        # Start cortex thought loop alongside brain, but do not let NIM startup
-        # hold the service lock or block the request beyond the lazy init budget.
-        thought_loop = self._ensure_cortex_initialized()
-        if thought_loop is not None and not thought_loop.is_running:
-            try:
-                thought_loop.start()
-                _cortex_logger.info("ThoughtLoop started alongside Terminus brain")
-            except Exception as exc:
-                _cortex_logger.warning("ThoughtLoop failed to start: %s", exc)
         return result
 
     def stop_terminus(self) -> dict[str, Any]:
-        # Signal ThoughtLoop stop under lock (safe), join outside (avoids deadlock)
-        thought_loop = self._thought_loop
-        if thought_loop is not None and thought_loop.is_running:
-            thought_loop.request_stop()
-
         thread = self._request_brain_stop(reason="manual")
         self._join_brain_thread(thread)
         prewarm_thread = self._request_ingestion_prewarm_stop()
         self._join_ingestion_prewarm_thread(prewarm_thread)
-
-        # Join ThoughtLoop thread outside all locks
-        if thought_loop is not None:
-            try:
-                thought_loop.stop(timeout=3.0)
-            except Exception:
-                pass
 
         with self._lock:
             return {
@@ -565,7 +544,6 @@ _install_dependency_forwarders(RuntimeControl, (
     "_commit_collected_runtime_locked",
     "_commit_prefetched_sensory_runtime_locked",
     "_encoder",
-    "_ensure_cortex_initialized",
     "_finalize_tick_locked",
     "_interrupt_brain_sources_locked",
     "_interrupt_sensory_sources_locked",
@@ -599,7 +577,6 @@ _install_dependency_forwarders(RuntimeControl, (
     "_start_ingestion_prewarm_locked",
     "_start_remote_warm_promotion_locked",
     "_stream_supports_ready_reads",
-    "_thought_loop",
     "_train_chunk_in_sub_batches",
     "_trainer",
     "_update_brain_runtime_cache_locked",

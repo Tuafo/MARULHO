@@ -84,7 +84,7 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 - **Runtime Controller** — runtime lifecycle state machine (configure/start/stop/tick), brain loop orchestration, active execution counters, thread lifecycle, and prewarm management. Uses an explicit dependency adapter rather than manager-bound owner forwarding.
 - **Status Read Model** — read-only projection of all runtime state into status/telemetry/terminus snapshots, including direct sensory preview projection.
 - **Action Executor** — digital action execution with path sandboxing, outcome calibration scoring, action history, and action-assist query augmentation.
-- **Cortex Controller** — cortex ask/sleep/thoughts, action intent handling, cortex query hints.
+- **Retired Cortex Compatibility Controller** — temporary internal adapter for the former LLM/ThoughtLoop path. It may expose retired status snapshots and cleanup hooks while old internals are removed, but it is not an operator-facing runtime surface and must not own liveness, action policy, or CUDA-first claims.
 - **Runtime Persistence** — checkpoint save/restore and trace persistence. Runtime State owns the brain event history. Uses an explicit dependency object instead of owner-forwarded manager fields.
 - **Runtime Config** — input validation and normalization gate for all operator configs. Stateless.
 - **Runtime Sources** — stream construction, cache I/O, serialization, window reconstruction.
@@ -111,7 +111,7 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 - Retired ThoughtLoop code may remain temporarily during cleanup but must not block Runtime Truth, CUDA evidence, or long-run liveness.
 - Gap Planner and Curiosity Controller feed Source Bank selection for autonomous acquisition
 - Replay Pipeline feeds adapter experiments that never touch production runtime
-- Service Manager orchestrates Living Loop, which runs ThoughtLoop against the SNN model
+- Service Manager wires the Runtime Facade and deep modules. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
 - CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The retired Cortex path is not a CUDA-first claim or architectural requirement.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Path Retirement Gate now applies to Cortex: LLM-backed runtime paths are being removed from active architecture so focus returns to Subcortex, world-model, memory, and policy mechanisms.

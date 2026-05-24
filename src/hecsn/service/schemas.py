@@ -40,10 +40,6 @@ class RespondRequest(QueryRequest):
     max_evidence_items: int = Field(3, ge=1, le=8)
 
 
-class CortexSleepRequest(BaseModel):
-    reason: str | None = None
-
-
 class TerminusSourceSpec(BaseModel):
     name: str = Field(..., min_length=1)
     source: str = Field(..., min_length=1)

@@ -14,7 +14,6 @@ from hecsn.service.action_loop import execute_digital_action
 from hecsn.service.history_store import read_history_record, replace_history_record
 from hecsn.semantics.grounding_text import match_terms, salient_query_terms
 
-DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = 0.25
 DEFAULT_RUNTIME_FEEDBACK_HISTORY = 8
 DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT = 8
 DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT = 12
@@ -37,8 +36,6 @@ class ActionExecutor:
         record_brain_event_fn: Callable[[Mapping[str, Any]], None],
         brain_runtime_snapshot_fn: Callable[[], dict[str, Any]],
         runtime_trace_export_safe_value_fn: Callable[[Any], Any],
-        ensure_cortex_initialized_fn: Callable[[], Any | None],
-        inject_action_record_into_cortex_fn: Callable[[Any, Mapping[str, Any]], None],
         apply_provider_outcome_calibration_fn: Callable[..., bool] | None = None,
     ) -> None:
         self._lock = lock
@@ -49,8 +46,6 @@ class ActionExecutor:
         self._record_brain_event_fn = record_brain_event_fn
         self._brain_runtime_snapshot_fn = brain_runtime_snapshot_fn
         self._runtime_trace_export_safe_value_fn = runtime_trace_export_safe_value_fn
-        self._ensure_cortex_initialized_fn = ensure_cortex_initialized_fn
-        self._inject_action_record_into_cortex_fn = inject_action_record_into_cortex_fn
         self._apply_provider_outcome_calibration_fn = apply_provider_outcome_calibration_fn
         self._action_history: deque[dict[str, Any]] = deque(maxlen=self._history_maxlen)
         self.load_action_history(action_history or [])
@@ -193,7 +188,6 @@ class ActionExecutor:
             ]
             self._action_history = deque(existing, maxlen=self._action_history.maxlen)
             self._action_history.appendleft(normalized)
-            self._inject_action_record_into_cortex_locked(normalized)
             verification = normalized.get("verification") if isinstance(normalized.get("verification"), Mapping) else {}
             normalized_trigger_query_text = self._normalize_cortex_query_hint(normalized.get("trigger_query_text", ""))
             if self._apply_provider_outcome_calibration_fn is not None and normalized_trigger_query_text:
@@ -295,10 +289,6 @@ class ActionExecutor:
 
     def action_history_memory_metadata(self, record: Mapping[str, Any]) -> dict[str, Any]:
         return self._action_history_memory_metadata(record)
-
-    def replay_action_history_into_cortex(self) -> None:
-        with self._lock:
-            self._replay_action_history_into_cortex_locked()
 
     def action_loop_summary(self) -> dict[str, Any]:
         with self._lock:
@@ -1032,16 +1022,6 @@ class ActionExecutor:
             "contradiction": bool(contradiction),
             "evidence": evidence,
         }
-
-    def _inject_action_record_into_cortex_locked(self, record: Mapping[str, Any]) -> None:
-        thought_loop = self._ensure_cortex_initialized_fn()
-        if thought_loop is None:
-            return
-        self._inject_action_record_into_cortex_fn(thought_loop, record)
-
-    def _replay_action_history_into_cortex_locked(self) -> None:
-        for record in reversed(list(self._action_history)):
-            self._inject_action_record_into_cortex_locked(record)
 
     def _action_loop_summary_locked(self) -> dict[str, Any]:
         verified = 0

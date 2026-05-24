@@ -103,23 +103,11 @@ class RuntimeFacade:
     def replay_dataset_bundle(self, **kwargs: Any) -> dict[str, Any]:
         return ReplayDatasetBundleMixin.replay_dataset_bundle(self._root, **kwargs)
 
-    def cortex_ask(self, query: str) -> dict[str, Any]:
-        return self._root._cortex_controller.cortex_ask(query)
-
-    def cortex_sleep(self, reason: str) -> dict[str, Any]:
-        return self._root._cortex_controller.cortex_sleep(reason)
-
-    def cortex_thoughts(self, limit: int = 20) -> dict[str, Any]:
-        return self._root._cortex_controller.cortex_thoughts(limit=limit)
-
-    def cortex_snapshot(self) -> dict[str, Any]:
-        return self._root._cortex_controller.cortex_snapshot()
-
     def action_history(self, limit: int = 20) -> dict[str, Any]:
         return self._root._action_executor.action_history(limit=limit)
 
-    def execute_digital_action(self, action: Mapping[str, Any]) -> dict[str, Any]:
-        return self._root._action_executor.execute_digital_action(action)
+    def execute_digital_action(self, action: Mapping[str, Any], **kwargs: Any) -> dict[str, Any]:
+        return self._root._action_executor.execute_digital_action(action, **kwargs)
 
     def record_runtime_feedback(self, feedback: Mapping[str, Any]) -> dict[str, Any]:
         return self._root._feedback_applier.record_runtime_feedback(feedback)

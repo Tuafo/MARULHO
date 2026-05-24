@@ -63,8 +63,6 @@ def _build_action_store(root: Path, action_history: list[dict[str, Any]]) -> Act
         record_brain_event_fn=lambda _event: None,
         brain_runtime_snapshot_fn=lambda: {"runtime": "snapshot", "state_revision": runtime_state.state_revision},
         runtime_trace_export_safe_value_fn=deepcopy,
-        ensure_cortex_initialized_fn=lambda: None,
-        inject_action_record_into_cortex_fn=lambda *_args, **_kwargs: None,
         apply_provider_outcome_calibration_fn=lambda **_kwargs: True,
     )
 

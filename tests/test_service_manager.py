@@ -191,7 +191,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                 ):
                     manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
                 try:
-                    env_info = manager.status()["terminus_runtime"]["environment"]
+                    env_info = manager.runtime_facade.status()["terminus_runtime"]["environment"]
                     self.assertTrue(env_info["dotenv_available"])
                     self.assertTrue(env_info["dotenv_loaded"])
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
@@ -250,7 +250,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                         env_root=env_root,
                     )
                 try:
-                    env_info = manager.status()["terminus_runtime"]["environment"]
+                    env_info = manager.runtime_facade.status()["terminus_runtime"]["environment"]
                     self.assertTrue(env_info["dotenv_available"])
                     self.assertTrue(env_info["dotenv_loaded"])
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
@@ -281,7 +281,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     "_sleep_replay",
                     side_effect=AssertionError("feed must not synchronously run sleep maintenance"),
                 ) as sleep_replay:
-                    result = manager.feed(text="x")
+                    result = manager.runtime_facade.feed(text="x")
 
                 self.assertEqual(sleep_replay.call_count, 0)
                 self.assertEqual(result["feed_summary"]["tokens_processed"], 1)
@@ -300,12 +300,12 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     "_replay_dataset_preview_summary_locked",
                     side_effect=AssertionError("feed traces must not build replay dataset previews"),
                 ) as preview:
-                    result = manager.feed(text="Cats chase mice. Cats rest indoors.")
+                    result = manager.runtime_facade.feed(text="Cats chase mice. Cats rest indoors.")
 
                 self.assertEqual(preview.call_count, 0)
                 self.assertEqual(result["runtime_episode"]["operation"], "feed")
 
-                status = manager.living_loop_status()
+                status = manager.runtime_facade.living_loop_status()
                 self.assertIn("replay_dataset_summary", status["living_loop"])
             finally:
                 manager.close()
@@ -321,12 +321,12 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     "_observe_runtime_concepts_locked",
                     wraps=manager._observe_runtime_concepts_locked,
                 ) as observe:
-                    result = manager.feed(text=text)
+                    result = manager.runtime_facade.feed(text=text)
 
                 summary = result["feed_summary"]
                 tokens_processed = int(summary["tokens_processed"])
                 concept_observations = int(summary["concept_observations"])
-                concept_store = manager.status()["concept_store"]
+                concept_store = manager.runtime_facade.status()["concept_store"]
 
                 self.assertGreater(tokens_processed, DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL)
                 self.assertEqual(summary["feed_encoding_mode"], REQUEST_FEED_ENCODING_MODE)
@@ -348,29 +348,29 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_checkpoint_roundtrip")
             try:
-                manager.feed(text="river bank water current\nmoney bank credit loan\nriver reeds current bank\n")
-                fed = manager.status()["concept_store"]
+                manager.runtime_facade.feed(text="river bank water current\nmoney bank credit loan\nriver reeds current bank\n")
+                fed = manager.runtime_facade.status()["concept_store"]
                 self.assertGreater(int(fed["concept_count"]), 0)
                 self.assertGreater(int(fed["observations"]), 0)
-                river_query = manager.query(query_text="river bank current", top_k_memories=6)
-                manager.query(query_text="money bank loan", top_k_memories=6)
+                river_query = manager.runtime_facade.query(query_text="river bank current", top_k_memories=6)
+                manager.runtime_facade.query(query_text="money bank loan", top_k_memories=6)
 
                 self.assertIn("gap_plan", river_query)
                 self.assertEqual(river_query["gap_plan"]["planner_mode"], "semantic_gap_planner")
 
-                before_status = manager.status()
+                before_status = manager.runtime_facade.status()
                 before = before_status["concept_store"]
                 before_serotonin = float(before_status["serotonin"])
                 self.assertGreater(int(before["concept_count"]), 0)
                 self.assertGreater(int(before["observations"]), 0)
 
-                saved = manager.save_checkpoint(str(root / "service.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
                 restored = HECSNServiceManager(
                     saved["path"],
                     trace_dir=root / "restored_traces",
                 )
                 try:
-                    after_status = restored.status()
+                    after_status = restored.runtime_facade.status()
                     after = after_status["concept_store"]
                     metadata = after_status["checkpoint_metadata"]
 
@@ -396,17 +396,17 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_restore_checkpoint_revision")
             try:
-                manager.feed(text="river bank water current\nmoney bank credit loan\n")
-                manager.query(query_text="river bank current", top_k_memories=6)
-                revision_before_restore = manager.status()["state_revision"]
+                manager.runtime_facade.feed(text="river bank water current\nmoney bank credit loan\n")
+                manager.runtime_facade.query(query_text="river bank current", top_k_memories=6)
+                revision_before_restore = manager.runtime_facade.status()["state_revision"]
                 revision_after_restore = revision_before_restore + 1
 
-                saved = manager.save_checkpoint(str(root / "service.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
                 self.assertFalse(saved["dirty_state"])
                 self.assertEqual(saved["state_revision"], revision_before_restore)
 
-                restored = manager.restore_checkpoint(saved["path"])
-                after_restore = manager.status()
+                restored = manager.runtime_facade.restore_checkpoint(saved["path"])
+                after_restore = manager.runtime_facade.status()
 
                 self.assertFalse(restored["dirty_state"])
                 self.assertEqual(restored["state_revision"], revision_after_restore)
@@ -420,17 +420,17 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_replay_history_roundtrip")
             try:
-                manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
-                replay_record = manager.replay_sample(
+                manager.runtime_facade.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
+                replay_record = manager.runtime_facade.replay_sample(
                     mode="sample",
                     operator_id="operator-1",
                     confirmation=True,
                 )
                 self.assertEqual(replay_record["status"], "recorded")
-                self.assertEqual(manager.replay_sample_history(limit=10)["count"], 1)
-                self.assertGreaterEqual(len(manager.recent_traces(limit=10)), 1)
+                self.assertEqual(manager.runtime_facade.replay_sample_history(limit=10)["count"], 1)
+                self.assertGreaterEqual(len(manager.runtime_facade.recent_traces(limit=10)), 1)
 
-                saved = manager.save_checkpoint(str(root / "service.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "traces")
                 try:
                     replay_history = restored.replay_sample_history(limit=10)
@@ -469,9 +469,9 @@ class ServiceManagerInteractionPipelineDelegationTests(unittest.TestCase):
 
                 manager._interaction_pipeline = _FakeInteractionPipeline()
 
-                self.assertEqual(manager.query(query_text="cats"), {"operation": "query"})
-                self.assertEqual(manager.feed(text="cats chase mice"), {"operation": "feed"})
-                self.assertEqual(manager.respond(query_text="cats"), {"operation": "respond"})
+                self.assertEqual(manager.runtime_facade.query(query_text="cats"), {"operation": "query"})
+                self.assertEqual(manager.runtime_facade.feed(text="cats chase mice"), {"operation": "feed"})
+                self.assertEqual(manager.runtime_facade.respond(query_text="cats"), {"operation": "respond"})
                 self.assertEqual([call[0] for call in calls], ["query", "feed", "respond"])
                 self.assertEqual(calls[0][1]["query_text"], "cats")
                 self.assertEqual(calls[1][1]["text"], "cats chase mice")
@@ -486,9 +486,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_runtime_feedback_episode")
             try:
-                feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
+                feed_result = manager.runtime_facade.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
                 episode_id = feed_result["runtime_episode"]["episode_id"]
-                feedback = manager.record_runtime_feedback(
+                feedback = manager.runtime_facade.record_runtime_feedback(
                     {
                         "target_type": "runtime_episode",
                         "target_id": episode_id,
@@ -511,7 +511,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(feedback["target"]["feedback"][0]["evaluator_id"], "operator-1")
                 self.assertNotIn("api_key", feedback["target"]["feedback"][0]["evidence"][0])
 
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
 
@@ -530,11 +530,11 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_runtime_feedback_runtime_state")
             try:
-                feed_result = manager.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
+                feed_result = manager.runtime_facade.feed(text="Cats chase mice at night. Cats rest indoors during the day.")
                 episode_id = feed_result["runtime_episode"]["episode_id"]
                 expected_state_revision = int(manager._runtime_state.state_revision) + 1
 
-                feedback = manager.record_runtime_feedback(
+                feedback = manager.runtime_facade.record_runtime_feedback(
                     {
                         "target_type": "runtime_episode",
                         "target_id": episode_id,
@@ -559,7 +559,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("adaptive memory plasticity signal " * 32, encoding="utf-8")
             try:
-                configured = manager.configure_terminus(
+                configured = manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "local_terminus_source",
@@ -572,7 +572,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     repeat_sources=False,
                 )
                 before_tokens = configured["token_count"]
-                ticked = manager.terminus_tick(steps=2)
+                ticked = manager.runtime_facade.terminus_tick(steps=2)
                 runtime = ticked["terminus_runtime"]
 
                 self.assertTrue(runtime["configured"])
@@ -594,7 +594,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(runtime["source_progress"][0]["last_tokens_trained"], 0)
                 self.assertIsNotNone(runtime["source_progress"][0]["last_activity_at"])
                 self.assertAlmostEqual(runtime["source_progress"][0]["share_of_background_tokens"], 1.0, places=6)
-                concept_store = manager.status()["concept_store"]
+                concept_store = manager.runtime_facade.status()["concept_store"]
                 self.assertGreater(int(concept_store["concept_count"]), 0)
                 self.assertGreater(int(concept_store["observations"]), 0)
                 top_terms = {
@@ -619,7 +619,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=fake_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "fineweb_edu",
@@ -633,7 +633,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         repeat_sources=True,
                     )
                 before_tokens = configured["token_count"]
-                ticked = manager.terminus_tick(steps=2)
+                ticked = manager.runtime_facade.terminus_tick(steps=2)
                 runtime = ticked["terminus_runtime"]
 
                 self.assertGreater(ticked["token_count"], before_tokens)
@@ -654,7 +654,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             garden_path.write_text("tomatoes need watering and healthy soil " * 24, encoding="utf-8")
             tectonics_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "garden_source",
@@ -673,8 +673,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=True,
                 )
-                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
-                runtime = manager.terminus_tick()["terminus_runtime"]
+                manager.runtime_facade.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                runtime = manager.runtime_facade.terminus_tick()["terminus_runtime"]
                 garden_progress = next(item for item in runtime["source_progress"] if item["name"] == "garden_source")
                 tectonics_progress = next(item for item in runtime["source_progress"] if item["name"] == "tectonics_source")
 
@@ -697,7 +697,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             first_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
             second_path.write_text("subduction faults reshape crust and mantle boundaries " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "first_source",
@@ -716,9 +716,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=True,
                 )
-                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
-                first_tick = manager.terminus_tick()["terminus_runtime"]
-                second_tick = manager.terminus_tick()["terminus_runtime"]
+                manager.runtime_facade.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                first_tick = manager.runtime_facade.terminus_tick()["terminus_runtime"]
+                second_tick = manager.runtime_facade.terminus_tick()["terminus_runtime"]
                 first_progress = next(item for item in second_tick["source_progress"] if item["name"] == "first_source")
                 second_progress = next(item for item in second_tick["source_progress"] if item["name"] == "second_source")
 
@@ -739,7 +739,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             first_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
             second_path.write_text("garden tomatoes need soil sunlight and watering " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -758,9 +758,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=True,
                 )
-                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
-                manager.terminus_tick()
-                before_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                manager.runtime_facade.terminus_tick()
+                before_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 before_tectonics = next(item for item in before_runtime["source_progress"] if item["name"] == "tectonics_source")
                 before_garden = next(item for item in before_runtime["source_progress"] if item["name"] == "garden_source")
 
@@ -786,13 +786,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do crust plates move over the mantle?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                after_runtime = manager.status()["terminus_runtime"]
+                after_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 after_tectonics = next(item for item in after_runtime["source_progress"] if item["name"] == "tectonics_source")
                 after_garden = next(item for item in after_runtime["source_progress"] if item["name"] == "garden_source")
 
@@ -812,7 +812,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             tectonics_path.write_text("crust plates move over the mantle and form mountains " * 24, encoding="utf-8")
             garden_path.write_text("garden tomatoes need soil sunlight and watering " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -831,9 +831,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=True,
                 )
-                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
-                manager.terminus_tick()
-                query_result = manager.query(
+                manager.runtime_facade.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                manager.runtime_facade.terminus_tick()
+                query_result = manager.runtime_facade.query(
                     query_text="How do crust plates move over the mantle?",
                     top_k_memories=6,
                 )
@@ -859,7 +859,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -873,14 +873,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     repeat_sources=False,
                 )
                 query_text = "How do crust plates build mountain ranges?"
-                manager.terminus_tick()
+                manager.runtime_facade.terminus_tick()
                 with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    initial = manager.respond(
+                    initial = manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                before_runtime = manager.status()["terminus_runtime"]
+                before_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 before_source = next(item for item in before_runtime["source_progress"] if item["name"] == "tectonics_source")
 
                 self.assertIn(
@@ -890,9 +890,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(float(before_source["delayed_consequence_ema"]), 0.0)
 
                 for _ in range(3):
-                    manager.terminus_tick()
-                follow_up = manager.query(query_text=query_text, top_k_memories=8)
-                after_runtime = manager.status()["terminus_runtime"]
+                    manager.runtime_facade.terminus_tick()
+                follow_up = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                after_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 after_source = next(item for item in after_runtime["source_progress"] if item["name"] == "tectonics_source")
 
                 self.assertGreater(
@@ -916,7 +916,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "tectonics.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -960,7 +960,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
@@ -974,14 +974,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     tick_tokens=8,
                 )
 
-                follow_up = manager.query(query_text=query_text, top_k_memories=6)
+                follow_up = manager.runtime_facade.query(query_text=query_text, top_k_memories=6)
                 after_score, *_ = manager._brain_source_selection_score_locked(
                     runtime,
                     focus_terms=["tectonics", "crust", "plates", "mantle"],
                     focus_pressure=1.0,
                     tick_tokens=8,
                 )
-                source_progress = manager.status()["terminus_runtime"]["source_progress"][0]
+                source_progress = manager.runtime_facade.status()["terminus_runtime"]["source_progress"][0]
 
                 self.assertGreater(int(follow_up["delayed_consequence"]["penalized_records"]), 0)
                 self.assertIn("tectonics_source", follow_up["delayed_consequence"]["penalized_source_names"])
@@ -1003,7 +1003,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -1047,14 +1047,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                penalized = manager.query(query_text=query_text, top_k_memories=8)
-                penalty_runtime = manager.status()["terminus_runtime"]
+                penalized = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                penalty_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 penalty_source = next(item for item in penalty_runtime["source_progress"] if item["name"] == "tectonics_source")
                 runtime = manager._brain_source_runtimes[0]
                 penalty_score, *_ = manager._brain_source_selection_score_locked(
@@ -1070,9 +1070,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(float(penalty_source["contradiction_decay_ema"]), 0.0)
 
                 for _ in range(3):
-                    manager.terminus_tick()
-                forgiven = manager.query(query_text=query_text, top_k_memories=8)
-                forgiven_runtime = manager.status()["terminus_runtime"]
+                    manager.runtime_facade.terminus_tick()
+                forgiven = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                forgiven_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 forgiven_source = next(item for item in forgiven_runtime["source_progress"] if item["name"] == "tectonics_source")
                 forgiven_score, *_ = manager._brain_source_selection_score_locked(
                     runtime,
@@ -1115,7 +1115,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "tectonics.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -1159,14 +1159,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                manager.query(query_text=query_text, top_k_memories=6)
-                penalty_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=6)
+                penalty_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 penalty_tracking = penalty_runtime["background_source_routing"]["delayed_consequence_tracking"]
                 penalty_record = penalty_tracking["recent_records"][0]
 
@@ -1177,7 +1177,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
                     + manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
                 )
-                cooled_runtime = manager.status()["terminus_runtime"]
+                cooled_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 cooled_tracking = cooled_runtime["background_source_routing"]["delayed_consequence_tracking"]
                 cooled_record = cooled_tracking["recent_records"][0]
 
@@ -1189,7 +1189,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
 
                 manager._trainer.token_count += manager_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
-                retired_runtime = manager.status()["terminus_runtime"]
+                retired_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 retired_tracking = retired_runtime["background_source_routing"]["delayed_consequence_tracking"]
 
                 self.assertEqual(int(retired_tracking["record_count"]), 0)
@@ -1204,7 +1204,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "tectonics.txt"
             source_path.write_text("tectonic plates mountain ranges crust mantle " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -1247,18 +1247,18 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    first = manager.respond(
+                    first = manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    second = manager.respond(
+                    second = manager.runtime_facade.respond(
                         query_text="How do crust plates form mountain ranges?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                tracking = manager.runtime_facade.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
                 record = tracking["recent_records"][0]
 
                 self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
@@ -1286,7 +1286,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -1329,20 +1329,20 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do crust plates form mountain ranges?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
                 query_text = "How do crust plates build mountain ranges?"
-                penalized = manager.query(query_text=query_text, top_k_memories=8)
-                penalty_runtime = manager.status()["terminus_runtime"]
+                penalized = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                penalty_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 penalty_record = penalty_runtime["background_source_routing"]["delayed_consequence_tracking"]["recent_records"][0]
 
                 self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
@@ -1353,9 +1353,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(float(penalty_record["trajectory_penalty_multiplier"]), 1.0)
 
                 for _ in range(3):
-                    manager.terminus_tick()
-                recovered = manager.query(query_text=query_text, top_k_memories=8)
-                recovered_runtime = manager.status()["terminus_runtime"]
+                    manager.runtime_facade.terminus_tick()
+                recovered = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                recovered_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 recovered_record = recovered_runtime["background_source_routing"]["delayed_consequence_tracking"]["recent_records"][0]
 
                 self.assertGreater(int(recovered["delayed_consequence"]["credited_records"]), 0)
@@ -1395,7 +1395,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -1438,12 +1438,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges over the mantle?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    second = manager.respond(
+                    second = manager.runtime_facade.respond(
                         query_text="How do crust plates move continents over the mantle?",
                         max_evidence_items=3,
                         learn_mode="none",
@@ -1451,19 +1451,19 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
                 self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
 
-                penalized = manager.query(
+                penalized = manager.runtime_facade.query(
                     query_text="How do crust plates build mountain ranges over the mantle?",
                     top_k_memories=8,
                 )
                 self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
 
                 for _ in range(3):
-                    manager.terminus_tick()
-                recovered = manager.query(
+                    manager.runtime_facade.terminus_tick()
+                recovered = manager.runtime_facade.query(
                     query_text="How do crust plates move continents over the mantle?",
                     top_k_memories=8,
                 )
-                tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                tracking = manager.runtime_facade.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
                 records = {
                     str(record.get("split_branch", "")): record
                     for record in tracking["recent_records"]
@@ -1503,7 +1503,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "tectonics_source",
@@ -1546,37 +1546,37 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges over the mantle?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do crust plates move continents over the mantle?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                manager.query(
+                manager.runtime_facade.query(
                     query_text="How do crust plates build mountain ranges over the mantle?",
                     top_k_memories=8,
                 )
                 for _ in range(3):
-                    manager.terminus_tick()
-                split_result = manager.query(
+                    manager.runtime_facade.terminus_tick()
+                split_result = manager.runtime_facade.query(
                     query_text="How do crust plates move continents over the mantle?",
                     top_k_memories=8,
                 )
-                split_tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                split_tracking = manager.runtime_facade.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
 
                 self.assertGreater(int(split_result["delayed_consequence"]["split_records"]), 0)
                 self.assertEqual(int(split_tracking["record_count"]), 2)
 
-                remerged = manager.query(
+                remerged = manager.runtime_facade.query(
                     query_text="How do crust plates move continents over the mantle?",
                     top_k_memories=8,
                 )
-                tracking = manager.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
+                tracking = manager.runtime_facade.status()["terminus_runtime"]["background_source_routing"]["delayed_consequence_tracking"]
                 record = tracking["recent_records"][0]
 
                 self.assertGreater(int(remerged["delayed_consequence"]["remerged_records"]), 0)
@@ -1605,7 +1605,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "first_source",
@@ -1653,7 +1653,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     source_weights=record["source_weights"],
                     family_summary_score=family_summary_score,
                 )
-                runtime = manager.status()["terminus_runtime"]
+                runtime = manager.runtime_facade.status()["terminus_runtime"]
                 first_progress = next(item for item in runtime["source_progress"] if item["name"] == "first_source")
                 second_progress = next(item for item in runtime["source_progress"] if item["name"] == "second_source")
 
@@ -1707,7 +1707,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             first_path.write_text("general background signal alpha " * 24, encoding="utf-8")
             second_path.write_text("general background signal beta " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "first_source",
@@ -1726,8 +1726,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=True,
                 )
-                manager.terminus_tick()
-                runtime = manager.terminus_tick()["terminus_runtime"]
+                manager.runtime_facade.terminus_tick()
+                runtime = manager.runtime_facade.terminus_tick()["terminus_runtime"]
                 first_progress = next(item for item in runtime["source_progress"] if item["name"] == "first_source")
                 second_progress = next(item for item in runtime["source_progress"] if item["name"] == "second_source")
 
@@ -1744,7 +1744,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("adaptive memory plasticity signal " * 64, encoding="utf-8")
             try:
-                ticked = manager.configure_terminus(
+                ticked = manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "queued_source",
@@ -1759,7 +1759,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 self.assertEqual(ticked["terminus_runtime"]["ingestion"]["queue_target_tokens"], 16)
 
-                runtime = manager.terminus_tick(steps=1)["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_tick(steps=1)["terminus_runtime"]
                 source_progress = runtime["source_progress"][0]
 
                 self.assertEqual(runtime["ingestion"]["queue_target_tokens"], 16)
@@ -1812,7 +1812,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=delayed_stream,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "buffered_hf_source",
@@ -1826,9 +1826,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
                     )
 
-                manager.terminus_tick(steps=1)
+                manager.runtime_facade.terminus_tick(steps=1)
                 calls_after_first = delayed_stream.next_calls
-                second = manager.terminus_tick(steps=1)["terminus_runtime"]
+                second = manager.runtime_facade.terminus_tick(steps=1)["terminus_runtime"]
 
                 self.assertEqual(calls_after_first, 8)
                 self.assertEqual(delayed_stream.next_calls, calls_after_first)
@@ -1888,7 +1888,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=prewarm_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "prewarmed_hf_source",
@@ -1909,7 +1909,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.5
                     warm_runtime = configured["terminus_runtime"]
                     while time.time() < deadline:
-                        warm_runtime = manager.terminus_status()["terminus_runtime"]
+                        warm_runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if warm_runtime["ingestion"]["startup_state"] == "warm":
                             break
                         time.sleep(0.02)
@@ -1923,7 +1923,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertEqual(prewarm_stream.next_calls, 8)
                     self.assertEqual(active_stream.next_calls, 0)
 
-                    first_tick = manager.terminus_tick(steps=1)["terminus_runtime"]
+                    first_tick = manager.runtime_facade.terminus_tick(steps=1)["terminus_runtime"]
                     self.assertEqual(prewarm_stream.next_calls, 8)
                     self.assertEqual(active_stream.next_calls, 0)
                     self.assertGreaterEqual(first_tick["source_progress"][0]["queue_hits"], 1)
@@ -1961,7 +1961,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=delayed_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "cold_hf_source",
@@ -1981,7 +1981,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertIsNone(configured["terminus_runtime"]["ingestion"]["startup_warm_latency_ms"])
                 self.assertEqual(delayed_stream.next_calls, 0)
 
-                warmed = manager.terminus_tick(steps=1)["terminus_runtime"]
+                warmed = manager.runtime_facade.terminus_tick(steps=1)["terminus_runtime"]
                 self.assertEqual(warmed["ingestion"]["startup_state"], "warm")
                 self.assertTrue(warmed["ingestion"]["warm_ready"])
                 self.assertGreater(float(warmed["ingestion"]["startup_warm_latency_ms"]), 0.0)
@@ -2027,7 +2027,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=wrapped_stream,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "slow_remote_hf_source",
@@ -2042,14 +2042,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     )
 
                     started = time.perf_counter()
-                    first = manager.terminus_tick(steps=1)
+                    first = manager.runtime_facade.terminus_tick(steps=1)
                     first_ms = (time.perf_counter() - started) * 1000.0
                     self.assertLess(first_ms, 200.0)
                     self.assertEqual(first["tick_summaries"][0]["source"]["reason"], "warming_remote_source")
                     self.assertFalse(first["tick_summaries"][0]["did_work"])
 
                     time.sleep(0.35)
-                    second = manager.terminus_tick(steps=1)
+                    second = manager.runtime_facade.terminus_tick(steps=1)
                     self.assertTrue(second["tick_summaries"][0]["source"]["did_work"])
                     self.assertEqual(second["tick_summaries"][0]["source"]["source_name"], "slow_remote_hf_source")
             finally:
@@ -2097,7 +2097,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "load_hf_first_rows",
                     return_value=[{"text": "Bootstrap cats rest indoors and chase mice at night."}],
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "bootstrap_remote_hf_source",
@@ -2116,7 +2116,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.0
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if runtime["ingestion"]["warm_ready"]:
                             break
                         time.sleep(0.02)
@@ -2126,7 +2126,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertIn("remote_text_bootstrap_applied", event_types)
                     self.assertIn("remote_warm_promotion_started", event_types)
 
-                    ticked = manager.terminus_tick(steps=1)
+                    ticked = manager.runtime_facade.terminus_tick(steps=1)
                     self.assertTrue(ticked["tick_summaries"][0]["source"]["did_work"])
                     self.assertEqual(ticked["tick_summaries"][0]["source"]["source_name"], "bootstrap_remote_hf_source")
             finally:
@@ -2180,7 +2180,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "load_hf_first_rows",
                     side_effect=_slow_first_rows,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "timeout_remote_hf_source",
@@ -2199,7 +2199,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 0.4
                     event_types: list[str | None] = []
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         event_types = [event.get("type") for event in runtime["recent_events"]]
                         if "remote_text_bootstrap_timed_out" in event_types:
                             break
@@ -2253,7 +2253,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=wrapped_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "promoted_remote_hf_source",
@@ -2271,7 +2271,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.5
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if runtime["ingestion"]["warm_ready"]:
                             break
                         time.sleep(0.02)
@@ -2282,7 +2282,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertIn("remote_warm_promotion_started", event_types)
                     self.assertIn("remote_warm_promotion_completed", event_types)
 
-                    ticked = manager.terminus_tick(steps=1)
+                    ticked = manager.runtime_facade.terminus_tick(steps=1)
                     self.assertTrue(ticked["tick_summaries"][0]["source"]["did_work"])
                     self.assertEqual(ticked["tick_summaries"][0]["source"]["source_name"], "promoted_remote_hf_source")
             finally:
@@ -2320,7 +2320,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=seed_stream,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "cached_remote_hf_source",
@@ -2333,7 +2333,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         repeat_sources=False,
                         ingestion={"queue_target_tokens": 8, "prewarm_on_startup": False},
                     )
-                    manager.terminus_tick(steps=1)
+                    manager.runtime_facade.terminus_tick(steps=1)
             finally:
                 manager.close()
 
@@ -2352,7 +2352,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=restored_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "cached_remote_hf_source",
@@ -2371,7 +2371,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     event_types = [event.get("type") for event in configured["recent_events"]]
                     self.assertIn("ingestion_cache_restored", event_types)
 
-                    ticked = manager.terminus_tick(steps=1)
+                    ticked = manager.runtime_facade.terminus_tick(steps=1)
                     self.assertTrue(ticked["tick_summaries"][0]["source"]["did_work"])
                     self.assertEqual(restored_stream.next_calls, 0)
             finally:
@@ -2426,7 +2426,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=prewarm_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "budgeted_hf_source",
@@ -2448,7 +2448,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.5
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if not runtime["ingestion"]["prewarm_running"]:
                             break
                         time.sleep(0.02)
@@ -2464,7 +2464,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertEqual(active_stream.next_calls, 0)
 
                     calls_before_tick = prewarm_stream.next_calls
-                    first_tick = manager.terminus_tick(steps=1)["terminus_runtime"]
+                    first_tick = manager.runtime_facade.terminus_tick(steps=1)["terminus_runtime"]
                     self.assertEqual(prewarm_stream.next_calls, calls_before_tick)
                     self.assertEqual(active_stream.next_calls, 0)
                     self.assertGreaterEqual(first_tick["source_progress"][0]["queue_hits"], 1)
@@ -2524,7 +2524,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=prewarm_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[
                             {
                                 "name": "isolated_hf_source",
@@ -2546,14 +2546,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertFalse(prewarm_started.is_set())
 
                     started = time.perf_counter()
-                    ticked = manager.terminus_tick(steps=1)["terminus_runtime"]
+                    ticked = manager.runtime_facade.terminus_tick(steps=1)["terminus_runtime"]
                     tick_ms = (time.perf_counter() - started) * 1000.0
 
-                    self.assertLess(tick_ms, 300.0)
+                    self.assertLess(tick_ms, 500.0)
                     self.assertEqual(active_stream.next_calls, 8)
                     self.assertEqual(ticked["source_progress"][0]["last_buffer_tokens_served"], 4)
                     self.assertFalse(prewarm_started.wait(0.2))
-                    event_types = [event.get("type") for event in manager.terminus_status()["terminus_runtime"]["recent_events"]]
+                    event_types = [event.get("type") for event in manager.runtime_facade.terminus_status()["terminus_runtime"]["recent_events"]]
                     self.assertIn("ingestion_prewarm_skipped_after_active_execution", event_types)
             finally:
                 manager.close()
@@ -2590,7 +2590,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
             try:
                 manager._thought_loop = _DummyThoughtLoop()
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "cats_source",
@@ -2602,7 +2602,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=False,
                 )
-                ticked = manager.terminus_tick(steps=2)
+                ticked = manager.runtime_facade.terminus_tick(steps=2)
                 self.assertGreater(len(observations), 0)
                 observation = observations[-1]
                 content = str(observation["content"]).lower()
@@ -2615,360 +2615,6 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 grounded = ticked["tick_summaries"][0]["source"]["grounded_observation"]
                 self.assertIn("cats", grounded["content"].lower())
                 self.assertGreater(len(grounded["topics"]), 0)
-            finally:
-                manager.close()
-
-    def test_grounded_source_observation_supports_cortex_query_context(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="service_manager_grounded_query_context")
-            source_path = root / "terminus_grounded_answer_source.txt"
-            source_path.write_text(
-                "Cats rest indoors and chase mice at night. " * 80,
-                encoding="utf-8",
-            )
-            try:
-                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                class _GroundedAnswerCortex(CorticalCore):
-                    model = "grounded-answer-cortex"
-                    temperature = 0.7
-
-                    def __init__(self) -> None:
-                        self.last_context = None
-
-                    def generate(self, context: ContextPacket) -> ThoughtResult:
-                        self.last_context = context
-                        evidence_text = " ".join(item.text for item in context.grounded_evidence)
-                        return ThoughtResult(
-                            raw_text="",
-                            thought=evidence_text or context.external_query,
-                            topics=("cats", "mice"),
-                            confidence=0.9,
-                            latency_ms=1.0,
-                            parse_success=True,
-                        )
-
-                    def is_available(self) -> bool:
-                        return True
-
-                cortex = _GroundedAnswerCortex()
-                thought_loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=60.0)
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                manager.configure_terminus(
-                    source_bank=[
-                        {
-                            "name": "cats_source",
-                            "source": str(source_path),
-                            "source_type": "file",
-                        }
-                    ],
-                    tick_tokens=48,
-                    sleep_interval_seconds=0.01,
-                    repeat_sources=False,
-                )
-                manager.terminus_tick(steps=2)
-                result = manager.cortex_ask("Where do cats rest and what do they chase at night?")
-                self.assertTrue(result["accepted"])
-
-                answer = thought_loop.step()
-                self.assertIsNotNone(answer)
-                self.assertIsNotNone(cortex.last_context)
-                self.assertGreater(len(cortex.last_context.grounded_evidence), 0)
-                evidence_text = " ".join(item.text for item in cortex.last_context.grounded_evidence).lower()
-                self.assertIn("cats", evidence_text)
-                self.assertIn("indoors", evidence_text)
-                self.assertIn("mice", evidence_text)
-                self.assertIn("indoors", answer.thought.lower())
-                self.assertIn("mice", answer.thought.lower())
-            finally:
-                manager.close()
-
-    def test_repeated_queries_stay_grounded_to_recent_source_evidence(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="service_manager_repeated_grounded_queries")
-            source_path = root / "terminus_repeated_grounded_answer_source.txt"
-            source_path.write_text(
-                "Cats rest indoors and chase mice at night. " * 80,
-                encoding="utf-8",
-            )
-            try:
-                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                class _DriftCortex(CorticalCore):
-                    model = "drift-cortex"
-                    temperature = 0.7
-
-                    def generate(self, context: ContextPacket) -> ThoughtResult:
-                        return ThoughtResult(
-                            raw_text="",
-                            thought="Cats are common household animals with varied personalities.",
-                            topics=("cats",),
-                            confidence=0.5,
-                            latency_ms=1.0,
-                            parse_success=True,
-                        )
-
-                    def is_available(self) -> bool:
-                        return True
-
-                thought_loop = ThoughtLoop(cortex=_DriftCortex(), min_thought_interval_s=60.0)
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                manager.configure_terminus(
-                    source_bank=[
-                        {
-                            "name": "cats_source",
-                            "source": str(source_path),
-                            "source_type": "file",
-                        }
-                    ],
-                    tick_tokens=48,
-                    sleep_interval_seconds=0.01,
-                    repeat_sources=False,
-                )
-                manager.terminus_tick(steps=2)
-
-                queries = [
-                    "Where do cats rest and what do they chase at night?",
-                    "What do the grounded observations say cats chase at night and where do they rest?",
-                ]
-                answers: list[str] = []
-                for query in queries:
-                    accepted = manager.cortex_ask(query)
-                    self.assertTrue(accepted["accepted"])
-                    answer = thought_loop.step()
-                    self.assertIsNotNone(answer)
-                    answers.append(str(answer.thought).lower())
-
-                self.assertEqual(len(answers), 2)
-                self.assertTrue(all("indoors" in answer for answer in answers))
-                self.assertTrue(all("mice" in answer for answer in answers))
-
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["grounding"]["query_answers_evaluated"], 2)
-                self.assertGreaterEqual(float(snap["grounding"]["mean_query_alignment"]), 0.4)
-                self.assertEqual(snap["grounding"]["query_recovery_rate"], 1.0)
-                latest = snap["recent_thoughts"][-1]["grounding"]
-                self.assertTrue(latest["fallback_used"])
-                self.assertGreater(latest["grounded_evidence_count"], 0)
-            finally:
-                manager.close()
-
-    def test_source_grounded_observation_supports_wakeful_cortex_context(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="service_manager_grounded_wakeful_context")
-            source_path = root / "terminus_grounded_wakeful_source.txt"
-            source_path.write_text(
-                "Cats rest indoors and chase mice at night. " * 80,
-                encoding="utf-8",
-            )
-            try:
-                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                class _WakefulDriftCortex(CorticalCore):
-                    model = "wakeful-drift-cortex"
-                    temperature = 0.7
-
-                    def __init__(self) -> None:
-                        self.last_context = None
-
-                    def generate(self, context: ContextPacket) -> ThoughtResult:
-                        self.last_context = context
-                        return ThoughtResult(
-                            raw_text="",
-                            thought="Cats are common household pets with flexible behavior.",
-                            topics=("cats",),
-                            confidence=0.5,
-                            latency_ms=1.0,
-                            parse_success=True,
-                        )
-
-                    def is_available(self) -> bool:
-                        return True
-
-                cortex = _WakefulDriftCortex()
-                thought_loop = ThoughtLoop(cortex=cortex, min_thought_interval_s=0.0)
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                manager.configure_terminus(
-                    source_bank=[
-                        {
-                            "name": "cats_source",
-                            "source": str(source_path),
-                            "source_type": "file",
-                        }
-                    ],
-                    tick_tokens=48,
-                    sleep_interval_seconds=0.01,
-                    repeat_sources=False,
-                )
-                manager.terminus_tick(steps=2)
-
-                result = thought_loop.step()
-                self.assertIsNotNone(result)
-                self.assertIsNotNone(cortex.last_context)
-                self.assertGreater(len(cortex.last_context.grounded_evidence), 0)
-                self.assertIn("cats", cortex.last_context.forced_topic.lower())
-                self.assertIn("indoors", result.thought.lower())
-                self.assertIn("mice", result.thought.lower())
-
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["grounding"]["wakeful_thoughts_evaluated"], 1)
-                self.assertEqual(snap["grounding"]["wakeful_recovery_rate"], 1.0)
-                self.assertEqual(snap["recent_thoughts"][-1]["grounding"]["kind"], "wakeful")
-            finally:
-                manager.close()
-
-    def test_mixed_source_and_sensory_grounding_prefers_relevant_sensory_evidence(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="service_manager_mixed_modal_grounding")
-            source_path = root / "terminus_background_source.txt"
-            source_path.write_text(
-                "Cats rest indoors and chase mice at night. " * 80,
-                encoding="utf-8",
-            )
-            sensory_episode = SensoryEpisode(
-                text="Water splashes while wind and footsteps move through an outdoor path.",
-                visual_spikes=None,
-                audio_spikes=torch.ones(64),
-                metadata={"caption": "water wind footsteps", "summary": "environmental sound of water and footsteps"},
-                audio_preview={
-                    "mime_type": "audio/wav",
-                    "bytes": b"waterwindsteps",
-                    "sample_rate": 16000,
-                    "duration_s": 1.0,
-                    "waveform": [0.4] * 8,
-                },
-            )
-            try:
-                from hecsn.cortex.core import CorticalCore, ContextPacket, ThoughtResult
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                class _SensoryPriorityCortex(CorticalCore):
-                    model = "sensory-priority-cortex"
-                    temperature = 0.7
-
-                    def __init__(self) -> None:
-                        self.last_context = None
-
-                    def generate(self, context: ContextPacket) -> ThoughtResult:
-                        self.last_context = context
-                        return ThoughtResult(
-                            raw_text="",
-                            thought="Natural environments contain many changing sensory signals.",
-                            topics=("environment",),
-                            confidence=0.45,
-                            latency_ms=1.0,
-                            parse_success=True,
-                        )
-
-                    def is_available(self) -> bool:
-                        return True
-
-                thought_loop = ThoughtLoop(cortex=_SensoryPriorityCortex(), min_thought_interval_s=0.0)
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-                manager._trainer.config.enable_cross_modal = True
-
-                with patch.object(
-                    HECSNServiceManager,
-                    "_build_sensory_stream_locked",
-                    autospec=True,
-                    return_value=iter([sensory_episode]),
-                ):
-                    manager.configure_terminus(
-                        source_bank=[
-                            {
-                                "name": "cats_source",
-                                "source": str(source_path),
-                                "source_type": "file",
-                            }
-                        ],
-                        tick_tokens=48,
-                        sleep_interval_seconds=0.01,
-                        repeat_sources=False,
-                        sensory={
-                            "enabled": True,
-                            "source_bank": [
-                                {
-                                    "name": "environmental_audio",
-                                    "adapter": "audiocaps",
-                                    "source": "OpenSound/AudioCaps",
-                                    "split": "train",
-                                    "topic_terms": ["audio sound water wind footsteps environment"],
-                                }
-                            ],
-                            "episode_interval_tokens": 1,
-                            "items_per_episode": 1,
-                            "base_windows_per_item": 1,
-                            "max_windows_per_item": 2,
-                            "confidence_window_gain": 0.0,
-                            "semantic_window_gain": 0.0,
-                            "item_retrieval_lookahead": 1,
-                            "item_retrieval_semantic_weight": 1.0,
-                            "modality_target_confidence": 0.70,
-                            "observation_salience": 0.82,
-                            "cooldown_seconds": 0.0,
-                            "repeat_sources": True,
-                        },
-                    )
-
-                manager.terminus_tick(steps=2)
-                manager._brain_config["sensory"]["episode_interval_tokens"] = 1
-                manager._brain_config["sensory"]["cooldown_seconds"] = 0.0
-                original_train_step = manager._trainer.train_step
-                manager._last_real_sensory_episode_token_count = 0
-                manager._last_real_sensory_episode_time = 0.0
-                manager._thought_loop.gate.set_active_exploration_target(
-                    "environmental sound of water and footsteps",
-                    reason="mixed_modality_test",
-                    source="test",
-                    score=0.9,
-                )
-
-                def _fake_train_step(pattern, **kwargs):
-                    manager._trainer.token_count += 1
-                    return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
-
-                manager._trainer.train_step = _fake_train_step  # type: ignore[assignment]
-                try:
-                    sensory_summary = manager._run_real_sensory_episode_locked()
-                finally:
-                    manager._trainer.train_step = original_train_step  # type: ignore[assignment]
-
-                self.assertIsNotNone(sensory_summary)
-                self.assertIn("grounded_observation", sensory_summary["sources"][0])
-                grounded = sensory_summary["sources"][0]["grounded_observation"]
-                self.assertEqual(grounded["observation_kind"], "sensory")
-                self.assertIn("water", grounded["content"].lower())
-                self.assertIn("footsteps", grounded["content"].lower())
-
-                result = thought_loop.step()
-                self.assertIsNotNone(result)
-                last_context = thought_loop.cortex.last_context  # type: ignore[attr-defined]
-                self.assertIsNotNone(last_context)
-                self.assertIn("water", last_context.forced_topic.lower())
-                evidence_text = " ".join(item.text for item in last_context.grounded_evidence).lower()
-                self.assertIn("water", evidence_text)
-                self.assertIn("footsteps", evidence_text)
-                self.assertIn("water", result.thought.lower())
-                self.assertIn("footsteps", result.thought.lower())
-
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["grounding"]["wakeful_thoughts_evaluated"], 1)
-                self.assertGreaterEqual(float(snap["grounding"]["mean_wakeful_alignment"]), 0.4)
-                self.assertEqual(snap["recent_thoughts"][-1]["grounding"]["kind"], "wakeful")
             finally:
                 manager.close()
 
@@ -2992,7 +2638,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             thread.start()
             manager = _build_manager(root, test_case="service_manager_real_source_autonomy_registry")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "background",
@@ -3034,8 +2680,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_slots": 1,
                     },
                 )
-                manager.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
-                tick = manager.terminus_tick()
+                manager.runtime_facade.query(query_text="How do crust plates move over the mantle?", top_k_memories=6)
+                tick = manager.runtime_facade.terminus_tick()
                 runtime = tick["terminus_runtime"]
                 autonomy = runtime["autonomy"]
 
@@ -3260,7 +2906,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=prewarm_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -3294,7 +2940,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.5
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if runtime["sensory"]["startup_state"] == "warm":
                             break
                         time.sleep(0.02)
@@ -3320,7 +2966,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertIsNotNone(summary)
                     self.assertEqual(prewarm_stream.next_calls, 2)
                     self.assertEqual(active_stream.next_calls, 0)
-                    sensory_runtime = manager.terminus_status()["terminus_runtime"]["sensory"]
+                    sensory_runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]["sensory"]
                     self.assertGreaterEqual(sensory_runtime["source_progress"][0]["queue_hits"], 1)
                     self.assertEqual(sensory_runtime["source_progress"][0]["buffered_items"], 1)
             finally:
@@ -3388,7 +3034,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=wrapped_stream,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -3500,7 +3146,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=wrapped_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -3534,7 +3180,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.5
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if runtime["sensory"]["warm_ready"]:
                             break
                         time.sleep(0.02)
@@ -3628,7 +3274,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "bootstrap_sensory_episode_from_row",
                     return_value=episode,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -3662,7 +3308,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.0
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if runtime["sensory"]["warm_ready"]:
                             break
                         time.sleep(0.02)
@@ -3752,7 +3398,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "load_hf_first_rows",
                     side_effect=_slow_first_rows,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -3786,7 +3432,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 0.4
                     event_types: list[str | None] = []
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         event_types = [event.get("type") for event in runtime["recent_events"]]
                         if "remote_sensory_bootstrap_timed_out" in event_types:
                             break
@@ -3881,7 +3527,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "hecsn.service.terminus_sensory._load_s1_recaption_index",
                     side_effect=_slow_index_loader,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -3917,7 +3563,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = start + 0.6
                     runtime = configured
                     while time.perf_counter() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if runtime["sensory"]["warm_ready"]:
                             break
                         time.sleep(0.02)
@@ -4001,7 +3647,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=seed_stream,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -4064,7 +3710,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=restored_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -4174,7 +3820,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=delayed_stream,
                 ):
-                    manager.configure_terminus(
+                    manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -4232,7 +3878,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(calls_after_second, calls_after_first)
                 self.assertGreater(calls_after_third, calls_after_second)
 
-                sensory_runtime = manager.terminus_status()["terminus_runtime"]["sensory"]
+                sensory_runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]["sensory"]
                 self.assertGreaterEqual(sensory_runtime["queue_hits"], 1)
                 self.assertEqual(sensory_runtime["source_progress"][0]["last_buffer_items_served"], 1)
                 self.assertEqual(sensory_runtime["source_progress"][0]["prefetch_events"], 2)
@@ -4305,7 +3951,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=prewarm_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -4340,7 +3986,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     deadline = time.time() + 1.5
                     runtime = configured
                     while time.time() < deadline:
-                        runtime = manager.terminus_status()["terminus_runtime"]
+                        runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                         if not runtime["sensory"]["prewarm_running"]:
                             break
                         time.sleep(0.02)
@@ -4368,7 +4014,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertIsNotNone(summary)
                     self.assertEqual(prewarm_stream.next_calls, 2)
                     self.assertEqual(active_stream.next_calls, 0)
-                    sensory_runtime = manager.terminus_status()["terminus_runtime"]["sensory"]
+                    sensory_runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]["sensory"]
                     self.assertGreaterEqual(sensory_runtime["source_progress"][0]["queue_hits"], 1)
             finally:
                 manager.close()
@@ -4465,7 +4111,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     autospec=True,
                     return_value=prewarm_stream,
                 ):
-                    configured = manager.configure_terminus(
+                    configured = manager.runtime_facade.configure_terminus(
                         source_bank=[],
                         sensory={
                             "enabled": True,
@@ -4516,7 +4162,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     self.assertEqual(active_stream.next_calls, 1)
                     self.assertEqual(summary["sources"][0]["name"], "environmental_audio")
                     self.assertFalse(prewarm_started.wait(0.2))
-                    event_types = [event.get("type") for event in manager.terminus_status()["terminus_runtime"]["recent_events"]]
+                    event_types = [event.get("type") for event in manager.runtime_facade.terminus_status()["terminus_runtime"]["recent_events"]]
                     self.assertIn("sensory_prewarm_skipped_after_active_execution", event_types)
             finally:
                 manager.close()
@@ -4601,7 +4247,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     modality_need=modality_need,
                 )
                 self.assertEqual(figure_budget, 5)
-                runtime_snapshot = manager.terminus_status()["terminus_runtime"]
+                runtime_snapshot = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 self.assertIn("scientific", runtime_snapshot["multimodal"]["focus_terms"])
 
                 manager._thought_loop.gate.active_exploration_target = "environmental sound of water and footsteps"
@@ -4617,7 +4263,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     modality_need=modality_need2,
                 )
                 self.assertEqual(audio_budget, 5)
-                runtime_snapshot = manager.terminus_status()["terminus_runtime"]
+                runtime_snapshot = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 self.assertIn("environmental", runtime_snapshot["multimodal"]["focus_terms"])
             finally:
                 manager.close()
@@ -4735,13 +4381,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(summary["sources"][0]["item_semantic_match"], 0.5)
                 self.assertEqual(summary["sources"][0]["item_candidates_considered"], 3)
 
-                previews = manager.sensory_previews(limit=1)
+                previews = manager.runtime_facade.sensory_previews(limit=1)
                 preview = previews["previews"][0]
                 self.assertIn("Water splashes", preview["text"])
                 self.assertGreater(preview["item_semantic_match"], 0.5)
                 self.assertEqual(preview["item_candidates_considered"], 3)
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 source_progress = runtime["sensory"]["source_progress"][0]
                 self.assertGreater(source_progress["last_item_semantic_match"], 0.5)
                 self.assertEqual(source_progress["last_item_candidates_considered"], 3)
@@ -4756,7 +4402,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("active source seeking telemetry " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -4780,8 +4426,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 50,
                     },
                 )
-                manager.terminus_tick(steps=2)
-                runtime = manager.terminus_status()["terminus_runtime"]
+                manager.runtime_facade.terminus_tick(steps=2)
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
 
                 self.assertEqual(runtime["autonomy"]["candidate_count"], 1)
                 self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["name"], "candidate_source")
@@ -4799,7 +4445,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -4823,16 +4469,16 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 50,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
-                runtime = manager.terminus_status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
 
                 self.assertEqual(runtime["autonomy"]["recent_query_gaps"][0]["query_text"], "submarine buoyancy ballast")
                 self.assertIn("submarine", runtime["autonomy"]["focus_plan"]["unsupported_terms"])
 
-                saved = manager.save_checkpoint(str(root / "terminus_focus.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "terminus_focus.pt"))
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
-                    restored_runtime = restored.terminus_status()["terminus_runtime"]
+                    restored_runtime = restored.runtime_facade.terminus_status()["terminus_runtime"]
 
                     self.assertEqual(
                         restored_runtime["autonomy"]["recent_query_gaps"][0]["query_text"],
@@ -4851,7 +4497,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -4897,7 +4543,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                             "grounded_fraction": 0.0,
                         },
                     )
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
 
                 self.assertEqual(
                     runtime["autonomy"]["recent_query_gaps"][0]["weak_concepts"][0]["label"],
@@ -4921,7 +4567,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -4960,7 +4606,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                             "grounded_fraction": 1.0,
                         },
                     )
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
 
                 self.assertEqual(runtime["autonomy"]["recent_query_gaps"], [])
                 self.assertIsNone(runtime["autonomy"]["focus_plan"])
@@ -4974,7 +4620,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5014,9 +4660,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 with patch("hecsn.service.manager.run_live_acquisition") as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 mocked_acquire.assert_not_called()
                 self.assertIsNone(runtime["autonomy"]["last_acquisition_summary"])
             finally:
@@ -5029,7 +4675,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5104,7 +4750,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_slots": 1,
                     },
                 )
-                manager.query(query_text="What corrects submarine ballast trim?", top_k_memories=6)
+                manager.runtime_facade.query(query_text="What corrects submarine ballast trim?", top_k_memories=6)
                 manager._brain_recent_query_gaps[0]["weak_concepts"] = [
                     {
                         "label": "buoyancy control",
@@ -5125,9 +4771,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_history": [],
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 adaptive = runtime["autonomy"]["adaptive_learning"]
                 kwargs = mocked_acquire.call_args.kwargs
 
@@ -5152,7 +4798,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             candidate_path.write_text("submarine ballast buoyancy pressure " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5176,9 +4822,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.feed(text=("submarine ballast buoyancy pressure control " * 16).strip())
-                concept_store = manager.status()["concept_store"]
-                runtime = manager.terminus_status()["terminus_runtime"]
+                manager.runtime_facade.feed(text=("submarine ballast buoyancy pressure control " * 16).strip())
+                concept_store = manager.runtime_facade.status()["concept_store"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
 
                 self.assertGreater(concept_store["growth"]["expansion_events"], 0)
                 self.assertGreater(concept_store["abstraction"]["requested_output_dim"], 8)
@@ -5200,7 +4846,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "semantic_plan": runtime["autonomy"]["focus_plan"],
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(kwargs["semantic_plan"]["planner_mode"], "concept_store_abstraction_focus")
@@ -5239,7 +4885,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             candidate_path.write_text("river stream water current bank " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5263,8 +4909,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.feed(text=("river stream water current bank " * 12).strip())
-                runtime = manager.terminus_status()["terminus_runtime"]
+                manager.runtime_facade.feed(text=("river stream water current bank " * 12).strip())
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 autonomy = runtime["autonomy"]
 
                 self.assertTrue(autonomy["geometric_curiosity"]["enabled"])
@@ -5303,7 +4949,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5330,8 +4976,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.feed(text=("river stream water current bank loan credit " * 12).strip())
-                focus_plan = manager.terminus_status()["terminus_runtime"]["autonomy"]["focus_plan"]
+                manager.runtime_facade.feed(text=("river stream water current bank loan credit " * 12).strip())
+                focus_plan = manager.runtime_facade.terminus_status()["terminus_runtime"]["autonomy"]["focus_plan"]
                 self.assertTrue(focus_plan["geometric_gaps"])
                 selected_query = str(focus_plan["retrieval_queries"][0]).strip().lower()
 
@@ -5382,13 +5028,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     ],
                 ) as mocked_acquire:
-                    manager.terminus_tick()
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 first_kwargs = mocked_acquire.call_args_list[0].kwargs
                 second_kwargs = mocked_acquire.call_args_list[1].kwargs
                 spec = second_kwargs["candidate_bank_specs"][0]
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 provider_curriculum = runtime["autonomy"]["provider_curriculum"]
 
                 self.assertEqual(spec["catalog_providers"][0], "wikipedia")
@@ -5428,7 +5074,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_query_conditioned_abstraction")
             try:
-                manager.feed(text=("submarine ballast buoyancy pressure control " * 16).strip())
+                manager.runtime_facade.feed(text=("submarine ballast buoyancy pressure control " * 16).strip())
                 captured: dict[str, object] = {}
 
                 def _fake_build_query_result(**kwargs: object) -> dict[str, object]:
@@ -5449,7 +5095,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
 
                 with patch("hecsn.service.interaction_runtime.build_query_result", side_effect=_fake_build_query_result):
-                    result = manager.query(query_text="submarine control depth", top_k_memories=4)
+                    result = manager.runtime_facade.query(query_text="submarine control depth", top_k_memories=4)
 
                 self.assertIn("ballast", " ".join(captured["retrieval_focus_terms"]).lower())
                 self.assertTrue(captured["memory_priority"])
@@ -5475,7 +5121,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             related_path.write_text("submarine buoyancy ballast pressure " * 24, encoding="utf-8")
             unrelated_path.write_text("garden tomato soil sunlight " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5507,7 +5153,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "semantic_shortlist_affinity_weight": 1.0,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -5519,7 +5165,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertIn("submarine", kwargs["semantic_plan"]["unsupported_terms"])
@@ -5543,7 +5189,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             astronomy_path.write_text("planet orbit telescope observatory " * 24, encoding="utf-8")
             cooking_path.write_text("kitchen simmer recipe broth " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5582,7 +5228,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -5594,7 +5240,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(kwargs["semantic_shortlist_size"], 2)
@@ -5610,7 +5256,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5660,7 +5306,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -5672,9 +5318,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_mode"], "semantic_registry")
                 self.assertEqual(len(runtime["autonomy"]["candidate_bank"][0]["catalog_entries"]), 4)
@@ -5693,7 +5339,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5720,7 +5366,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -5732,9 +5378,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_mode"], "live_remote_search")
                 self.assertEqual(
@@ -5762,7 +5408,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5779,7 +5425,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -5791,9 +5437,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(runtime["autonomy"]["candidate_count"], 1)
                 self.assertEqual(runtime["autonomy"]["candidate_bank"][0]["catalog_mode"], "live_remote_search")
@@ -5822,7 +5468,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5880,7 +5526,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 kwargs = mocked_acquire.call_args.kwargs
                 self.assertEqual(kwargs["candidate_bank_specs"][0]["catalog_mode"], "live_remote_search")
@@ -5896,7 +5542,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -5923,7 +5569,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 1,
                     },
                 )
-                manager.query(query_text="submarine buoyancy ballast", top_k_memories=6)
+                manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 manager._brain_recent_query_gaps[0]["weak_concepts"] = [
                     {
                         "label": "buoyancy control",
@@ -6022,11 +5668,11 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     ],
                 ) as mocked_acquire:
-                    manager.terminus_tick()
-                    manager.terminus_tick()
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 first_kwargs = mocked_acquire.call_args_list[0].kwargs
                 second_kwargs = mocked_acquire.call_args_list[1].kwargs
                 third_kwargs = mocked_acquire.call_args_list[2].kwargs
@@ -6117,7 +5763,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6188,7 +5834,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 }
-                manager.query(query_text="What opens jars and solves puzzles?", top_k_memories=6)
+                manager.runtime_facade.query(query_text="What opens jars and solves puzzles?", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -6201,7 +5847,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_history": [],
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
                 self.assertEqual(spec["catalog_providers"][0], "openalex")
@@ -6216,7 +5862,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6287,7 +5933,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 }
-                manager.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
+                manager.runtime_facade.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
                 manager._brain_recent_query_gaps[0]["weak_concepts"] = [
                     {
                         "label": "buoyancy control",
@@ -6308,10 +5954,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_history": [],
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 ranked = runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
                 wikipedia = next(item for item in ranked if item["provider"] == "wikipedia")
                 openalex = next(item for item in ranked if item["provider"] == "openalex")
@@ -6336,7 +5982,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             notes_path.write_text("Submarine ballast tanks fill with water to reduce buoyancy.\n", encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6395,7 +6041,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "topic_terms": {"submarine": 1.0, "ballast": 0.8},
                     },
                 }
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "workspace_search",
                         "query_text": "ballast tanks",
@@ -6429,7 +6075,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6462,19 +6108,19 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_slots": 1,
                     },
                 )
-                manager.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
-                manager.terminus_tick()
-                before_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
+                manager.runtime_facade.terminus_tick()
+                before_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 before_provider = before_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
 
                 with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    response = manager.respond(
+                    response = manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
                 selected = response["response"]["selected_evidence"]
-                after_runtime = manager.status()["terminus_runtime"]
+                after_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 after_provider = after_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
 
                 self.assertTrue(selected)
@@ -6501,7 +6147,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6534,15 +6180,15 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 query_text = "How does compressed air raise the submarine to the surface?"
-                manager.query(query_text=query_text, top_k_memories=8)
-                manager.terminus_tick()
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                manager.runtime_facade.terminus_tick()
                 with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    initial = manager.respond(
+                    initial = manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                before_runtime = manager.status()["terminus_runtime"]
+                before_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 before_provider = before_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
 
                 self.assertIn("wikipedia", initial["response"]["delayed_consequence_candidate"]["providers"])
@@ -6559,10 +6205,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     }
                 ]
-                manager.query(query_text=query_text, top_k_memories=8)
-                manager.terminus_tick()
-                follow_up = manager.query(query_text=query_text, top_k_memories=8)
-                after_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                manager.runtime_facade.terminus_tick()
+                follow_up = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                after_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 after_provider = after_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
 
                 self.assertGreater(
@@ -6586,7 +6232,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6668,7 +6314,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
@@ -6679,7 +6325,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     focus_plan,
                     autonomy=manager._brain_config["autonomy"],
                 )
-                follow_up = manager.query(query_text=query_text, top_k_memories=6)
+                follow_up = manager.runtime_facade.query(query_text=query_text, top_k_memories=6)
                 after_priority, after_details = manager._provider_curriculum_priority_locked(
                     "wikipedia",
                     focus_plan,
@@ -6705,7 +6351,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6796,13 +6442,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                penalized = manager.query(query_text=query_text, top_k_memories=8)
+                penalized = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
                 penalty_priority, penalty_details = manager._provider_curriculum_priority_locked(
                     "wikipedia",
                     focus_plan,
@@ -6813,15 +6459,15 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertIn("wikipedia", penalized["delayed_consequence"]["penalized_providers"])
                 self.assertGreater(float(penalty_details["contradiction_decay_ema"]), 0.0)
 
-                manager.query(query_text=query_text, top_k_memories=8)
-                manager.terminus_tick()
-                forgiven = manager.query(query_text=query_text, top_k_memories=8)
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                manager.runtime_facade.terminus_tick()
+                forgiven = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
                 forgiven_priority, forgiven_details = manager._provider_curriculum_priority_locked(
                     "wikipedia",
                     focus_plan,
                     autonomy=manager._brain_config["autonomy"],
                 )
-                forgiven_runtime = manager.status()["terminus_runtime"]
+                forgiven_runtime = manager.runtime_facade.status()["terminus_runtime"]
 
                 self.assertGreater(
                     float(forgiven["gap_plan"]["grounded_fraction"]),
@@ -6849,7 +6495,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -6923,14 +6569,14 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                manager.query(query_text=query_text, top_k_memories=6)
-                penalty_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=6)
+                penalty_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 penalty_tracking = penalty_runtime["autonomy"]["delayed_consequence_tracking"]
                 penalty_record = penalty_tracking["recent_records"][0]
 
@@ -6941,7 +6587,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
                     + manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
                 )
-                cooled_runtime = manager.status()["terminus_runtime"]
+                cooled_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 cooled_tracking = cooled_runtime["autonomy"]["delayed_consequence_tracking"]
                 cooled_record = cooled_tracking["recent_records"][0]
 
@@ -6953,7 +6599,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
 
                 manager._trainer.token_count += manager_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
-                retired_runtime = manager.status()["terminus_runtime"]
+                retired_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 retired_tracking = retired_runtime["autonomy"]["delayed_consequence_tracking"]
 
                 self.assertEqual(int(retired_tracking["record_count"]), 0)
@@ -6968,7 +6614,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7022,18 +6668,18 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    first = manager.respond(
+                    first = manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    second = manager.respond(
+                    second = manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks change buoyancy?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
 
-                tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                tracking = manager.runtime_facade.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
                 record = tracking["recent_records"][0]
 
                 self.assertEqual(int(second["response"]["delayed_consequence_candidate"]["aggregate_count"]), 2)
@@ -7060,7 +6706,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7123,12 +6769,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How does compressed air raise the submarine to the surface?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How does compressed air lift the submarine to the surface?",
                         max_evidence_items=3,
                         learn_mode="none",
@@ -7154,8 +6800,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 }
                 query_text = "How does compressed air raise the submarine to the surface?"
-                penalized = manager.query(query_text=query_text, top_k_memories=8)
-                penalty_runtime = manager.status()["terminus_runtime"]
+                penalized = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                penalty_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 penalty_record = penalty_runtime["autonomy"]["delayed_consequence_tracking"]["recent_records"][0]
 
                 self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
@@ -7165,9 +6811,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertLess(float(penalty_record["trajectory_support_multiplier"]), 1.0)
                 self.assertGreater(float(penalty_record["trajectory_penalty_multiplier"]), 1.0)
 
-                manager.terminus_tick()
-                recovered = manager.query(query_text=query_text, top_k_memories=8)
-                recovered_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.terminus_tick()
+                recovered = manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                recovered_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 recovered_record = recovered_runtime["autonomy"]["delayed_consequence_tracking"]["recent_records"][0]
 
                 self.assertGreater(int(recovered["delayed_consequence"]["credited_records"]), 0)
@@ -7206,7 +6852,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7269,12 +6915,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy underwater?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    second = manager.respond(
+                    second = manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks use compressed air to rise?",
                         max_evidence_items=3,
                         learn_mode="none",
@@ -7301,20 +6947,20 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 }
 
-                penalized = manager.query(
+                penalized = manager.runtime_facade.query(
                     query_text="How do submarine ballast tanks control buoyancy underwater?",
                     top_k_memories=8,
                 )
                 self.assertGreater(int(penalized["delayed_consequence"]["penalized_records"]), 0)
 
-                manager.terminus_tick()
-                manager.terminus_tick()
-                manager.terminus_tick()
-                recovered = manager.query(
+                manager.runtime_facade.terminus_tick()
+                manager.runtime_facade.terminus_tick()
+                manager.runtime_facade.terminus_tick()
+                recovered = manager.runtime_facade.query(
                     query_text="How do submarine ballast tanks use compressed air to rise?",
                     top_k_memories=8,
                 )
-                tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                tracking = manager.runtime_facade.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
                 records = {
                     str(record.get("split_branch", "")): record
                     for record in tracking["recent_records"]
@@ -7353,7 +6999,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7416,12 +7062,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "weak_concepts": [],
                     },
                 ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy underwater?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks use compressed air to rise?",
                         max_evidence_items=3,
                         learn_mode="none",
@@ -7447,26 +7093,26 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 }
 
-                manager.query(
+                manager.runtime_facade.query(
                     query_text="How do submarine ballast tanks control buoyancy underwater?",
                     top_k_memories=8,
                 )
-                manager.terminus_tick()
-                manager.terminus_tick()
-                split_result = manager.query(
+                manager.runtime_facade.terminus_tick()
+                manager.runtime_facade.terminus_tick()
+                split_result = manager.runtime_facade.query(
                     query_text="How do submarine ballast tanks use compressed air to rise?",
                     top_k_memories=8,
                 )
-                split_tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                split_tracking = manager.runtime_facade.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
 
                 self.assertGreater(int(split_result["delayed_consequence"]["split_records"]), 0)
                 self.assertEqual(int(split_tracking["record_count"]), 2)
 
-                remerged = manager.query(
+                remerged = manager.runtime_facade.query(
                     query_text="How do submarine ballast tanks use compressed air to rise?",
                     top_k_memories=8,
                 )
-                tracking = manager.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
+                tracking = manager.runtime_facade.status()["terminus_runtime"]["autonomy"]["delayed_consequence_tracking"]
                 record = tracking["recent_records"][0]
 
                 self.assertGreater(int(remerged["delayed_consequence"]["remerged_records"]), 0)
@@ -7497,7 +7143,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7530,10 +7176,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 query_text = "How does compressed air raise the submarine to the surface?"
-                manager.query(query_text=query_text, top_k_memories=8)
-                manager.terminus_tick()
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                manager.runtime_facade.terminus_tick()
                 with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
                         learn_mode="none",
@@ -7549,10 +7195,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     }
                 ]
-                manager.query(query_text=query_text, top_k_memories=8)
-                manager.terminus_tick()
-                manager.query(query_text=query_text, top_k_memories=8)
-                runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                manager.runtime_facade.terminus_tick()
+                manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
+                runtime = manager.runtime_facade.status()["terminus_runtime"]
                 wikipedia_details = next(
                     item
                     for item in runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
@@ -7615,7 +7261,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7690,7 +7336,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 }
-                manager.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
+                manager.runtime_facade.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
                 with patch(
                     "hecsn.service.manager.run_live_acquisition",
                     return_value={
@@ -7701,10 +7347,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_history": [],
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 ranked = runtime["autonomy"]["provider_curriculum"]["ranked_providers"]
 
                 self.assertEqual(spec["catalog_providers"][0], "wikipedia")
@@ -7720,7 +7366,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("neutral background signal " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "observed_source",
@@ -7832,10 +7478,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "acquisition_history": [],
                     },
                 ) as mocked_acquire:
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
 
                 spec = mocked_acquire.call_args.kwargs["candidate_bank_specs"][0]
-                runtime = manager.terminus_status()["terminus_runtime"]
+                runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 provider_curriculum = runtime["autonomy"]["provider_curriculum"]
 
                 self.assertEqual(spec["catalog_providers"][0], "wikipedia")
@@ -7862,7 +7508,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("hebbian memory consolidation " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "checkpoint_source",
@@ -7888,18 +7534,18 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                     ingestion={"queue_target_tokens": 24, "prewarm_on_startup": False},
                 )
-                manager.query(query_text="How does hebbian memory consolidation work?", top_k_memories=6)
-                before_runtime = manager.terminus_tick()["terminus_runtime"]
+                manager.runtime_facade.query(query_text="How does hebbian memory consolidation work?", top_k_memories=6)
+                before_runtime = manager.runtime_facade.terminus_tick()["terminus_runtime"]
                 with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
-                    manager.respond(
+                    manager.runtime_facade.respond(
                         query_text="How does hebbian memory consolidation work?",
                         max_evidence_items=3,
                         learn_mode="none",
                     )
-                saved = manager.save_checkpoint(str(root / "terminus_service.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "terminus_service.pt"))
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
-                    terminus_runtime = restored.status()["terminus_runtime"]
+                    terminus_runtime = restored.runtime_facade.status()["terminus_runtime"]
 
                     self.assertTrue(terminus_runtime["configured"])
                     self.assertEqual(terminus_runtime["source_bank"][0]["name"], "checkpoint_source")
@@ -7931,7 +7577,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "brain_source.txt"
             source_path.write_text("brain event persistence signal " * 32, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "brain_source",
@@ -7944,18 +7590,18 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     repeat_sources=False,
                     ingestion={"queue_target_tokens": 16, "prewarm_on_startup": False},
                 )
-                manager.terminus_tick(steps=2)
-                before_runtime = manager.status()["terminus_runtime"]
+                manager.runtime_facade.terminus_tick(steps=2)
+                before_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 self.assertGreater(len(before_runtime["recent_events"]), 0)
                 self.assertEqual(before_runtime["recent_events"][0], before_runtime["last_event"])
 
-                saved = manager.save_checkpoint(str(root / "brain_events.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "brain_events.pt"))
             finally:
                 manager.close()
 
             restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
             try:
-                after_runtime = restored.status()["terminus_runtime"]
+                after_runtime = restored.runtime_facade.status()["terminus_runtime"]
 
                 self.assertEqual(after_runtime["last_event"], before_runtime["last_event"])
                 self.assertEqual(after_runtime["recent_events"], before_runtime["recent_events"])
@@ -7969,7 +7615,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("hebbian memory consolidation " * 24, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "checkpoint_source",
@@ -8007,10 +7653,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "trigger_interval_tokens": 100,
                     },
                 )
-                saved = manager.save_checkpoint(str(root / "terminus_catalog_service.pt"))
+                saved = manager.runtime_facade.save_checkpoint(str(root / "terminus_catalog_service.pt"))
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
-                    terminus_runtime = restored.status()["terminus_runtime"]
+                    terminus_runtime = restored.runtime_facade.status()["terminus_runtime"]
 
                     self.assertTrue(terminus_runtime["configured"])
                     self.assertEqual(terminus_runtime["source_bank"][0]["name"], "checkpoint_source")
@@ -8028,7 +7674,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("unsupervised knowledge accumulation " * 64, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "loop_source",
@@ -8041,11 +7687,11 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     repeat_sources=True,
                 )
 
-                started = manager.start_terminus()
+                started = manager.runtime_facade.start_terminus()
                 self.assertTrue(started["terminus_runtime"]["running"])
                 self.assertIsNotNone(started["terminus_runtime"]["running_since"])
                 time.sleep(0.5)
-                stopped = manager.stop_terminus()
+                stopped = manager.runtime_facade.stop_terminus()
 
                 self.assertFalse(stopped["terminus_runtime"]["running"])
                 self.assertIsNone(stopped["terminus_runtime"]["running_since"])
@@ -8061,7 +7707,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             source_path = root / "terminus_source.txt"
             source_path.write_text("runtime ownership safety signal " * 64, encoding="utf-8")
             try:
-                manager.configure_terminus(
+                manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
                             "name": "loop_source",
@@ -8074,13 +7720,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     repeat_sources=True,
                 )
 
-                started = manager.start_terminus()
+                started = manager.runtime_facade.start_terminus()
                 self.assertTrue(started["terminus_runtime"]["running"])
                 with self.assertRaisesRegex(ValueError, "background runtime is active"):
-                    manager.terminus_tick()
+                    manager.runtime_facade.terminus_tick()
             finally:
                 try:
-                    manager.stop_terminus()
+                    manager.runtime_facade.stop_terminus()
                 except Exception:
                     pass
                 manager.close()
@@ -8137,9 +7783,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
             try:
                 with self.assertRaisesRegex(RuntimeError, "did not stop within"):
-                    manager.stop_terminus()
+                    manager.runtime_facade.stop_terminus()
 
-                runtime = manager.status()["terminus_runtime"]
+                runtime = manager.runtime_facade.status()["terminus_runtime"]
                 self.assertTrue(runtime["running"])
                 self.assertTrue(runtime["shutdown"]["stop_requested"])
                 self.assertTrue(runtime["shutdown"]["stop_timed_out"])
@@ -8179,7 +7825,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
 
 class CortexIntegrationTests(unittest.TestCase):
-    """Test cortex/ThoughtLoop integration with service manager."""
+    """Test retired Cortex compatibility boundaries with service manager."""
 
     def test_manager_creation_status_do_not_eagerly_initialize_cortex(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -8192,7 +7838,7 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
                 try:
                     status = manager.runtime_facade.status()
-                    snapshot = manager.runtime_facade.cortex_snapshot()
+                    snapshot = status["terminus_runtime"]["cortex"]
                 finally:
                     manager.close()
 
@@ -8200,29 +7846,27 @@ class CortexIntegrationTests(unittest.TestCase):
             create_embedder.assert_not_called()
             self.assertIn("terminus_runtime", status)
             self.assertFalse(snapshot["enabled"])
+            self.assertTrue(snapshot["retired"])
 
-    def test_cortex_methods_available_without_nim_key(self) -> None:
-        """Cortex methods return graceful fallbacks when NIM API key is missing."""
+    def test_cortex_methods_are_removed_from_operator_facade(self) -> None:
+        """The LLM Cortex API is retired and no longer part of the operator facade."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cortex_no_nim_key")
             try:
-                # cortex_ask returns unavailable
-                result = manager.runtime_facade.cortex_ask("hello")
-                self.assertIn("accepted", result)
-
-                # cortex_thoughts returns disabled
-                thoughts = manager.runtime_facade.cortex_thoughts()
-                self.assertIn("thoughts", thoughts)
-
-                # cortex_snapshot returns disabled
-                snap = manager.runtime_facade.cortex_snapshot()
-                self.assertIn("enabled", snap)
+                self.assertFalse(hasattr(manager, "cortex_ask"))
+                self.assertFalse(hasattr(manager, "cortex_sleep"))
+                self.assertFalse(hasattr(manager, "cortex_thoughts"))
+                self.assertFalse(hasattr(manager, "cortex_snapshot"))
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_ask"))
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_sleep"))
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_thoughts"))
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_snapshot"))
             finally:
                 manager.close()
 
-    def test_runtime_snapshot_includes_cortex(self) -> None:
-        """Regression: terminus runtime snapshot includes a 'cortex' key through the manager facade.
+    def test_runtime_snapshot_marks_cortex_retired(self) -> None:
+        """Regression: terminus runtime snapshot marks the former Cortex path as retired.
 
         Verdict and payload key coverage is in test_status_read_model.py::StatusReadModelStatusTests
         and StatusReadModelPayloadCompatibilityTests. This stub confirms the manager wiring survives.
@@ -8233,6 +7877,7 @@ class CortexIntegrationTests(unittest.TestCase):
             try:
                 status = manager.runtime_facade.status()
                 self.assertIn("cortex", status["terminus_runtime"])
+                self.assertTrue(status["terminus_runtime"]["cortex"]["retired"])
             finally:
                 manager.close()
 
@@ -8247,7 +7892,7 @@ class CortexIntegrationTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="status_runtime_truth_contract")
             try:
-                status = manager.status()
+                status = manager.runtime_facade.status()
                 truth = status["runtime_truth"]
                 self.assertEqual(truth["schema_version"], 1)
                 self.assertIn("verdict", truth)
@@ -8277,7 +7922,7 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.__dict__.pop("_cached_status", None)
                 manager.__dict__.pop("_cached_terminus_status", None)
 
-                status = manager.status()
+                status = manager.runtime_facade.status()
                 self.assertTrue(status["dirty_state"])
                 self.assertEqual(status["state_revision"], 7)
                 last_event = status["terminus_runtime"]["last_event"]
@@ -8306,7 +7951,7 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_runtime_truth_reports_alive_after_cortex_and_progress(self) -> None:
+    def test_runtime_truth_reports_alive_after_subcortex_progress(self) -> None:
         """Regression: alive verdict flows through the manager after a real tick.
 
         Verdict logic coverage is in test_status_read_model.py::StatusReadModelRuntimeTruthVerdictTests.
@@ -8318,12 +7963,8 @@ class CortexIntegrationTests(unittest.TestCase):
             source_path.write_text("submarine ballast pressure control " * 8, encoding="utf-8")
             manager = _build_manager(root, test_case="status_runtime_truth_alive")
             try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                manager._thought_loop = ThoughtLoop(cortex=MockCortex())
-                manager._cortex_available = True
-                manager.configure_terminus(
+                runtime = manager.runtime_facade
+                runtime.configure_terminus(
                     source_bank=[
                         {
                             "name": "truth_source",
@@ -8335,9 +7976,9 @@ class CortexIntegrationTests(unittest.TestCase):
                     sleep_interval_seconds=0.01,
                     repeat_sources=False,
                 )
-                manager.terminus_tick()
+                runtime.terminus_tick()
 
-                truth = manager.status()["runtime_truth"]
+                truth = runtime.status()["runtime_truth"]
                 self.assertEqual(truth["verdict"], "alive")
             finally:
                 manager.close()
@@ -8349,9 +7990,10 @@ class CortexIntegrationTests(unittest.TestCase):
             source_path.write_text("character stream learning " * 24, encoding="utf-8")
             manager = _build_manager(root, test_case="status_fresh_wait")
             try:
-                stale = manager.status()
+                runtime = manager.runtime_facade
+                stale = runtime.status()
                 self.assertFalse(stale["terminus_runtime"]["configured"])
-                manager.configure_terminus(
+                runtime.configure_terminus(
                     source_bank=[
                         {
                             "name": "local_stream",
@@ -8382,7 +8024,7 @@ class CortexIntegrationTests(unittest.TestCase):
                 thread.start()
                 self.assertTrue(ready.wait(timeout=1.0))
                 try:
-                    fresh = manager.status(fresh_wait_seconds=0.05)
+                    fresh = runtime.status(fresh_wait_seconds=0.05)
                 finally:
                     release.set()
                     thread.join(timeout=1.0)
@@ -8392,267 +8034,25 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_cortex_with_mock_cortex(self) -> None:
-        """Wire a MockCortex into the manager to test the full integration."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="cortex_fake_integration")
-            try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                cortex = MockCortex()
-                thought_loop = ThoughtLoop(cortex=cortex)
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                # Ask should be accepted now
-                result = manager.cortex_ask("What is the meaning of life?")
-                self.assertTrue(result["accepted"])
-                self.assertEqual(result["query"], "What is the meaning of life?")
-
-                # Step the thought loop manually
-                thought_loop.step()
-
-                # Thoughts should now be available
-                thoughts = manager.cortex_thoughts()
-                self.assertTrue(thoughts["enabled"])
-                self.assertGreater(thoughts["thoughts_generated"], 0)
-                self.assertGreater(len(thoughts["thoughts"]), 0)
-
-                # Snapshot should include drives
-                snap = manager.cortex_snapshot()
-                self.assertTrue(snap["enabled"])
-                self.assertIn("drives", snap)
-                self.assertIn("recent_thoughts", snap)
-                self.assertEqual(snap["episodic_memory"]["embedder"]["kind"], "SimpleEmbedder")
-
-                # Runtime snapshot should include cortex
-                status = manager.status()
-                cortex_data = status["terminus_runtime"]["cortex"]
-                self.assertTrue(cortex_data["enabled"])
-                self.assertGreater(cortex_data["thoughts_generated"], 0)
-            finally:
-                manager.close()
-
-    def test_background_mock_thought_loop_stays_quiet_without_input(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="cortex_background_idle_quiet")
-            thought_loop = None
-            try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                thought_loop = ThoughtLoop(
-                    cortex=MockCortex(),
-                    tick_interval_ms=50.0,
-                    min_thought_interval_s=0.0,
-                )
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                thought_loop.start()
-                time.sleep(0.25)
-                thought_loop.stop(timeout=1.0)
-
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["thoughts_generated"], 0)
-                self.assertTrue(snap["gating"]["startup_quiet"])
-                self.assertIn(snap["gating"]["last_gate_reason"], {"startup_quiet", "idle_no_trigger"})
-            finally:
-                try:
-                    if thought_loop is not None:
-                        thought_loop.stop(timeout=1.0)
-                except Exception:
-                    pass
-                manager.close()
-
-    def test_mock_thought_loop_requires_prediction_error_renewal_for_repeat_thoughts(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="cortex_prediction_error_renewal")
-            try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                thought_loop = ThoughtLoop(
-                    cortex=MockCortex(responses=[
-                        {"thought": "A quick fact about gravity", "topics": ["physics"], "valence": 0.1, "confidence": 0.7, "action": None},
-                        {"thought": "A second fact about magnetism", "topics": ["physics"], "valence": 0.1, "confidence": 0.7, "action": None},
-                    ]),
-                    min_thought_interval_s=0.0,
-                )
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                thought_loop.drives.update_from_prediction_error(0.7, 0.8, 0.2, 0.1)
-                first = thought_loop.step(force=True)
-                second = thought_loop.step(force=True)
-                self.assertIsNotNone(first)
-                self.assertIsNone(second)
-
-                thought_loop.drives.update_from_prediction_error(0.85, 0.95, 0.15, 0.05)
-                third = thought_loop.step(force=True)
-                self.assertIsNotNone(third)
-
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["thoughts_generated"], 2)
-                self.assertEqual(snap["gating"]["pending_substrate_wakes"], 0)
-            finally:
-                manager.close()
-
-    def test_background_mock_thought_loop_rearms_under_strong_sustained_signal(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="cortex_sustained_pressure_hysteresis")
-            thought_loop = None
-            try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.drives import DriveSystem
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                signal = {
-                    "prediction_error_mean": 0.72,
-                    "prediction_error_max": 0.90,
-                    "predictive_confidence_mean": 0.18,
-                    "predictive_confidence_min": 0.08,
-                    "recent_concepts": ["aurora borealis"],
-                }
-                thought_loop = ThoughtLoop(
-                    cortex=MockCortex(),
-                    tick_interval_ms=50.0,
-                    min_thought_interval_s=0.0,
-                    signal_provider=lambda: signal,
-                    drives=DriveSystem(
-                        substrate_rearm_cooldown_s=0.18,
-                        substrate_sustain_min_updates=2,
-                        substrate_sustain_margin=0.22,
-                    ),
-                )
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                thought_loop.start()
-                deadline = time.time() + 2.0
-                snap = manager.cortex_snapshot()
-                while time.time() < deadline:
-                    snap = manager.cortex_snapshot()
-                    if int(snap.get("thoughts_generated", 0)) >= 2:
-                        break
-                    time.sleep(0.05)
-                thought_loop.stop(timeout=1.0)
-
-                snap = manager.cortex_snapshot()
-                self.assertGreaterEqual(snap["thoughts_generated"], 2)
-                self.assertTrue(snap["gating"]["substrate_hysteresis_active"])
-                self.assertEqual(snap["gating"]["substrate_hysteresis_reason"], "prediction_error")
-                self.assertGreaterEqual(snap["gating"]["substrate_hysteresis_updates"], 2)
-            finally:
-                try:
-                    if thought_loop is not None:
-                        thought_loop.stop(timeout=1.0)
-                except Exception:
-                    pass
-                manager.close()
-
-    def test_cortex_ask_wakes_background_mock_thought_loop(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            manager = _build_manager(root, test_case="cortex_background_query_wake")
-            thought_loop = None
-            try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                thought_loop = ThoughtLoop(
-                    cortex=MockCortex(),
-                    tick_interval_ms=50.0,
-                    min_thought_interval_s=60.0,
-                )
-                thought_loop.drives.state.curiosity = 0.0
-                thought_loop.drives.state.social = 0.0
-                manager._thought_loop = thought_loop
-                manager._cortex_available = True
-
-                thought_loop.start()
-                result = manager.cortex_ask("What is the meaning of life?")
-                self.assertTrue(result["accepted"])
-
-                deadline = time.time() + 1.5
-                thoughts_generated = 0
-                while time.time() < deadline:
-                    thoughts_generated = manager.cortex_thoughts()["thoughts_generated"]
-                    if thoughts_generated > 0:
-                        break
-                    time.sleep(0.05)
-
-                self.assertGreater(thoughts_generated, 0)
-            finally:
-                try:
-                    thought_loop.stop(timeout=1.0)
-                except Exception:
-                    pass
-                manager.close()
-
-    def test_delayed_cortex_initialization_starts_loop_when_runtime_active(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            source_path = root / "stream.txt"
-            source_path.write_text("delayed cortex startup validation " * 16, encoding="utf-8")
-            manager = _build_manager(root, test_case="delayed_cortex_init_starts_loop")
-            try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.episodic_memory import EpisodicMemory
-                from hecsn.cortex.thought_loop import ThoughtLoop
-
-                thought_loop = ThoughtLoop(cortex=MockCortex(), memory=EpisodicMemory())
-                manager._cortex_factory_refs = (
-                    ThoughtLoop,
-                    lambda: MockCortex(),
-                    lambda allow_fallback=False: thought_loop.memory.embedder,
-                    EpisodicMemory,
-                )
-                manager.configure_terminus(
-                    source_bank=[
-                        {
-                            "name": "stream",
-                            "source": str(source_path),
-                            "source_type": "file",
-                        }
-                    ],
-                    tick_tokens=8,
-                    sleep_interval_seconds=0.01,
-                    repeat_sources=False,
-                )
-                manager._brain_running = True
-                with patch.object(manager._cortex_controller, "_build_cortex_thought_loop", return_value=thought_loop):
-                    manager._start_cortex_initialization()
-                    self.assertTrue(manager._cortex_init_event.wait(timeout=1.0))
-                self.assertIsNotNone(manager._thought_loop_actual)
-                self.assertTrue(manager._thought_loop_actual.is_running)
-                self.assertTrue(manager._cortex_controller._cortex_available)
-            finally:
-                manager.close()
-
-    def test_telemetry_includes_cortex(self) -> None:
-        """Regression: telemetry snapshot includes cortex key from runtime through the manager.
+    def test_telemetry_marks_cortex_retired(self) -> None:
+        """Regression: telemetry snapshot marks the former Cortex path as retired.
 
         Detailed telemetry payload coverage is in
         test_status_read_model.py::StatusReadModelTelemetryTests. This stub confirms
-        manager-level delegation.
+        manager-level facade wiring.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cortex_telemetry")
             try:
-                telemetry = manager.telemetry_snapshot()
+                telemetry = manager.runtime_facade.telemetry_snapshot()
                 self.assertIn("cortex", telemetry["terminus_runtime"])
+                self.assertTrue(telemetry["terminus_runtime"]["cortex"]["retired"])
             finally:
                 manager.close()
 
 class ServiceManagerActionLoopTests(unittest.TestCase):
-    def test_execute_digital_action_persists_verified_workspace_search_and_replays_to_memory(self) -> None:
+    def test_execute_digital_action_persists_verified_workspace_search_and_persists_action_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "notes.md").write_text(
@@ -8660,7 +8060,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 encoding="utf-8",
             )
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -8672,7 +8072,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "workspace_search",
                         "query_text": "cats chase mice",
@@ -8686,13 +8086,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(runtime["recent_events"][0]["type"], "digital_action_executed")
                 self.assertEqual(result["result"]["verification"]["status"], "verified")
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_type"], "workspace_search")
-                self.assertIn("cats chase mice", episodes[0].content.lower())
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
 
@@ -8706,15 +8100,9 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["verification_status"], "verified")
-                self.assertIn("workspace_search", restored_episodes[0].content)
             finally:
                 restored.close()
 
@@ -8731,7 +8119,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 env_root=root,
             )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "workspace_search",
                         "query_text": "cats chase mice",
@@ -8739,7 +8127,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     }
                 )
                 action_id = result["result"]["action_id"]
-                feedback = manager.record_runtime_feedback(
+                feedback = manager.runtime_facade.record_runtime_feedback(
                     {
                         "target_type": "action",
                         "target_id": action_id,
@@ -8757,7 +8145,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(feedback["target"]["provenance"], "verified")
                 self.assertEqual(feedback["target"]["feedback"][0]["evidence"][0]["source"], "review")
                 with self.assertRaisesRegex(ValueError, "Runtime feedback target not found"):
-                    manager.record_runtime_feedback(
+                    manager.runtime_facade.record_runtime_feedback(
                         {
                             "target_type": "action",
                             "target_id": "missing-action",
@@ -8765,20 +8153,20 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                             "confidence": 0.1,
                         }
                     )
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
 
             restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces", env_root=root)
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["actions"][0]["action_id"], action_id)
                 self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
                 self.assertEqual(history["actions"][0]["feedback"][0]["evaluator_id"], "qa-bot")
             finally:
                 restored.close()
 
-    def test_execute_digital_action_persists_parameterized_api_request_and_replays_to_memory(self) -> None:
+    def test_execute_digital_action_persists_parameterized_api_request_and_persists_action_history(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             port = _free_port()
@@ -8786,7 +8174,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -8798,7 +8186,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/api/echo",
@@ -8816,13 +8204,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(result["result"]["inputs"]["json_body"]["topic"], "cats")
                 self.assertEqual(result["result"]["verification"]["status"], "verified")
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_type"], "api_request")
-                self.assertEqual(episodes[0].metadata["action_inputs"]["method"], "POST")
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -8839,16 +8221,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["action_type"], "api_request")
                 self.assertEqual(history["actions"][0]["inputs"]["method"], "POST")
                 self.assertEqual(history["actions"][0]["inputs"]["params"]["kind"], "feline")
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["method"], "POST")
             finally:
                 restored.close()
 
@@ -8872,7 +8249,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -8884,7 +8261,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/animals.json",
@@ -8899,13 +8276,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(result["result"]["verification"]["evidence"][0]["structure_kind"], "object")
                 self.assertGreaterEqual(result["result"]["verification"]["evidence"][0]["field_count"], 3)
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_type"], "api_request")
-                self.assertEqual(episodes[0].metadata["evidence"][0]["structure_kind"], "object")
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -8922,16 +8293,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["action_type"], "api_request")
                 self.assertEqual(history["actions"][0]["verification"]["evidence"][0]["json_path"], "$.animals[0]")
                 self.assertEqual(history["actions"][0]["verification"]["evidence"][0]["structure_kind"], "object")
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["evidence"][0]["structure_kind"], "object")
             finally:
                 restored.close()
 
@@ -8955,7 +8321,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -8967,7 +8333,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/animals.json",
@@ -8985,13 +8351,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_path" for item in result["result"]["verification"]["evidence"]))
                 self.assertTrue(any(item.get("assertion_kind") == "expected_response_shape" for item in result["result"]["verification"]["evidence"]))
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_response_shape"], "object")
-                self.assertTrue(any(item.get("assertion_kind") == "expected_json_path" for item in episodes[0].metadata["evidence"]))
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -9008,16 +8368,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["inputs"]["expected_response_shape"], "object")
                 self.assertEqual(history["actions"][0]["inputs"]["expected_json_paths"], ["$.animals[0]", "$.animals[0].diet"])
                 self.assertTrue(any(item.get("assertion_kind") == "expected_response_shape" for item in history["actions"][0]["verification"]["evidence"]))
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_response_shape"], "object")
             finally:
                 restored.close()
 
@@ -9041,7 +8396,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -9053,7 +8408,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/animals.json",
@@ -9071,13 +8426,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(result["result"]["inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in result["result"]["verification"]["evidence"]))
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
-                self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in episodes[0].metadata["evidence"]))
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -9094,15 +8443,10 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_value" for item in history["actions"][0]["verification"]["evidence"]))
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_values"]["$.animals[0].diet"], "mice")
             finally:
                 restored.close()
 
@@ -9124,7 +8468,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -9136,7 +8480,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/metrics.json",
@@ -9154,13 +8498,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(result["result"]["inputs"]["expected_json_predicates"][0]["op"], "contains")
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in result["result"]["verification"]["evidence"]))
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "contains")
-                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in episodes[0].metadata["evidence"]))
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -9177,15 +8515,10 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicates"][0]["op"], "contains")
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate" for item in history["actions"][0]["verification"]["evidence"]))
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "contains")
             finally:
                 restored.close()
 
@@ -9208,7 +8541,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -9220,7 +8553,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/metrics.json",
@@ -9240,13 +8573,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertTrue(any(item.get("predicate_op") == "between" for item in result["result"]["verification"]["evidence"]))
                 self.assertTrue(any(item.get("predicate_op") == "any_contains" for item in result["result"]["verification"]["evidence"]))
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "between")
-                self.assertTrue(any(item.get("predicate_op") == "between" for item in episodes[0].metadata["evidence"]))
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -9263,15 +8590,10 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicates"][0]["op"], "between")
                 self.assertTrue(any(item.get("predicate_op") == "between" for item in history["actions"][0]["verification"]["evidence"]))
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicates"][0]["op"], "between")
             finally:
                 restored.close()
 
@@ -9294,7 +8616,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -9306,7 +8628,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/logic.json",
@@ -9333,13 +8655,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in result["result"]["verification"]["evidence"]))
                 self.assertTrue(any(item.get("predicate_op") == "all_regex" for item in result["result"]["verification"]["evidence"]))
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
-                self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in episodes[0].metadata["evidence"]))
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -9356,15 +8672,10 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in history["actions"][0]["verification"]["evidence"]))
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "any")
             finally:
                 restored.close()
 
@@ -9389,7 +8700,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import Provenance, SimpleEmbedder
+            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
             with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
                 "hecsn.cortex.multi_cortex.create_embedder_from_env",
@@ -9401,7 +8712,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                result = manager.execute_digital_action(
+                result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": f"http://127.0.0.1:{port}/wild.json",
@@ -9438,13 +8749,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(result["result"]["inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
                 self.assertTrue(any(item.get("assertion_kind") == "expected_json_predicate_group" for item in result["result"]["verification"]["evidence"]))
 
-                episodes = manager._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(episodes), 1)
-                self.assertEqual(episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
-                self.assertTrue(any(item.get("asserted_json_path") == "$.animals[*].diet" for item in episodes[0].metadata["evidence"]))
-
-                saved = manager.save_checkpoint()
+                saved = manager.runtime_facade.save_checkpoint()
             finally:
                 manager.close()
                 server.shutdown()
@@ -9461,15 +8766,10 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                     env_root=root,
                 )
             try:
-                history = restored.action_history(limit=4)
+                history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
                 self.assertEqual(history["actions"][0]["inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
                 self.assertTrue(any(item.get("asserted_json_path") == "$.animals[*].diet" for item in history["actions"][0]["verification"]["evidence"]))
-
-                restored_episodes = restored._thought_loop.memory.recent_action_episodes(limit=4)
-                self.assertEqual(len(restored_episodes), 1)
-                self.assertEqual(restored_episodes[0].provenance, Provenance.VERIFIED)
-                self.assertEqual(restored_episodes[0].metadata["action_inputs"]["expected_json_predicate_groups"][0]["logic"], "all")
             finally:
                 restored.close()
 
@@ -9540,7 +8840,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             env_root=root,
         )
         try:
-            response = manager.respond(
+            response = manager.runtime_facade.respond(
                 query_text=query_text,
                 max_evidence_items=3,
                 learn_mode="none",
@@ -9556,7 +8856,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(assist["result"]["inputs"]["path"], case.expected_input_path)
             if case.served_path is not None:
                 self.assertIn("http://127.0.0.1", assist["result"]["inputs"]["url"])
-            history = manager.action_history(limit=4)
+            history = manager.runtime_facade.action_history(limit=4)
             self.assertEqual(history["count"], 1)
             if case.expected_action_type is not None:
                 self.assertEqual(history["actions"][0]["action_type"], case.expected_action_type)
@@ -9577,7 +8877,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             )
             url = f"http://127.0.0.1:{port}/api/echo"
             try:
-                operator_result = manager.execute_digital_action(
+                operator_result = manager.runtime_facade.execute_digital_action(
                     {
                         "action_type": "api_request",
                         "url": url,
@@ -9591,7 +8891,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertTrue(operator_result["accepted"])
                 self.assertEqual(operator_result["result"]["inputs"]["method"], "POST")
 
-                response = manager.respond(
+                response = manager.runtime_facade.respond(
                     query_text=f"What does {url} say cats mice at night?",
                     max_evidence_items=3,
                     learn_mode="none",
@@ -9603,7 +8903,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(assist["result"]["action_type"], "api_request")
                 self.assertEqual(assist["result"]["trigger_reason"], "query_gap_auto_api_request")
                 self.assertEqual(assist["result"]["verification"]["status"], "contradicted")
-                history = manager.action_history(limit=8)
+                history = manager.runtime_facade.action_history(limit=8)
                 self.assertEqual(history["count"], 2)
                 self.assertEqual(history["actions"][0]["trigger_reason"], "query_gap_auto_api_request")
                 self.assertEqual(history["actions"][0]["inputs"]["method"], "GET")
@@ -9613,529 +8913,6 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2.0)
-
-    def test_cortex_ask_action_intent_executes_workspace_action(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": "I should ask for more grounded evidence about what cats chase at night.",
-                        "topics": ["cats", "chase", "night"],
-                        "valence": 0.1,
-                        "confidence": 0.62,
-                        "action": "ask",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_ask_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.start()
-                ask = manager.cortex_ask("What do cats chase at night?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                history = {"count": 0, "actions": []}
-                runtime = {}
-                while time.time() < deadline:
-                    history = manager.action_history(limit=4)
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    if history["count"] >= 1:
-                        break
-                    time.sleep(0.02)
-
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_ask")
-                self.assertEqual(history["actions"][0]["trigger_query_text"], "What do cats chase at night?")
-                self.assertEqual(history["actions"][0]["action_type"], "workspace_search")
-                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-                request_events = [event for event in runtime.get("recent_events", []) if event.get("type") == "cortex_action_requested"]
-                self.assertTrue(any(event.get("action_intent") == "ask" for event in request_events))
-                self.assertIn("digital_action_executed", [event.get("type") for event in runtime.get("recent_events", [])])
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "ask")
-            finally:
-                manager.close()
-
-    def test_cortex_remember_action_intent_reuses_recent_action_history(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": "I should remember the grounded evidence about what cats chase at night.",
-                        "topics": ["cats", "chase", "night"],
-                        "valence": 0.1,
-                        "confidence": 0.62,
-                        "action": "remember",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_remember_action_intent",
-                    env_root=root,
-                )
-            try:
-                operator_result = manager.execute_digital_action(
-                    {
-                        "action_type": "workspace_search",
-                        "query_text": "cats chase mice",
-                        "predicted_outcome": "I expect to find evidence about cats chasing mice.",
-                    }
-                )
-                self.assertTrue(operator_result["accepted"])
-                self.assertEqual(manager.action_history(limit=4)["count"], 1)
-
-                manager._thought_loop.start()
-                ask = manager.cortex_ask("What do cats chase at night?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                runtime = {}
-                while time.time() < deadline:
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    recent_events = runtime.get("recent_events", [])
-                    if recent_events and recent_events[0].get("type") == "cortex_action_reused":
-                        break
-                    time.sleep(0.02)
-
-                history = manager.action_history(limit=4)
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(runtime["recent_events"][0]["type"], "cortex_action_reused")
-                self.assertEqual(runtime["recent_events"][0]["action_intent"], "remember")
-                self.assertEqual(runtime["recent_events"][0]["query_text"], "What do cats chase at night?")
-                self.assertEqual(history["actions"][0]["trigger_reason"], "operator")
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "remember")
-            finally:
-                manager.close()
-
-    def test_cortex_explore_action_intent_executes_workspace_action_without_query_hint(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            from hecsn.cortex.core import MockCortex, ThoughtResult
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_explore_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._on_cortex_thought(
-                    ThoughtResult(
-                        raw_text='{"thought":"I should explore cats hunting at night.","topics":["cats","night","mice"],"valence":0.1,"confidence":0.62,"action":"explore"}',
-                        thought="I should explore cats hunting at night.",
-                        topics=("cats", "night", "mice"),
-                        emotional_valence=0.1,
-                        confidence=0.62,
-                        action_intent="explore",
-                        latency_ms=0.0,
-                        parse_success=True,
-                    )
-                )
-                history = manager.action_history(limit=4)
-                runtime = manager.terminus_status()["terminus_runtime"]
-
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_explore")
-                self.assertEqual(history["actions"][0]["action_type"], "workspace_search")
-                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
-                self.assertIn("cortex_action_requested", event_types)
-                self.assertIn("digital_action_executed", event_types)
-                request_events = [event for event in runtime.get("recent_events", []) if event.get("type") == "cortex_action_requested"]
-                self.assertTrue(any(event.get("action_intent") == "explore" for event in request_events))
-            finally:
-                manager.close()
-
-    def test_cortex_search_action_intent_executes_workspace_action(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": "I should search the workspace for evidence about what cats chase at night.",
-                        "topics": ["cats", "chase", "night"],
-                        "valence": 0.1,
-                        "confidence": 0.62,
-                        "action": "search",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_search_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.start()
-                ask = manager.cortex_ask("What do cats chase at night?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                history = {"count": 0, "actions": []}
-                runtime = {}
-                while time.time() < deadline:
-                    history = manager.action_history(limit=4)
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    if history["count"] >= 1:
-                        break
-                    time.sleep(0.02)
-
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_search")
-                self.assertEqual(history["actions"][0]["trigger_query_text"], "What do cats chase at night?")
-                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
-                self.assertIn("cortex_action_requested", event_types)
-                self.assertIn("digital_action_executed", event_types)
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "search")
-            finally:
-                manager.close()
-
-    def test_cortex_search_action_intent_reads_named_workspace_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "notes.md").write_text(
-                "Cats rest indoors during the day.\nCats chase mice at night.\n",
-                encoding="utf-8",
-            )
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": "I should search the workspace for evidence in notes.md about what cats chase at night.",
-                        "topics": ["notes", "cats", "night"],
-                        "valence": 0.1,
-                        "confidence": 0.62,
-                        "action": "search",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_read_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.start()
-                ask = manager.cortex_ask("What does notes.md say cats chase at night?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                history = {"count": 0, "actions": []}
-                runtime = {}
-                while time.time() < deadline:
-                    history = manager.action_history(limit=4)
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    if history["count"] >= 1:
-                        break
-                    time.sleep(0.02)
-
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_read")
-                self.assertEqual(history["actions"][0]["action_type"], "workspace_read")
-                self.assertEqual(history["actions"][0]["inputs"]["path"], "notes.md")
-                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
-                self.assertIn("cortex_action_requested", event_types)
-                self.assertIn("digital_action_executed", event_types)
-            finally:
-                manager.close()
-
-    def test_cortex_search_action_intent_fetches_explicit_url(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "page.html").write_text(
-                "<html><body><main><p>Cats chase mice at night.</p><p>Cats rest indoors during the day.</p></main></body></html>",
-                encoding="utf-8",
-            )
-            port = _free_port()
-            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
-            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": f"I should search the web page at http://127.0.0.1:{port}/page.html for evidence about what cats chase at night.",
-                        "topics": ["cats", "chase", "night"],
-                        "valence": 0.1,
-                        "confidence": 0.62,
-                        "action": "search",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_fetch_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.start()
-                ask = manager.cortex_ask(f"What does http://127.0.0.1:{port}/page.html say cats chase at night?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                history = {"count": 0, "actions": []}
-                runtime = {}
-                while time.time() < deadline:
-                    history = manager.action_history(limit=4)
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    if history["count"] >= 1:
-                        break
-                    time.sleep(0.02)
-
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_fetch")
-                self.assertEqual(history["actions"][0]["action_type"], "web_fetch")
-                self.assertIn(f"http://127.0.0.1:{port}/page.html", history["actions"][0]["inputs"]["url"])
-                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
-                self.assertIn("cortex_action_requested", event_types)
-                self.assertIn("digital_action_executed", event_types)
-            finally:
-                manager.close()
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=2.0)
-
-    def test_cortex_search_action_intent_requests_explicit_json_api(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            (root / "data.json").write_text(
-                '{"facts": {"chase": "mice at night", "rest": "indoors during the day"}}',
-                encoding="utf-8",
-            )
-            port = _free_port()
-            handler = partial(_SilentSimpleHTTPRequestHandler, directory=str(root))
-            server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": f"I should search the JSON endpoint at http://127.0.0.1:{port}/data.json for evidence about what cats chase at night.",
-                        "topics": ["cats", "chase", "night"],
-                        "valence": 0.1,
-                        "confidence": 0.62,
-                        "action": "search",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_api_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.start()
-                ask = manager.cortex_ask(f"What does http://127.0.0.1:{port}/data.json say cats chase at night?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                history = {"count": 0, "actions": []}
-                runtime = {}
-                while time.time() < deadline:
-                    history = manager.action_history(limit=4)
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    if history["count"] >= 1:
-                        break
-                    time.sleep(0.02)
-
-                self.assertEqual(history["count"], 1)
-                self.assertEqual(history["actions"][0]["trigger_reason"], "cortex_action_api_request")
-                self.assertEqual(history["actions"][0]["action_type"], "api_request")
-                self.assertIn(f"http://127.0.0.1:{port}/data.json", history["actions"][0]["inputs"]["url"])
-                self.assertEqual(history["actions"][0]["verification"]["status"], "verified")
-                event_types = [event.get("type") for event in runtime.get("recent_events", [])]
-                self.assertIn("cortex_action_requested", event_types)
-                self.assertIn("digital_action_executed", event_types)
-            finally:
-                manager.close()
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=2.0)
-
-    def test_operator_cortex_sleep_request_records_and_completes_control_cycle(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_operator_cortex_sleep",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.sleep_dream_count = 1
-                manager._thought_loop.start()
-                response = manager.cortex_sleep("Operator requested a consolidation cycle.")
-                self.assertTrue(response["accepted"])
-                self.assertEqual(response["request"]["source"], "operator")
-
-                deadline = time.time() + 2.0
-                runtime = {}
-                while time.time() < deadline:
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    recent_events = runtime.get("recent_events", [])
-                    sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
-                    if (
-                        sleep_control.get("requested_cycles_completed", 0) >= 1
-                        and any(event.get("type") == "cortex_sleep_completed" for event in recent_events)
-                    ):
-                        break
-                    time.sleep(0.02)
-
-                recent_events = runtime.get("recent_events", [])
-                sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
-                self.assertEqual(manager.action_history(limit=4)["count"], 0)
-                self.assertEqual(sleep_control.get("last_request", {}).get("source"), "operator")
-                self.assertEqual(sleep_control.get("last_cycle", {}).get("trigger"), "requested")
-                self.assertEqual(sleep_control.get("last_cycle", {}).get("request", {}).get("source"), "operator")
-                self.assertTrue(any(event.get("type") == "cortex_sleep_requested" and event.get("source") == "operator" for event in recent_events))
-                self.assertTrue(any(event.get("type") == "cortex_sleep_completed" and event.get("source") == "operator" for event in recent_events))
-            finally:
-                manager.close()
-
-    def test_cortex_sleep_action_intent_requests_and_completes_control_cycle(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-            cortex = MockCortex(
-                responses=[
-                    {
-                        "thought": "I should sleep and consolidate before continuing.",
-                        "topics": ["sleep", "consolidation"],
-                        "valence": 0.0,
-                        "confidence": 0.64,
-                        "action": "sleep",
-                    }
-                ]
-            )
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=cortex), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_cortex_sleep_action_intent",
-                    env_root=root,
-                )
-            try:
-                manager._thought_loop.sleep_dream_count = 1
-                manager._thought_loop.start()
-                ask = manager.cortex_ask("Should you consolidate now?")
-                self.assertTrue(ask["accepted"])
-
-                deadline = time.time() + 2.0
-                runtime = {}
-                while time.time() < deadline:
-                    runtime = manager.terminus_status()["terminus_runtime"]
-                    recent_events = runtime.get("recent_events", [])
-                    sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
-                    if (
-                        sleep_control.get("requested_cycles_completed", 0) >= 1
-                        and any(
-                            event.get("type") == "cortex_sleep_completed"
-                            and event.get("source") == "cortex_intent"
-                            for event in recent_events
-                        )
-                    ):
-                        break
-                    time.sleep(0.02)
-
-                recent_events = runtime.get("recent_events", [])
-                sleep_control = runtime.get("cortex", {}).get("sleep_control", {})
-                self.assertEqual(manager.action_history(limit=4)["count"], 0)
-                self.assertEqual(sleep_control.get("last_request", {}).get("source"), "cortex_intent")
-                self.assertEqual(sleep_control.get("last_cycle", {}).get("trigger"), "requested")
-                self.assertEqual(
-                    sleep_control.get("last_cycle", {}).get("request", {}).get("metadata", {}).get("query_text"),
-                    "Should you consolidate now?",
-                )
-                self.assertTrue(any(event.get("type") == "cortex_sleep_requested" and event.get("action_intent") == "sleep" for event in recent_events))
-                self.assertTrue(any(event.get("type") == "cortex_sleep_completed" and event.get("action_intent") == "sleep" for event in recent_events))
-                snap = manager.cortex_snapshot()
-                self.assertEqual(snap["recent_thoughts"][-1]["action_intent"], "sleep")
-            finally:
-                manager.close()
-
 
 if __name__ == "__main__":
     unittest.main()

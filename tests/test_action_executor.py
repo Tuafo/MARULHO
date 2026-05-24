@@ -44,8 +44,6 @@ def _build_action_executor(
         record_brain_event_fn=lambda event: brain_events.append(deepcopy(dict(event))),
         brain_runtime_snapshot_fn=lambda: {"runtime": "snapshot", "state_revision": runtime_state.state_revision},
         runtime_trace_export_safe_value_fn=deepcopy,
-        ensure_cortex_initialized_fn=lambda: None,
-        inject_action_record_into_cortex_fn=lambda *_args, **_kwargs: None,
         apply_provider_outcome_calibration_fn=lambda **_kwargs: True,
     )
     return executor, brain_events, runtime_state

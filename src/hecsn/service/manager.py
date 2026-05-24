@@ -308,7 +308,6 @@ class HECSNServiceManager:
                 normalize_background_source_utility_state=self._normalize_background_source_utility_state,
                 normalize_delayed_consequence_record=self._normalize_delayed_consequence_record,
                 rebuild_brain_sources=lambda: self._brain_runtime._rebuild_brain_sources_locked(),
-                replay_action_history_into_cortex=self._replay_action_history_into_cortex_locked,
                 request_brain_stop=lambda *args, **kwargs: self._runtime_control._request_brain_stop(*args, **kwargs),
             ),
             trace_history_limit=trace_history_limit,
@@ -507,10 +506,6 @@ class HECSNServiceManager:
             record_brain_event_fn=lambda event: self._record_brain_event_locked(dict(event)),
             brain_runtime_snapshot_fn=self._brain_runtime_snapshot_locked,
             runtime_trace_export_safe_value_fn=lambda value: self._runtime_trace_export_safe_value(value),
-            ensure_cortex_initialized_fn=lambda: self._ensure_cortex_initialized(),
-            inject_action_record_into_cortex_fn=lambda thought_loop, record: self._inject_action_record_into_loop(
-                thought_loop, record
-            ),
             apply_provider_outcome_calibration_fn=apply_provider_outcome_calibration_fn,
         )
 
@@ -828,9 +823,6 @@ class HECSNServiceManager:
     def _action_history_memory_metadata(self, record: Mapping[str, Any]) -> dict[str, Any]:
         return self._action_executor.action_history_memory_metadata(record)
 
-    def _replay_action_history_into_cortex_locked(self) -> None:
-        self._action_executor.replay_action_history_into_cortex()
-
     def _action_loop_summary_locked(self) -> dict[str, Any]:
         return self._action_executor.action_loop_summary()
 
@@ -898,23 +890,12 @@ class HECSNServiceManager:
         )
 
     def close(self) -> None:
-        # Stop cortex first (signal, no join yet)
-        if self._thought_loop is not None and self._thought_loop.is_running:
-            self._thought_loop.request_stop()
-
         thread = self._request_brain_stop(reason="shutdown")
         self._join_brain_thread(thread, raise_on_timeout=False)
         prewarm_thread = self._request_ingestion_prewarm_stop()
         self._join_ingestion_prewarm_thread(prewarm_thread)
         promotion_thread = self._request_remote_warm_promotion_stop()
         self._join_remote_warm_promotion_thread(promotion_thread)
-
-        # Join cortex thread outside locks
-        if self._thought_loop is not None:
-            try:
-                self._thought_loop.stop(timeout=3.0)
-            except Exception:
-                pass
 
         with self._lock:
             self._close_brain_sources_locked()

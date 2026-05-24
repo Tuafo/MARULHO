@@ -47,7 +47,7 @@ _LEGACY_MIXIN_CLASSES = frozenset({
     "SensoryPreviewMixin",
     "TerminusAutonomyMixin",
     "RuntimePersistence",
-    "CortexController",
+    "RetiredCortexCompatibilityController",
     "ManagerBoundModule",
 })
 
@@ -131,7 +131,7 @@ _ADR_0003_DEEP_MODULES = (
     "Runtime Controller",
     "Status Read Model",
     "Action Executor",
-    "Cortex Controller",
+    "Retired Cortex Compatibility Controller",
     "Runtime Persistence",
     "Runtime Config",
     "Runtime Sources",
@@ -376,10 +376,6 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "replay_plan_status",
             "replay_sample",
             "replay_sample_history",
-            "cortex_ask",
-            "cortex_sleep",
-            "cortex_thoughts",
-            "cortex_snapshot",
             "action_history",
             "execute_digital_action",
             "record_runtime_feedback",
@@ -407,7 +403,6 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "manager.replay_sample(",
             "manager.configure_terminus(",
             "manager.terminus_tick(",
-            "manager.cortex_snapshot(",
             "manager.execute_digital_action(",
         )
         violations = [call for call in forbidden_calls if call in api_text]
@@ -459,7 +454,12 @@ class TestADR0003DocumentStatus(unittest.TestCase):
 
     def test_adr_mentions_deep_modules(self) -> None:
         text = _ADR_PATH.read_text(encoding="utf-8")
-        for module_name in ("RuntimeState", "InteractionPipeline", "ActionExecutor", "CortexController"):
+        for module_name in (
+            "RuntimeState",
+            "InteractionPipeline",
+            "ActionExecutor",
+            "RetiredCortexCompatibilityController",
+        ):
             self.assertIn(module_name, text)
 
     def test_adr_status_must_not_be_proposed_when_guards_pass(self) -> None:

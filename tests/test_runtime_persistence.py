@@ -93,9 +93,6 @@ class _FakePersistenceManager:
     def _normalize_delayed_consequence_record(value: object) -> dict[str, object] | None:
         return None
 
-    def _replay_action_history_into_cortex_locked(self) -> None:
-        return None
-
     def _rebuild_brain_sources_locked(self) -> None:
         return None
 
@@ -125,7 +122,6 @@ def _runtime_persistence(manager: _FakePersistenceManager, *, trace_history_limi
             normalize_background_source_utility_state=manager._normalize_background_source_utility_state,
             normalize_delayed_consequence_record=manager._normalize_delayed_consequence_record,
             rebuild_brain_sources=manager._rebuild_brain_sources_locked,
-            replay_action_history_into_cortex=manager._replay_action_history_into_cortex_locked,
             request_brain_stop=manager._request_brain_stop,
         ),
         trace_history_limit=trace_history_limit,

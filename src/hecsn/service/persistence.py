@@ -60,7 +60,6 @@ class RuntimePersistenceDependencies:
     normalize_background_source_utility_state: Callable[[Any], dict[str, Any]]
     normalize_delayed_consequence_record: Callable[[Any], dict[str, Any] | None]
     rebuild_brain_sources: Callable[[], None]
-    replay_action_history_into_cortex: Callable[[], None]
     request_brain_stop: Callable[..., Any]
 
 
@@ -113,9 +112,6 @@ class RuntimePersistence:
 
     def _rebuild_brain_sources_locked(self) -> None:
         self._dependencies.rebuild_brain_sources()
-
-    def _replay_action_history_into_cortex_locked(self) -> None:
-        self._dependencies.replay_action_history_into_cortex()
 
     def _request_brain_stop(self, *args: Any, **kwargs: Any) -> Any:
         return self._dependencies.request_brain_stop(*args, **kwargs)
@@ -237,7 +233,6 @@ class RuntimePersistence:
             self._delayed_consequence_compacted_total = max(0, int(terminus_state.get("delayed_consequence_compacted_total", 0) or 0))
             self._delayed_consequence_split_total = max(0, int(terminus_state.get("delayed_consequence_split_total", 0) or 0))
             self._delayed_consequence_remerged_total = max(0, int(terminus_state.get("delayed_consequence_remerged_total", 0) or 0))
-            self._replay_action_history_into_cortex_locked()
             self._brain_last_acquisition_summary = None
             self._brain_last_acquisition_token_count = int(self._trainer.token_count)
             self._rebuild_brain_sources_locked()
