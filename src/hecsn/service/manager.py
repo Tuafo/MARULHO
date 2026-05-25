@@ -400,7 +400,7 @@ class HECSNServiceManager:
             animation_snapshot_fn=self._animation_snapshot_locked,
             living_loop_status_fn=self._living_loop_status_impl,
             policy_actuator_status_fn=self._policy_actuator_status_impl,
-            cortex_signal_state_fn=self._cortex_signal_state_impl,
+            cognitive_signal_state_fn=self._cognitive_signal_state_impl,
         )
 
     def _build_brain_runtime_dependencies(self) -> BrainRuntimeDependencies:
@@ -839,12 +839,16 @@ class HECSNServiceManager:
         return LivingStatusMixin.policy_actuator_status(self)
 
     def _cortex_signal_state(self) -> dict[str, Any]:
-        """Delegate to StatusReadModel for cortex signal state."""
-        return self._status_read_model.cortex_signal_state()
+        """Compatibility delegate for the retired Cortex signal name."""
+        return self._status_read_model.cognitive_signal_state()
 
     def _cortex_signal_state_impl(self) -> dict[str, Any]:
-        """Build cortex signal state under lock (called by read model callback)."""
-        return LivingStatusMixin._cortex_signal_state(self)
+        """Compatibility implementation for the retired Cortex signal name."""
+        return self._cognitive_signal_state_impl()
+
+    def _cognitive_signal_state_impl(self) -> dict[str, Any]:
+        """Build Cognitive Signal state under lock (called by read model callback)."""
+        return LivingStatusMixin._cognitive_signal_state(self)
 
     # --- ReplayDatasetBundle delegation (class-level access compatibility) ---
     # ReplayDatasetBundleMixin._replay_dataset_bundle_hash uses cls._replay_dataset_bundle_canonical_json
@@ -1114,6 +1118,9 @@ class HECSNServiceManager:
 
     def cortex_signal_state(self, *args: Any, **kwargs: Any) -> Any:
         return self._status_read_model.cortex_signal_state(*args, **kwargs)
+
+    def cognitive_signal_state(self, *args: Any, **kwargs: Any) -> Any:
+        return self._status_read_model.cognitive_signal_state(*args, **kwargs)
 
     def _sensory_queue_target_items_locked(self, *args: Any, **kwargs: Any) -> Any:
         return StatusRuntimeMixin._sensory_queue_target_items_locked(self, *args, **kwargs)

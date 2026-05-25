@@ -140,6 +140,15 @@ class CompetitiveColumnLayer:
         )
         self.steps_since_win = torch.zeros(self.n_columns, device=self.device, dtype=torch.long)
         self.last_revived_indices = torch.empty(0, device=self.device, dtype=torch.long)
+        self.spike_history_window = 32
+        self.recent_spike_window = torch.zeros(
+            self.spike_history_window,
+            self.n_columns,
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self.recent_spike_window_cursor = 0
+        self.recent_spike_window_count = 0
 
         self.local_plasticity: LocalPlasticityCircuit | None = None
         if self.plasticity_mode == "local_stdp":
@@ -531,6 +540,16 @@ class CompetitiveColumnLayer:
 
             activity = torch.zeros(self.n_columns, device=self.device)
             activity[winners] = 1.0 / max(1, winners.numel())
+            spike_sample = torch.zeros(self.n_columns, device=self.device)
+            spike_sample[winners] = 1.0
+            self.recent_spike_window[self.recent_spike_window_cursor] = spike_sample
+            self.recent_spike_window_cursor = (
+                self.recent_spike_window_cursor + 1
+            ) % self.spike_history_window
+            self.recent_spike_window_count = min(
+                self.spike_history_window,
+                self.recent_spike_window_count + 1,
+            )
             self.win_rate_ema = (
                 (1.0 - self.homeostasis_beta) * self.win_rate_ema + self.homeostasis_beta * activity
             )
@@ -642,6 +661,7 @@ class CompetitiveColumnLayer:
             "win_rate_ema_device": str(self.win_rate_ema.device),
             "steps_since_win_device": str(self.steps_since_win.device),
             "last_revived_indices_device": str(self.last_revived_indices.device),
+            "recent_spike_window_device": str(self.recent_spike_window.device),
             "last_input_pattern_device": (
                 None if self.last_input_pattern is None else str(self.last_input_pattern.device)
             ),
@@ -651,6 +671,165 @@ class CompetitiveColumnLayer:
             "local_plasticity": (
                 None if self.local_plasticity is None else self.local_plasticity.device_report()
             ),
+        }
+
+    def _recent_spike_samples(self) -> torch.Tensor:
+        count = int(self.recent_spike_window_count)
+        if count <= 0:
+            return self.recent_spike_window[:0]
+        if count < self.spike_history_window:
+            return self.recent_spike_window[:count]
+        cursor = int(self.recent_spike_window_cursor)
+        return torch.cat(
+            (
+                self.recent_spike_window[cursor:],
+                self.recent_spike_window[:cursor],
+            ),
+            dim=0,
+        )
+
+    def _spike_correlation_report(self) -> dict[str, Any]:
+        samples = self._recent_spike_samples().detach().float()
+        sample_count = int(samples.shape[0])
+        min_samples = 4
+        if sample_count < min_samples:
+            return {
+                "available": False,
+                "status": "insufficient_window",
+                "sample_count": sample_count,
+                "window_size": int(self.spike_history_window),
+                "min_samples": min_samples,
+                "active_columns": 0,
+                "valid_pairs": 0,
+                "mean_abs_offdiag_correlation": None,
+                "max_abs_offdiag_correlation": None,
+            }
+
+        active_counts = samples.sum(dim=0)
+        variances = samples.var(dim=0, unbiased=False)
+        active_mask = (active_counts > 0.0) & (variances > 1e-8)
+        active_samples = samples[:, active_mask]
+        active_columns = int(active_samples.shape[1])
+        if active_columns < 2:
+            return {
+                "available": False,
+                "status": "insufficient_active_columns",
+                "sample_count": sample_count,
+                "window_size": int(self.spike_history_window),
+                "min_samples": min_samples,
+                "active_columns": active_columns,
+                "valid_pairs": 0,
+                "mean_abs_offdiag_correlation": None,
+                "max_abs_offdiag_correlation": None,
+            }
+
+        centered = active_samples - active_samples.mean(dim=0, keepdim=True)
+        norms = torch.linalg.norm(centered, dim=0).clamp(min=1e-8)
+        corr = (centered.t() @ centered) / torch.outer(norms, norms)
+        offdiag_mask = ~torch.eye(active_columns, device=self.device, dtype=torch.bool)
+        offdiag_abs = corr[offdiag_mask].abs()
+        valid_pairs = int(offdiag_abs.numel())
+        mean_abs = float(offdiag_abs.mean().item()) if valid_pairs else 0.0
+        max_abs = float(offdiag_abs.max().item()) if valid_pairs else 0.0
+        overcorrelated_threshold = 0.85
+        return {
+            "available": True,
+            "status": (
+                "overcorrelated_risk"
+                if mean_abs >= overcorrelated_threshold
+                else "measured"
+            ),
+            "sample_count": sample_count,
+            "window_size": int(self.spike_history_window),
+            "min_samples": min_samples,
+            "active_columns": active_columns,
+            "valid_pairs": valid_pairs,
+            "mean_abs_offdiag_correlation": mean_abs,
+            "max_abs_offdiag_correlation": max_abs,
+            "overcorrelated_threshold": overcorrelated_threshold,
+        }
+
+    def spike_health_report(self) -> dict[str, Any]:
+        """Return read-only spike activity evidence from live column tensors."""
+        win_rate = self.win_rate_ema.detach().float()
+        target = float(self.target_firing_rate)
+        silent_threshold = max(0.0, target * 0.10)
+        saturation_threshold = min(1.0, max(target * 5.0, 0.25))
+        dead_threshold = int(self.dead_column_steps)
+        silent_mask = win_rate <= silent_threshold
+        saturated_mask = win_rate >= saturation_threshold
+        stale_mask = self.steps_since_win.detach() >= dead_threshold
+
+        local_plasticity = self.local_plasticity
+        last_post_spike_fraction = (
+            None
+            if local_plasticity is None
+            else float(local_plasticity.last_post_spike_fraction)
+        )
+        mean_membrane_voltage = (
+            None
+            if local_plasticity is None
+            else float(local_plasticity.last_mean_membrane_voltage)
+        )
+        spike_backend = (
+            None
+            if local_plasticity is None
+            else str(local_plasticity.spike_backend)
+        )
+        plasticity_mode = "local_stdp" if local_plasticity is not None else "competitive_proxy"
+
+        win_mean = float(win_rate.mean().item()) if int(win_rate.numel()) else 0.0
+        silent_fraction = float(silent_mask.float().mean().item()) if int(win_rate.numel()) else 0.0
+        saturated_fraction = float(saturated_mask.float().mean().item()) if int(win_rate.numel()) else 0.0
+        stale_fraction = float(stale_mask.float().mean().item()) if int(stale_mask.numel()) else 0.0
+        correlation = self._spike_correlation_report()
+
+        if silent_fraction >= 0.80 or (
+            last_post_spike_fraction is not None and last_post_spike_fraction <= silent_threshold
+        ):
+            activity_state = "silent_risk"
+        elif saturated_fraction >= 0.20 or (
+            last_post_spike_fraction is not None and last_post_spike_fraction >= saturation_threshold
+        ):
+            activity_state = "saturation_risk"
+        elif stale_fraction >= 0.20:
+            activity_state = "stale_routing_risk"
+        else:
+            activity_state = "sparse_responsive"
+
+        return {
+            "schema_version": 1,
+            "source": "competitive_columns",
+            "available": True,
+            "n_columns": int(self.n_columns),
+            "plasticity_mode": plasticity_mode,
+            "spike_backend": spike_backend,
+            "activity_state": activity_state,
+            "last_post_spike_fraction": last_post_spike_fraction,
+            "mean_membrane_voltage": mean_membrane_voltage,
+            "target_firing_rate": target,
+            "thresholds": {
+                "silent_win_rate_ema": silent_threshold,
+                "saturated_win_rate_ema": saturation_threshold,
+                "stale_steps_since_win": dead_threshold,
+            },
+            "win_rate_ema_mean": win_mean,
+            "win_rate_ema_min": float(win_rate.min().item()) if int(win_rate.numel()) else 0.0,
+            "win_rate_ema_max": float(win_rate.max().item()) if int(win_rate.numel()) else 0.0,
+            "silent_fraction": silent_fraction,
+            "saturated_fraction": saturated_fraction,
+            "stale_fraction": stale_fraction,
+            "correlation_evidence_available": bool(correlation["available"]),
+            "correlation": correlation,
+            "missing_evidence": (
+                []
+                if bool(correlation["available"])
+                else ["spike_train_window_correlation"]
+            ),
+            "device": str(self.device),
+            "win_rate_ema_device": str(self.win_rate_ema.device),
+            "recent_spike_window_device": str(self.recent_spike_window.device),
+            "not_liveness_claim": True,
         }
 
     def state_dict(self) -> dict[str, Any]:
@@ -669,6 +848,9 @@ class CompetitiveColumnLayer:
             "target_firing_rate": float(self.target_firing_rate),
             "win_rate_ema": self.win_rate_ema.detach().clone().cpu(),
             "steps_since_win": self.steps_since_win.detach().clone().cpu(),
+            "recent_spike_window": self.recent_spike_window.detach().clone().cpu(),
+            "recent_spike_window_cursor": int(self.recent_spike_window_cursor),
+            "recent_spike_window_count": int(self.recent_spike_window_count),
             "update_count": int(self.update_count),
             "last_revived_indices": self.last_revived_indices.detach().clone().cpu(),
             "local_plasticity": (
@@ -682,7 +864,7 @@ class CompetitiveColumnLayer:
         for attr in (
             "W_project", "input_weights", "prototypes",
             "prototype_velocity", "thresholds",
-            "win_rate_ema", "steps_since_win",
+            "win_rate_ema", "steps_since_win", "recent_spike_window",
         ):
             value = snapshot.get(attr)
             if isinstance(value, torch.Tensor):
@@ -699,6 +881,13 @@ class CompetitiveColumnLayer:
             snapshot.get("target_firing_rate", 1.0 / max(1, self.n_columns))
         )
         self.update_count = int(snapshot.get("update_count", 0))
+        self.recent_spike_window_cursor = int(
+            snapshot.get("recent_spike_window_cursor", 0)
+        ) % self.spike_history_window
+        self.recent_spike_window_count = min(
+            self.spike_history_window,
+            max(0, int(snapshot.get("recent_spike_window_count", 0))),
+        )
         revived = snapshot.get("last_revived_indices")
         if isinstance(revived, torch.Tensor):
             self.last_revived_indices = revived.to(self.device)

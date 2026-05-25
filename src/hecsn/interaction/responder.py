@@ -100,6 +100,13 @@ class EvidenceResponder:
                 "selected_evidence": selected_evidence,
                 "concept_grounding": concept_grounding,
                 "native_decode": native_decode,
+                "subcortex_language": self._subcortex_language_surface(
+                    native_decode=native_decode,
+                    selected_evidence=selected_evidence,
+                    concept_grounding=concept_grounding,
+                    support_score=support_score,
+                    evidence_coverage=evidence_coverage,
+                ),
             }
 
         if not selected_evidence or (evidence_coverage < self.min_token_coverage and fragmentary_support):
@@ -139,7 +146,7 @@ class EvidenceResponder:
         if unsupported_terms and (evidence_coverage < 0.85 or fragmentary_support):
             response_text += f" I do not have grounded support for: {', '.join(unsupported_terms)}."
 
-        return {
+        response = {
             "response_mode": response_mode,
             "response_text": response_text,
             "support_score": support_score,
@@ -149,6 +156,15 @@ class EvidenceResponder:
             "concept_grounding": concept_grounding,
             "native_decode": native_decode if native_decode["available"] else None,
         }
+        if response_mode == "native_decode":
+            response["subcortex_language"] = self._subcortex_language_surface(
+                native_decode=native_decode,
+                selected_evidence=selected_evidence,
+                concept_grounding=concept_grounding,
+                support_score=support_score,
+                evidence_coverage=evidence_coverage,
+            )
+        return response
 
     def _should_use_native_decode(
         self,
@@ -202,6 +218,76 @@ class EvidenceResponder:
         if supporting_fragments:
             response_text += " Supporting fragments: " + "; ".join(f'"{text}"' for text in supporting_fragments) + "."
         return response_text
+
+    def _subcortex_language_surface(
+        self,
+        *,
+        native_decode: Mapping[str, Any],
+        selected_evidence: Sequence[Mapping[str, Any]],
+        concept_grounding: Mapping[str, Any],
+        support_score: float,
+        evidence_coverage: float,
+    ) -> dict[str, Any]:
+        decoded_text = self._normalize_text(native_decode.get("decoded_text"))
+        continuation_text = self._normalize_text(native_decode.get("continuation_text"))
+        confidence = float(native_decode.get("confidence", 0.0))
+        overlap = float(native_decode.get("query_overlap_ratio", 0.0))
+        source_indices: list[int] = []
+        concept_focus = self._normalize_text(concept_grounding.get("focus_label"))
+        if not concept_focus:
+            selected_concepts = concept_grounding.get("selected_concepts") or []
+            if isinstance(selected_concepts, Sequence) and not isinstance(selected_concepts, (str, bytes)):
+                for concept in selected_concepts:
+                    if isinstance(concept, Mapping):
+                        concept_focus = self._normalize_text(concept.get("label"))
+                        if concept_focus:
+                            break
+
+        for item in selected_evidence:
+            memory_indices = item.get("memory_indices")
+            if not isinstance(memory_indices, Sequence) or isinstance(memory_indices, (str, bytes)):
+                memory_indices = [item.get("memory_index")]
+            for raw_index in memory_indices:
+                try:
+                    memory_index = int(raw_index)
+                except (TypeError, ValueError):
+                    continue
+                if memory_index >= 0 and memory_index not in source_indices:
+                    source_indices.append(memory_index)
+
+        evidence_count = len(selected_evidence)
+        state_text = (
+            f"Native assembly decode is supported by {evidence_count} memory item"
+            f"{'' if evidence_count == 1 else 's'} with {confidence:.2f} confidence, "
+            f"{overlap:.2f} query overlap, and {float(evidence_coverage):.2f} term coverage."
+        )
+        if concept_focus:
+            state_text += f" Focus: {concept_focus}."
+        if not source_indices:
+            state_text += " No memory index was attached to this decode."
+
+        candidates = [text for text in (decoded_text, continuation_text) if text]
+        return {
+            "surface": "subcortical_language.v1",
+            "available": True,
+            "state_text": state_text,
+            "source": "interaction.responder.native_decode",
+            "grounded": True,
+            "not_cognition_substrate": True,
+            "retired_runtime_dependency": False,
+            "candidate_phrases": candidates[:2],
+            "grounding": {
+                "support_score": float(support_score),
+                "evidence_coverage": float(evidence_coverage),
+                "native_decode_confidence": confidence,
+                "query_overlap_ratio": overlap,
+                "source_memory_indices": source_indices[:8],
+                "concept_focus": concept_focus or None,
+            },
+            "limitations": [
+                "Deterministic decode over native evidence, not an autonomous generator.",
+            ],
+        }
 
     def _select_evidence(
         self,

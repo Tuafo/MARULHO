@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from hecsn.interaction import EvidenceResponder
@@ -115,6 +116,80 @@ class EvidenceResponderTests(unittest.TestCase):
             ["river / bank", "bank / account"],
         )
         self.assertAlmostEqual(response["concept_grounding"]["query_concept_coverage"], 1.0)
+
+    def test_native_decode_response_includes_grounded_subcortex_language_surface(self) -> None:
+        responder = EvidenceResponder(min_similarity=0.0, min_token_coverage=0.25)
+
+        query_summary = {
+            "memory_matches": [
+                {
+                    "memory_index": 4,
+                    "raw_window": "thermal coral bleaching adaptation",
+                    "similarity": 0.72,
+                    "importance": 1.0,
+                    "age_tokens": 1,
+                }
+            ],
+            "native_decode": {
+                "available": True,
+                "decoded_text": "coral bleaching adapts through thermal stress memory",
+                "continuation_text": "thermal stress memory",
+                "confidence": 0.82,
+                "query_overlap_ratio": 0.80,
+            },
+        }
+
+        response = responder.build_response(
+            "coral thermal stress memory",
+            query_summary,
+            concept_summary={
+                "concepts": [
+                    {
+                        "label": "coral thermal memory",
+                        "score": 1.4,
+                        "memory_indices": [4],
+                        "top_terms": ["coral", "thermal", "memory"],
+                    }
+                ]
+            },
+            max_evidence_items=1,
+        )
+
+        self.assertEqual(response["response_mode"], "native_decode")
+        surface = response["subcortex_language"]
+        self.assertEqual(surface["surface"], "subcortical_language.v1")
+        self.assertTrue(surface["grounded"])
+        self.assertTrue(surface["not_cognition_substrate"])
+        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertIn("Native assembly decode", surface["state_text"])
+        self.assertEqual(surface["grounding"]["source_memory_indices"], [4])
+        self.assertEqual(surface["grounding"]["concept_focus"], "coral thermal memory")
+
+        serialized_surface = json.dumps(surface, sort_keys=True).lower()
+        self.assertNotIn("llm", serialized_surface)
+        self.assertNotIn("thought_loop", serialized_surface)
+        self.assertNotIn("cortex", serialized_surface)
+
+    def test_subcortex_language_surface_is_absent_when_native_decode_is_not_used(self) -> None:
+        responder = EvidenceResponder(min_similarity=0.0, min_token_coverage=0.25)
+
+        response = responder.build_response(
+            "cats rest",
+            {
+                "memory_matches": [],
+                "native_decode": {
+                    "available": True,
+                    "decoded_text": "cats rest indoors",
+                    "continuation_text": "indoors",
+                    "confidence": 0.20,
+                    "query_overlap_ratio": 0.90,
+                },
+            },
+            concept_summary=None,
+        )
+
+        self.assertEqual(response["response_mode"], "insufficient_evidence")
+        self.assertNotIn("subcortex_language", response)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,15 @@ class RuntimeFacade:
     def policy_actuator_status(self) -> dict[str, Any]:
         return self._root._status_read_model.policy_actuator_status()
 
+    def cognitive_signal_state(self) -> dict[str, Any]:
+        return self._root._status_read_model.cognitive_signal_state()
+
+    def subcortical_language_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_language_surface()
+
+    def subcortical_deliberation_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_deliberation_surface()
+
     def checkpoint_list(self) -> list[dict[str, Any]]:
         return self._root._runtime_persistence.checkpoint_list()
 

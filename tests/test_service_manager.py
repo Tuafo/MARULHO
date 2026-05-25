@@ -7862,6 +7862,24 @@ class CortexIntegrationTests(unittest.TestCase):
                 self.assertFalse(hasattr(manager.runtime_facade, "cortex_sleep"))
                 self.assertFalse(hasattr(manager.runtime_facade, "cortex_thoughts"))
                 self.assertFalse(hasattr(manager.runtime_facade, "cortex_snapshot"))
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_signal_state"))
+            finally:
+                manager.close()
+
+    def test_cognitive_signal_is_canonical_operator_signal_surface(self) -> None:
+        """Manager and facade expose Cognitive Signal while facade omits the retired name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cognitive_signal_canonical_surface")
+            try:
+                manager_signal = manager.cognitive_signal_state()
+                facade_signal = manager.runtime_facade.cognitive_signal_state()
+                self.assertEqual(manager_signal["schema_version"], "cognitive_signal.v1")
+                self.assertEqual(facade_signal["schema_version"], "cognitive_signal.v1")
+                self.assertIn("subcortical_language", facade_signal)
+                self.assertIn("subcortical_deliberation", facade_signal)
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_signal_state"))
+                self.assertFalse(hasattr(manager.runtime_facade, "cortex_thoughts"))
             finally:
                 manager.close()
 

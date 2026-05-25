@@ -269,6 +269,8 @@ class TerminusRuntimeResponse(BaseModel):
     state_revision: int
     token_count: int
     multimodal: dict[str, Any] | None = None
+    runtime_scope: dict[str, Any] | None = None
+    memory_store: dict[str, Any] | None = None
     replay_dataset_summary: dict[str, Any] | None = None
     runtime_truth: dict[str, Any] | None = None
 
@@ -326,6 +328,7 @@ class PolicyActuatorResponse(BaseModel):
     suggested_input: dict[str, Any]
     input: dict[str, Any]
     created_at: str
+    subcortical_control_candidates: dict[str, Any] | None = None
 
 
 class ReplayCandidateResponse(BaseModel):

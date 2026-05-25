@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.cortex.episodic_memory import Provenance
+from hecsn.semantics.provenance import Provenance
 from hecsn.service.living_loop import VerificationStatus, WorldModelLiteSummary
 from hecsn.service.living_loop_helpers import (
     _as_mapping,

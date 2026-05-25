@@ -34,6 +34,7 @@ class TestStateDict:
         assert report["prototypes_device"] == str(layer.prototypes.device)
         assert report["prototype_velocity_device"] == str(layer.prototype_velocity.device)
         assert report["thresholds_device"] == str(layer.thresholds.device)
+        assert report["recent_spike_window_device"] == str(layer.recent_spike_window.device)
         assert report["local_plasticity"] is not None
         assert report["local_plasticity"]["pre_trace_device"] == str(layer.local_plasticity.pre_trace.device)
 
@@ -84,6 +85,22 @@ class TestStateDict:
         assert torch.allclose(layer.thresholds, layer2.thresholds)
         assert torch.allclose(layer.win_rate_ema, layer2.win_rate_ema)
         assert layer2.steps_since_win[0].item() == 999
+
+    def test_roundtrip_preserves_spike_history_window(self):
+        layer = _make_layer()
+        layer.recent_spike_window.zero_()
+        layer.recent_spike_window[0, 0] = 1.0
+        layer.recent_spike_window[1, 1] = 1.0
+        layer.recent_spike_window_cursor = 2
+        layer.recent_spike_window_count = 2
+        snap = layer.state_dict()
+
+        layer2 = _make_layer()
+        layer2.load_state_dict(snap)
+
+        assert torch.allclose(layer.recent_spike_window, layer2.recent_spike_window)
+        assert layer2.recent_spike_window_cursor == 2
+        assert layer2.recent_spike_window_count == 2
 
     def test_roundtrip_preserves_scalars(self):
         layer = _make_layer()
@@ -155,3 +172,83 @@ class TestStateDict:
         result_after = layer2.compete(routing_key, candidate_indices=candidates)
 
         assert torch.equal(result_before[0], result_after[0])
+
+    def test_process_records_bounded_recent_spike_window(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+
+        layer.process(routing_key, torch.tensor([0]), modulator=0.5)
+        layer.process(routing_key, torch.tensor([1]), modulator=0.5)
+
+        report = layer.spike_health_report()
+
+        assert report["correlation_evidence_available"] is False
+        assert report["correlation"]["status"] == "insufficient_window"
+        assert report["correlation"]["sample_count"] == 2
+        assert layer.recent_spike_window_count == 2
+
+    def test_process_without_global_state_does_not_record_spike_window(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+
+        layer.process(
+            routing_key,
+            torch.tensor([0]),
+            modulator=0.5,
+            update_global_state=False,
+        )
+
+        assert layer.recent_spike_window_count == 0
+
+    def test_spike_health_report_is_read_only_for_spike_window(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+        layer.process(routing_key, torch.tensor([0]), modulator=0.5)
+        before_count = layer.recent_spike_window_count
+        before_window = layer.recent_spike_window.clone()
+
+        layer.spike_health_report()
+        layer.spike_health_report()
+
+        assert layer.recent_spike_window_count == before_count
+        assert torch.allclose(layer.recent_spike_window, before_window)
+
+    def test_spike_health_reports_windowed_correlation_when_enough_samples(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
+        samples = torch.tensor(
+            [
+                [1.0, 1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        layer.recent_spike_window[:4] = samples
+        layer.recent_spike_window_cursor = 4
+        layer.recent_spike_window_count = 4
+
+        report = layer.spike_health_report()
+
+        assert report["correlation_evidence_available"] is True
+        assert report["correlation"]["status"] == "overcorrelated_risk"
+        assert report["correlation"]["active_columns"] >= 2
+        assert report["correlation"]["mean_abs_offdiag_correlation"] is not None
+        assert report["missing_evidence"] == []
+
+    def test_spike_window_is_bounded(self):
+        layer = _make_layer(n_columns=4, column_dim=4, input_dim=8)
+        layer.last_input_pattern = torch.full((8,), 1.0 / 8.0)
+        routing_key = torch.tensor([1.0, 0.2, 0.1, 0.1])
+
+        for idx in range(layer.spike_history_window + 5):
+            layer.process(
+                routing_key,
+                torch.tensor([idx % layer.n_columns]),
+                modulator=0.5,
+            )
+
+        assert layer.recent_spike_window_count == layer.spike_history_window
+        assert 0 <= layer.recent_spike_window_cursor < layer.spike_history_window

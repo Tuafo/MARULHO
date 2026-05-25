@@ -440,6 +440,11 @@ class HypercubeBindingLayer:
         self._hub_connection_multiplier = torch.ones(n_columns, device=device)
         self._hub_extra_connections = torch.zeros(n_columns, dtype=torch.long, device=device)
         self._hub_mask = torch.zeros(n_columns, dtype=torch.bool, device=device)
+        self._structural_growth_events = 0
+        self._structural_prune_events = 0
+        self._structural_edges_added_total = 0
+        self._structural_edges_removed_total = 0
+        self._structural_mutation_events: list[dict[str, Any]] = []
 
         self._base_neighbor_ids = torch.empty((n_columns, 0), dtype=torch.long, device=device)
         self._base_degree = torch.zeros(n_columns, dtype=torch.long, device=device)
@@ -487,6 +492,47 @@ class HypercubeBindingLayer:
                     row_maps[row][source_id] = float(weight)
         return row_maps
 
+    def _edge_set(self, neighbor_ids: torch.Tensor, degree: torch.Tensor) -> set[tuple[int, int]]:
+        edges: set[tuple[int, int]] = set()
+        for row in range(self.n_columns):
+            d = int(degree[row].item())
+            for source in neighbor_ids[row, :d].tolist():
+                source_id = int(source)
+                if source_id >= 0:
+                    edges.add((row, source_id))
+        return edges
+
+    def _remember_structural_mutation(
+        self,
+        *,
+        added_edges: set[tuple[int, int]],
+        removed_edges: set[tuple[int, int]],
+    ) -> None:
+        if not added_edges and not removed_edges:
+            return
+        if added_edges:
+            self._structural_growth_events += 1
+            self._structural_edges_added_total += int(len(added_edges))
+        if removed_edges:
+            self._structural_prune_events += 1
+            self._structural_edges_removed_total += int(len(removed_edges))
+        event = {
+            "event_index": int(len(self._structural_mutation_events) + 1),
+            "type": (
+                "grow_and_prune"
+                if added_edges and removed_edges
+                else "grow" if added_edges else "prune"
+            ),
+            "added_edges": int(len(added_edges)),
+            "removed_edges": int(len(removed_edges)),
+            "hub_count": int(self._hub_mask.sum().item()) if self.n_columns > 0 else 0,
+            "hub_extra_edges": int(self._hub_extra_connections.sum().item()) if self.n_columns > 0 else 0,
+            "added_edge_samples": [[int(row), int(source)] for row, source in sorted(added_edges)[:6]],
+            "removed_edge_samples": [[int(row), int(source)] for row, source in sorted(removed_edges)[:6]],
+        }
+        self._structural_mutation_events.append(event)
+        self._structural_mutation_events = self._structural_mutation_events[-8:]
+
     def _sync_base_connectivity_from_topology(self) -> None:
         max_deg = self.topology.max_degree
         self._base_neighbor_ids = self.topology._neighbor_ids[:self.n_columns, :max_deg].to(self.device).clone()
@@ -509,9 +555,16 @@ class HypercubeBindingLayer:
     def _refresh_structural_hub_connectivity(
         self,
         preserved_weights: list[dict[int, float]] | None = None,
+        *,
+        record_mutation: bool = True,
     ) -> None:
         if preserved_weights is None:
             preserved_weights = self._edge_weight_map(self.neighbor_ids, self.degree, self.learned_weights)
+        previous_edges = (
+            self._edge_set(self.neighbor_ids, self.degree)
+            if record_mutation and hasattr(self, "neighbor_ids") and hasattr(self, "degree")
+            else set()
+        )
 
         row_sources: list[list[int]] = []
         row_existing: list[set[int]] = []
@@ -565,6 +618,12 @@ class HypercubeBindingLayer:
         self.neighbor_weights = neighbor_weights
         self.learned_weights = learned_weights
         self.degree = degree
+        if record_mutation:
+            current_edges = self._edge_set(self.neighbor_ids, self.degree)
+            self._remember_structural_mutation(
+                added_edges=current_edges - previous_edges,
+                removed_edges=previous_edges - current_edges,
+            )
 
     def _refresh_hub_profile(
         self,
@@ -614,6 +673,13 @@ class HypercubeBindingLayer:
 
     def hub_stats(self) -> dict[str, Any]:
         hub_indices = torch.nonzero(self._hub_mask, as_tuple=False).flatten().tolist()
+        structural_mutations = {
+            "growth_events": int(self._structural_growth_events),
+            "prune_events": int(self._structural_prune_events),
+            "edges_added_total": int(self._structural_edges_added_total),
+            "edges_removed_total": int(self._structural_edges_removed_total),
+            "recent_events": [dict(item) for item in self._structural_mutation_events[-6:]],
+        }
         return {
             "hub_target_fraction": self._hub_target_fraction,
             "hub_count": len(hub_indices),
@@ -624,6 +690,7 @@ class HypercubeBindingLayer:
             "mean_hub_strength": float(self._hub_strength.mean().item()) if self.n_columns > 0 else 0.0,
             "max_hub_connection_multiplier": float(self._hub_connection_multiplier.max().item()) if self.n_columns > 0 else 1.0,
             "mean_hub_connection_multiplier": float(self._hub_connection_multiplier.mean().item()) if self.n_columns > 0 else 1.0,
+            "structural_mutations": structural_mutations,
         }
 
     def _sparse_drive(self, signal: torch.Tensor, *, already_normalized: bool = False) -> torch.Tensor:
@@ -840,7 +907,7 @@ class HypercubeBindingLayer:
         self._hub_connection_multiplier.fill_(1.0)
         self._hub_extra_connections.zero_()
         self._hub_mask.zero_()
-        self._refresh_structural_hub_connectivity()
+        self._refresh_structural_hub_connectivity(record_mutation=False)
 
     def device_report(self) -> dict[str, object]:
         """Return runtime-visible device placement for hypercube binding state."""
@@ -862,6 +929,7 @@ class HypercubeBindingLayer:
             "hub_extra_connections_device": str(self._hub_extra_connections.device),
             "hub_mask_device": str(self._hub_mask.device),
             "topology": self.topology.device_report(),
+            "structural_mutations": self.hub_stats()["structural_mutations"],
             "n_bindings": int(self.n_bindings),
             "fan_in": int(self.fan_in),
         }
@@ -882,6 +950,11 @@ class HypercubeBindingLayer:
             "hub_activation_ema": self._hub_activation_ema.detach().clone().cpu(),
             "hub_extra_connections": self._hub_extra_connections.detach().clone().cpu(),
             "hub_connection_multiplier": self._hub_connection_multiplier.detach().clone().cpu(),
+            "structural_growth_events": int(self._structural_growth_events),
+            "structural_prune_events": int(self._structural_prune_events),
+            "structural_edges_added_total": int(self._structural_edges_added_total),
+            "structural_edges_removed_total": int(self._structural_edges_removed_total),
+            "structural_mutation_events": [dict(item) for item in self._structural_mutation_events],
             "topology_state": self.topology.state_dict(),
             # Compatibility keys for BindingLayer format
             "connectivity": torch.eye(self.n_columns),
@@ -942,3 +1015,12 @@ class HypercubeBindingLayer:
             preserved_weights=snapshot_weight_map,
             force_structure_refresh=True,
         )
+        self._structural_growth_events = int(snapshot.get("structural_growth_events", 0))
+        self._structural_prune_events = int(snapshot.get("structural_prune_events", 0))
+        self._structural_edges_added_total = int(snapshot.get("structural_edges_added_total", 0))
+        self._structural_edges_removed_total = int(snapshot.get("structural_edges_removed_total", 0))
+        self._structural_mutation_events = [
+            dict(item)
+            for item in list(snapshot.get("structural_mutation_events", []) or [])
+            if isinstance(item, dict)
+        ][-8:]

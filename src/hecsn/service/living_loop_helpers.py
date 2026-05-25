@@ -5,8 +5,8 @@ all depth layers of the Living Loop (Records, Policy, Replay, Self-Model).
 They have a single source of truth here, with no upward dependency on any
 other Living Loop module.
 
-Dependency direction: Helpers → Records → Policy → Replay → Self-Model
-This module depends only on existing external packages (hecsn.cortex, stdlib).
+Dependency direction: Helpers → Records → Policy → Replay → Self-Model.
+This module depends only on neutral domain vocabulary and stdlib.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
-from hecsn.cortex.episodic_memory import Provenance
+from hecsn.semantics.provenance import Provenance
 
 if TYPE_CHECKING:
     from hecsn.service.living_loop_records import VerificationStatus

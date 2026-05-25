@@ -1008,12 +1008,22 @@ def run_stage_2(
             )
 
     # grow_binding(): wire column co-activation into binding growth
+    high_corr_pairs: list[tuple[int, int, float]] = []
+    new_bindings = 0
+    binding_hub_stats: dict[str, Any] = {}
     if trainer.model.binding_layer is not None and len(winner_history) > 20:
         high_corr_pairs = _compute_column_correlations(
             winner_history, cfg.n_columns, window=5, min_corr=0.7,
         )
         if high_corr_pairs:
             new_bindings = trainer.model.binding_layer.grow_binding(high_corr_pairs)
+    if trainer.model.binding_layer is not None and hasattr(trainer.model.binding_layer, "hub_stats"):
+        binding_hub_stats = trainer.model.binding_layer.hub_stats()
+    binding_structural_mutations = (
+        binding_hub_stats.get("structural_mutations")
+        if isinstance(binding_hub_stats.get("structural_mutations"), dict)
+        else {}
+    )
 
     vector_fn = _make_vector_fn(trainer, encoder, cfg)
     probe_result = evaluate_grounding_probe(vector_fn)
@@ -1080,6 +1090,12 @@ def run_stage_2(
             "self_criticism_pairs_total": sc_pairs_total,
             "visual_pairs_sent": visual_pairs,
             "audio_pairs_sent": audio_pairs,
+            "binding_high_correlation_pairs": len(high_corr_pairs),
+            "binding_strengthened_edges": new_bindings,
+            "binding_structural_growth_events": int(binding_structural_mutations.get("growth_events", 0)),
+            "binding_structural_prune_events": int(binding_structural_mutations.get("prune_events", 0)),
+            "binding_structural_edges_added": int(binding_structural_mutations.get("edges_added_total", 0)),
+            "binding_structural_edges_removed": int(binding_structural_mutations.get("edges_removed_total", 0)),
         },
         diagnostics={
             "completion_criteria": {
@@ -1087,6 +1103,7 @@ def run_stage_2(
                 "criterion_2_find_rate": f"find_rate={find_rate:.3f} < 0.10 (pairs={sc_pairs_total}): {'PASS' if find_rate_ok else 'FAIL'} ({sc_history_len} cycles)",
                 "criterion_3_growth": f"slope={slope_per_k:.4f}/1K > 0.001, new_per_5K={new_per_5k:.1f} > 1.0: {'PASS' if growth_ok else 'FAIL'} (active_dims={active_dims}{', early_competence=%.2f>0.65' % probe_result.total_accuracy if early_competence else ''})",
             },
+            "binding_structural_mutations": binding_structural_mutations,
         },
         tokens_processed=tokens_processed,
     ), out_state

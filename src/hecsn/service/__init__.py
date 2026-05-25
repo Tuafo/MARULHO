@@ -4,7 +4,7 @@ Module structure:
 - manager.py: HECSNServiceManager composition root and lifecycle cleanup
 - runtime_facade.py: Operator-facing runtime interface over the deep modules
 - runtime_state.py: Shared dirty-state, revision, and brain event container
-- status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cortex-signal snapshots
+- status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cognitive-signal snapshots
 - runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports
 - runtime_feedback.py: Operator feedback normalization and application
 - action_assist.py: Query action-assist and audited action evidence injection
@@ -12,7 +12,7 @@ Module structure:
 - brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
-- cortex_controller.py: Cortex ask/sleep/thought/action-intent control helpers
+- cortex_controller.py: Retired Cortex compatibility controller while old thought-loop internals are removed
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior

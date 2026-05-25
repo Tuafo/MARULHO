@@ -372,6 +372,7 @@ class HECSNModel:
             "routing_candidate_fraction": float(self.config.k_routing / max(1, self.config.n_columns)),
             "routing_backend_mode": str(self.config.routing_index_mode),
             "routing_index": routing_index_stats,
+            "spike_health": self.competitive.spike_health_report(),
             "device": device_report,
             "cuda_first_runtime": {
                 "enabled_when_available": self.config.device == "auto" and device_report["env_device"] is None,

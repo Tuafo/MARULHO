@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping, Sequence
 
-from hecsn.cortex.episodic_memory import Provenance
+from hecsn.semantics.provenance import Provenance
 from hecsn.service.action_loop import ActionVerification, DigitalActionResult
 from hecsn.service.living_loop_helpers import (
     _as_mapping,

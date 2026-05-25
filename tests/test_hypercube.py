@@ -234,6 +234,8 @@ class TestHypercubeBindingLayer:
         assert report["learned_weights_device"] == str(layer_32.learned_weights.device)
         assert report["hub_activation_ema_device"] == str(layer_32._hub_activation_ema.device)
         assert report["topology"]["neighbor_ids_device"] == str(layer_32.topology._neighbor_ids.device)
+        assert report["structural_mutations"]["growth_events"] == 0
+        assert report["structural_mutations"]["prune_events"] == 0
 
     @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device required")
     def test_cuda_device_report_exposes_live_tensor_devices_after_bind_and_load(self):
@@ -351,6 +353,29 @@ class TestHypercubeBindingLayer:
         assert torch.equal(layer_32._hub_extra_connections, layer2._hub_extra_connections)
         assert torch.equal(layer_32.neighbor_ids, layer2.neighbor_ids)
         assert torch.equal(layer_32.degree, layer2.degree)
+        assert layer2.hub_stats()["structural_mutations"] == layer_32.hub_stats()["structural_mutations"]
+
+    def test_structural_hub_mutation_ledger_tracks_growth_and_pruning(self, layer_32):
+        layer_32._hub_activation_ema.zero_()
+        layer_32._hub_activation_ema[0] = 1.0
+        layer_32._refresh_hub_profile()
+
+        grown = layer_32.hub_stats()["structural_mutations"]
+        assert grown["growth_events"] == 1
+        assert grown["edges_added_total"] > 0
+        assert grown["recent_events"][-1]["type"] == "grow"
+
+        layer_32._hub_activation_ema.zero_()
+        layer_32._refresh_hub_profile()
+
+        pruned = layer_32.hub_stats()["structural_mutations"]
+        assert pruned["prune_events"] == 1
+        assert pruned["edges_removed_total"] == grown["edges_added_total"]
+        assert pruned["recent_events"][-1]["type"] == "prune"
+
+        restored = HypercubeBindingLayer(n_columns=32, device=torch.device("cpu"))
+        restored.load_state_dict(layer_32.state_dict())
+        assert restored.hub_stats()["structural_mutations"] == pruned
 
     def test_state_dict_has_compatibility_keys(self, layer_32):
         """state_dict includes BindingLayer-compatible keys."""

@@ -180,11 +180,11 @@ class LivingStatusMixin:
                 cortex_snapshot=cortex_snapshot,
             ).to_payload()
 
-    def _cortex_signal_state(self) -> dict[str, Any]:
-        """Expose recent SNN predictive/surprise signals to the ThoughtLoop."""
+    def _cognitive_signal_state(self) -> dict[str, Any]:
+        """Expose recent Subcortex predictive/surprise signals."""
         acquired = self._lock.acquire(timeout=0.05)
         if not acquired:
-            return getattr(self, "_cached_cortex_signal_state", {})
+            return getattr(self, "_cached_cognitive_signal_state", getattr(self, "_cached_cortex_signal_state", {}))
         try:
             predictive = getattr(self._trainer.model, "predictive", None)
             surprise = getattr(self._trainer.model, "surprise", None)
@@ -249,7 +249,12 @@ class LivingStatusMixin:
                 except Exception:
                     pass
 
+            self._cached_cognitive_signal_state = payload
             self._cached_cortex_signal_state = payload
             return payload
         finally:
             self._lock.release()
+
+    def _cortex_signal_state(self) -> dict[str, Any]:
+        """Compatibility wrapper for the retired Cortex signal name."""
+        return self._cognitive_signal_state()

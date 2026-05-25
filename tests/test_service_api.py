@@ -118,6 +118,31 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("safety_flags", status_truth)
         self.assertEqual(terminus_truth["verdict"], status_truth["verdict"])
 
+    def test_cognitive_signal_endpoint_exposes_subcortical_language_surface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_cognitive_signal"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                signal_response = client.get("/terminus/cognitive-signal")
+                language_response = client.get("/terminus/subcortical-language")
+                deliberation_response = client.get("/terminus/subcortical-deliberation")
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(signal_response.status_code, 200)
+        self.assertEqual(language_response.status_code, 200)
+        self.assertEqual(deliberation_response.status_code, 200)
+        signal = signal_response.json()
+        language = language_response.json()
+        deliberation = deliberation_response.json()
+        self.assertEqual(signal["subcortical_language"]["surface"], "subcortical_language.v1")
+        self.assertEqual(signal["subcortical_deliberation"]["surface"], "subcortical_control_candidates.v1")
+        self.assertEqual(language["surface"], "subcortical_language.v1")
+        self.assertEqual(deliberation["surface"], "subcortical_control_candidates.v1")
+        self.assertTrue(language["grounded"])
+        self.assertTrue(deliberation["grounded"])
+        self.assertFalse(language["retired_runtime_dependency"])
+        self.assertFalse(deliberation["retired_runtime_dependency"])
+
     def test_validation_report_endpoints_list_and_read_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -278,12 +303,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 before_history = runtime.action_history()["count"]
                 before_revision = runtime.status()["state_revision"]
                 policy_response = client.get("/terminus/policy-actuator")
+                living_response = client.get("/terminus/living-loop")
                 after_history = runtime.action_history()["count"]
                 after_revision = runtime.status()["state_revision"]
 
         self.assertEqual(action_response.status_code, 200)
         self.assertEqual(policy_response.status_code, 200)
+        self.assertEqual(living_response.status_code, 200)
         body = policy_response.json()
+        living_body = living_response.json()
         self.assertEqual(body["schema_version"], 1)
         self.assertEqual(body["action"], "continue_current_policy")
         self.assertTrue(body["advisory"])
@@ -294,6 +322,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("suggested_endpoint", body)
         self.assertIn("suggested_input", body)
         self.assertIn("input", body)
+        self.assertEqual(body["subcortical_control_candidates"]["surface"], "subcortical_control_candidates.v1")
+        self.assertTrue(body["subcortical_control_candidates"]["advisory"])
+        self.assertFalse(body["subcortical_control_candidates"]["executable"])
+        self.assertFalse(body["subcortical_control_candidates"]["promotion_summary"]["eligible_for_action"])
+        self.assertFalse(body["subcortical_control_candidates"]["promotion_summary"]["eligible_for_fact_promotion"])
+        self.assertEqual(
+            living_body["living_loop"]["subcortical_control_candidates"]["surface"],
+            "subcortical_control_candidates.v1",
+        )
+        self.assertFalse(
+            living_body["living_loop"]["subcortical_control_candidates"]["promotion_summary"]["eligible_for_action"]
+        )
         self.assertEqual(before_history, after_history)
         self.assertEqual(before_revision, after_revision)
 
@@ -337,6 +377,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(body["endpoint"], "/terminus/replay-plan")
         self.assertGreaterEqual(body["count"], 1)
         top = body["candidates"][0]
+        self.assertNotIn("subcortical_control_candidates", top)
         self.assertEqual(top["target_type"], "runtime_episode")
         self.assertEqual(top["target_id"], episode_id)
         self.assertIn("contradicted_feedback", top["reason_codes"])
@@ -2749,7 +2790,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 _build_checkpoint(root, test_case="service_api_animation"),
                 trace_dir=root / "traces",
             )
-            snapshot = mgr.telemetry_snapshot()
+            snapshot = mgr.runtime_facade.telemetry_snapshot()
             mgr.close()
 
         self.assertIn("animation", snapshot)
@@ -2801,7 +2842,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     "token_count": int(self._trainer.token_count),
                 }
 
-            with patch("hecsn.service.manager.HECSNServiceManager.start_terminus", autospec=True, side_effect=_fake_start):
+            with patch("hecsn.service.runtime_control.RuntimeControl.start_terminus", autospec=True, side_effect=_fake_start):
                 with TestClient(app) as client:
                     resp = client.post("/terminus/quick-start")
                     self.assertEqual(resp.status_code, 200)

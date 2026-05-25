@@ -102,6 +102,20 @@ class SemanticEncoder:
             if enable_learned_chunking
             else None
         )
+        self._last_feature_vector_device: str | None = None
+        self._last_feature_vector_shape: tuple[int, ...] | None = None
+        self._last_spike_trace_device: str | None = None
+        self._last_spike_trace_shape: tuple[int, ...] | None = None
+
+    def _remember_feature_vector(self, vector: torch.Tensor) -> torch.Tensor:
+        self._last_feature_vector_device = str(vector.device)
+        self._last_feature_vector_shape = tuple(int(item) for item in vector.shape)
+        return vector
+
+    def _remember_spike_trace(self, trace: torch.Tensor) -> torch.Tensor:
+        self._last_spike_trace_device = str(trace.device)
+        self._last_spike_trace_shape = tuple(int(item) for item in trace.shape)
+        return trace
 
     @classmethod
     def from_config(cls, config: "HECSNConfig", device: torch.device | str | None = None) -> "SemanticEncoder":
@@ -132,6 +146,10 @@ class SemanticEncoder:
             "device": str(self.device),
             "bucket_embeddings_device": str(self.bucket_embeddings.device),
             "adapter_device": str(self.adapter.device),
+            "last_feature_vector_device": self._last_feature_vector_device,
+            "last_feature_vector_shape": self._last_feature_vector_shape,
+            "last_spike_trace_device": self._last_spike_trace_device,
+            "last_spike_trace_shape": self._last_spike_trace_shape,
             "learned_chunking": None if self.learned_chunking is None else self.learned_chunking.device_report(),
         }
 
@@ -340,7 +358,7 @@ class SemanticEncoder:
     def feature_vector(self, chars: Iterable[int]) -> torch.Tensor:
         codes = list(chars)[-self.window_size :]
         base = self._base_feature_vector(codes)
-        return self._combine_features(base)
+        return self._remember_feature_vector(self._combine_features(base))
 
     def iter_char_patterns(
         self,
@@ -401,10 +419,12 @@ class SemanticEncoder:
             active_codes = self._token_aware_codes(window_codes, token_codes)
             base = self._base_feature_vector(active_codes)
 
-            yield "".join(window_chars), self._combine_features(
-                base,
-                chunk_state=chunk_state,
-                chunk_codes=chunk_codes,
+            yield "".join(window_chars), self._remember_feature_vector(
+                self._combine_features(
+                    base,
+                    chunk_state=chunk_state,
+                    chunk_codes=chunk_codes,
+                )
             )
 
         if learn and self.learned_chunking is not None and chunk_codes:
@@ -475,7 +495,7 @@ class SemanticEncoder:
         """
         vec = self.feature_vector(chars)
         confidence = max(0.1, min(1.0, float(context_confidence)))
-        return vec * confidence
+        return self._remember_spike_trace(vec * confidence)
 
     def state_dict(self) -> dict[str, Any]:
         return {

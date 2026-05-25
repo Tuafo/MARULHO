@@ -95,6 +95,11 @@ class TestStage2(unittest.TestCase):
         self.assertIsInstance(result.passed, bool)
         self.assertIn("probe_accuracy", result.metrics)
         self.assertIn("grounding_confidence", result.metrics)
+        self.assertIn("binding_high_correlation_pairs", result.metrics)
+        self.assertIn("binding_strengthened_edges", result.metrics)
+        self.assertIn("binding_structural_growth_events", result.metrics)
+        self.assertIn("binding_structural_prune_events", result.metrics)
+        self.assertIn("binding_structural_mutations", result.diagnostics)
         self.assertGreater(result.tokens_processed, 0)
         self.assertIsNotNone(state.trainer)
 

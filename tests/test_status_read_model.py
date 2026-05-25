@@ -17,6 +17,8 @@ from pathlib import Path
 import tempfile
 from typing import Any, Callable
 
+import torch
+
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.status_read_model import StatusReadModel
@@ -893,23 +895,32 @@ def _build_policy_actuator_snapshot() -> dict[str, Any]:
     }
 
 
-def _build_cortex_signal_state_snapshot() -> dict[str, Any]:
-    """Build a minimal cortex signal state snapshot for testing."""
+def _build_cognitive_signal_state_snapshot() -> dict[str, Any]:
+    """Build a minimal Cognitive Signal snapshot for testing."""
     return {
         "prediction_error_mean": 0.0,
         "prediction_error_max": 0.0,
-        "predictive_confidence_mean": 0.5,
-        "predictive_confidence_min": 0.5,
+        "predictive_confidence_mean": 0.8,
+        "predictive_confidence_min": 0.7,
         "dopamine": 0.0,
         "norepinephrine": 0.0,
-        "recent_concepts": [],
-        "concept_candidates": [],
+        "recent_concepts": ["coral thermal memory"],
+        "concept_candidates": [
+            {
+                "label": "coral thermal memory",
+                "top_terms": ["coral", "thermal", "memory"],
+                "observations": 3,
+                "uncertainty": 0.2,
+                "temporal_coherence": 0.7,
+            }
+        ],
     }
 
 
 def _build_read_model_with_living_loop(
     *,
     cortex_active: bool = False,
+    use_legacy_cortex_signal_fn: bool = False,
 ) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState, dict[str, int]]:
     """Build a StatusReadModel with living loop callbacks wired for testing."""
     cfg = _build_config()
@@ -920,8 +931,13 @@ def _build_read_model_with_living_loop(
     animation_snapshot = _build_animation_snapshot()
     living_loop_result = _build_living_loop_snapshot()
     policy_result = _build_policy_actuator_snapshot()
-    cortex_signal_result = _build_cortex_signal_state_snapshot()
-    call_counts: dict[str, int] = {"living_loop": 0, "policy_actuator": 0, "cortex_signal": 0}
+    cognitive_signal_result = _build_cognitive_signal_state_snapshot()
+    call_counts: dict[str, int] = {
+        "living_loop": 0,
+        "policy_actuator": 0,
+        "cognitive_signal": 0,
+        "cortex_signal": 0,
+    }
 
     def living_loop_snapshot_fn() -> dict[str, Any]:
         call_counts["living_loop"] += 1
@@ -931,9 +947,13 @@ def _build_read_model_with_living_loop(
         call_counts["policy_actuator"] += 1
         return deepcopy(policy_result)
 
+    def cognitive_signal_state_fn() -> dict[str, Any]:
+        call_counts["cognitive_signal"] += 1
+        return deepcopy(cognitive_signal_result)
+
     def cortex_signal_state_fn() -> dict[str, Any]:
         call_counts["cortex_signal"] += 1
-        return deepcopy(cortex_signal_result)
+        return deepcopy(cognitive_signal_result)
 
     model = StatusReadModel(
         lock=lock,
@@ -951,7 +971,8 @@ def _build_read_model_with_living_loop(
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         living_loop_status_fn=living_loop_snapshot_fn,
         policy_actuator_status_fn=policy_actuator_snapshot_fn,
-        cortex_signal_state_fn=cortex_signal_state_fn,
+        cognitive_signal_state_fn=None if use_legacy_cortex_signal_fn else cognitive_signal_state_fn,
+        cortex_signal_state_fn=cortex_signal_state_fn if use_legacy_cortex_signal_fn else None,
     )
     return model, trainer, lock, runtime_state, call_counts
 
@@ -964,6 +985,48 @@ class StatusReadModelLivingLoopTests(unittest.TestCase):
         model, _, _, _, _ = _build_read_model_with_living_loop()
         result = model.living_loop_status()
         self.assertIn("living_loop", result)
+
+    def test_living_loop_status_includes_control_candidate_sidecar(self) -> None:
+        """Living-loop status shows advisory Subcortex control candidates without promoting them."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+        result = model.living_loop_status()
+        sidecar = result["living_loop"]["subcortical_control_candidates"]
+        self.assertEqual(sidecar["surface"], "subcortical_control_candidates.v1")
+        self.assertTrue(sidecar["grounded"])
+        self.assertTrue(sidecar["not_cognition_substrate"])
+        self.assertFalse(sidecar["retired_runtime_dependency"])
+        self.assertNotIn("prompt", sidecar["candidates"][0])
+        for replay_key in ("candidate_id", "target_type", "suggested_endpoint", "suggested_input", "reason_codes"):
+            self.assertNotIn(replay_key, sidecar["candidates"][0])
+        self.assertIn("promotion_gate", sidecar["candidates"][0])
+        self.assertFalse(sidecar["promotion_summary"]["eligible_for_action"])
+        self.assertFalse(sidecar["promotion_summary"]["eligible_for_fact_promotion"])
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+
+    def test_living_loop_status_includes_advisory_self_repair_candidates(self) -> None:
+        """Living-loop status shows spike-health self-repair candidates without mutating state."""
+        model, trainer, _, runtime_state, _ = _build_read_model_with_living_loop()
+        trainer.model.competitive.win_rate_ema.zero_()
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        result = model.living_loop_status()
+        sidecar = result["living_loop"]["subcortical_self_repair_candidates"]
+
+        self.assertEqual(sidecar["surface"], "subcortical_self_repair_candidates.v1")
+        self.assertTrue(sidecar["advisory"])
+        self.assertFalse(sidecar["executable"])
+        self.assertTrue(sidecar["not_cognition_substrate"])
+        self.assertFalse(sidecar["retired_runtime_dependency"])
+        self.assertEqual(sidecar["candidates"][0]["intent"], "review_column_revival")
+        self.assertFalse(sidecar["candidates"][0]["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(sidecar["candidates"][0]["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertFalse(sidecar["promotion_summary"]["eligible_for_structural_mutation"])
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
 
     def test_living_loop_status_returns_token_count(self) -> None:
         """living_loop_status() should include token_count at the top level."""
@@ -1013,6 +1076,35 @@ class StatusReadModelPolicyActuatorTests(unittest.TestCase):
         result = model.policy_actuator_status()
         self.assertIn("recommendations", result)
 
+    def test_policy_actuator_status_includes_advisory_control_candidates(self) -> None:
+        """Policy status surfaces Cognitive Signal control candidates as non-executable context."""
+        model, _, _, _, _ = _build_read_model_with_living_loop()
+        result = model.policy_actuator_status()
+        candidates = result["subcortical_control_candidates"]
+        self.assertEqual(candidates["surface"], "subcortical_control_candidates.v1")
+        self.assertTrue(candidates["advisory"])
+        self.assertFalse(candidates["executable"])
+        self.assertFalse(candidates["retired_runtime_dependency"])
+        self.assertTrue(candidates["not_cognition_substrate"])
+        self.assertIn("candidates", candidates)
+        self.assertIn("promotion_summary", candidates)
+        self.assertFalse(candidates["promotion_summary"]["eligible_for_action"])
+        self.assertFalse(candidates["promotion_summary"]["eligible_for_fact_promotion"])
+
+    def test_policy_actuator_status_includes_advisory_self_repair_candidates(self) -> None:
+        """Policy status surfaces spike-health repair candidates as non-executable context."""
+        model, trainer, _, runtime_state, _ = _build_read_model_with_living_loop()
+        trainer.model.competitive.steps_since_win.fill_(trainer.model.competitive.dead_column_steps)
+        runtime_state.mark_clean()
+        result = model.policy_actuator_status()
+        candidates = result["subcortical_self_repair_candidates"]
+        self.assertEqual(candidates["surface"], "subcortical_self_repair_candidates.v1")
+        self.assertTrue(candidates["advisory"])
+        self.assertFalse(candidates["executable"])
+        self.assertFalse(candidates["promotion_summary"]["eligible_for_structural_mutation"])
+        self.assertFalse(candidates["candidates"][0]["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(runtime_state.dirty_state)
+
     def test_policy_actuator_status_delegates_to_callback(self) -> None:
         """policy_actuator_status() should delegate through the injected callback."""
         model, _, _, _, call_counts = _build_read_model_with_living_loop()
@@ -1020,11 +1112,93 @@ class StatusReadModelPolicyActuatorTests(unittest.TestCase):
         self.assertGreater(call_counts["policy_actuator"], 0)
 
 
-class StatusReadModelCortexSignalStateTests(unittest.TestCase):
-    """StatusReadModel.cortex_signal_state() produces valid signal payloads with cached fallback."""
+class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
+    """StatusReadModel.cognitive_signal_state() produces valid signal payloads with cached fallback."""
+
+    def test_cognitive_signal_state_returns_payload_keys(self) -> None:
+        """cognitive_signal_state() is the canonical Subcortex signal surface."""
+        model, _, _, _, _ = _build_read_model_with_living_loop()
+        result = model.cognitive_signal_state()
+        self.assertIn("prediction_error_mean", result)
+        self.assertIn("prediction_error_max", result)
+        self.assertIn("predictive_confidence_mean", result)
+        self.assertIn("predictive_confidence_min", result)
+        self.assertIn("dopamine", result)
+        self.assertIn("norepinephrine", result)
+        self.assertIn("recent_concepts", result)
+        self.assertIn("concept_candidates", result)
+        self.assertIn("subcortical_language", result)
+        self.assertIn("subcortical_deliberation", result)
+        surface = result["subcortical_language"]
+        self.assertEqual(surface["surface"], "subcortical_language.v1")
+        self.assertTrue(surface["grounded"])
+        self.assertTrue(surface["not_cognition_substrate"])
+        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertEqual(surface["grounding"]["concept_focus"], "coral thermal memory")
+        deliberation = result["subcortical_deliberation"]
+        self.assertEqual(deliberation["surface"], "subcortical_control_candidates.v1")
+        self.assertTrue(deliberation["grounded"])
+        self.assertTrue(deliberation["not_cognition_substrate"])
+        self.assertFalse(deliberation["retired_runtime_dependency"])
+        self.assertGreaterEqual(len(deliberation["candidates"]), 1)
+        self.assertEqual(deliberation["candidates"][0]["intent"], "maintain_current_focus")
+        self.assertEqual(deliberation["candidates"][0]["promotion_gate"]["status"], "advisory_monitor_only")
+
+    def test_subcortical_language_surface_returns_cognitive_signal_decode(self) -> None:
+        """subcortical_language_surface() exposes the bounded status-language view."""
+        model, _, _, _, _ = _build_read_model_with_living_loop()
+        surface = model.subcortical_language_surface()
+        self.assertEqual(surface["surface"], "subcortical_language.v1")
+        self.assertIn("prediction error", surface["state_text"])
+        self.assertEqual(surface["source"], "service.status_read_model.cognitive_signal")
+        self.assertEqual(surface["control_hint"], "maintain_current_focus")
+
+    def test_subcortical_language_surface_returns_cached_on_lock_contention(self) -> None:
+        """The direct language surface remains cache-compatible under lock contention."""
+        model, _, lock, _, _ = _build_read_model_with_living_loop()
+        first = model.subcortical_language_surface()
+        cached_result = _run_under_lock_contention(lock, model.subcortical_language_surface)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["state_text"], first["state_text"])
+
+    def test_subcortical_deliberation_surface_returns_grounded_candidates(self) -> None:
+        """subcortical_deliberation_surface() exposes bounded non-LLM control hypotheses."""
+        model, _, _, _, _ = _build_read_model_with_living_loop()
+        surface = model.subcortical_deliberation_surface()
+        self.assertEqual(surface["surface"], "subcortical_control_candidates.v1")
+        self.assertEqual(surface["source"], "service.status_read_model.cognitive_signal")
+        self.assertEqual(surface["control_hint"], "maintain_current_focus")
+        self.assertTrue(surface["grounded"])
+        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertTrue(surface["candidates"])
+        first = surface["candidates"][0]
+        self.assertEqual(first["phase"], "monitor")
+        self.assertIn("coral thermal memory", first["candidate_text"])
+        self.assertNotIn("prompt", first)
+        self.assertIn("prediction_error_mean", first["grounding"])
+        self.assertIn("promotion_gate", first)
+        self.assertFalse(first["promotion_gate"]["eligible_for_action"])
+
+    def test_cognitive_signal_state_returns_cached_on_lock_contention(self) -> None:
+        """When the lock is held, cognitive_signal_state() returns cached data."""
+        model, _, lock, _, _ = _build_read_model_with_living_loop()
+        first = model.cognitive_signal_state()
+        cached_result = _run_under_lock_contention(lock, model.cognitive_signal_state)
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["dopamine"], first["dopamine"])
+        self.assertEqual(
+            cached_result["subcortical_language"]["grounding"]["concept_focus"],
+            first["subcortical_language"]["grounding"]["concept_focus"],
+        )
+
+    def test_cognitive_signal_state_delegates_to_callback(self) -> None:
+        """cognitive_signal_state() should delegate through the injected callback."""
+        model, _, _, _, call_counts = _build_read_model_with_living_loop()
+        model.cognitive_signal_state()
+        self.assertGreater(call_counts["cognitive_signal"], 0)
 
     def test_cortex_signal_state_returns_payload_keys(self) -> None:
-        """cortex_signal_state() should return a dict with expected keys."""
+        """cortex_signal_state() remains as a compatibility wrapper."""
         model, _, _, _, _ = _build_read_model_with_living_loop()
         result = model.cortex_signal_state()
         self.assertIn("prediction_error_mean", result)
@@ -1048,17 +1222,28 @@ class StatusReadModelCortexSignalStateTests(unittest.TestCase):
         """cortex_signal_state() should delegate through the injected callback."""
         model, _, _, _, call_counts = _build_read_model_with_living_loop()
         model.cortex_signal_state()
+        self.assertGreater(call_counts["cognitive_signal"], 0)
+
+    def test_legacy_cortex_signal_callback_is_fallback_only(self) -> None:
+        """The retired callback name still works when the canonical callback is absent."""
+        model, _, _, _, call_counts = _build_read_model_with_living_loop(use_legacy_cortex_signal_fn=True)
+        result = model.cognitive_signal_state()
+        self.assertIn("subcortical_language", result)
+        self.assertEqual(call_counts["cognitive_signal"], 0)
         self.assertGreater(call_counts["cortex_signal"], 0)
 
     def test_cortex_signal_state_caches_result(self) -> None:
-        """cortex_signal_state() caches the most recent result for lock-contention fallback."""
+        """The compatibility wrapper updates old and new cache fields."""
         model, _, _, _, _ = _build_read_model_with_living_loop()
         first = model.cortex_signal_state()
-        # The read model should have cached the result
         cached_state = model._cached_cortex_signal_state
+        canonical_cached_state = model._cached_cognitive_signal_state
         self.assertIsNotNone(cached_state)
+        self.assertIsNotNone(canonical_cached_state)
         assert cached_state is not None
+        assert canonical_cached_state is not None
         self.assertEqual(cached_state["dopamine"], first["dopamine"])
+        self.assertEqual(canonical_cached_state["dopamine"], first["dopamine"])
 
 
 class StatusReadModelLivingLoopReadonlyTests(unittest.TestCase):
@@ -1247,6 +1432,10 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(truth["recommended_action"], "continue_monitoring")
         self.assertFalse(truth["cortex_available"])
         self.assertTrue(truth["cortex_retired"])
+        self.assertFalse(truth["retired_runtime_path_available"])
+        self.assertTrue(truth["retired_runtime_path_retired"])
+        self.assertFalse(truth["evidence"]["retired_runtime_path_enabled"])
+        self.assertTrue(truth["evidence"]["retired_runtime_path_retired"])
 
     def test_verdict_degraded_when_no_progress(self) -> None:
         """When configured+cortex but no progress, the verdict should be 'degraded'."""
@@ -1418,8 +1607,14 @@ class StatusReadModelNullAdapterFallbackTests(unittest.TestCase):
         self.assertTrue(result["advisory"])
         self.assertFalse(result["executable"])
 
+    def test_cognitive_signal_state_without_callback_returns_empty(self) -> None:
+        """When cognitive_signal_state_fn is None, an empty dict is returned."""
+        model, _, _, _ = _build_read_model()
+        result = model.cognitive_signal_state()
+        self.assertEqual(result, {})
+
     def test_cortex_signal_state_without_callback_returns_empty(self) -> None:
-        """When cortex_signal_state_fn is None, an empty dict is returned."""
+        """The retired Cortex compatibility wrapper returns the same empty payload."""
         model, _, _, _ = _build_read_model()
         result = model.cortex_signal_state()
         self.assertEqual(result, {})
@@ -1435,6 +1630,10 @@ class StatusReadModelLivingLoopCacheTests(unittest.TestCase):
         cached_result = _run_under_lock_contention(lock, model.living_loop_status)
         self.assertIsNotNone(cached_result)
         self.assertEqual(cached_result["token_count"], first["token_count"])
+        self.assertEqual(
+            cached_result["living_loop"]["subcortical_control_candidates"]["surface"],
+            "subcortical_control_candidates.v1",
+        )
 
     def test_policy_actuator_status_returns_cached_result_when_lock_contended(self) -> None:
         """When the lock is held, policy_actuator_status() returns cached data."""
@@ -1443,6 +1642,10 @@ class StatusReadModelLivingLoopCacheTests(unittest.TestCase):
         cached_result = _run_under_lock_contention(lock, model.policy_actuator_status)
         self.assertIsNotNone(cached_result)
         self.assertEqual(cached_result["schema_version"], first["schema_version"])
+        self.assertEqual(
+            cached_result["subcortical_control_candidates"]["surface"],
+            "subcortical_control_candidates.v1",
+        )
 
 
 class StatusReadModelTelemetryActiveCortexTests(unittest.TestCase):
@@ -1529,6 +1732,52 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(encoder_report["device"], str(trainer.encoder.device))
         self.assertEqual(encoder_report["encoder"], "rtf")
 
+    def test_status_runtime_scope_includes_subcortex_spike_health_evidence(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+
+        result = model.status()
+        spike_health = result["runtime_scope"]["spike_health"]
+
+        self.assertEqual(spike_health["schema_version"], 1)
+        self.assertEqual(spike_health["source"], "competitive_columns")
+        self.assertEqual(spike_health["n_columns"], trainer.config.n_columns)
+        self.assertIn(spike_health["activity_state"], {
+            "silent_risk",
+            "saturation_risk",
+            "stale_routing_risk",
+            "sparse_responsive",
+        })
+        self.assertIn("thresholds", spike_health)
+        self.assertFalse(spike_health["correlation_evidence_available"])
+        self.assertEqual(spike_health["correlation"]["status"], "insufficient_window")
+        self.assertTrue(spike_health["not_liveness_claim"])
+
+    def test_status_runtime_scope_reports_correlation_without_mutating_spike_window(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+        samples = torch.tensor(
+            [
+                [1.0, 1.0, 0.0, 0.0],
+                [1.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        )
+        trainer.model.competitive.recent_spike_window[:4] = samples
+        trainer.model.competitive.recent_spike_window_cursor = 4
+        trainer.model.competitive.recent_spike_window_count = 4
+
+        first = model.status()
+        second = model.status()
+        spike_health = first["runtime_scope"]["spike_health"]
+
+        self.assertTrue(spike_health["correlation_evidence_available"])
+        self.assertEqual(spike_health["correlation"]["status"], "overcorrelated_risk")
+        self.assertEqual(trainer.model.competitive.recent_spike_window_count, 4)
+        self.assertEqual(
+            second["runtime_scope"]["spike_health"]["correlation"]["sample_count"],
+            4,
+        )
+
     def test_terminus_status_payload_keys_match_manager_contract(self) -> None:
         """terminus_status() returns all keys that the Service Manager test surface asserts."""
         model, _, _, _ = _build_read_model()
@@ -1540,10 +1789,23 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "dirty_state",
             "runtime_truth",
             "multimodal",
+            "runtime_scope",
+            "memory_store",
             "replay_dataset_summary",
         ]
         for key in required_keys:
             self.assertIn(key, result, f"terminus_status() missing key: {key}")
+
+    def test_terminus_status_runtime_scope_includes_trainer_encoder_device_report(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+
+        result = model.terminus_status()
+        encoder_report = result["runtime_scope"]["cuda_first_runtime"]["encoder_device_report"]
+
+        self.assertEqual(encoder_report["device"], str(trainer.encoder.device))
+        self.assertEqual(encoder_report["encoder"], "rtf")
+        self.assertIn("capacity", result["memory_store"])
+        self.assertEqual(result["runtime_scope"]["spike_health"]["source"], "competitive_columns")
 
     def test_telemetry_payload_keys_match_manager_contract(self) -> None:
         """telemetry_snapshot() returns all keys that the Service Manager test surface asserts."""
@@ -1568,10 +1830,23 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "drift_floor",
             "animation",
             "terminus_runtime",
+            "runtime_scope",
+            "memory_store",
             "replay_dataset_summary",
         ]
         for key in required_keys:
             self.assertIn(key, result, f"telemetry_snapshot() missing key: {key}")
+
+    def test_telemetry_runtime_scope_includes_trainer_encoder_device_report(self) -> None:
+        model, trainer, _, _ = _build_read_model()
+
+        result = model.telemetry_snapshot()
+        encoder_report = result["runtime_scope"]["cuda_first_runtime"]["encoder_device_report"]
+
+        self.assertEqual(encoder_report["device"], str(trainer.encoder.device))
+        self.assertEqual(encoder_report["encoder"], "rtf")
+        self.assertIn("capacity", result["memory_store"])
+        self.assertEqual(result["runtime_scope"]["spike_health"]["source"], "competitive_columns")
 
     def test_runtime_truth_payload_keys_match_manager_contract(self) -> None:
         """runtime_truth sub-payload includes all keys asserted by the manager test surface."""
@@ -1589,6 +1864,8 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("evidence", truth)
         self.assertIn("configured", truth["evidence"])
         self.assertIn("token_count", truth["evidence"])
+        self.assertIn("subcortex_spike_health", truth["evidence"])
+        self.assertTrue(truth["evidence"]["subcortex_spike_health"]["not_liveness_claim"])
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):
@@ -1625,10 +1902,24 @@ class StatusReadModelArchitectureReadonlyTests(unittest.TestCase):
         self.assertFalse(runtime_state.dirty_state)
 
 
-class StatusReadModelCortexSignalReadonlyTests(unittest.TestCase):
-    """cortex_signal_state() is read-only: it does not mutate runtime state."""
+class StatusReadModelCognitiveSignalReadonlyTests(unittest.TestCase):
+    """cognitive_signal_state() is read-only: it does not mutate runtime state."""
+
+    def test_cognitive_signal_state_does_not_advance_revision(self) -> None:
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        model.cognitive_signal_state()
+        rev_after = runtime_state.state_revision
+        self.assertEqual(rev_before, rev_after)
+
+    def test_cognitive_signal_state_does_not_set_dirty_state(self) -> None:
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        runtime_state.mark_clean()
+        model.cognitive_signal_state()
+        self.assertFalse(runtime_state.dirty_state)
 
     def test_cortex_signal_state_does_not_advance_revision(self) -> None:
+        """The retired Cortex wrapper remains read-only."""
         model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
         rev_before = runtime_state.state_revision
         model.cortex_signal_state()
@@ -1794,5 +2085,47 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
                 self.assertIn("schema_version", result)
                 self.assertIn("recommendation", result)
                 self.assertIn("action", result)
+            finally:
+                manager.close()
+
+    def test_runtime_facade_cognitive_signal_state_delegates_to_read_model(self) -> None:
+        """The runtime facade's cognitive_signal_state() method delegates to StatusReadModel."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="cognitive_signal_delegation")
+            try:
+                result = manager.runtime_facade.cognitive_signal_state()
+                self.assertIn("prediction_error_mean", result)
+                self.assertIn("predictive_confidence_mean", result)
+                self.assertIn("recent_concepts", result)
+                self.assertIn("subcortical_language", result)
+                self.assertIn("subcortical_deliberation", result)
+            finally:
+                manager.close()
+
+    def test_runtime_facade_subcortical_language_surface_delegates_to_read_model(self) -> None:
+        """The runtime facade exposes the Cognitive Signal language surface directly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="subcortical_language_delegation")
+            try:
+                result = manager.runtime_facade.subcortical_language_surface()
+                self.assertEqual(result["surface"], "subcortical_language.v1")
+                self.assertEqual(result["source"], "service.status_read_model.cognitive_signal")
+                self.assertTrue(result["grounded"])
+            finally:
+                manager.close()
+
+    def test_runtime_facade_subcortical_deliberation_surface_delegates_to_read_model(self) -> None:
+        """The runtime facade exposes bounded Subcortex deliberation candidates."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="subcortical_deliberation_delegation")
+            try:
+                result = manager.runtime_facade.subcortical_deliberation_surface()
+                self.assertEqual(result["surface"], "subcortical_control_candidates.v1")
+                self.assertEqual(result["source"], "service.status_read_model.cognitive_signal")
+                self.assertTrue(result["grounded"])
+                self.assertIn("candidates", result)
             finally:
                 manager.close()

@@ -36,8 +36,24 @@ class BaseEncoderProtocolTests(unittest.TestCase):
         report = encoder.device_report()
 
         self.assertEqual(report["device"], "cpu")
+        self.assertIsNone(report["last_feature_vector_device"])
+        self.assertIsNone(report["last_spike_trace_device"])
         self.assertIsNotNone(report["learned_chunking"])
         self.assertEqual(report["learned_chunking"]["prototypes_device"], "cpu")
+
+    def test_rtf_encoder_reports_last_emitted_tensor_devices(self) -> None:
+        encoder = RTFEncoder()
+        chars = [ord(c) for c in "device evidence"]
+
+        feature = encoder.feature_vector(chars)
+        feature_report = encoder.device_report()
+        trace = encoder.spike_trace(chars, context_confidence=0.8)
+        trace_report = encoder.device_report()
+
+        self.assertEqual(feature_report["last_feature_vector_device"], str(feature.device))
+        self.assertEqual(feature_report["last_feature_vector_shape"], tuple(feature.shape))
+        self.assertEqual(trace_report["last_spike_trace_device"], str(trace.device))
+        self.assertEqual(trace_report["last_spike_trace_shape"], tuple(trace.shape))
 
     def test_feature_vector_normalized(self) -> None:
         encoder = RTFEncoder()
@@ -90,7 +106,10 @@ class BaseEncoderProtocolTests(unittest.TestCase):
         self.assertEqual(encoder.encode(chars, 0.75).device.type, "cuda")
         self.assertEqual(encoder.spike_trace(chars, 0.75).device.type, "cuda")
         self.assertEqual(encoder.learned_chunking.prototypes.device.type, "cuda")
-        self.assertEqual(encoder.device_report()["learned_chunking"]["prototypes_device"], "cuda:0")
+        report = encoder.device_report()
+        self.assertEqual(report["learned_chunking"]["prototypes_device"], "cuda:0")
+        self.assertEqual(report["last_feature_vector_device"], "cuda:0")
+        self.assertEqual(report["last_spike_trace_device"], "cuda:0")
 
     def test_state_dict_roundtrip(self) -> None:
         encoder = RTFEncoder()

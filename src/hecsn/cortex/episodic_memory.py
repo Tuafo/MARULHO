@@ -21,35 +21,15 @@ import math
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Iterator, Mapping, Optional, Sequence
 
 import numpy as np
 
 from hecsn.cortex.rate_limit import DEFAULT_MAX_RPM, SharedRateLimiter
 from hecsn.semantics.grounding_text import match_terms, query_focused_text, salient_query_terms
+from hecsn.semantics.provenance import Provenance
 
 logger = logging.getLogger(__name__)
-
-
-class Provenance(str, Enum):
-    """How an episode was acquired — determines trust level."""
-    OBSERVED = "observed"       # Direct external input
-    INFERRED = "inferred"       # Model reasoning / thought
-    DREAMED = "dreamed"         # Sleep recombination hypothesis
-    VERIFIED = "verified"       # Externally confirmed
-    CONTRADICTED = "contradicted"  # Proven wrong (kept for learning)
-
-    @property
-    def trust_weight(self) -> float:
-        """Default trust multiplier for retrieval ranking."""
-        return {
-            Provenance.OBSERVED: 0.8,
-            Provenance.INFERRED: 0.6,
-            Provenance.DREAMED: 0.3,
-            Provenance.VERIFIED: 1.0,
-            Provenance.CONTRADICTED: 0.1,
-        }[self]
 
 
 @dataclass

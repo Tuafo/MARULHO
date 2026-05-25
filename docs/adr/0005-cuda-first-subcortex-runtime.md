@@ -29,6 +29,9 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Sensory encoders must expose device reports, and real sensory episodes must carry encoder/device/spike-device metadata into grounded observations and preview metadata.
 - Unit tests should continue to default to CPU unless a test is explicitly marked as a CUDA scale or device test.
 - The former Cortex execution path is retired from active runtime claims and is not part of the CUDA-first claim. NIM/LLM adapters are external compatibility or experiment code, not the living substrate.
+- Language generation, when present, should be exposed as a Subcortex Language Surface with explicit grounding/support/device evidence; it must not revive Cortex/ThoughtLoop as the active cognition substrate. The first accepted implementations are native-decode-bound responder language, which reports confidence, query overlap, evidence coverage, memory indices, and concept focus, and Cognitive Signal status language, which reports prediction error, confidence, neuromodulator pressure, and concept focus.
+- Developmental plasticity work, including growth and pruning, should report sparse structural changes and device placement before being treated as CUDA-first self-improvement evidence.
+- Runtime evidence should include lightweight Subcortex Spike Health metrics from live tensor state: activity state, local spike fraction when available, win-rate EMA ranges, silence/saturation/stale-routing fractions, visible thresholds, bounded recent spike-window correlation, and explicit insufficiency status when the window is too small.
 - Runtime status must expose Subcortex CUDA evidence directly so retired LLM adapters cannot be mistaken for the living-brain core.
 
 The first acceleration targets are routing/index search, predictive column state updates, AdEx/neuron dynamics, binding/topographic or hypercube updates, plasticity traces, cross-modal grounding, text encoders, and sensory encoders.

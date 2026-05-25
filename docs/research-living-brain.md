@@ -8,6 +8,7 @@ This file records research anchors for current architecture work. It is not a pr
 
 - Lee, Dora, and Mejias, "Predictive coding with spiking neurons and feedforward gist signaling", 2024: supports the project posture that prediction error can be represented with spiking mechanisms and local learning, rather than treating the subcortex as a dense language model.
 - "Predictive Coding with Spiking Neural Networks: a Survey", 2024: useful taxonomy for future code reviews because it separates explicit error-neuron approaches, membrane-potential error encodings, and implicit prediction-error encodings.
+- "Confidence and second-order errors in cortical circuits", 2024: supports keeping predictive confidence in the Cognitive Signal alongside prediction error, because confidence-weighted errors are a plausible control variable rather than a display-only score.
 - "Dynamic predictive coding: A model of hierarchical sequence learning and prediction in the neocortex", 2024: supports the existing emphasis on hierarchical temporal prediction, sequence learning, and context-sensitive dynamics.
 
 ### Sparse/GPU execution
@@ -52,6 +53,10 @@ This file records research anchors for current architecture work. It is not a pr
 - "Active Inference for Learning and Development in Embodied Neuromorphic Agents", 2024: supports treating runtime status as part of the agent's developmental loop, not just external logging.
 - "Active Inference as a Model of Agency", 2024: supports making differences in world model, uncertainty, and exploration/exploitation posture explicit in reports.
 - "Self-evolving Embodied AI", 2026: supports requiring memory, task, environment, embodiment, and model adaptation evidence before claiming self-evolving or living-brain behavior.
+- "Operational manifolds in spiking neural networks", 2026: supports adding lightweight health evidence for Subcortex stability, especially spike-train correlation statistics, drift indicators, reset/carry state policy, and energy/accuracy trade-off proxies.
+- Grimaud, Longin, and Herzig, "SNN-Based Online Learning of Concepts and Action Laws in an Open World", 2026: supports keeping concepts, action laws, and runtime signals in the Subcortex control plane instead of routing active cognition through a static language backend.
+- "Active inference and cognitive control: Balancing deliberation and habits through precision optimization", 2025: supports deriving deliberation pressure from surprise, uncertainty, control cost, and expected information gain rather than from free-form text generation.
+- "Intermittent Active Inference", 2026: supports exposing control candidates as advisory replanning triggers, because replanning should fire when prediction error or expected free energy crosses a threshold rather than on every tick.
 
 ### Backend-neutral deliberation
 
@@ -64,10 +69,38 @@ This file records research anchors for current architecture work. It is not a pr
 ### Text encoding and consolidation
 
 - Zhu et al., "SpikeGPT: Generative Pre-trained Language Model with Spiking Neural Networks", 2023: supports treating language input as a sparse/event-coded sequence problem rather than as a detached dense text embedding concern.
+- "NeuronSpark: A Spiking Neural Network Language Model with Selective State Space Dynamics", 2026: supports tracking SNN-native language generation as an emerging path, but its early loss/dialogue evidence means HECSN should first expose language as a grounded Subcortex state decoder rather than reintroducing an LLM-style cognition core.
+- "SpikeMLLM: Spike-based Multimodal Large Language Models via Modality-Specific Temporal Scales and Temporal Compression", 2026: reinforces that multimodal spike-language work depends on modality-specific temporal encoding and compression; HECSN's language surface should preserve sensory timing evidence instead of flattening everything into text-first prompts.
+- Liu, Liu, and Chen, "Scaling Natively-Trained Spiking Language Models to Multi-Domain Pre-training with 85% Global Activation Sparsity", 2026: supports the architectural bet that language-capable SNNs should preserve spike-gated associative lookup and sparsity, not collapse into dense transformer-style runtime claims.
 - Stoeckl et al., "Learning Long Sequences in Spiking Neural Networks", 2024: supports preserving temporal sequence structure when moving text-derived traces onto accelerated tensor devices.
 - Lv, Xu, and Zheng, "Spiking Convolutional Neural Networks for Text Classification", 2024: supports keeping text encoders as first-class SNN-facing modules with explicit feature/spike tensors.
 - "Online Continual Learning via Spiking Neural Networks with Sleep Enhanced Latent Replay", 2025: supports the existing distinction between CPU archival replay storage and device-local replay computation.
 - "Compressed Latent Replays for Lightweight Continual Learning on Spiking Neural Networks", 2024: supports keeping replay representations compact and explicit rather than treating memory consolidation as hidden model state.
+
+### Developmental growth and pruning
+
+- "Adaptive sparse structure development with pruning and regeneration for spiking neural networks", 2025: supports treating self-growth and pruning as a bounded structural-plasticity mechanism with explicit synaptic constraints, neuronal pruning, and regeneration rather than as open-ended architecture mutation.
+- "A flexible framework for structural plasticity in GPU-accelerated sparse spiking neural networks", 2025: connects developmental plasticity to CUDA-first execution; growth/pruning evidence should include both sparse structural changes and observed device placement.
+- "Self-Motivated Growing Neural Network for Adaptive Architecture via Local Structural Plasticity", 2025/2026: supports using local activation and weight-update statistics as growth/prune signals instead of central planner decisions, with reward stability as a promotion criterion.
+- "Adaptively Pruned Spiking Neural Networks for Energy-Efficient Intracortical Neural Decoding", 2025: supports measuring pruning by retained task performance and efficiency gain, not just by lower parameter count.
+
+### Novel correlations
+
+- Spiking language models plus the retired Cortex decision imply a two-stage language roadmap: first, a grounded Subcortex Language Surface that decodes assemblies/replay/world-model state into auditable text; later, an SNN-native generator only after it can report sparsity, device placement, and support evidence. The responder's native-decode surface and the Cognitive Signal status surface are the first bridges because they attach confidence, memory support, evidence coverage, prediction error, neuromodulator pressure, and concept focus to language claims.
+- Spike-based multimodal language work plus the Sensory Encoder direction imply language generation should be a decoder over time-preserving multimodal evidence. Operator UI should route "Subcortex" to spike dynamics and grounding evidence, not to a retired Cortex/Mind page.
+- Text SNN work plus the CUDA-first evidence rule implies encoder reports must capture the observed placement of emitted feature vectors and spike traces, not just configured modules. This keeps language-facing telemetry grounded in runtime tensors instead of static declarations.
+- Structural plasticity plus replay promotion gates imply a clean self-growth loop: propose local growth/prune candidates from surprise and replay failures, evaluate them in isolated replay experiments, then promote only if Runtime Truth, grounding support, and device telemetry improve.
+- Self-motivated growth controllers plus adaptive pruning evidence imply HECSN's autonomy loop should grow topology from local stress signals and prune from sustained inactivity/redundancy, with replay-gated rollback. This is a cleaner path than a language planner that rewrites architecture.
+- Structural-plasticity work plus HECSN's hypercube binding layer imply that sparse topology mutation must be ledgered at the edge level: added/removed hub outreach edges are the first auditable self-growth/pruning evidence before broader model self-modification is allowed.
+- Homeostatic plasticity and adaptive pruning/regeneration work plus Subcortex Spike Health imply the first self-repair surface should be advisory: convert silence, saturation, stale routing, and over-correlation into review candidates, then require deep-sleep/replay/operator promotion before any revive, prune, or structural mutation occurs.
+- GPU sparse-SNN work plus Terminus Runtime Truth implies CUDA claims should favor sparse state transitions and topology updates over dense "everything on GPU" rewrites; efficient living-brain behavior needs event sparsity preserved in the evidence report.
+- Operational-manifold work plus Runtime Truth implies liveness should include internal stability evidence, not only endpoint availability: a running Subcortex can still be unhealthy if spike activity is silent, saturated, or over-correlated.
+- Operational-manifold work plus HECSN's current competitive-column state implies a staged stability metric: expose silent/saturated/stale routing evidence from live EMAs and spike fractions, then add bounded windowed correlation evidence from recent winner vectors. This still avoids over-claiming full manifold health from scalar endpoint/status signals.
+- Confidence-weighted predictive-coding work plus the retired Cortex decision implies the **Cognitive Signal** should be the active control packet for future deliberation: prediction error, confidence, neuromodulator mirrors, source, and concept candidates should be observable without requiring a ThoughtLoop consumer.
+- Open-world SNN concept/action-law learning plus HECSN's retired Cortex decision implies naming matters in code: `cognitive_signal` should be the primary runtime contract, while `cortex_signal` can remain only as a temporary compatibility alias for retired internals.
+- Active-inference cognitive-control work plus Cognitive Signal implies a clean first Subcortex Deliberation surface: convert prediction error, confidence, neuromodulator pressure, and concept focus into ranked control hypotheses, then require replay/policy/operator evidence before promotion.
+- Intermittent-planning active inference plus HECSN Policy Actuator implies control candidates should be attached to advisory policy status as non-executable context. That lets operators and replay gates see why the Subcortex wants to replan without allowing a control candidate to become an action.
+- Replay-gated adaptation work plus advisory control candidates implies every candidate needs an explicit promotion gate. Readiness for replay review is not readiness for action or fact promotion; those remain separate gates with operator/evidence requirements.
 
 ## Engineering Implications
 

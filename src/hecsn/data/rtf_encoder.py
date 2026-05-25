@@ -342,6 +342,20 @@ class RTFEncoder:
             if enable_learned_chunking
             else None
         )
+        self._last_feature_vector_device: str | None = None
+        self._last_feature_vector_shape: tuple[int, ...] | None = None
+        self._last_spike_trace_device: str | None = None
+        self._last_spike_trace_shape: tuple[int, ...] | None = None
+
+    def _remember_feature_vector(self, vector: torch.Tensor) -> torch.Tensor:
+        self._last_feature_vector_device = str(vector.device)
+        self._last_feature_vector_shape = tuple(int(item) for item in vector.shape)
+        return vector
+
+    def _remember_spike_trace(self, trace: torch.Tensor) -> torch.Tensor:
+        self._last_spike_trace_device = str(trace.device)
+        self._last_spike_trace_shape = tuple(int(item) for item in trace.shape)
+        return trace
 
     @classmethod
     def from_config(cls, config: "HECSNConfig", device: torch.device | str | None = None) -> "RTFEncoder":
@@ -371,6 +385,10 @@ class RTFEncoder:
         return {
             "encoder": "rtf",
             "device": str(self.device),
+            "last_feature_vector_device": self._last_feature_vector_device,
+            "last_feature_vector_shape": self._last_feature_vector_shape,
+            "last_spike_trace_device": self._last_spike_trace_device,
+            "last_spike_trace_shape": self._last_spike_trace_shape,
             "learned_chunking": None if self.learned_chunking is None else self.learned_chunking.device_report(),
         }
 
@@ -546,7 +564,7 @@ class RTFEncoder:
         return _normalize(blended)
 
     def feature_vector(self, chars: Iterable[int]) -> torch.Tensor:
-        return self._combine_features(self._base_feature_vector(chars))
+        return self._remember_feature_vector(self._combine_features(self._base_feature_vector(chars)))
 
     def blended_feature_vector(
         self,
@@ -555,10 +573,12 @@ class RTFEncoder:
         chunk_state: torch.Tensor | None = None,
         chunk_codes: Sequence[int] | None = None,
     ) -> torch.Tensor:
-        return self._combine_features(
-            self._base_feature_vector(chars),
-            chunk_state=chunk_state,
-            chunk_codes=chunk_codes,
+        return self._remember_feature_vector(
+            self._combine_features(
+                self._base_feature_vector(chars),
+                chunk_state=chunk_state,
+                chunk_codes=chunk_codes,
+            )
         )
 
     def _update_chunk_context(self, context: torch.Tensor, chunk_codes: Sequence[int]) -> torch.Tensor:
@@ -775,7 +795,9 @@ class RTFEncoder:
         if not 0.0 < float(burst_decay) <= 1.0:
             raise ValueError("burst_decay must be in (0, 1]")
 
-        return self._spike_trace_fused(chars, context_confidence, trace_tau, burst_decay)
+        return self._remember_spike_trace(
+            self._spike_trace_fused(chars, context_confidence, trace_tau, burst_decay)
+        )
 
     def _spike_trace_fused(
         self,

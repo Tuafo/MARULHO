@@ -264,6 +264,18 @@ def create_app(
     def terminus_policy_actuator() -> PolicyActuatorResponse:
         return PolicyActuatorResponse(**runtime.policy_actuator_status())
 
+    @app.get("/terminus/cognitive-signal")
+    def terminus_cognitive_signal() -> dict[str, Any]:
+        return runtime.cognitive_signal_state()
+
+    @app.get("/terminus/subcortical-language")
+    def terminus_subcortical_language() -> dict[str, Any]:
+        return runtime.subcortical_language_surface()
+
+    @app.get("/terminus/subcortical-deliberation")
+    def terminus_subcortical_deliberation() -> dict[str, Any]:
+        return runtime.subcortical_deliberation_surface()
+
     @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)
     def terminus_replay_plan(limit: int = Query(20, ge=1, le=50)) -> ReplayPlanResponse:
         return ReplayPlanResponse(**runtime.replay_plan_status(limit=limit))

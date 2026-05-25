@@ -189,7 +189,7 @@ class ActionExecutor:
             self._action_history = deque(existing, maxlen=self._action_history.maxlen)
             self._action_history.appendleft(normalized)
             verification = normalized.get("verification") if isinstance(normalized.get("verification"), Mapping) else {}
-            normalized_trigger_query_text = self._normalize_cortex_query_hint(normalized.get("trigger_query_text", ""))
+            normalized_trigger_query_text = self._normalize_trigger_query_text(normalized.get("trigger_query_text", ""))
             if self._apply_provider_outcome_calibration_fn is not None and normalized_trigger_query_text:
                 confidence = max(0.0, min(1.0, float(verification.get("confidence", 0.0) or 0.0)))
                 if bool(verification.get("success", False)):
@@ -299,7 +299,7 @@ class ActionExecutor:
         return " ".join(str(value).split()).strip()
 
     @staticmethod
-    def _normalize_cortex_query_hint(value: Any) -> str:
+    def _normalize_trigger_query_text(value: Any) -> str:
         return " ".join(str(value).split()).strip()
 
     @classmethod

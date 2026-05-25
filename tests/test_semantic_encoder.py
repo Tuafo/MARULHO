@@ -17,10 +17,13 @@ from hecsn.data.encoder_factory import build_encoder
 class TestSemanticEncoderBasic:
     def test_construction_default(self):
         enc = SemanticEncoder()
+        report = enc.device_report()
         assert enc.output_dim == 128
         assert enc.n_buckets == 10_000
         assert enc.embed_dim == 64
-        assert enc.device_report()["bucket_embeddings_device"] == "cpu"
+        assert report["bucket_embeddings_device"] == "cpu"
+        assert report["last_feature_vector_device"] is None
+        assert report["last_spike_trace_device"] is None
 
     def test_implements_base_encoder_protocol(self):
         enc = SemanticEncoder()
@@ -218,6 +221,22 @@ class TestSpikeTrace:
         assert float(t_high.sum().item()) >= float(t_low.sum().item())
 
 
+class TestDeviceReport:
+    def test_reports_last_emitted_tensor_devices(self):
+        enc = SemanticEncoder()
+        chars = [ord(c) for c in "device evidence"]
+
+        feature = enc.feature_vector(chars)
+        feature_report = enc.device_report()
+        trace = enc.spike_trace(chars, 0.75)
+        trace_report = enc.device_report()
+
+        assert feature_report["last_feature_vector_device"] == str(feature.device)
+        assert feature_report["last_feature_vector_shape"] == tuple(feature.shape)
+        assert trace_report["last_spike_trace_device"] == str(trace.device)
+        assert trace_report["last_spike_trace_shape"] == tuple(trace.shape)
+
+
 # ── State serialization ───────────────────────────────────────────────
 
 
@@ -309,3 +328,6 @@ class TestEncoderFactory:
         assert next(enc.iter_char_patterns("hi", window_size=2))[1].device.type == "cuda"
         assert enc.learned_chunking is not None
         assert enc.learned_chunking.prototypes.device.type == "cuda"
+        report = enc.device_report()
+        assert report["last_feature_vector_device"] == "cuda:0"
+        assert report["last_spike_trace_device"] == "cuda:0"

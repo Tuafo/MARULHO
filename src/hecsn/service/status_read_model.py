@@ -1,7 +1,7 @@
-"""Status Read Model — read-only projection of runtime state into status, terminus, telemetry, living-loop, policy-actuator, and cortex-signal snapshots.
+"""Status Read Model — read-only projection of runtime state into status, terminus, telemetry, living-loop, policy-actuator, and cognitive-signal snapshots.
 
 This module owns the ``status()``, ``terminus_status()``, ``telemetry_snapshot()``,
-``living_loop_status()``, ``policy_actuator_status()``, and ``cortex_signal_state()``
+``living_loop_status()``, ``policy_actuator_status()``, and ``cognitive_signal_state()``
 public surfaces and their associated cache state. It
 is the first real object-style extraction from ADR 0003: the Service Manager
 delegates to it, and direct object-level tests exercise the seam through
@@ -26,11 +26,16 @@ import time
 
 import torch
 
+from hecsn.semantics import (
+    attach_cognitive_signal_language_surface,
+    build_subcortical_self_repair_surface,
+)
 from hecsn.service.runtime_state import RuntimeState
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
-DEFAULT_CORTEX_SIGNAL_LOCK_TIMEOUT_SECONDS = 0.05
+DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS = 0.05
+DEFAULT_CORTEX_SIGNAL_LOCK_TIMEOUT_SECONDS = DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -80,9 +85,9 @@ class StatusReadModel:
     policy_actuator_status_fn: Callable that returns the current policy actuator
         status dict. Called under lock. Used by ``policy_actuator_status()``
         delegation.
-    cortex_signal_state_fn: Callable that returns the current cortex signal state
+    cognitive_signal_state_fn: Callable that returns the current Cognitive Signal
         dict. Called under lock with short-timeout fallback. Used by
-        ``cortex_signal_state()`` delegation.
+        ``cognitive_signal_state()`` delegation.
     """
 
     def __init__(
@@ -104,6 +109,7 @@ class StatusReadModel:
         animation_snapshot_fn: Callable[[], dict[str, Any]] | None = None,
         living_loop_status_fn: Callable[[], dict[str, Any]] | None = None,
         policy_actuator_status_fn: Callable[[], dict[str, Any]] | None = None,
+        cognitive_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
         cortex_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
@@ -126,13 +132,14 @@ class StatusReadModel:
         self._animation_snapshot_fn = animation_snapshot_fn
         self._living_loop_status_fn = living_loop_status_fn
         self._policy_actuator_status_fn = policy_actuator_status_fn
-        self._cortex_signal_state_fn = cortex_signal_state_fn
+        self._cognitive_signal_state_fn = cognitive_signal_state_fn or cortex_signal_state_fn
 
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
         self._cached_terminus_status: dict[str, Any] | None = None
         self._cached_telemetry: dict[str, Any] | None = None
         self._cached_telemetry_rev: int = -1
+        self._cached_cognitive_signal_state: dict[str, Any] | None = None
         self._cached_cortex_signal_state: dict[str, Any] | None = None
         self._cached_living_loop_status: dict[str, Any] | None = None
         self._cached_policy_actuator_status: dict[str, Any] | None = None
@@ -291,11 +298,14 @@ class StatusReadModel:
             "tokens_per_second": float(terminus_runtime.get("tokens_per_second", 0.0) or 0.0),
         }
         source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
+        subcortex_spike_health = self._trainer.model.competitive.spike_health_report()
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "verdict": verdict,
             "recommended_action": recommended_action,
+            "retired_runtime_path_available": cortex_available,
+            "retired_runtime_path_retired": cortex_retired,
             "cortex_available": cortex_available,
             "cortex_retired": cortex_retired,
             "source_configuration": source_configuration,
@@ -316,10 +326,13 @@ class StatusReadModel:
                 "autonomy_tokens_processed": autonomy_tokens,
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
+                "retired_runtime_path_enabled": cortex_available,
+                "retired_runtime_path_retired": cortex_retired,
                 "cortex_enabled": cortex_available,
                 "cortex_retired": cortex_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
+                "subcortex_spike_health": subcortex_spike_health,
             },
         }
 
@@ -420,6 +433,8 @@ class StatusReadModel:
             **runtime_mutation,
             "token_count": int(self._trainer.token_count),
             "multimodal": multimodal,
+            "runtime_scope": self._runtime_scope_report_locked(),
+            "memory_store": memory_store,
             "replay_dataset_summary": replay_dataset_summary,
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
@@ -498,6 +513,8 @@ class StatusReadModel:
             ),
             "animation": animation,
             "terminus_runtime": terminus_runtime,
+            "runtime_scope": self._runtime_scope_report_locked(),
+            "memory_store": memory_store,
             "replay_dataset_summary": replay_dataset_summary,
         }
         self._cached_telemetry = snapshot
@@ -690,6 +707,8 @@ class StatusReadModel:
 
         def _build_locked() -> dict[str, Any]:
             payload = living_loop_status_fn()
+            payload = self._attach_living_loop_control_candidates(payload)
+            payload = self._attach_living_loop_self_repair_candidates(payload)
             return {
                 **payload,
                 **self._runtime_mutation_payload(),
@@ -702,6 +721,30 @@ class StatusReadModel:
         )
         self._cached_living_loop_status = result
         return result
+
+    def _attach_living_loop_control_candidates(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Attach read-only Subcortex control candidates to the living-loop sidecar."""
+        enriched = dict(payload)
+        living_loop = dict(enriched.get("living_loop") or {})
+        cognitive_signal = self.cognitive_signal_state()
+        control_candidates = cognitive_signal.get("subcortical_deliberation")
+        if isinstance(control_candidates, Mapping):
+            living_loop["subcortical_control_candidates"] = dict(control_candidates)
+            enriched["living_loop"] = living_loop
+        return enriched
+
+    def _subcortical_self_repair_surface(self) -> dict[str, Any]:
+        """Build advisory self-repair candidates from current spike-health evidence."""
+        spike_health = self._trainer.model.competitive.spike_health_report()
+        return build_subcortical_self_repair_surface(spike_health)
+
+    def _attach_living_loop_self_repair_candidates(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Attach read-only Subcortex self-repair candidates to the living-loop sidecar."""
+        enriched = dict(payload)
+        living_loop = dict(enriched.get("living_loop") or {})
+        living_loop["subcortical_self_repair_candidates"] = self._subcortical_self_repair_surface()
+        enriched["living_loop"] = living_loop
+        return enriched
 
     def policy_actuator_status(self) -> dict[str, Any]:
         """Return the policy actuator status snapshot (non-blocking with lock-contention fallback).
@@ -723,7 +766,8 @@ class StatusReadModel:
         policy_actuator_status_fn = self._policy_actuator_status_fn
 
         def _build_locked() -> dict[str, Any]:
-            return policy_actuator_status_fn()
+            payload = self._attach_policy_control_candidates(policy_actuator_status_fn())
+            return self._attach_policy_self_repair_candidates(payload)
 
         result = self._read_snapshot(
             fresh_wait_seconds=None,
@@ -733,34 +777,69 @@ class StatusReadModel:
         self._cached_policy_actuator_status = result
         return result
 
+    def _attach_policy_control_candidates(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Attach advisory Subcortex control candidates to policy status."""
+        enriched = dict(payload)
+        cognitive_signal = self.cognitive_signal_state()
+        control_candidates = cognitive_signal.get("subcortical_deliberation")
+        if isinstance(control_candidates, Mapping):
+            enriched["subcortical_control_candidates"] = {
+                **dict(control_candidates),
+                "advisory": True,
+                "executable": False,
+            }
+        return enriched
+
+    def _attach_policy_self_repair_candidates(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Attach advisory Subcortex self-repair candidates to policy status."""
+        enriched = dict(payload)
+        enriched["subcortical_self_repair_candidates"] = {
+            **self._subcortical_self_repair_surface(),
+            "advisory": True,
+            "executable": False,
+        }
+        return enriched
+
     # ------------------------------------------------------------------
-    # Cortex signal state (cached with short-timeout fallback)
+    # Cognitive Signal state (cached with short-timeout fallback)
     # ------------------------------------------------------------------
 
-    def cortex_signal_state(self) -> dict[str, Any]:
-        """Expose recent SNN predictive/surprise signals to the ThoughtLoop.
+    def cognitive_signal_state(self) -> dict[str, Any]:
+        """Expose recent Subcortex predictive/surprise signals.
 
-        Uses a short lock timeout (50 ms) to avoid blocking the cortex
-        thought loop. When the lock is contended, the cached result is
-        returned. On first call with no cache, blocks until the lock is
-        available.
+        Uses a short lock timeout (50 ms) so signal readers do not block
+        runtime progress. When the lock is contended, the cached result is
+        returned. On first call with no cache, blocks until the lock is available.
 
-        The injected ``cortex_signal_state_fn`` callback is called under
+        The injected ``cognitive_signal_state_fn`` callback is called under
         lock to build the fresh payload, and the result is cached for
         lock-contention fallback.
         """
-        if self._cortex_signal_state_fn is None:
+        if self._cognitive_signal_state_fn is None:
             return {}
-        cortex_signal_state_fn = self._cortex_signal_state_fn
+        cognitive_signal_state_fn = self._cognitive_signal_state_fn
 
-        acquired = self._lock.acquire(timeout=DEFAULT_CORTEX_SIGNAL_LOCK_TIMEOUT_SECONDS)
+        acquired = self._lock.acquire(timeout=DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS)
         if not acquired:
-            if self._cached_cortex_signal_state is not None:
-                return self._cached_cortex_signal_state
+            if self._cached_cognitive_signal_state is not None:
+                return self._cached_cognitive_signal_state
             self._lock.acquire()
         try:
-            payload = cortex_signal_state_fn()
+            payload = attach_cognitive_signal_language_surface(cognitive_signal_state_fn())
+            self._cached_cognitive_signal_state = payload
             self._cached_cortex_signal_state = payload
             return payload
         finally:
             self._lock.release()
+
+    def cortex_signal_state(self) -> dict[str, Any]:
+        """Compatibility wrapper for the retired Cortex signal name."""
+        return self.cognitive_signal_state()
+
+    def subcortical_language_surface(self) -> dict[str, Any]:
+        """Return the Cognitive Signal language surface without changing runtime state."""
+        return dict(self.cognitive_signal_state().get("subcortical_language") or {})
+
+    def subcortical_deliberation_surface(self) -> dict[str, Any]:
+        """Return bounded Cognitive Signal deliberation candidates."""
+        return dict(self.cognitive_signal_state().get("subcortical_deliberation") or {})

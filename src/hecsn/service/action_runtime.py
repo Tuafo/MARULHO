@@ -8,7 +8,8 @@ from typing import Any, Mapping, cast
 from hecsn.service.action_loop import execute_digital_action
 from hecsn.service.history_store import read_history_record, replace_history_record
 
-DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = 0.25
+DEFAULT_RETIRED_ACTION_LOOP_INIT_TIMEOUT_SECONDS = 0.25
+DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = DEFAULT_RETIRED_ACTION_LOOP_INIT_TIMEOUT_SECONDS
 
 
 class ActionRuntimeMixin:
@@ -86,9 +87,9 @@ class ActionRuntimeMixin:
             ]
             self._action_history = deque(existing, maxlen=self._action_history.maxlen)
             self._action_history.appendleft(normalized)
-            self._inject_action_record_into_cortex_locked(normalized)
+            self._inject_action_record_into_retired_loop_locked(normalized)
             verification = normalized.get("verification") if isinstance(normalized.get("verification"), Mapping) else {}
-            normalized_trigger_query_text = self._normalize_cortex_query_hint(normalized.get("trigger_query_text", ""))
+            normalized_trigger_query_text = self._normalize_trigger_query_text(normalized.get("trigger_query_text", ""))
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy and normalized_trigger_query_text:
                 confidence = max(0.0, min(1.0, float(verification.get("confidence", 0.0) or 0.0)))
@@ -148,17 +149,27 @@ class ActionRuntimeMixin:
             "evidence": evidence,
         }
 
-    def _inject_action_record_into_cortex_locked(self, record: Mapping[str, Any]) -> None:
+    @staticmethod
+    def _normalize_trigger_query_text(value: Any) -> str:
+        return " ".join(str(value).split()).strip()
+
+    def _inject_action_record_into_retired_loop_locked(self, record: Mapping[str, Any]) -> None:
         thought_loop = self._thought_loop_actual or self._ensure_cortex_initialized(
-            wait_seconds=DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS
+            wait_seconds=DEFAULT_RETIRED_ACTION_LOOP_INIT_TIMEOUT_SECONDS
         )
         if thought_loop is None:
             return
         self._inject_action_record_into_loop(thought_loop, record)
 
-    def _replay_action_history_into_cortex_locked(self) -> None:
+    def _inject_action_record_into_cortex_locked(self, record: Mapping[str, Any]) -> None:
+        self._inject_action_record_into_retired_loop_locked(record)
+
+    def _replay_action_history_into_retired_loop_locked(self) -> None:
         for record in reversed(list(self._action_history)):
-            self._inject_action_record_into_cortex_locked(record)
+            self._inject_action_record_into_retired_loop_locked(record)
+
+    def _replay_action_history_into_cortex_locked(self) -> None:
+        self._replay_action_history_into_retired_loop_locked()
 
     def _action_loop_summary_locked(self) -> dict[str, Any]:
         verified = 0
