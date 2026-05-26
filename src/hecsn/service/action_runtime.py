@@ -8,9 +8,6 @@ from typing import Any, Mapping, cast
 from hecsn.service.action_loop import execute_digital_action
 from hecsn.service.history_store import read_history_record, replace_history_record
 
-DEFAULT_RETIRED_ACTION_LOOP_INIT_TIMEOUT_SECONDS = 0.25
-DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = DEFAULT_RETIRED_ACTION_LOOP_INIT_TIMEOUT_SECONDS
-
 
 class ActionRuntimeMixin:
     """Digital action execution, audit history, and action-loop summaries."""
@@ -154,12 +151,9 @@ class ActionRuntimeMixin:
         return " ".join(str(value).split()).strip()
 
     def _inject_action_record_into_retired_loop_locked(self, record: Mapping[str, Any]) -> None:
-        thought_loop = self._thought_loop_actual or self._ensure_cortex_initialized(
-            wait_seconds=DEFAULT_RETIRED_ACTION_LOOP_INIT_TIMEOUT_SECONDS
-        )
-        if thought_loop is None:
+        if self._thought_loop_actual is None:
             return
-        self._inject_action_record_into_loop(thought_loop, record)
+        self._inject_action_record_into_loop(self._thought_loop_actual, record)
 
     def _inject_action_record_into_cortex_locked(self, record: Mapping[str, Any]) -> None:
         self._inject_action_record_into_retired_loop_locked(record)
@@ -189,5 +183,13 @@ class ActionRuntimeMixin:
             "verified_actions": int(verified),
             "contradicted_actions": int(contradicted),
             "last_action": last_action,
+            "retired_loop_sync": {
+                "status": "active_loop_only" if self._thought_loop_actual is not None else "skipped_retired_loop_absent",
+                "initializes_retired_loop": False,
+                "reason": (
+                    "Digital action history is retained in the Subcortex runtime ledger; "
+                    "retired ThoughtLoop mirroring is best-effort only and must not initialize Cortex."
+                ),
+            },
         }
 

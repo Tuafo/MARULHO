@@ -117,6 +117,59 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("memory_pressure", status_truth)
         self.assertIn("safety_flags", status_truth)
         self.assertEqual(terminus_truth["verdict"], status_truth["verdict"])
+        status_gate = status_truth["evidence"]["self_repair_gate"]
+        terminus_gate = terminus_truth["evidence"]["self_repair_gate"]
+        self.assertEqual(status_gate["artifact_kind"], "terminus_subcortical_self_repair_gate_plan")
+        self.assertEqual(status_gate["surface"], "subcortical_self_repair_candidates.v1")
+        self.assertTrue(status_gate["advisory"])
+        self.assertFalse(status_gate["executable"])
+        self.assertFalse(status_gate["eligible_for_action"])
+        self.assertFalse(status_gate["eligible_for_fact_promotion"])
+        self.assertFalse(status_gate["eligible_for_structural_mutation"])
+        self.assertNotIn("candidates", status_gate)
+        self.assertNotIn("endpoint", status_gate)
+        self.assertNotIn("suggested_endpoint", status_gate)
+        self.assertEqual(terminus_gate["artifact_kind"], status_gate["artifact_kind"])
+        self.assertEqual(terminus_gate["surface"], status_gate["surface"])
+        status_structural_gate = status_truth["evidence"]["structural_plasticity_gate"]
+        terminus_structural_gate = terminus_truth["evidence"]["structural_plasticity_gate"]
+        self.assertEqual(
+            status_structural_gate["artifact_kind"],
+            "terminus_subcortical_structural_plasticity_gate_plan",
+        )
+        self.assertEqual(status_structural_gate["surface"], "subcortical_structural_plasticity.v1")
+        self.assertTrue(status_structural_gate["advisory"])
+        self.assertFalse(status_structural_gate["executable"])
+        self.assertFalse(status_structural_gate["mutates_runtime_state"])
+        self.assertFalse(status_structural_gate["eligible_for_action"])
+        self.assertFalse(status_structural_gate["eligible_for_fact_promotion"])
+        self.assertFalse(status_structural_gate["eligible_for_structural_mutation"])
+        self.assertIn("local_plasticity_report_available", status_structural_gate)
+        self.assertIn("local_plasticity_homeostatic_state_available", status_structural_gate)
+        self.assertNotIn("structural_cases", status_structural_gate)
+        self.assertNotIn("endpoint", status_structural_gate)
+        self.assertNotIn("device_evidence", status_structural_gate)
+        self.assertNotIn("local_plasticity", status_structural_gate)
+        self.assertEqual(terminus_structural_gate["artifact_kind"], status_structural_gate["artifact_kind"])
+        self.assertEqual(terminus_structural_gate["surface"], status_structural_gate["surface"])
+        status_language_gate = status_truth["evidence"]["snn_language_readiness_gate"]
+        terminus_language_gate = terminus_truth["evidence"]["snn_language_readiness_gate"]
+        self.assertEqual(status_language_gate["artifact_kind"], "terminus_snn_native_language_readiness_gate")
+        self.assertEqual(status_language_gate["surface"], "snn_native_language_readiness.v1")
+        self.assertTrue(status_language_gate["advisory"])
+        self.assertFalse(status_language_gate["executable"])
+        self.assertFalse(status_language_gate["mutates_runtime_state"])
+        self.assertTrue(status_language_gate["not_cognition_substrate"])
+        self.assertFalse(status_language_gate["retired_runtime_dependency"])
+        self.assertFalse(status_language_gate["eligible_for_action"])
+        self.assertFalse(status_language_gate["eligible_for_fact_promotion"])
+        self.assertFalse(status_language_gate["eligible_for_cognition_substrate"])
+        self.assertTrue(status_language_gate["requires_hecsn_owned_implementation"])
+        self.assertNotIn("research_candidates", status_language_gate)
+        self.assertNotIn("endpoint", status_language_gate)
+        self.assertNotIn("readiness_checks", status_language_gate)
+        self.assertEqual(terminus_language_gate["artifact_kind"], status_language_gate["artifact_kind"])
+        self.assertEqual(terminus_language_gate["surface"], status_language_gate["surface"])
 
     def test_cognitive_signal_endpoint_exposes_subcortical_language_surface(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -126,22 +179,166 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 signal_response = client.get("/terminus/cognitive-signal")
                 language_response = client.get("/terminus/subcortical-language")
                 deliberation_response = client.get("/terminus/subcortical-deliberation")
+                readiness_response = client.get("/terminus/snn-language-readiness")
             app.state.hecsn_manager.close()
 
         self.assertEqual(signal_response.status_code, 200)
         self.assertEqual(language_response.status_code, 200)
         self.assertEqual(deliberation_response.status_code, 200)
+        self.assertEqual(readiness_response.status_code, 200)
         signal = signal_response.json()
         language = language_response.json()
         deliberation = deliberation_response.json()
+        readiness = readiness_response.json()
         self.assertEqual(signal["subcortical_language"]["surface"], "subcortical_language.v1")
         self.assertEqual(signal["subcortical_deliberation"]["surface"], "subcortical_control_candidates.v1")
         self.assertEqual(language["surface"], "subcortical_language.v1")
         self.assertEqual(deliberation["surface"], "subcortical_control_candidates.v1")
+        self.assertEqual(readiness["surface"], "snn_native_language_readiness.v1")
+        self.assertEqual(readiness["artifact_kind"], "terminus_snn_native_language_readiness_gate")
         self.assertTrue(language["grounded"])
         self.assertTrue(deliberation["grounded"])
+        self.assertTrue(readiness["grounded"])
         self.assertFalse(language["retired_runtime_dependency"])
         self.assertFalse(deliberation["retired_runtime_dependency"])
+        self.assertFalse(readiness["retired_runtime_dependency"])
+        self.assertFalse(readiness["executable"])
+        self.assertFalse(readiness["mutates_runtime_state"])
+        self.assertFalse(readiness["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(
+            [candidate["name"] for candidate in readiness["research_candidates"]],
+            ["NeuronSpark", "Nord-AI"],
+        )
+        self.assertEqual(
+            readiness["research_candidates"][0]["integration_status"],
+            "reference_for_hecsn_owned_reimplementation",
+        )
+        self.assertIn(
+            "hecsn_owned_language_neuron_module",
+            readiness["research_candidates"][0]["required_local_evidence"],
+        )
+        self.assertIn("hecsn_native_snn_decoder", readiness["research_candidates"][0]["required_local_evidence"])
+
+    def test_subcortical_self_repair_endpoint_is_gate_artifact_not_replay_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_self_repair_gate"), trace_dir=root / "traces")
+            runtime = app.state.hecsn_runtime
+            with TestClient(app) as client:
+                before_revision = runtime.status()["state_revision"]
+                before_history = runtime.action_history()["count"]
+                response = client.get("/terminus/subcortical-self-repair")
+                second_response = client.get("/terminus/subcortical-self-repair")
+                after_revision = runtime.status()["state_revision"]
+                after_history = runtime.action_history()["count"]
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["schema_version"], 1)
+        self.assertEqual(body["artifact_kind"], "terminus_subcortical_self_repair_gate_plan")
+        self.assertEqual(body["endpoint"], "/terminus/subcortical-self-repair")
+        self.assertEqual(body["review_role"], "operator_replay_deep_sleep_review_only")
+        self.assertEqual(body["surface"], "subcortical_self_repair_candidates.v1")
+        self.assertTrue(body["advisory"])
+        self.assertFalse(body["executable"])
+        self.assertIn("promotion_gate", body)
+        self.assertFalse(body["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(body["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertIn(body["promotion_gate"]["next_gate"], {
+            "collect_spike_window",
+            "deep_sleep_or_replay_repair_gate",
+            "continue_monitoring",
+        })
+        self.assertNotIn("candidate_id", body["candidates"][0])
+        self.assertNotIn("suggested_endpoint", body["candidates"][0])
+        self.assertEqual(before_revision, after_revision)
+        self.assertEqual(before_history, after_history)
+        self.assertEqual(second_response.json()["surface"], body["surface"])
+
+    def test_subcortical_self_repair_evaluation_endpoint_is_read_only_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_self_repair_evaluation"),
+                trace_dir=root / "traces",
+            )
+            runtime = app.state.hecsn_runtime
+            with TestClient(app) as client:
+                before_revision = runtime.status()["state_revision"]
+                before_history = runtime.action_history()["count"]
+                response = client.get("/terminus/subcortical-self-repair/evaluation")
+                after_revision = runtime.status()["state_revision"]
+                after_history = runtime.action_history()["count"]
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["schema_version"], 1)
+        self.assertEqual(body["artifact_kind"], "terminus_subcortical_self_repair_evaluation_plan")
+        self.assertEqual(body["surface"], "subcortical_self_repair_evaluation.v1")
+        self.assertEqual(body["endpoint"], "/terminus/subcortical-self-repair/evaluation")
+        self.assertTrue(body["advisory"])
+        self.assertFalse(body["executable"])
+        self.assertFalse(body["mutates_runtime_state"])
+        self.assertIn(
+            body["evaluation_gate"]["status"],
+            {"ready_for_isolated_evaluation", "blocked_missing_spike_window", "monitor_only"},
+        )
+        self.assertFalse(body["evaluation_gate"]["eligible_for_action"])
+        self.assertFalse(body["evaluation_gate"]["eligible_for_fact_promotion"])
+        self.assertFalse(body["evaluation_gate"]["eligible_for_structural_mutation"])
+        self.assertIn("runtime_truth_delta", body["success_evidence"])
+        self.assertNotIn("suggested_endpoint", body["evaluation_cases"][0])
+        self.assertNotIn("suggested_input", body["evaluation_cases"][0])
+        self.assertEqual(before_revision, after_revision)
+        self.assertEqual(before_history, after_history)
+
+    def test_subcortical_structural_plasticity_endpoint_is_read_only_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_structural_plasticity"),
+                trace_dir=root / "traces",
+            )
+            runtime = app.state.hecsn_runtime
+            with TestClient(app) as client:
+                before_revision = runtime.status()["state_revision"]
+                before_history = runtime.action_history()["count"]
+                response = client.get("/terminus/subcortical-structural-plasticity")
+                after_revision = runtime.status()["state_revision"]
+                after_history = runtime.action_history()["count"]
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["schema_version"], 1)
+        self.assertEqual(body["artifact_kind"], "terminus_subcortical_structural_plasticity_gate_plan")
+        self.assertEqual(body["surface"], "subcortical_structural_plasticity.v1")
+        self.assertEqual(body["endpoint"], "/terminus/subcortical-structural-plasticity")
+        self.assertTrue(body["advisory"])
+        self.assertFalse(body["executable"])
+        self.assertFalse(body["mutates_runtime_state"])
+        self.assertIn(
+            body["promotion_gate"]["status"],
+            {
+                "ready_for_isolated_structural_evaluation",
+                "insufficient_device_evidence",
+                "monitor_only",
+            },
+        )
+        self.assertFalse(body["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(body["promotion_gate"]["eligible_for_fact_promotion"])
+        self.assertFalse(body["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertIn("local_plasticity", body)
+        self.assertIn("local_plasticity_report_available", body["device_evidence"])
+        self.assertIn("device_evidence_report", body["success_evidence"])
+        self.assertIn("local_plasticity_stability_delta", body["success_evidence"])
+        self.assertNotIn("suggested_endpoint", body["structural_cases"][0])
+        self.assertNotIn("suggested_input", body["structural_cases"][0])
+        self.assertEqual(before_revision, after_revision)
+        self.assertEqual(before_history, after_history)
 
     def test_validation_report_endpoints_list_and_read_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -273,6 +470,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertTrue(action_body["accepted"])
             self.assertEqual(action_body["result"]["verification"]["status"], "verified")
             self.assertEqual(action_body["terminus_runtime"]["action_loop"]["verified_actions"], 1)
+            self.assertFalse(
+                action_body["terminus_runtime"]["action_loop"]["retired_loop_sync"]["initializes_retired_loop"]
+            )
             self.assertEqual(history_body["count"], 1)
             self.assertEqual(history_body["actions"][0]["action_type"], "workspace_search")
             self.assertEqual(history_body["actions"][0]["verification"]["status"], "verified")
@@ -328,11 +528,37 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(body["subcortical_control_candidates"]["promotion_summary"]["eligible_for_action"])
         self.assertFalse(body["subcortical_control_candidates"]["promotion_summary"]["eligible_for_fact_promotion"])
         self.assertEqual(
+            body["subcortical_self_repair_candidates"]["surface"],
+            "subcortical_self_repair_candidates.v1",
+        )
+        self.assertTrue(body["subcortical_self_repair_candidates"]["advisory"])
+        self.assertFalse(body["subcortical_self_repair_candidates"]["executable"])
+        self.assertFalse(
+            body["subcortical_self_repair_candidates"]["promotion_summary"]["eligible_for_structural_mutation"]
+        )
+        self.assertFalse(
+            body["subcortical_self_repair_candidates"]["promotion_gate"]["eligible_for_structural_mutation"]
+        )
+        self.assertEqual(
             living_body["living_loop"]["subcortical_control_candidates"]["surface"],
             "subcortical_control_candidates.v1",
         )
         self.assertFalse(
             living_body["living_loop"]["subcortical_control_candidates"]["promotion_summary"]["eligible_for_action"]
+        )
+        self.assertEqual(
+            living_body["living_loop"]["subcortical_self_repair_candidates"]["surface"],
+            "subcortical_self_repair_candidates.v1",
+        )
+        self.assertFalse(
+            living_body["living_loop"]["subcortical_self_repair_candidates"]["promotion_summary"][
+                "eligible_for_structural_mutation"
+            ]
+        )
+        self.assertFalse(
+            living_body["living_loop"]["subcortical_self_repair_candidates"]["promotion_gate"][
+                "eligible_for_structural_mutation"
+            ]
         )
         self.assertEqual(before_history, after_history)
         self.assertEqual(before_revision, after_revision)

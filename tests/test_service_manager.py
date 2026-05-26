@@ -8101,6 +8101,9 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 runtime = result["terminus_runtime"]
                 self.assertEqual(runtime["action_loop"]["verified_actions"], 1)
                 self.assertEqual(runtime["action_loop"]["contradicted_actions"], 0)
+                self.assertFalse(runtime["action_loop"]["retired_loop_sync"]["initializes_retired_loop"])
+                self.assertEqual(runtime["action_loop"]["retired_loop_sync"]["status"], "disabled_subcortex_ledger_only")
+                self.assertIsNone(manager._thought_loop_actual)
                 self.assertEqual(runtime["recent_events"][0]["type"], "digital_action_executed")
                 self.assertEqual(result["result"]["verification"]["status"], "verified")
 

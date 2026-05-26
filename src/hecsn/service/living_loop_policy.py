@@ -799,7 +799,7 @@ def build_policy_actuator_status(
                 reasons.append(
                     {
                         "code": "fatigue_sleep_pressure",
-                        "detail": f"Cortex fatigue/sleep pressure is {fatigue:.2f}.",
+                        "detail": f"Retired runtime sleep pressure is {fatigue:.2f}.",
                     }
                 )
             action = "consolidate_or_sleep"

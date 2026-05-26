@@ -1025,6 +1025,8 @@ class StatusReadModelLivingLoopTests(unittest.TestCase):
         self.assertFalse(sidecar["candidates"][0]["promotion_gate"]["eligible_for_action"])
         self.assertFalse(sidecar["candidates"][0]["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertFalse(sidecar["promotion_summary"]["eligible_for_structural_mutation"])
+        self.assertEqual(sidecar["promotion_gate"]["status"], "ready_for_replay_review")
+        self.assertFalse(sidecar["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
 
@@ -1103,6 +1105,7 @@ class StatusReadModelPolicyActuatorTests(unittest.TestCase):
         self.assertFalse(candidates["executable"])
         self.assertFalse(candidates["promotion_summary"]["eligible_for_structural_mutation"])
         self.assertFalse(candidates["candidates"][0]["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(candidates["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertFalse(runtime_state.dirty_state)
 
     def test_policy_actuator_status_delegates_to_callback(self) -> None:
@@ -1178,6 +1181,39 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertIn("prediction_error_mean", first["grounding"])
         self.assertIn("promotion_gate", first)
         self.assertFalse(first["promotion_gate"]["eligible_for_action"])
+
+    def test_snn_language_readiness_surface_is_reference_only_and_non_executable(self) -> None:
+        """SNN language readiness points to repo-native work, not external dependencies."""
+        model, _, _, _, _ = _build_read_model_with_living_loop()
+        surface = model.snn_language_readiness_surface()
+
+        self.assertEqual(surface["surface"], "snn_native_language_readiness.v1")
+        self.assertEqual(surface["artifact_kind"], "terminus_snn_native_language_readiness_gate")
+        self.assertTrue(surface["advisory"])
+        self.assertFalse(surface["executable"])
+        self.assertFalse(surface["mutates_runtime_state"])
+        self.assertTrue(surface["not_cognition_substrate"])
+        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertEqual(surface["promotion_gate"]["status"], "research_candidate_only")
+        self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
+        self.assertEqual(
+            [candidate["integration_status"] for candidate in surface["research_candidates"]],
+            ["reference_for_hecsn_owned_reimplementation", "reference_for_hecsn_owned_reimplementation"],
+        )
+        self.assertIn("hecsn_owned_language_neuron_module", surface["research_candidates"][0]["required_local_evidence"])
+        self.assertIn("hecsn_native_snn_decoder", surface["research_candidates"][0]["required_local_evidence"])
+        self.assertTrue(surface["safety_invariants"]["requires_hecsn_owned_implementation"])
+
+    def test_snn_language_readiness_surface_returns_cached_on_lock_contention(self) -> None:
+        """The readiness artifact stays cache-compatible under lock contention."""
+        model, _, lock, _, _ = _build_read_model_with_living_loop()
+        first = model.snn_language_readiness_surface()
+        cached_result = _run_under_lock_contention(lock, model.snn_language_readiness_surface)
+
+        self.assertIsNotNone(cached_result)
+        self.assertEqual(cached_result["surface"], first["surface"])
+        self.assertEqual(cached_result["promotion_gate"]["status"], first["promotion_gate"]["status"])
 
     def test_cognitive_signal_state_returns_cached_on_lock_contention(self) -> None:
         """When the lock is held, cognitive_signal_state() returns cached data."""
@@ -1866,6 +1902,91 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("token_count", truth["evidence"])
         self.assertIn("subcortex_spike_health", truth["evidence"])
         self.assertTrue(truth["evidence"]["subcortex_spike_health"]["not_liveness_claim"])
+        self.assertEqual(truth["verdict"], "partial")
+        self.assertEqual(truth["recommended_action"], "configure_terminus_sources")
+        self.assertIn("self_repair_gate", truth["evidence"])
+        self.assertEqual(
+            truth["evidence"]["self_repair_gate"]["artifact_kind"],
+            "terminus_subcortical_self_repair_gate_plan",
+        )
+        self.assertIn(
+            truth["evidence"]["self_repair_gate"]["next_gate"],
+            {"collect_spike_window", "deep_sleep_or_replay_repair_gate", "continue_monitoring"},
+        )
+        self.assertTrue(truth["evidence"]["self_repair_gate"]["advisory"])
+        self.assertFalse(truth["evidence"]["self_repair_gate"]["executable"])
+        self.assertFalse(truth["evidence"]["self_repair_gate"]["eligible_for_action"])
+        self.assertFalse(truth["evidence"]["self_repair_gate"]["eligible_for_fact_promotion"])
+        self.assertFalse(truth["evidence"]["self_repair_gate"]["eligible_for_structural_mutation"])
+        for forbidden_key in ("candidates", "endpoint", "candidate_id", "suggested_endpoint", "suggested_input"):
+            self.assertNotIn(forbidden_key, truth["evidence"]["self_repair_gate"])
+        self.assertIn("structural_plasticity_gate", truth["evidence"])
+        structural_gate = truth["evidence"]["structural_plasticity_gate"]
+        self.assertEqual(
+            structural_gate["artifact_kind"],
+            "terminus_subcortical_structural_plasticity_gate_plan",
+        )
+        self.assertEqual(structural_gate["surface"], "subcortical_structural_plasticity.v1")
+        self.assertIn(
+            structural_gate["next_gate"],
+            {
+                "operator_approved_structural_plasticity_evaluation",
+                "collect_cuda_structural_device_report",
+                "continue_monitoring",
+            },
+        )
+        self.assertTrue(structural_gate["advisory"])
+        self.assertFalse(structural_gate["executable"])
+        self.assertFalse(structural_gate["mutates_runtime_state"])
+        self.assertFalse(structural_gate["eligible_for_action"])
+        self.assertFalse(structural_gate["eligible_for_fact_promotion"])
+        self.assertFalse(structural_gate["eligible_for_structural_mutation"])
+        self.assertIn("binding_report_available", structural_gate)
+        self.assertIn("local_plasticity_report_available", structural_gate)
+        self.assertIn("local_plasticity_homeostatic_state_available", structural_gate)
+        for forbidden_key in (
+            "structural_cases",
+            "endpoint",
+            "concept_growth",
+            "binding_topology",
+            "device_evidence",
+            "local_plasticity",
+            "suggested_endpoint",
+            "suggested_input",
+        ):
+            self.assertNotIn(forbidden_key, structural_gate)
+        self.assertIn("snn_language_readiness_gate", truth["evidence"])
+        language_gate = truth["evidence"]["snn_language_readiness_gate"]
+        self.assertEqual(language_gate["artifact_kind"], "terminus_snn_native_language_readiness_gate")
+        self.assertEqual(language_gate["surface"], "snn_native_language_readiness.v1")
+        self.assertIn(
+            language_gate["next_gate"],
+            {
+                "complete_grounded_subcortex_language_evidence",
+                "build_local_snn_language_generator_adapter",
+                "operator_approved_snn_language_evaluation",
+            },
+        )
+        self.assertTrue(language_gate["advisory"])
+        self.assertFalse(language_gate["executable"])
+        self.assertFalse(language_gate["mutates_runtime_state"])
+        self.assertTrue(language_gate["not_cognition_substrate"])
+        self.assertFalse(language_gate["retired_runtime_dependency"])
+        self.assertFalse(language_gate["eligible_for_action"])
+        self.assertFalse(language_gate["eligible_for_fact_promotion"])
+        self.assertFalse(language_gate["eligible_for_cognition_substrate"])
+        self.assertTrue(language_gate["requires_hecsn_owned_implementation"])
+        for forbidden_key in (
+            "endpoint",
+            "research_candidates",
+            "current_language_surface",
+            "current_deliberation_surface",
+            "readiness_checks",
+            "success_evidence",
+            "suggested_endpoint",
+            "suggested_input",
+        ):
+            self.assertNotIn(forbidden_key, language_gate)
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):
@@ -2127,5 +2248,75 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
                 self.assertEqual(result["source"], "service.status_read_model.cognitive_signal")
                 self.assertTrue(result["grounded"])
                 self.assertIn("candidates", result)
+            finally:
+                manager.close()
+
+    def test_runtime_facade_snn_language_readiness_surface_delegates_to_read_model(self) -> None:
+        """The runtime facade exposes HECSN-native SNN language readiness."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="snn_language_readiness_delegation")
+            try:
+                result = manager.runtime_facade.snn_language_readiness_surface()
+                self.assertEqual(result["surface"], "snn_native_language_readiness.v1")
+                self.assertEqual(result["source"], "service.status_read_model.cognitive_signal_and_runtime_scope")
+                self.assertTrue(result["advisory"])
+                self.assertFalse(result["executable"])
+                self.assertFalse(result["mutates_runtime_state"])
+                self.assertFalse(result["promotion_gate"]["eligible_for_cognition_substrate"])
+                self.assertTrue(result["safety_invariants"]["requires_hecsn_owned_implementation"])
+            finally:
+                manager.close()
+
+    def test_runtime_facade_subcortical_self_repair_surface_delegates_to_read_model(self) -> None:
+        """The runtime facade exposes the self-repair promotion gate artifact."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="subcortical_self_repair_delegation")
+            try:
+                result = manager.runtime_facade.subcortical_self_repair_surface()
+                self.assertEqual(result["surface"], "subcortical_self_repair_candidates.v1")
+                self.assertEqual(result["source"], "service.status_read_model.runtime_scope.spike_health")
+                self.assertTrue(result["advisory"])
+                self.assertFalse(result["executable"])
+                self.assertIn("promotion_gate", result)
+                self.assertFalse(result["promotion_gate"]["eligible_for_structural_mutation"])
+            finally:
+                manager.close()
+
+    def test_runtime_facade_subcortical_self_repair_evaluation_surface_delegates_to_read_model(self) -> None:
+        """The runtime facade exposes the read-only self-repair evaluation artifact."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="subcortical_self_repair_evaluation_delegation")
+            try:
+                result = manager.runtime_facade.subcortical_self_repair_evaluation_surface()
+                self.assertEqual(result["surface"], "subcortical_self_repair_evaluation.v1")
+                self.assertEqual(result["source"], "service.status_read_model.runtime_scope.spike_health")
+                self.assertTrue(result["advisory"])
+                self.assertFalse(result["executable"])
+                self.assertFalse(result["mutates_runtime_state"])
+                self.assertIn("evaluation_gate", result)
+                self.assertFalse(result["evaluation_gate"]["eligible_for_structural_mutation"])
+            finally:
+                manager.close()
+
+    def test_runtime_facade_subcortical_structural_plasticity_surface_delegates_to_read_model(self) -> None:
+        """The runtime facade exposes structural-plasticity review evidence."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="subcortical_structural_plasticity_delegation")
+            try:
+                result = manager.runtime_facade.subcortical_structural_plasticity_surface()
+                self.assertEqual(result["surface"], "subcortical_structural_plasticity.v1")
+                self.assertEqual(result["source"], "service.status_read_model.concept_store_and_runtime_scope")
+                self.assertTrue(result["advisory"])
+                self.assertFalse(result["executable"])
+                self.assertFalse(result["mutates_runtime_state"])
+                self.assertIn("promotion_gate", result)
+                self.assertIn("device_evidence", result)
+                self.assertIn("local_plasticity", result)
+                self.assertIn("local_plasticity_report_available", result["device_evidence"])
+                self.assertFalse(result["promotion_gate"]["eligible_for_structural_mutation"])
             finally:
                 manager.close()

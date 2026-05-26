@@ -276,6 +276,22 @@ def create_app(
     def terminus_subcortical_deliberation() -> dict[str, Any]:
         return runtime.subcortical_deliberation_surface()
 
+    @app.get("/terminus/snn-language-readiness")
+    def terminus_snn_language_readiness() -> dict[str, Any]:
+        return runtime.snn_language_readiness_surface()
+
+    @app.get("/terminus/subcortical-self-repair")
+    def terminus_subcortical_self_repair() -> dict[str, Any]:
+        return runtime.subcortical_self_repair_surface()
+
+    @app.get("/terminus/subcortical-self-repair/evaluation")
+    def terminus_subcortical_self_repair_evaluation() -> dict[str, Any]:
+        return runtime.subcortical_self_repair_evaluation_surface()
+
+    @app.get("/terminus/subcortical-structural-plasticity")
+    def terminus_subcortical_structural_plasticity() -> dict[str, Any]:
+        return runtime.subcortical_structural_plasticity_surface()
+
     @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)
     def terminus_replay_plan(limit: int = Query(20, ge=1, le=50)) -> ReplayPlanResponse:
         return ReplayPlanResponse(**runtime.replay_plan_status(limit=limit))

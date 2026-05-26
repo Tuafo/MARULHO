@@ -1041,4 +1041,12 @@ class ActionExecutor:
             "verified_actions": int(verified),
             "contradicted_actions": int(contradicted),
             "last_action": last_action,
+            "retired_loop_sync": {
+                "status": "disabled_subcortex_ledger_only",
+                "initializes_retired_loop": False,
+                "reason": (
+                    "Digital action history is retained in the Subcortex runtime ledger; "
+                    "the retired Cortex/ThoughtLoop path is not initialized for action mirroring."
+                ),
+            },
         }

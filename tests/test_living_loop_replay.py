@@ -118,6 +118,63 @@ class TestReplayPlanRoundTrip(unittest.TestCase):
         self.assertEqual(payload["count"], 0)
         self.assertEqual(payload["limit"], 20)
 
+
+class TestReplayPlanSelfRepairIsolation(unittest.TestCase):
+    """Self-repair gate artifacts must not become replay execution candidates."""
+
+    def test_self_repair_gate_artifact_is_ignored_by_replay_plan(self) -> None:
+        living_loop = {
+            "state_revision": 7,
+            "token_count": 42,
+            "subcortical_self_repair_candidates": {
+                "schema_version": 1,
+                "artifact_kind": "terminus_subcortical_self_repair_gate_plan",
+                "surface": "subcortical_self_repair_candidates.v1",
+                "advisory": True,
+                "executable": False,
+                "promotion_gate": {
+                    "status": "ready_for_replay_review",
+                    "next_gate": "deep_sleep_or_replay_repair_gate",
+                    "eligible_for_structural_mutation": False,
+                },
+                "candidates": [
+                    {
+                        "intent": "review_decorrelation_or_prune",
+                        "candidate_text": "Review decorrelation before pruning.",
+                        "promotion_gate": {
+                            "next_gate": "deep_sleep_or_replay_repair_gate",
+                            "eligible_for_structural_mutation": False,
+                        },
+                    }
+                ],
+            },
+            "runtime_episodes": [
+                {
+                    "episode_id": "ep-1",
+                    "operation": "respond",
+                    "status": "ok",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "completed_at": "2026-01-01T00:00:01+00:00",
+                    "verification": {"status": "verified", "confidence": 0.9},
+                    "prediction": {"status": "verified", "confidence": 0.9},
+                }
+            ],
+        }
+
+        plan = build_replay_plan(living_loop, limit=10).to_payload()
+
+        for candidate in plan["candidates"]:
+            self.assertNotIn(
+                candidate["target_type"],
+                {"self_repair", "subcortical_self_repair", "repair_review"},
+            )
+            self.assertNotIn("candidate_text", candidate)
+            self.assertNotEqual(
+                candidate.get("operation"),
+                "deep_sleep_or_replay_repair_gate",
+            )
+            self.assertNotIn("review_decorrelation_or_prune", candidate.get("reason_codes", []))
+
     def test_plan_with_candidates(self) -> None:
         candidate = ReplayCandidate(
             candidate_id="rc-1", rank=1, target_type="runtime_episode", target_id="e1",

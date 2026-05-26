@@ -10,16 +10,28 @@ _Avoid_: SSN, raw SNN side
 **Retired Cortex Path** — the former LLM/ThoughtLoop deliberation path. It is no longer an active runtime requirement because it added external dependency and code weight without being the living substrate. Public HTTP endpoints for this path are removed; any temporary internal compatibility surface must report the path as retired, not unavailable or required.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 
+**Subcortex Action Ledger** — the runtime-owned record of digital action execution, verification, contradiction, feedback, and consequence evidence. Action recording must not initialize the Retired Cortex Path; any retired-loop mirroring is compatibility-only and best-effort when an old loop already exists.
+_Avoid_: action history as ThoughtLoop memory, booting Cortex to mirror an action
+
 **Subcortex Deliberation** — the active replacement direction for cognition that needs planning, replay, or hypothesis formation. It should be implemented through SNN-compatible prediction, world-model, memory, and policy mechanisms rather than an external LLM loop. Early deliberation candidates are bounded control candidates derived from Cognitive Signal pressure and concept focus.
 
 **Subcortex Language Surface** — an evidence-facing translation layer that can express runtime state in language without becoming the cognition substrate. It has two grounded slices: the interaction responder's native-decode surface, and the Cognitive Signal surface that turns prediction error, confidence, neuromodulator pressure, and concept focus into auditable operator text.
 _Avoid_: treating text fluency as liveness, hidden LLM mind, or ungrounded thought generation
 
+**SNN-Native Language Readiness Gate** — the operator-facing read-only artifact for future HECSN-owned language generation. External pure-SNN language projects may inform design, but HECSN must own the language neurons, decoder, training loop, grounding, telemetry, and promotion gates before language generation can move beyond a surface.
+_Avoid_: loading external checkpoints as the brain, outsourcing language cognition, treating reference implementations as runtime dependencies
+
 **Developmental Plasticity** — the Subcortex mechanism family for growing, pruning, and stabilizing assemblies, synapses, routing prototypes, and replay policies under evidence gates.
 _Avoid_: self-replication as unchecked code mutation, permanent growth without pruning
 
+**Local Plasticity Evidence** — the read-only report from local STDP eligibility traces, synaptic scaling, inhibitory balance, spike-health state, synaptic validation, and device placement. It can support Developmental Plasticity readiness, but it is not a command to change synapses or topology.
+_Avoid_: treating plasticity telemetry as automatic self-modification
+
 **Structural Mutation Ledger** — the runtime evidence record for bounded topology growth/pruning events such as hypercube binding hub outreach. It records added/removed sparse edges and recent mutation samples so structural plasticity can be audited and rolled into Runtime Truth rather than treated as hidden model drift.
 _Avoid_: undocumented rewiring, unbounded topology mutation, growth claims without prune evidence
+
+**Structural Plasticity Gate Artifact** — the operator-facing read-only artifact that combines ConceptStore growth pressure, binding topology mutation ledger evidence, and CUDA/device placement into structural-promotion readiness. It can mark a structural change ready for isolated evaluation, but it cannot mutate topology.
+_Avoid_: calling concept observation, binding, grow/prune, or structural refresh from a readiness artifact
 
 **Path Retirement Gate** — the rule that a runtime path should be deprecated or removed when it adds complexity without improving liveness, grounding, efficiency, or evidence quality. Legacy paths survive only behind compatibility seams while replacement evidence is gathered.
 
@@ -113,6 +125,15 @@ _Avoid_: treating endpoint uptime as neural health, hiding threshold heuristics,
 **Subcortex Self-Repair Candidate** — an advisory repair hypothesis derived from Subcortex Spike Health, such as reviewing column revival, inhibitory balance, stale routing, or decorrelation/pruning. It is not an action; promotion requires replay, deep-sleep repair, or operator gates.
 _Avoid_: automatic self-mutation from status reads, treating repair suggestions as executed growth/prune events
 
+**Self-Repair Promotion Gate** — the explicit gate on a Subcortex Self-Repair Candidate surface. It can request more spike-window evidence, mark candidates ready for replay/deep-sleep review, or keep them monitor-only; it must keep action, fact promotion, and structural mutation disabled.
+_Avoid_: implicit repair execution, hidden replay mutation, structural mutation without a gate
+
+**Self-Repair Gate Artifact** — the operator-facing read-only artifact that exposes Subcortex Self-Repair Candidates and their Self-Repair Promotion Gate without inserting those candidates into replay execution plans.
+_Avoid_: replay candidate IDs, suggested endpoints, or execution payloads inside repair-gate status
+
+**Self-Repair Evaluation Artifact** — the operator-facing read-only plan for measuring whether a Self-Repair Gate Artifact is safe to test in isolated replay or deep sleep. It names required evidence and success criteria, but does not run repair, mutate state, or promote structure.
+_Avoid_: treating evaluation readiness as repair approval, hiding rollback/device/runtime-truth evidence requirements
+
 **Delayed Consequence** — long-horizon utility tracking that connects earlier actions to later outcomes across queries and runs.
 
 **Source Bank** — a named, ordered collection of training data sources (corpus, HF dataset, remote search) used by the subcortex for learning.
@@ -122,15 +143,19 @@ _Avoid_: automatic self-mutation from status reads, treating repair suggestions 
 ## Key Relationships
 
 - Subcortex is the active cognition substrate; the former Cortex/ThoughtLoop path is retired from runtime liveness claims.
+- Subcortex Action Ledger owns action evidence. Digital action execution may update runtime history, provider calibration, consequences, and Runtime Truth evidence, but it must not initialize the Retired Cortex Path just to mirror action records.
 - Subcortex Language Surface may describe, narrate, or decode Subcortex state, but it must not own memory, policy, liveness, or Runtime Truth.
 - Native-decode Subcortex Language is a bridge, not a generator: it may speak only from decoded assembly text and selected evidence, with support metrics attached.
 - Cognitive Signal Subcortex Language is a status decoder: it may express runtime pressure and focus, but the numeric signal remains authoritative.
+- SNN-Native Language Readiness Gate keeps NeuronSpark/Nord-style work as implementation references only; the target is HECSN-owned language neurons and decoder machinery under CUDA/device, sparsity, grounding, replay/evaluation, and operator-control gates. Runtime Truth may include a compact readiness summary, while the full artifact remains the review surface.
 - Cognitive Signal is the canonical runtime signal surface. Any `cortex_signal` name is a retired compatibility alias and must not be used for new operator-facing paths.
 - Subcortex Deliberation candidates are advisory control candidates until replay, policy, or operator evidence promotes them; they must not be stored as facts, treated as generated thoughts, or queued as LLM prompts.
 - Living Loop status is the primary operational sidecar for Subcortex Deliberation candidates. Policy Actuator may display the same candidates as non-executable context, but policy status must not execute them or promote them beyond advisory evidence.
 - Every Subcortex Deliberation candidate must carry a promotion gate. The gate may mark it ready for replay review or blocked by missing grounding, but it must keep action execution and fact promotion false until a separate replay/policy/operator path explicitly promotes it.
 - Developmental Plasticity is the clean path for self-growth and pruning: runtime changes must be traceable, bounded, reversible, and evaluated before promotion.
+- Local Plasticity Evidence is the first synapse-level support signal for Developmental Plasticity: local STDP traces, synaptic scaling, inhibitory balance, spike-health risk, synaptic validation, and device reports can make a case ready for isolated evaluation, but never directly mutate synapses or topology.
 - Structural Mutation Ledger is required when topology changes at runtime; growth/pruning must leave countable evidence before it can support Living Brain claims.
+- Structural Plasticity Gate Artifact is the read-only promotion surface for Developmental Plasticity: it can expose concept growth pressure, hypercube/binding mutation ledger state, and CUDA/device evidence, but structural mutation remains behind isolated evaluation and operator gates. Runtime Truth may include a compact gate summary, while the full artifact remains the review surface.
 - Cognitive Signal is the telemetry/control contract that lets Subcortex update runtime pressure, concept alignment, and future Subcortex Deliberation modules.
 - Retired ThoughtLoop code may remain temporarily during cleanup but must not block Runtime Truth, CUDA evidence, or long-run liveness.
 - Gap Planner and Curiosity Controller feed Source Bank selection for autonomous acquisition
@@ -139,7 +164,9 @@ _Avoid_: automatic self-mutation from status reads, treating repair suggestions 
 - CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The retired Cortex path is not a CUDA-first claim or architectural requirement.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Subcortex Spike Health is the first operational-stability slice inside Runtime Evidence Report: it can flag silent, saturated, stale routing, or windowed over-correlation risk, while full operational-manifold health remains a future benchmark-level claim.
-- Subcortex Self-Repair Candidates turn Spike Health into reviewable repair pressure for Living Loop and Policy Actuator sidecars. They must keep action execution, fact promotion, and structural mutation false until a separate promotion gate approves the repair.
+- Subcortex Self-Repair Candidates turn Spike Health into reviewable repair pressure for Living Loop and Policy Actuator sidecars. The Self-Repair Promotion Gate must keep action execution, fact promotion, and structural mutation false until a separate replay/deep-sleep/operator path approves the repair.
+- Self-Repair Gate Artifact is exposed separately from Replay Plan so repair pressure can be reviewed without becoming a replay execution candidate or mutating runtime state. Runtime Truth may include a compact gate summary, but the full artifact remains the review surface.
+- Self-Repair Evaluation Artifact is the next gate after review readiness: it specifies isolated replay/deep-sleep evaluation evidence, rollback expectations, Runtime Truth delta, and CUDA/device evidence before any repair can be promoted.
 - Path Retirement Gate now applies to Cortex: LLM-backed runtime paths are being removed from active architecture so focus returns to Subcortex, world-model, memory, and policy mechanisms.
 
 ## Flagged Ambiguities

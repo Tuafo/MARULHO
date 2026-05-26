@@ -383,6 +383,22 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
         )
         self.assertEqual(result.action, "consolidate_or_sleep")
 
+    def test_sleep_pressure_reason_uses_retired_runtime_language(self) -> None:
+        result = build_policy_actuator_status(
+            {
+                "world_model_lite": {
+                    "uncertainty": 0.1,
+                    "policy_score": {"cost": 0.1, "budget_use": 0.1},
+                },
+                "cortex": {"drives": {"fatigue": 0.91}},
+            }
+        )
+
+        details = " ".join(reason["detail"] for reason in result.reasons)
+        self.assertEqual(result.action, "consolidate_or_sleep")
+        self.assertIn("Retired runtime sleep pressure", details)
+        self.assertNotIn("Cortex fatigue", details)
+
     def test_uncertainty_triggers_collect_more_evidence(self) -> None:
         """High uncertainty (without contradictions, pending, memory, or latency pressure) triggers collect_more_evidence."""
         result = build_policy_actuator_status(

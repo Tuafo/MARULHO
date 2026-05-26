@@ -329,6 +329,7 @@ class PolicyActuatorResponse(BaseModel):
     input: dict[str, Any]
     created_at: str
     subcortical_control_candidates: dict[str, Any] | None = None
+    subcortical_self_repair_candidates: dict[str, Any] | None = None
 
 
 class ReplayCandidateResponse(BaseModel):

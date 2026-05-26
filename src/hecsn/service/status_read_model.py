@@ -28,7 +28,10 @@ import torch
 
 from hecsn.semantics import (
     attach_cognitive_signal_language_surface,
+    build_snn_language_readiness_surface,
+    build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
+    build_subcortical_structural_plasticity_surface,
 )
 from hecsn.service.runtime_state import RuntimeState
 
@@ -141,8 +144,12 @@ class StatusReadModel:
         self._cached_telemetry_rev: int = -1
         self._cached_cognitive_signal_state: dict[str, Any] | None = None
         self._cached_cortex_signal_state: dict[str, Any] | None = None
+        self._cached_snn_language_readiness_surface: dict[str, Any] | None = None
         self._cached_living_loop_status: dict[str, Any] | None = None
         self._cached_policy_actuator_status: dict[str, Any] | None = None
+        self._cached_subcortical_self_repair_surface: dict[str, Any] | None = None
+        self._cached_subcortical_self_repair_evaluation_surface: dict[str, Any] | None = None
+        self._cached_subcortical_structural_plasticity_surface: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Static helpers reused from StatusRuntimeMixin
@@ -299,6 +306,127 @@ class StatusReadModel:
         }
         source_configuration = self._runtime_source_configuration_evidence(terminus_runtime)
         subcortex_spike_health = self._trainer.model.competitive.spike_health_report()
+        self_repair_surface = build_subcortical_self_repair_surface(subcortex_spike_health)
+        self_repair_gate = (
+            self_repair_surface.get("promotion_gate")
+            if isinstance(self_repair_surface.get("promotion_gate"), Mapping)
+            else {}
+        )
+        self_repair_gate = {
+            "surface": self_repair_surface.get("surface"),
+            "artifact_kind": self_repair_surface.get("artifact_kind"),
+            "source": self_repair_surface.get("source"),
+            "advisory": bool(self_repair_surface.get("advisory")),
+            "executable": bool(self_repair_surface.get("executable")),
+            "promotion_status": self_repair_gate.get("status"),
+            "next_gate": self_repair_gate.get("next_gate"),
+            "eligible_for_action": bool(self_repair_gate.get("eligible_for_action")),
+            "eligible_for_fact_promotion": bool(self_repair_gate.get("eligible_for_fact_promotion")),
+            "eligible_for_replay_review": bool(self_repair_gate.get("eligible_for_replay_review")),
+            "eligible_for_structural_mutation": bool(self_repair_gate.get("eligible_for_structural_mutation")),
+            "candidate_count": int(
+                (self_repair_surface.get("promotion_summary") or {}).get("candidate_count", 0)
+                if isinstance(self_repair_surface.get("promotion_summary"), Mapping)
+                else 0
+            ),
+        }
+        structural_surface = build_subcortical_structural_plasticity_surface(
+            self._concept_store_snapshot_fn(),
+            self._runtime_scope_report_locked(),
+        )
+        structural_gate = (
+            structural_surface.get("promotion_gate")
+            if isinstance(structural_surface.get("promotion_gate"), Mapping)
+            else {}
+        )
+        structural_concept_growth = (
+            structural_surface.get("concept_growth")
+            if isinstance(structural_surface.get("concept_growth"), Mapping)
+            else {}
+        )
+        structural_device_evidence = (
+            structural_surface.get("device_evidence")
+            if isinstance(structural_surface.get("device_evidence"), Mapping)
+            else {}
+        )
+        structural_local_plasticity = (
+            structural_surface.get("local_plasticity")
+            if isinstance(structural_surface.get("local_plasticity"), Mapping)
+            else {}
+        )
+        structural_plasticity_gate = {
+            "surface": structural_surface.get("surface"),
+            "artifact_kind": structural_surface.get("artifact_kind"),
+            "source": structural_surface.get("source"),
+            "advisory": bool(structural_surface.get("advisory")),
+            "executable": bool(structural_surface.get("executable")),
+            "mutates_runtime_state": bool(structural_surface.get("mutates_runtime_state")),
+            "promotion_status": structural_gate.get("status"),
+            "next_gate": structural_gate.get("next_gate"),
+            "eligible_for_action": bool(structural_gate.get("eligible_for_action")),
+            "eligible_for_fact_promotion": bool(structural_gate.get("eligible_for_fact_promotion")),
+            "eligible_for_structural_mutation": bool(structural_gate.get("eligible_for_structural_mutation")),
+            "ready_case_count": int(structural_gate.get("ready_case_count", 0) or 0),
+            "case_count": int(structural_gate.get("case_count", 0) or 0),
+            "concept_growth_ready": bool(structural_concept_growth.get("growth_ready")),
+            "binding_report_available": bool(structural_device_evidence.get("binding_report_available")),
+            "local_plasticity_report_available": bool(
+                structural_device_evidence.get("local_plasticity_report_available")
+            ),
+            "local_plasticity_homeostatic_state_available": bool(
+                structural_local_plasticity.get("homeostatic_state_available")
+            ),
+        }
+        cognitive_signal = (
+            self._cognitive_signal_state_fn()
+            if self._cognitive_signal_state_fn is not None
+            else {}
+        )
+        snn_language_surface = build_snn_language_readiness_surface(
+            cognitive_signal,
+            self._runtime_scope_report_locked(),
+        )
+        snn_language_gate = (
+            snn_language_surface.get("promotion_gate")
+            if isinstance(snn_language_surface.get("promotion_gate"), Mapping)
+            else {}
+        )
+        readiness_checks = (
+            snn_language_surface.get("readiness_checks")
+            if isinstance(snn_language_surface.get("readiness_checks"), Mapping)
+            else {}
+        )
+        snn_language_readiness_gate = {
+            "surface": snn_language_surface.get("surface"),
+            "artifact_kind": snn_language_surface.get("artifact_kind"),
+            "source": snn_language_surface.get("source"),
+            "advisory": bool(snn_language_surface.get("advisory")),
+            "executable": bool(snn_language_surface.get("executable")),
+            "mutates_runtime_state": bool(snn_language_surface.get("mutates_runtime_state")),
+            "not_cognition_substrate": bool(snn_language_surface.get("not_cognition_substrate")),
+            "retired_runtime_dependency": bool(snn_language_surface.get("retired_runtime_dependency")),
+            "promotion_status": snn_language_gate.get("status"),
+            "next_gate": snn_language_gate.get("next_gate"),
+            "eligible_for_action": bool(snn_language_gate.get("eligible_for_action")),
+            "eligible_for_fact_promotion": bool(snn_language_gate.get("eligible_for_fact_promotion")),
+            "eligible_for_cognition_substrate": bool(snn_language_gate.get("eligible_for_cognition_substrate")),
+            "eligible_for_language_generation": bool(snn_language_gate.get("eligible_for_language_generation")),
+            "requires_hecsn_owned_implementation": bool(
+                (snn_language_surface.get("safety_invariants") or {}).get("requires_hecsn_owned_implementation")
+                if isinstance(snn_language_surface.get("safety_invariants"), Mapping)
+                else False
+            ),
+            "grounded_language_surface_available": bool(readiness_checks.get("grounded_language_surface_available")),
+            "local_snn_language_generator_available": bool(
+                readiness_checks.get("local_snn_language_generator_available")
+            ),
+            "activation_sparsity_report_available": bool(
+                readiness_checks.get("activation_sparsity_report_available")
+            ),
+            "grounding_support_report_available": bool(
+                readiness_checks.get("grounding_support_report_available")
+            ),
+        }
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -333,6 +461,9 @@ class StatusReadModel:
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "subcortex_spike_health": subcortex_spike_health,
+                "self_repair_gate": self_repair_gate,
+                "structural_plasticity_gate": structural_plasticity_gate,
+                "snn_language_readiness_gate": snn_language_readiness_gate,
             },
         }
 
@@ -738,6 +869,48 @@ class StatusReadModel:
         spike_health = self._trainer.model.competitive.spike_health_report()
         return build_subcortical_self_repair_surface(spike_health)
 
+    def _subcortical_self_repair_evaluation_surface(self) -> dict[str, Any]:
+        """Build a read-only self-repair evaluation artifact from spike-health evidence."""
+        spike_health = self._trainer.model.competitive.spike_health_report()
+        return build_subcortical_self_repair_evaluation_surface(spike_health)
+
+    def subcortical_self_repair_surface(self) -> dict[str, Any]:
+        """Return the reviewable self-repair gate artifact without mutating runtime state."""
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_subcortical_self_repair_surface,
+            snapshot_fn=self._subcortical_self_repair_surface,
+        )
+        self._cached_subcortical_self_repair_surface = result
+        return result
+
+    def subcortical_self_repair_evaluation_surface(self) -> dict[str, Any]:
+        """Return the read-only self-repair evaluation artifact without mutating runtime state."""
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_subcortical_self_repair_evaluation_surface,
+            snapshot_fn=self._subcortical_self_repair_evaluation_surface,
+        )
+        self._cached_subcortical_self_repair_evaluation_surface = result
+        return result
+
+    def _subcortical_structural_plasticity_surface(self) -> dict[str, Any]:
+        """Build read-only structural-plasticity promotion evidence."""
+        return build_subcortical_structural_plasticity_surface(
+            self._concept_store_snapshot_fn(),
+            self._runtime_scope_report_locked(),
+        )
+
+    def subcortical_structural_plasticity_surface(self) -> dict[str, Any]:
+        """Return structural-plasticity review evidence without mutating runtime state."""
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_subcortical_structural_plasticity_surface,
+            snapshot_fn=self._subcortical_structural_plasticity_surface,
+        )
+        self._cached_subcortical_structural_plasticity_surface = result
+        return result
+
     def _attach_living_loop_self_repair_candidates(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Attach read-only Subcortex self-repair candidates to the living-loop sidecar."""
         enriched = dict(payload)
@@ -843,3 +1016,20 @@ class StatusReadModel:
     def subcortical_deliberation_surface(self) -> dict[str, Any]:
         """Return bounded Cognitive Signal deliberation candidates."""
         return dict(self.cognitive_signal_state().get("subcortical_deliberation") or {})
+
+    def _snn_language_readiness_surface(self) -> dict[str, Any]:
+        """Build a read-only SNN-native language readiness artifact."""
+        return build_snn_language_readiness_surface(
+            self.cognitive_signal_state(),
+            self._runtime_scope_report_locked(),
+        )
+
+    def snn_language_readiness_surface(self) -> dict[str, Any]:
+        """Return readiness evidence for future SNN-native language generation."""
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_snn_language_readiness_surface,
+            snapshot_fn=self._snn_language_readiness_surface,
+        )
+        self._cached_snn_language_readiness_surface = result
+        return result

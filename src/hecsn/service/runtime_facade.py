@@ -49,6 +49,18 @@ class RuntimeFacade:
     def subcortical_deliberation_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_deliberation_surface()
 
+    def snn_language_readiness_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_readiness_surface()
+
+    def subcortical_self_repair_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_self_repair_surface()
+
+    def subcortical_self_repair_evaluation_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_self_repair_evaluation_surface()
+
+    def subcortical_structural_plasticity_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_structural_plasticity_surface()
+
     def checkpoint_list(self) -> list[dict[str, Any]]:
         return self._root._runtime_persistence.checkpoint_list()
 
