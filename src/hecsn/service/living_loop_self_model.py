@@ -122,20 +122,20 @@ def _extract_cache_summary(stats: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _extract_nim_summary(cortex: Mapping[str, Any] | None) -> dict[str, Any]:
-    cortex_data = dict(cortex or {})
-    raw_episodic = cortex_data.get("episodic_memory")
+def _extract_nim_summary(retired_runtime_path: Mapping[str, Any] | None) -> dict[str, Any]:
+    retired_runtime_path_data = dict(retired_runtime_path or {})
+    raw_episodic = retired_runtime_path_data.get("episodic_memory")
     episodic: Mapping[str, Any] = raw_episodic if isinstance(raw_episodic, Mapping) else {}
     raw_embedder = episodic.get("embedder")
     embedder: Mapping[str, Any] = raw_embedder if isinstance(raw_embedder, Mapping) else {}
-    chat_generations = int(cortex_data.get("thoughts_generated", 0) or 0) + int(
-        cortex_data.get("dreams_generated", 0) or 0
+    chat_generations = int(retired_runtime_path_data.get("thoughts_generated", 0) or 0) + int(
+        retired_runtime_path_data.get("dreams_generated", 0) or 0
     )
     embedding_calls = int(embedder.get("nim_calls", 0) or 0)
     rate_limit_hits = int(embedder.get("rate_limit_hits", 0) or 0)
-    cortex_enabled = cortex_data.get("enabled", False) or embedder.get("available", False)
+    retired_runtime_path_enabled = retired_runtime_path_data.get("enabled", False) or embedder.get("available", False)
     return {
-        "available": bool(cortex_enabled),
+        "available": bool(retired_runtime_path_enabled),
         "chat_generations_observed": int(chat_generations),
         "embedding_nim_calls": int(embedding_calls),
         "observed_call_count": int(chat_generations + embedding_calls),
@@ -179,7 +179,7 @@ def _memory_counter_summary(
         "source": (
             "runtime_memory_store"
             if runtime_memory
-            else ("cortex_episodic_memory" if memory else "unavailable")
+            else ("retired_runtime_path_memory" if memory else "unavailable")
         ),
     }
 
@@ -457,8 +457,8 @@ class OperationalSelfModel:
             action_loop=dict(data.get("action_loop") or {}),
             memory=dict(data.get("memory") or {}),
             narrative=dict(data.get("narrative") or {}),
-            cortex=dict(data.get("cortex") or {}),
-            retired_runtime_path=dict(data.get("retired_runtime_path") or {}),
+            cortex={},
+            retired_runtime_path=dict(data.get("retired_runtime_path") or data.get("cortex") or {}),
             world_model_lite=world_model_lite,
             skill_memories=skill_memories or SkillMemoryRecord.from_action_records(actions),
         )
@@ -527,8 +527,8 @@ class OperationalSelfModel:
             action_loop=dict(action_loop or {}),
             memory=dict(memory or {}),
             narrative=dict(narrative or {}),
-            cortex=dict(cortex or {}),
-            retired_runtime_path=dict(retired_runtime_path or {}),
+            cortex={},
+            retired_runtime_path=dict(retired_runtime_path or cortex or {}),
             world_model_lite=world_model_lite,
             skill_memories=SkillMemoryRecord.from_action_records(action_records),
         )
@@ -586,8 +586,6 @@ class OperationalSelfModel:
             capabilities.append("episodic_memory_snapshot")
         if self.retired_runtime_path:
             capabilities.append("retired_runtime_path_snapshot")
-        if self.cortex.get("enabled", False):
-            capabilities.append("cortex_loop_snapshot")
         capabilities.append("world_model_lite_policy_scoring")
         return capabilities
 
@@ -849,7 +847,6 @@ class OperationalSelfModel:
                 action_loop=self.action_loop,
                 memory=self.memory,
                 retired_runtime_path=self.retired_runtime_path or self.cortex,
-                cortex=self.cortex,
                 generated_at=self.generated_at,
             ),
             "capabilities": self._surface_capabilities(
@@ -868,5 +865,4 @@ class OperationalSelfModel:
             "memory": dict(self.memory),
             "narrative": dict(self.narrative),
             "retired_runtime_path": dict(self.retired_runtime_path),
-            "cortex": dict(self.cortex),
         }

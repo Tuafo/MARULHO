@@ -326,7 +326,7 @@ class HECSNServiceManager:
         self._replay_controller = ReplayController(
             ReplayControllerDependencies(
                 action_history=lambda: self._action_history,
-                cortex_unavailable_snapshot=lambda: self._cortex_controller._cortex_unavailable_snapshot(),
+                retired_runtime_path_unavailable_snapshot=lambda: self._cortex_controller._retired_runtime_path_unavailable_snapshot(),
                 living_loop_snapshot=lambda **kwargs: LivingStatusMixin._living_loop_snapshot_locked(self, **kwargs),
                 lock=self._lock,
                 normalize_action_text=self._normalize_action_text,
@@ -395,7 +395,6 @@ class HECSNServiceManager:
             multimodal_runtime_summary_fn=self._multimodal_runtime_summary_locked,
             sensory_preview_history=self._sensory_preview_history,
             architecture_snapshot_fn=self._architecture_summary_impl,
-            cortex_active_fn=self._cortex_active,
             animation_snapshot_fn=self._animation_snapshot_locked,
             living_loop_status_fn=self._living_loop_status_impl,
             policy_actuator_status_fn=self._policy_actuator_status_impl,
@@ -935,8 +934,8 @@ class HECSNServiceManager:
     def _record_brain_event_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._record_brain_event_locked(*args, **kwargs)
 
-    def _cortex_unavailable_snapshot(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._cortex_unavailable_snapshot(*args, **kwargs)
+    def _retired_runtime_path_unavailable_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller._retired_runtime_path_unavailable_snapshot(*args, **kwargs)
 
     def _living_loop_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._living_loop_snapshot_locked(*args, **kwargs)
@@ -1489,48 +1488,6 @@ class HECSNServiceManager:
 
     def _response_grounded_outcome_score_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._source_focus._response_grounded_outcome_score_locked(*args, **kwargs)
-
-    def _normalize_cortex_query_hint(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._normalize_cortex_query_hint(*args, **kwargs)
-
-    def _remember_cortex_query_hint_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._remember_cortex_query_hint_locked(*args, **kwargs)
-
-    def _consume_cortex_query_hint_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._consume_cortex_query_hint_locked(*args, **kwargs)
-
-    def _cortex_active(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._cortex_active(*args, **kwargs)
-
-    def _cortex_factories_are_mocked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._cortex_factories_are_mocked(*args, **kwargs)
-
-    def _request_cortex_sleep_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._request_cortex_sleep_locked(*args, **kwargs)
-
-    def _handle_cortex_sleep_intent_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._handle_cortex_sleep_intent_locked(*args, **kwargs)
-
-    def _on_cortex_sleep_cycle(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._on_cortex_sleep_cycle(*args, **kwargs)
-
-    def _cortex_action_query_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._cortex_action_query_locked(*args, **kwargs)
-
-    def _filter_cortex_action_records_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._filter_cortex_action_records_locked(*args, **kwargs)
-
-    def _cortex_action_type(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._cortex_action_type(*args, **kwargs)
-
-    def _cortex_action_trigger_reason(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._cortex_action_trigger_reason(*args, **kwargs)
-
-    def _handle_cortex_action_intent_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._handle_cortex_action_intent_locked(*args, **kwargs)
-
-    def _on_cortex_thought(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._on_cortex_thought(*args, **kwargs)
 
     def _runtime_environment_summary(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(StatusRuntimeMixin, '_runtime_environment_summary', self, *args, **kwargs)

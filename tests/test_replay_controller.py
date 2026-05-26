@@ -43,7 +43,7 @@ class _FakeReplayManager:
             return text[:max_chars].rstrip() + "…"
         return text
 
-    def _cortex_unavailable_snapshot(self) -> dict[str, object]:
+    def _retired_runtime_path_unavailable_snapshot(self) -> dict[str, object]:
         return {"enabled": False, "initialization": {"started": False, "finished": True, "timed_out": False, "error": None}}
 
     def _living_loop_snapshot_locked(self, *, retired_runtime_path_snapshot: dict[str, object]) -> dict[str, object]:
@@ -91,7 +91,7 @@ def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
     return ReplayController(
         ReplayControllerDependencies(
             action_history=lambda: manager._action_history,
-            cortex_unavailable_snapshot=manager._cortex_unavailable_snapshot,
+            retired_runtime_path_unavailable_snapshot=manager._retired_runtime_path_unavailable_snapshot,
             living_loop_snapshot=manager._living_loop_snapshot_locked,
             lock=manager._lock,
             normalize_action_text=manager._normalize_action_text,

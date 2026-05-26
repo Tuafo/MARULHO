@@ -91,8 +91,6 @@ class TestReport:
     retired_runtime_path_name: str = "cortex"
     retired_runtime_path_model: str = "retired"
     retired_runtime_path_available: bool = False
-    cortex_model: str = ""
-    cortex_available: bool = False
     terminus_configured: bool = False
     terminus_running: bool = False
     initial_token_count: int = 0
@@ -693,8 +691,6 @@ def run_long_test(
         report.retired_runtime_path_name = "cortex"
         report.retired_runtime_path_available = False
         report.retired_runtime_path_model = "retired"
-        report.cortex_available = False
-        report.cortex_model = "retired"
 
         can_sample = long_run_error is None
         if not can_sample:
@@ -773,8 +769,6 @@ def run_long_test(
     report.topic_diversity_ratio = float(len(all_topics)) / float(max(1, report.total_thoughts))
     if not report.retired_runtime_path_model and snapshots:
         report.retired_runtime_path_model = str(snapshots[0].retired_runtime_path_model)
-    if not report.cortex_model:
-        report.cortex_model = report.retired_runtime_path_model
     report.final_prediction_error_mean = float(snapshots[-1].prediction_error_mean) if snapshots else 0.0
     report.final_prediction_error_max = float(snapshots[-1].prediction_error_max) if snapshots else 0.0
     report.final_dream_verification_rate = float(snapshots[-1].dream_verification_rate) if snapshots else 0.0

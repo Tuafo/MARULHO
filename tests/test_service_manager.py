@@ -197,7 +197,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-checkpoint-key")
                     self.assertIsNone(manager._cortex_factory_refs)
-                    self.assertFalse(manager._cortex_available)
+                    self.assertFalse(manager._retired_runtime_path_available)
                     self.assertIsNone(manager._thought_loop_actual)
                 finally:
                     manager.close()
@@ -257,7 +257,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertEqual(Path(str(env_info["env_root"])).resolve(), env_root.resolve())
                     self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-explicit-root")
                     self.assertIsNone(manager._cortex_factory_refs)
-                    self.assertFalse(manager._cortex_available)
+                    self.assertFalse(manager._retired_runtime_path_available)
                     self.assertIsNone(manager._thought_loop_actual)
                 finally:
                     manager.close()
@@ -7821,13 +7821,14 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
                 try:
                     status = manager.runtime_facade.status()
-                    snapshot = status["terminus_runtime"]["cortex"]
+                    snapshot = status["terminus_runtime"]["retired_runtime_path"]
                 finally:
                     manager.close()
 
             create_cortex.assert_not_called()
             create_embedder.assert_not_called()
             self.assertIn("terminus_runtime", status)
+            self.assertNotIn("cortex", status["terminus_runtime"])
             self.assertFalse(snapshot["enabled"])
             self.assertTrue(snapshot["retired"])
 
@@ -7866,7 +7867,7 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_runtime_snapshot_marks_cortex_retired(self) -> None:
+    def test_runtime_snapshot_marks_retired_runtime_path_retired(self) -> None:
         """Regression: terminus runtime snapshot marks the former Cortex path as retired.
 
         Verdict and payload key coverage is in test_status_read_model.py::StatusReadModelStatusTests
@@ -7877,8 +7878,9 @@ class CortexIntegrationTests(unittest.TestCase):
             manager = _build_manager(root, test_case="cortex_snapshot_key")
             try:
                 status = manager.runtime_facade.status()
-                self.assertIn("cortex", status["terminus_runtime"])
-                self.assertTrue(status["terminus_runtime"]["cortex"]["retired"])
+                self.assertNotIn("cortex", status["terminus_runtime"])
+                self.assertIn("retired_runtime_path", status["terminus_runtime"])
+                self.assertTrue(status["terminus_runtime"]["retired_runtime_path"]["retired"])
             finally:
                 manager.close()
 
@@ -8035,7 +8037,7 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_telemetry_marks_cortex_retired(self) -> None:
+    def test_telemetry_marks_retired_runtime_path_retired(self) -> None:
         """Regression: telemetry snapshot marks the former Cortex path as retired.
 
         Detailed telemetry payload coverage is in
@@ -8047,8 +8049,9 @@ class CortexIntegrationTests(unittest.TestCase):
             manager = _build_manager(root, test_case="cortex_telemetry")
             try:
                 telemetry = manager.runtime_facade.telemetry_snapshot()
-                self.assertIn("cortex", telemetry["terminus_runtime"])
-                self.assertTrue(telemetry["terminus_runtime"]["cortex"]["retired"])
+                self.assertNotIn("cortex", telemetry["terminus_runtime"])
+                self.assertIn("retired_runtime_path", telemetry["terminus_runtime"])
+                self.assertTrue(telemetry["terminus_runtime"]["retired_runtime_path"]["retired"])
             finally:
                 manager.close()
 

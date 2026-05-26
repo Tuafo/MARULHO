@@ -96,7 +96,6 @@ class StatusRuntimeMixin:
     ) -> dict[str, Any]:
         retired_runtime_path_source = (
             terminus_runtime.get("retired_runtime_path")
-            or terminus_runtime.get("cortex")
             if isinstance(terminus_runtime, Mapping)
             else {}
         )
@@ -112,7 +111,6 @@ class StatusRuntimeMixin:
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
             "operator_surface": False,
-            "compatibility_aliases": ["cortex_available", "cortex_retired"],
         }
         retired_runtime_path_evidence = {
             "name": "cortex",
@@ -120,7 +118,6 @@ class StatusRuntimeMixin:
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
             "operator_surface": False,
-            "compatibility_aliases": ["cortex_enabled", "cortex_retired"],
         }
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
@@ -200,8 +197,6 @@ class StatusRuntimeMixin:
             "retired_runtime_path": retired_runtime_path,
             "retired_runtime_path_available": retired_runtime_path_available,
             "retired_runtime_path_retired": retired_runtime_path_retired,
-            "cortex_available": retired_runtime_path_available,
-            "cortex_retired": retired_runtime_path_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -223,8 +218,6 @@ class StatusRuntimeMixin:
                 "retired_runtime_path": retired_runtime_path_evidence,
                 "retired_runtime_path_enabled": retired_runtime_path_available,
                 "retired_runtime_path_retired": retired_runtime_path_retired,
-                "cortex_enabled": retired_runtime_path_available,
-                "cortex_retired": retired_runtime_path_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
             },

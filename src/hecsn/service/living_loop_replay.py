@@ -375,11 +375,16 @@ def _replay_latency_pressure(latency_ms: Any, benchmark: Mapping[str, Any], oper
     return _clamp01(pressure), latency
 
 
-def _replay_memory_pressure(memory_health: Mapping[str, Any], cortex: Mapping[str, Any]) -> tuple[float, dict[str, Any]]:
+def _replay_memory_pressure(
+    memory_health: Mapping[str, Any],
+    retired_runtime_path: Mapping[str, Any],
+) -> tuple[float, dict[str, Any]]:
     fill = _policy_float(memory_health.get("fill_ratio"), memory_health.get("fill_fraction"))
-    drives = _policy_mapping(cortex.get("drives"))
+    drives = _policy_mapping(retired_runtime_path.get("drives"))
     fatigue = _policy_float(drives.get("fatigue"))
-    sleeping = bool(cortex.get("is_sleeping", False)) or _clean_text(cortex.get("current_mode")).lower() == "sleeping"
+    sleeping = bool(retired_runtime_path.get("is_sleeping", False)) or _clean_text(
+        retired_runtime_path.get("current_mode")
+    ).lower() == "sleeping"
     pressure = max(fill, fatigue, 1.0 if sleeping else 0.0)
     return _clamp01(pressure), {
         "status": _clean_text(memory_health.get("status")) or "unknown",
@@ -623,8 +628,8 @@ def build_replay_plan(
     )
     benchmark = _policy_mapping(loop.get("benchmark_telemetry"))
     memory_health = _policy_mapping(loop.get("memory_health"))
-    cortex = _policy_mapping(loop.get("cortex"))
-    memory_pressure, memory_context = _replay_memory_pressure(memory_health, cortex)
+    retired_runtime_path = _policy_mapping(loop.get("retired_runtime_path"))
+    memory_pressure, memory_context = _replay_memory_pressure(memory_health, retired_runtime_path)
     policy_decision = _policy_mapping(loop.get("policy_decision") or loop.get("policy_actuator"))
     policy_pressure, policy_context = _replay_policy_pressure(policy_decision)
     world = _policy_mapping(loop.get("world_model_lite"))

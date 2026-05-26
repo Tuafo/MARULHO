@@ -17,7 +17,7 @@ _cortex_logger = _logging.getLogger(__name__ + ".cortex")
 def _build_cortex_controller_initial_state() -> dict[str, Any]:
     return {
         "_thought_loop_actual": None,
-        "_cortex_available": False,
+        "_retired_runtime_path_available": False,
         "_cortex_init_lock": Lock(),
         "_cortex_init_event": Event(),
         "_cortex_init_started": False,
@@ -66,12 +66,12 @@ class CortexController:
         self._dependencies = dependencies
         for field_name, initial_value in _build_cortex_controller_initial_state().items():
             object.__setattr__(self, field_name, initial_value)
-        self._mark_cortex_retired(started=False)
+        self._mark_retired_runtime_path(started=False)
         _cortex_logger.info("Cortex runtime path retired")
 
-    def _mark_cortex_retired(self, *, started: bool = False) -> None:
+    def _mark_retired_runtime_path(self, *, started: bool = False) -> None:
         self._thought_loop_actual = None
-        self._cortex_available = False
+        self._retired_runtime_path_available = False
         self._cortex_init_started = bool(started)
         self._cortex_init_finished = True
         self._cortex_init_timed_out = False
@@ -111,12 +111,9 @@ class CortexController:
     @_thought_loop.setter
     def _thought_loop(self, value: Any) -> None:
         if value is not None:
-            self._mark_cortex_retired(started=True)
+            self._mark_retired_runtime_path(started=True)
             return
-        self._mark_cortex_retired(started=False)
-
-    def _cortex_active(self) -> bool:
-        return self._thought_loop_actual is not None and self._thought_loop_actual.is_running
+        self._mark_retired_runtime_path(started=False)
 
     @property
     def _action_history(self) -> Sequence[Mapping[str, Any]]:
@@ -209,7 +206,7 @@ class CortexController:
     def _cortex_factories_are_mocked(self) -> bool:
         return False
 
-    def _cortex_unavailable_snapshot(self) -> dict[str, Any]:
+    def _retired_runtime_path_unavailable_snapshot(self) -> dict[str, Any]:
         return {
             "enabled": False,
             "retired": True,
@@ -224,15 +221,15 @@ class CortexController:
         }
 
     def _build_cortex_thought_loop(self, action_history: Sequence[Mapping[str, Any]]) -> Any:
-        self._mark_cortex_retired(started=True)
+        self._mark_retired_runtime_path(started=True)
         raise RuntimeError("cortex_runtime_retired")
 
     def _start_cortex_initialization(self) -> None:
         with self._cortex_init_lock:
-            self._mark_cortex_retired(started=True)
+            self._mark_retired_runtime_path(started=True)
 
     def _ensure_cortex_initialized(self, *, wait_seconds: float | None = DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS) -> Any:
-        self._mark_cortex_retired(started=False)
+        self._mark_retired_runtime_path(started=False)
         return None
 
     def _request_cortex_sleep_locked(
@@ -589,9 +586,9 @@ class CortexController:
             "thoughts": thoughts[-limit:],
         }
 
-    def cortex_snapshot(self) -> dict[str, Any]:
-        """Full cortex status snapshot."""
+    def retired_runtime_path_snapshot(self) -> dict[str, Any]:
+        """Full retired runtime path snapshot."""
         if self._thought_loop_actual is None:
-            return self._cortex_unavailable_snapshot()
+            return self._retired_runtime_path_unavailable_snapshot()
         return self._thought_loop_actual.snapshot()
 

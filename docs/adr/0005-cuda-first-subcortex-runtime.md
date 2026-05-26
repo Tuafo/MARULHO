@@ -44,8 +44,11 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Local plasticity evidence is part of Structural Plasticity readiness: local STDP eligibility traces, homeostatic synaptic scaling, inhibitory balance, spike-health state, synaptic validation, and device placement may support isolated growth/prune evaluation, but the read surface must not mutate synapses or topology.
 - Runtime Truth may include a compact summary of the Structural Plasticity Gate Artifact so liveness reports expose structural-promotion pressure without embedding structural cases, device payloads, or mutation ledgers as executable instructions.
 - Runtime status must expose Subcortex CUDA evidence directly so retired LLM adapters cannot be mistaken for the living-brain core.
-- Runtime Truth uses `retired_runtime_path` as the canonical retired-path vocabulary. `cortex_*` booleans may remain only as temporary compatibility aliases while old consumers are cleaned up.
+- Runtime Truth uses `retired_runtime_path` as the canonical retired-path vocabulary. Active status and long-test report contracts must not emit `cortex_*` booleans as compatibility aliases.
 - Brain runtime, replay planning, and runtime evidence exports should pass retired-path snapshots through `retired_runtime_path_snapshot`; `cortex_snapshot` must not be used for new internal call paths.
+- Brain runtime snapshots must expose `retired_runtime_path` as the source of record and must not publish a `cortex` sibling payload for active internal consumers.
+- Policy Actuator must read sleep/fatigue pressure from `retired_runtime_path` and must not expose `cortex_snapshot` as an input argument.
+- Living Loop status and replay planning must read retired-path fatigue/sleep pressure from `retired_runtime_path`; they must not publish or consume a `cortex` sibling payload or `cortex_loop_snapshot` capability.
 - The Retired Cortex compatibility controller must not lazy-build, initialize, or start ThoughtLoop, even under mocked factories. Compatibility calls return retired/unavailable evidence while Subcortex and Living Loop own runtime behavior.
 - `hecsn.cortex.create_cortex_from_env` is retired and must not construct NIM/MultiCortex. Top-level `hecsn.cortex` exports may keep reusable historical primitives temporarily, but not active ThoughtLoop or external LLM factory entry points.
 - `ThoughtLoop()` itself is retired and must raise on construction. Old behavior tests may stay as skipped historical coverage while reusable primitives are migrated to Subcortex-owned modules.

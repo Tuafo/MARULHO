@@ -22,7 +22,7 @@ MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 @dataclass(frozen=True)
 class ReplayControllerDependencies:
     action_history: Callable[[], Sequence[Mapping[str, Any]]]
-    cortex_unavailable_snapshot: Callable[[], Mapping[str, Any]]
+    retired_runtime_path_unavailable_snapshot: Callable[[], Mapping[str, Any]]
     living_loop_snapshot: Callable[..., Mapping[str, Any]]
     lock: Any
     normalize_action_text: Callable[[Any], str]
@@ -70,8 +70,8 @@ class ReplayController:
     def _trainer(self) -> Any:
         return self._dependencies.trainer()
 
-    def _cortex_unavailable_snapshot(self) -> Mapping[str, Any]:
-        return self._dependencies.cortex_unavailable_snapshot()
+    def _retired_runtime_path_unavailable_snapshot(self) -> Mapping[str, Any]:
+        return self._dependencies.retired_runtime_path_unavailable_snapshot()
 
     def _living_loop_snapshot_locked(self, **kwargs: Any) -> Mapping[str, Any]:
         return self._dependencies.living_loop_snapshot(**kwargs)
@@ -110,7 +110,7 @@ class ReplayController:
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             return build_replay_plan(living_loop, limit=limit).to_payload()
 
@@ -152,7 +152,7 @@ class ReplayController:
 
         with self._lock:
             before = self._replay_sample_state_counts_locked()
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             plan = build_replay_plan(living_loop, limit=MAX_RUNTIME_TRACE_EXPORT_LIMIT).to_payload()
             candidates = [dict(item) for item in plan.get("candidates", []) if isinstance(item, Mapping)]

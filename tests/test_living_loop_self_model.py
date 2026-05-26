@@ -150,7 +150,7 @@ class TestExtractCacheSummary(unittest.TestCase):
 
 
 class TestExtractNimSummary(unittest.TestCase):
-    """_extract_nim_summary extracts NIM call statistics from cortex data."""
+    """_extract_nim_summary extracts NIM call statistics from retired-path data."""
 
     def test_full_cortex(self) -> None:
         cortex = {
@@ -205,7 +205,7 @@ class TestMemoryCounterSummary(unittest.TestCase):
         self.assertEqual(result["size"], 4)
         self.assertEqual(result["capacity"], 16)
         self.assertAlmostEqual(result["fill_ratio"], 0.25)
-        self.assertEqual(result["source"], "cortex_episodic_memory")
+        self.assertEqual(result["source"], "retired_runtime_path_memory")
 
     def test_capacity_pressure(self) -> None:
         result = _memory_counter_summary(
@@ -904,7 +904,7 @@ class TestOperationalSelfModelSurfaceMethods(unittest.TestCase):
             world_model_lite=model.world_model_lite or WorldModelLiteSummary(),
         )
         self.assertIn("retired_runtime_path_snapshot", caps)
-        self.assertIn("cortex_loop_snapshot", caps)
+        self.assertNotIn("cortex_loop_snapshot", caps)
 
     def test_surface_limits_no_truncation(self) -> None:
         model = OperationalSelfModel.build(

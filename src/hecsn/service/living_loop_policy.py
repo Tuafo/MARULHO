@@ -650,7 +650,6 @@ def build_policy_actuator_status(
     living_loop: Mapping[str, Any],
     *,
     retired_runtime_path_snapshot: Mapping[str, Any] | None = None,
-    cortex_snapshot: Mapping[str, Any] | None = None,
     created_at: str | None = None,
 ) -> PolicyActuatorRecommendation:
     """Build an advisory-only policy recommendation without executing any action."""
@@ -666,9 +665,8 @@ def build_policy_actuator_status(
     budgets = _policy_mapping(loop.get("budgets"))
     grounding_health = _policy_mapping(loop.get("grounding_health"))
     retired_runtime_path = dict(retired_runtime_path_snapshot or _policy_mapping(loop.get("retired_runtime_path")))
-    retired_runtime_path_legacy_snapshot = _policy_mapping(retired_runtime_path.get("legacy_snapshot"))
-    cortex = dict(cortex_snapshot or retired_runtime_path_legacy_snapshot or _policy_mapping(loop.get("cortex")))
-    drives = _policy_mapping(retired_runtime_path.get("drives")) or _policy_mapping(cortex.get("drives"))
+    retired_runtime_path_state = _policy_mapping(retired_runtime_path.get("legacy_snapshot")) or retired_runtime_path
+    drives = _policy_mapping(retired_runtime_path_state.get("drives"))
 
     information_gain = _clamp01(_policy_max_float(world.get("information_gain"), policy_score.get("information_gain")))
     goal_progress = _clamp01(_policy_max_float(world.get("goal_progress"), policy_score.get("goal_progress")))
@@ -689,7 +687,7 @@ def build_policy_actuator_status(
         max(
             _policy_float(memory_health.get("fill_ratio"), memory_health.get("fill_fraction")),
             _policy_float(benchmark_memory.get("fill_ratio"), benchmark_memory.get("fill_fraction")),
-            _policy_float(cortex.get("memory_fill_ratio")),
+            _policy_float(retired_runtime_path_state.get("memory_fill_ratio")),
         )
     )
     fatigue = _clamp01(_policy_float(drives.get("fatigue")))
@@ -707,15 +705,15 @@ def build_policy_actuator_status(
     )
     failed_episode_id = _policy_first_episode_target(loop, {"contradicted"})
 
-    cortex_sleeping = (
+    retired_runtime_path_sleeping = (
         fatigue >= 0.70
-        or bool(cortex.get("is_sleeping", False))
-        or _clean_text(cortex.get("current_mode")).lower() == "sleeping"
+        or bool(retired_runtime_path_state.get("is_sleeping", False))
+        or _clean_text(retired_runtime_path_state.get("current_mode")).lower() == "sleeping"
     )
     retired_runtime_sleeping = (
         _clean_text(retired_runtime_path.get("name")).lower() == "cortex"
         and not bool(retired_runtime_path.get("active_runtime_requirement", True))
-        and cortex_sleeping
+        and retired_runtime_path_sleeping
     )
 
     if (
@@ -795,7 +793,7 @@ def build_policy_actuator_status(
                     }
                 )
             action = "verify_pending_evidence"
-        elif memory_fill >= 0.90 or retired_runtime_sleeping or cortex_sleeping:
+        elif memory_fill >= 0.90 or retired_runtime_sleeping or retired_runtime_path_sleeping:
             if memory_fill >= 0.90:
                 reasons.append(
                     {
@@ -803,7 +801,7 @@ def build_policy_actuator_status(
                         "detail": f"Memory fill is {memory_fill:.2f}, at or above 0.90.",
                     }
                 )
-            if retired_runtime_sleeping or cortex_sleeping:
+            if retired_runtime_sleeping or retired_runtime_path_sleeping:
                 reasons.append(
                     {
                         "code": "fatigue_sleep_pressure",

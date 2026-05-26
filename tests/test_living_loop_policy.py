@@ -315,7 +315,7 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
                     "endpoint_latency_ms": {"query": {"avg_ms": 2500.0, "max_ms": 3000.0}},
                 },
             },
-            cortex_snapshot={"drives": {"fatigue": 0.95}},
+            retired_runtime_path_snapshot={"name": "cortex", "active_runtime_requirement": False, "drives": {"fatigue": 0.95}},
         )
         self.assertEqual(result.action, "investigate_contradictions")
         self.assertEqual(result.target_action_id, "act-1")
@@ -342,7 +342,7 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
                 ],
                 "memory_health": {"fill_ratio": 0.99},
             },
-            cortex_snapshot={"drives": {"fatigue": 0.9}},
+            retired_runtime_path_snapshot={"name": "cortex", "active_runtime_requirement": False, "drives": {"fatigue": 0.9}},
         )
         self.assertEqual(result.action, "verify_pending_evidence")
         self.assertEqual(result.target_action_id, "act-pending")
@@ -394,8 +394,8 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
                     "name": "cortex",
                     "retired": True,
                     "active_runtime_requirement": False,
+                    "drives": {"fatigue": 0.91},
                 },
-                "cortex": {"drives": {"fatigue": 0.91}},
             }
         )
 

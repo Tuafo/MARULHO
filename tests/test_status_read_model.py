@@ -51,7 +51,7 @@ def _build_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "cortex": {"enabled": False},
+        "retired_runtime_path": {"enabled": False, "retired": True},
         "living_loop": {},
     }
 
@@ -205,10 +205,7 @@ def _build_architecture_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
     }
 
 
-def _build_read_model(
-    *,
-    cortex_active: bool = False,
-) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
+def _build_read_model() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
     cfg = _build_config()
     trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     lock = threading.RLock()
@@ -227,7 +224,6 @@ def _build_read_model(
         brain_runtime_snapshot_fn=lambda: deepcopy(brain_snapshot),
         sensory_preview_history=deque(maxlen=8),
         architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-        cortex_active_fn=lambda: cortex_active,
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
     )
     return model, trainer, lock, runtime_state
@@ -483,7 +479,6 @@ class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
             brain_runtime_snapshot_fn=lambda: deepcopy(_build_brain_snapshot()),
             sensory_preview_history=history,
             architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-            cortex_active_fn=lambda: False,
             animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         )
         result = model.sensory_previews()
@@ -537,7 +532,6 @@ class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
             brain_runtime_snapshot_fn=lambda: deepcopy(_build_brain_snapshot()),
             sensory_preview_history=history,
             architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-            cortex_active_fn=lambda: False,
             animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         )
         result = model.sensory_previews(limit=2)
@@ -585,7 +579,6 @@ class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
             brain_runtime_snapshot_fn=lambda: deepcopy(_build_brain_snapshot()),
             sensory_preview_history=history,
             architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-            cortex_active_fn=lambda: False,
             animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         )
         result = model.sensory_previews()
@@ -766,7 +759,6 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
             brain_runtime_snapshot_fn=counting_brain_fn,
             sensory_preview_history=deque(maxlen=8),
             architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-            cortex_active_fn=lambda: False,
             animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         )
         # First call populates cache
@@ -798,7 +790,6 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
             brain_runtime_snapshot_fn=lambda: deepcopy(brain_snapshot),
             sensory_preview_history=deque(maxlen=8),
             architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-            cortex_active_fn=lambda: False,
             animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         )
         # First call
@@ -860,7 +851,7 @@ def _build_living_loop_snapshot() -> dict[str, Any]:
             "action_loop": {"enabled": True, "root_path": "/tmp", "supported_actions": [], "actions_recorded": 0, "verified_actions": 0, "contradicted_actions": 0, "last_action": None},
             "memory": {},
             "narrative": {},
-            "cortex": {"enabled": False, "running": False, "current_mode": "idle", "is_sleeping": False, "thoughts_generated": 0, "dreams_generated": 0, "sleep_cycles": 0, "memory_count": 0, "memory_fill_ratio": 0.0, "drives": {}},
+            "retired_runtime_path": {"name": "cortex", "enabled": False, "retired": True},
             "feedback_summary": {"feedback_count": 0, "verified_count": 0, "contradicted_count": 0, "unverified_count": 0, "recent_feedback": [], "grounding_impact": "none"},
             "feedback_count": 0,
             "verified_feedback_count": 0,
@@ -919,7 +910,6 @@ def _build_cognitive_signal_state_snapshot() -> dict[str, Any]:
 
 def _build_read_model_with_living_loop(
     *,
-    cortex_active: bool = False,
     use_legacy_cortex_signal_fn: bool = False,
 ) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState, dict[str, int]]:
     """Build a StatusReadModel with living loop callbacks wired for testing."""
@@ -967,7 +957,6 @@ def _build_read_model_with_living_loop(
         brain_runtime_snapshot_fn=lambda: deepcopy(brain_snapshot),
         sensory_preview_history=deque(maxlen=8),
         architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-        cortex_active_fn=lambda: cortex_active,
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         living_loop_status_fn=living_loop_snapshot_fn,
         policy_actuator_status_fn=policy_actuator_snapshot_fn,
@@ -1307,8 +1296,6 @@ class StatusReadModelLivingLoopReadonlyTests(unittest.TestCase):
 
 def _build_read_model_with_brain_snapshot(
     brain_snapshot: dict[str, Any],
-    *,
-    cortex_active: bool = False,
 ) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
     """Build a StatusReadModel with a specific brain runtime snapshot for verdict testing."""
     cfg = _build_config()
@@ -1328,7 +1315,6 @@ def _build_read_model_with_brain_snapshot(
         brain_runtime_snapshot_fn=lambda: deepcopy(brain_snapshot),
         sensory_preview_history=deque(maxlen=8),
         architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-        cortex_active_fn=lambda: cortex_active,
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
     )
     return model, trainer, lock, runtime_state
@@ -1346,7 +1332,7 @@ def _build_alive_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": "2026-05-09T12:00:01Z",
         "source_bank": [{"name": "test_source", "source_type": "file"}],
-        "cortex": {"enabled": True},
+        "retired_runtime_path": {"enabled": True, "retired": False},
         "living_loop": {},
         "sleep_interval_seconds": 0.01,
         "tick_tokens": 64,
@@ -1366,7 +1352,7 @@ def _build_error_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "cortex": {"enabled": True},
+        "retired_runtime_path": {"enabled": True, "retired": False},
         "living_loop": {},
     }
 
@@ -1383,7 +1369,7 @@ def _build_degraded_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "cortex": {"enabled": True},
+        "retired_runtime_path": {"enabled": True, "retired": False},
         "living_loop": {},
     }
 
@@ -1400,7 +1386,7 @@ def _build_no_cortex_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "cortex": {"enabled": False, "retired": True},
+        "retired_runtime_path": {"enabled": False, "retired": True},
         "living_loop": {},
     }
 
@@ -1476,15 +1462,10 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
                 "retired": True,
                 "active_runtime_requirement": False,
                 "operator_surface": False,
-                "compatibility_aliases": ["cortex_available", "cortex_retired"],
             },
         )
-        self.assertEqual(truth["cortex_available"], truth["retired_runtime_path_available"])
-        self.assertEqual(truth["cortex_retired"], truth["retired_runtime_path_retired"])
         self.assertFalse(truth["evidence"]["retired_runtime_path_enabled"])
         self.assertTrue(truth["evidence"]["retired_runtime_path_retired"])
-        self.assertEqual(truth["evidence"]["cortex_enabled"], truth["evidence"]["retired_runtime_path_enabled"])
-        self.assertEqual(truth["evidence"]["cortex_retired"], truth["evidence"]["retired_runtime_path_retired"])
 
     def test_verdict_degraded_when_no_progress(self) -> None:
         """When configured with retired-path compatibility but no progress, verdict is degraded."""
@@ -1511,8 +1492,6 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertFalse(truth["retired_runtime_path_retired"])
         self.assertEqual(truth["retired_runtime_path"]["name"], "cortex")
         self.assertFalse(truth["retired_runtime_path"]["active_runtime_requirement"])
-        self.assertEqual(truth["cortex_available"], truth["retired_runtime_path_available"])
-        self.assertEqual(truth["cortex_retired"], truth["retired_runtime_path_retired"])
 
     def test_verdict_includes_source_configuration_evidence(self) -> None:
         """Runtime Truth includes source configuration with hash and payload."""
@@ -1701,48 +1680,6 @@ class StatusReadModelLivingLoopCacheTests(unittest.TestCase):
         )
 
 
-class StatusReadModelTelemetryActiveCortexTests(unittest.TestCase):
-    """Telemetry cache semantics when the cortex is active."""
-
-    def test_telemetry_rebuilds_on_same_revision_when_cortex_active(self) -> None:
-        """When cortex is active, telemetry rebuilds even at the same revision."""
-        call_count = 0
-        brain_snapshot = _build_brain_snapshot()
-
-        def counting_brain_fn() -> dict[str, Any]:
-            nonlocal call_count
-            call_count += 1
-            return deepcopy(brain_snapshot)
-
-        cfg = _build_config()
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
-        lock = threading.RLock()
-        runtime_state = RuntimeState(lock=lock)
-        animation_snapshot = _build_animation_snapshot()
-        model = StatusReadModel(
-            lock=lock,
-            runtime_state=runtime_state,
-            trainer=trainer,
-            trace_history=deque(maxlen=200),
-            metadata={},
-            checkpoint_path_str="/tmp/test.pt",
-            trace_dir_str="/tmp/traces",
-            concept_store_snapshot_fn=lambda: deepcopy({"top_concepts": [], "total_concepts": 0}),
-            brain_runtime_snapshot_fn=counting_brain_fn,
-            sensory_preview_history=deque(maxlen=8),
-            architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
-            cortex_active_fn=lambda: True,
-            animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
-        )
-        # First call populates cache
-        first = model.telemetry_snapshot()
-        first_call_count = call_count
-        # Second call at the same revision with cortex active should rebuild
-        second = model.telemetry_snapshot()
-        self.assertIsNot(second, first)
-        self.assertGreater(call_count, first_call_count)
-
-
 class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
     """Verify that the direct read model produces the same payload shape as the Service Manager."""
 
@@ -1912,7 +1849,6 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("recommended_action", truth)
         self.assertIn("retired_runtime_path", truth)
         self.assertIn("retired_runtime_path_available", truth)
-        self.assertIn("cortex_available", truth)
         self.assertIn("memory_pressure", truth)
         self.assertIn("safety_flags", truth)
         self.assertIn("latency_ms", truth)

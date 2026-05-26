@@ -22,7 +22,6 @@ from hecsn.training.long_test_runner import (
 
 def test_classify_test_report_marks_dead_empty_run() -> None:
     report = LongTestReport(
-        cortex_available=True,
         samples_collected=3,
         initial_token_count=100,
         final_token_count=100,
@@ -42,7 +41,6 @@ def test_classify_test_report_marks_dead_empty_run() -> None:
 
 def test_classify_test_report_marks_alive_when_subcortex_progresses_without_thoughts() -> None:
     report = LongTestReport(
-        cortex_available=True,
         samples_collected=3,
         initial_token_count=100,
         final_token_count=160,
@@ -61,7 +59,6 @@ def test_classify_test_report_marks_alive_when_subcortex_progresses_without_thou
 
 def test_classify_test_report_uses_runtime_truth_contract_warnings() -> None:
     report = LongTestReport(
-        cortex_available=True,
         samples_collected=3,
         initial_token_count=100,
         final_token_count=180,
@@ -84,7 +81,6 @@ def test_classify_test_report_uses_runtime_truth_contract_warnings() -> None:
 
 def test_classify_test_report_warns_on_unrecovered_high_memory_pressure() -> None:
     report = LongTestReport(
-        cortex_available=True,
         samples_collected=3,
         initial_token_count=100,
         final_token_count=180,
@@ -107,7 +103,6 @@ def test_classify_test_report_warns_on_unrecovered_high_memory_pressure() -> Non
 
 def test_classify_test_report_marks_alive_run() -> None:
     report = LongTestReport(
-        cortex_available=True,
         samples_collected=3,
         initial_token_count=100,
         final_token_count=180,
@@ -228,8 +223,9 @@ def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
                     "running": True,
                     "background_tokens_processed": 100,
                     "tick_count": 10,
-                    "cortex": {
+                    "retired_runtime_path": {
                         "enabled": True,
+                        "retired": False,
                         "running": True,
                         "current_mode": "idle",
                         "thoughts_generated": 1,
@@ -303,8 +299,6 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         retired_runtime_path_name="cortex",
         retired_runtime_path_model="retired",
         retired_runtime_path_available=False,
-        cortex_model="multi(test-fast,test-deep)",
-        cortex_available=True,
         terminus_configured=True,
         terminus_running=True,
         initial_token_count=100,

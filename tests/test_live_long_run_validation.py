@@ -20,7 +20,7 @@ def _long_test() -> dict[str, object]:
             "schema_version": 1,
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
-            "evidence": {"retired_runtime_path_retired": True, "cortex_retired": True},
+            "evidence": {"retired_runtime_path_retired": True},
             "memory_pressure": {"fill_fraction": 0.1, "pressure": "low"},
             "safety_flags": {
                 "replay_safety": {

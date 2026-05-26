@@ -78,9 +78,6 @@ class StatusReadModel:
     multimodal_runtime_summary_fn: Callable that returns the current multimodal
         runtime summary dict. Called under lock. Used by ``terminus_status()``
         only.
-    cortex_active_fn: Callable that returns whether the cortex thought loop is
-        currently running. Called under lock. Used by ``telemetry_snapshot()``
-        for revision-keyed cache reuse decisions.
     animation_snapshot_fn: Callable that returns the current animation snapshot
         dict. Called under lock. Used by ``telemetry_snapshot()`` only.
     living_loop_status_fn: Callable that returns the current living loop status
@@ -108,7 +105,6 @@ class StatusReadModel:
         multimodal_runtime_summary_fn: Callable[[], dict[str, Any]] | None = None,
         sensory_preview_history: deque[dict[str, Any]] | None = None,
         architecture_snapshot_fn: Callable[[], dict[str, Any]] | None = None,
-        cortex_active_fn: Callable[[], bool] | None = None,
         animation_snapshot_fn: Callable[[], dict[str, Any]] | None = None,
         living_loop_status_fn: Callable[[], dict[str, Any]] | None = None,
         policy_actuator_status_fn: Callable[[], dict[str, Any]] | None = None,
@@ -131,7 +127,6 @@ class StatusReadModel:
             if architecture_snapshot_fn is not None
             else _default_architecture_snapshot
         )
-        self._cortex_active_fn = cortex_active_fn
         self._animation_snapshot_fn = animation_snapshot_fn
         self._living_loop_status_fn = living_loop_status_fn
         self._policy_actuator_status_fn = policy_actuator_status_fn
@@ -231,7 +226,6 @@ class StatusReadModel:
         """Build the Runtime Truth contract. Reads self._trainer for token_count only."""
         retired_runtime_path_source = (
             terminus_runtime.get("retired_runtime_path")
-            or terminus_runtime.get("cortex")
             if isinstance(terminus_runtime, Mapping)
             else {}
         )
@@ -247,7 +241,6 @@ class StatusReadModel:
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
             "operator_surface": False,
-            "compatibility_aliases": ["cortex_available", "cortex_retired"],
         }
         retired_runtime_path_evidence = {
             "name": "cortex",
@@ -255,7 +248,6 @@ class StatusReadModel:
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
             "operator_surface": False,
-            "compatibility_aliases": ["cortex_enabled", "cortex_retired"],
         }
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
@@ -460,8 +452,6 @@ class StatusReadModel:
             "retired_runtime_path": retired_runtime_path,
             "retired_runtime_path_available": retired_runtime_path_available,
             "retired_runtime_path_retired": retired_runtime_path_retired,
-            "cortex_available": retired_runtime_path_available,
-            "cortex_retired": retired_runtime_path_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -483,8 +473,6 @@ class StatusReadModel:
                 "retired_runtime_path": retired_runtime_path_evidence,
                 "retired_runtime_path_enabled": retired_runtime_path_available,
                 "retired_runtime_path_retired": retired_runtime_path_retired,
-                "cortex_enabled": retired_runtime_path_available,
-                "cortex_retired": retired_runtime_path_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "subcortex_spike_health": subcortex_spike_health,
@@ -606,10 +594,7 @@ class StatusReadModel:
         """Build the telemetry dict. Caller MUST hold self._lock."""
         runtime_mutation = self._runtime_state.mutation_summary()
         current_rev = int(runtime_mutation["state_revision"])
-        cortex_active = self._cortex_active_fn() if self._cortex_active_fn is not None else False
-        # Revision-keyed cache reuse: when the cortex is inactive and the
-        # revision hasn't changed, the cached telemetry is still valid.
-        if not cortex_active and self._cached_telemetry is not None and self._cached_telemetry_rev == current_rev:
+        if self._cached_telemetry is not None and self._cached_telemetry_rev == current_rev:
             return self._cached_telemetry
 
         memory_store = self._trainer.model.memory_store.summary_stats()

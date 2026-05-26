@@ -113,13 +113,8 @@ def validate_live_long_run(
             "cost_usd": benchmark_report.get("cost_usd", 0),
         },
         "retired_cortex": {
-            "available": bool(long_test_report.get("cortex_available", False)),
-            "retired": bool(
-                runtime_truth_evidence.get(
-                    "retired_runtime_path_retired",
-                    runtime_truth_evidence.get("cortex_retired", False),
-                )
-            ),
+            "available": bool(long_test_report.get("retired_runtime_path_available", False)),
+            "retired": bool(runtime_truth_evidence.get("retired_runtime_path_retired", False)),
         },
         "embedding_health": dict(embedder),
         "replay_safety_status": replay_safety,

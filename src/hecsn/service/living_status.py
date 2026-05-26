@@ -30,16 +30,14 @@ class LivingStatusMixin:
         self,
         *,
         retired_runtime_path_snapshot: Mapping[str, Any] | None = None,
-        cortex_snapshot: Mapping[str, Any] | None = None,
         include_replay_dataset_summary: bool = False,
     ) -> dict[str, Any]:
         retired_runtime_path_data = dict(
             retired_runtime_path_snapshot
-            or cortex_snapshot
             or (
                 self._thought_loop_actual.snapshot()
                 if self._thought_loop_actual is not None
-                else self._cortex_unavailable_snapshot()
+                else self._retired_runtime_path_unavailable_snapshot()
             )
         )
         episodic_memory = (
@@ -96,7 +94,10 @@ class LivingStatusMixin:
             ),
             "active_runtime_requirement": False,
             "operator_surface": False,
-            "compatibility_aliases": ["cortex"],
+            "current_mode": str(retired_runtime_path_summary["current_mode"]),
+            "is_sleeping": bool(retired_runtime_path_summary["is_sleeping"]),
+            "memory_fill_ratio": float(retired_runtime_path_summary["memory_fill_ratio"]),
+            "drives": deepcopy(dict(retired_runtime_path_summary["drives"])),
             "legacy_snapshot_keys": sorted(str(key) for key in retired_runtime_path_summary.keys()),
         }
         model = OperationalSelfModel.build(
@@ -112,7 +113,6 @@ class LivingStatusMixin:
             action_loop=self._action_loop_summary_locked(),
             memory=dict(episodic_memory) if isinstance(episodic_memory, Mapping) else {},
             narrative=dict(narrative) if isinstance(narrative, Mapping) else {},
-            cortex=retired_runtime_path_summary,
             retired_runtime_path=retired_runtime_path,
         )
         payload = model.to_payload()
@@ -190,7 +190,7 @@ class LivingStatusMixin:
 
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
             runtime_mutation = self._runtime_state.mutation_summary()
             return {
                 "living_loop": self._living_loop_snapshot_locked(
@@ -203,7 +203,7 @@ class LivingStatusMixin:
 
     def policy_actuator_status(self) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(
                 retired_runtime_path_snapshot=retired_runtime_path_snapshot
             )

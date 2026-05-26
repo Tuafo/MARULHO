@@ -264,7 +264,7 @@ class _BrainRuntimeFixtureBase:
     def _brain_runtime_active_locked(self) -> bool:
         return False
 
-    def _cortex_unavailable_snapshot(self) -> dict[str, bool]:
+    def _retired_runtime_path_unavailable_snapshot(self) -> dict[str, bool]:
         return {"enabled": False}
 
 

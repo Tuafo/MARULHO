@@ -500,7 +500,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                     "endpoint_latency_ms": {"query": {"avg_ms": 2500.0, "max_ms": 3000.0}},
                 },
             },
-            cortex_snapshot={"drives": {"fatigue": 0.95}},
+            retired_runtime_path_snapshot={"name": "cortex", "active_runtime_requirement": False, "drives": {"fatigue": 0.95}},
         ).to_payload()
 
         self.assertEqual(policy["action"], "investigate_contradictions")
@@ -528,7 +528,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                 ],
                 "memory_health": {"fill_ratio": 0.99},
             },
-            cortex_snapshot={"drives": {"fatigue": 0.9}},
+            retired_runtime_path_snapshot={"name": "cortex", "active_runtime_requirement": False, "drives": {"fatigue": 0.9}},
         ).to_payload()
 
         self.assertEqual(policy["action"], "verify_pending_evidence")
@@ -733,7 +733,8 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(endpoint_loop["retired_runtime_path"]["name"], "cortex")
         self.assertFalse(endpoint_loop["retired_runtime_path"]["active_runtime_requirement"])
         self.assertIn("retired_runtime_path_snapshot", endpoint_loop["capabilities"])
-        self.assertIn("drives", endpoint_loop["cortex"])
+        self.assertNotIn("cortex", endpoint_loop)
+        self.assertIn("drives", endpoint_loop["retired_runtime_path"])
         benchmark = living_loop["benchmark_telemetry"]
         endpoint_benchmark = endpoint_loop["benchmark_telemetry"]
         self.assertEqual(benchmark["sample"]["action_count"], 1)

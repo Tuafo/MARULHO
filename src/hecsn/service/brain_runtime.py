@@ -1266,7 +1266,7 @@ class BrainRuntime:
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
-        retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+        retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
         living_loop_snapshot = self._living_loop_snapshot_locked(
             retired_runtime_path_snapshot=retired_runtime_path_snapshot,
             include_replay_dataset_summary=include_replay_dataset_summary,
@@ -1402,7 +1402,6 @@ class BrainRuntime:
             "multimodal": self._multimodal_runtime_summary_locked(),
             "living_loop": living_loop_snapshot,
             "retired_runtime_path": retired_runtime_path_snapshot,
-            "cortex": retired_runtime_path_snapshot,
         }
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:
@@ -1550,7 +1549,7 @@ _install_dependency_property("_action_loop_summary_locked", "action_executor")
 _install_dependency_alias_property("_replay_sample_history", "replay_controller", "history")
 
 for _name in (
-    "_cortex_unavailable_snapshot",
+    "_retired_runtime_path_unavailable_snapshot",
     "_thought_loop_actual",
 ):
     _install_dependency_property(_name, "cortex_controller")

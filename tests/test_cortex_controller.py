@@ -299,9 +299,10 @@ class CortexControllerTests(unittest.TestCase):
         self.assertFalse(thoughts["enabled"])
         self.assertTrue(thoughts["retired"])
         self.assertEqual(thoughts["thoughts"], [])
-        snapshot = controller.cortex_snapshot()
+        snapshot = controller.retired_runtime_path_snapshot()
         self.assertFalse(snapshot["enabled"])
         self.assertTrue(snapshot["retired"])
+        self.assertFalse(hasattr(controller, "cortex_snapshot"))
         self.assertIsNone(controller._thought_loop_actual)
 
     def test_build_thought_loop_is_retired(self) -> None:
@@ -325,7 +326,7 @@ class CortexControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "cortex_runtime_retired"):
             controller._build_cortex_thought_loop(action_history)
         self.assertIsNone(controller._thought_loop_actual)
-        self.assertFalse(controller._cortex_available)
+        self.assertFalse(controller._retired_runtime_path_available)
 
     def test_delayed_initialization_keeps_cortex_retired(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))
@@ -340,7 +341,7 @@ class CortexControllerTests(unittest.TestCase):
         self.assertFalse(build_loop.called)
         self.assertIsNone(controller._thought_loop_actual)
         self.assertFalse(loop.is_running)
-        self.assertFalse(controller._cortex_available)
+        self.assertFalse(controller._retired_runtime_path_available)
         self.assertIn("retired", controller._cortex_init_error or "")
 
     def test_action_intent_reuses_recent_verified_action(self) -> None:

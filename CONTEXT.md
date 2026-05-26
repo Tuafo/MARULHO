@@ -135,7 +135,7 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 
 **Runtime Truth** — the liveness classification system: alive / degraded / dead / partial / failed, with evidence, safety flags, and recommended operator action.
 
-**Retired Runtime Path Evidence** — Runtime Truth evidence for a former runtime path that may still appear in compatibility payloads but no longer owns liveness, operator surfaces, or active runtime requirements. `retired_runtime_path` is the canonical status vocabulary; `cortex_*` booleans are temporary compatibility aliases only.
+**Retired Runtime Path Evidence** — Runtime Truth evidence for a former runtime path that may still appear in compatibility payloads but no longer owns liveness, operator surfaces, or active runtime requirements. `retired_runtime_path` is the canonical status vocabulary; active status and report contracts must not emit `cortex_*` aliases.
 
 **Runtime Evidence Report** — operator-facing status evidence that joins model CUDA scope, trainer-owned encoder device reports, memory-store placement, runtime truth, and source configuration. It is read-only and must not advance runtime state.
 _Avoid_: using retired Cortex snapshots as the evidence source of record
@@ -168,9 +168,10 @@ _Avoid_: treating evaluation readiness as repair approval, hiding rollback/devic
 - Subcortex Grounded Observations own source and sensory evidence. Focus selection comes from query gaps, autonomy plans, geometric curiosity, concept state, and source metadata; it must not depend on a retired ThoughtLoop exploration target.
 - Grounding Diagnostics belong to the Subcortex Language Surface boundary. Retired compatibility code may consume them, but future SNN language/readout modules must be able to produce and inspect them without instantiating ThoughtLoop.
 - Active Exploration State belongs to Subcortex control. ThalamicGate stores the canonical state object and may expose compatibility properties; future curiosity, source-focus, and SNN deliberation modules must be able to normalize and inspect exploration targets without instantiating ThoughtLoop.
-- Runtime Truth owns retired-path vocabulary through `retired_runtime_path`; `cortex_available`, `cortex_retired`, `cortex_enabled`, and evidence `cortex_retired` are compatibility aliases while old consumers are removed.
-- Living Loop may publish `retired_runtime_path` beside a temporary `cortex` compatibility snapshot, but new policy and benchmark consumers should use the retired-path vocabulary first.
-- Long-test reports should describe the former Cortex as a Retired Runtime Path, not as an active model/component. Any `cortex_*` report fields are compatibility data until JSON consumers migrate.
+- Runtime Truth owns retired-path vocabulary through `retired_runtime_path`; `cortex_available`, `cortex_retired`, `cortex_enabled`, and evidence `cortex_retired` are removed from active status and report contracts.
+- Living Loop and Runtime Truth consumers should read `retired_runtime_path` as the source of record for the retired former Cortex path.
+- Living Loop payloads must not emit a `cortex` sibling snapshot or `cortex_loop_snapshot` capability; replay pressure reads sleep/fatigue state from `retired_runtime_path`.
+- Long-test reports should describe the former Cortex as a Retired Runtime Path, not as an active model/component. `cortex_*` report fields are removed from the active JSON/Markdown contract.
 - Subcortex Language Surface may describe, narrate, or decode Subcortex state, but it must not own memory, policy, liveness, or Runtime Truth.
 - Native-decode Subcortex Language is a bridge, not a generator: it may speak only from decoded assembly text and selected evidence, with support metrics attached.
 - Cognitive Signal Subcortex Language is a status decoder: it may express runtime pressure and focus, but the numeric signal remains authoritative.
@@ -181,6 +182,7 @@ _Avoid_: treating evaluation readiness as repair approval, hiding rollback/devic
 - Deliberation Text Merge belongs to the Subcortex Language Surface boundary. Active code and tests should call the merge helper directly instead of using `ThoughtLoop` as a namespace.
 - Brain Runtime Metrics can summarize language-facing runtime output and grounding quality, but Runtime Truth and Subcortex Spike Health remain the authoritative liveness evidence.
 - Living Loop status is the primary operational sidecar for Subcortex Deliberation candidates. Policy Actuator may display the same candidates as non-executable context, but policy status must not execute them or promote them beyond advisory evidence.
+- Policy Actuator reads sleep/fatigue pressure from `retired_runtime_path` when it needs old-path state; it must not accept or require `cortex_snapshot` as an input.
 - Every Subcortex Deliberation candidate must carry a promotion gate. The gate may mark it ready for replay review or blocked by missing grounding, but it must keep action execution and fact promotion false until a separate replay/policy/operator path explicitly promotes it.
 - Developmental Plasticity is the clean path for self-growth and pruning: runtime changes must be traceable, bounded, reversible, and evaluated before promotion.
 - Local Plasticity Evidence is the first synapse-level support signal for Developmental Plasticity: local STDP traces, synaptic scaling, inhibitory balance, spike-health risk, synaptic validation, and device reports can make a case ready for isolated evaluation, but never directly mutate synapses or topology.
@@ -196,6 +198,7 @@ _Avoid_: treating evaluation readiness as repair approval, hiding rollback/devic
 - CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The retired Cortex path is not a CUDA-first claim or architectural requirement.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Runtime Evidence Report and replay/export planning should read `retired_runtime_path` as the canonical retired-path snapshot. A `cortex` payload may remain only as an external compatibility alias while clients migrate.
+- Brain runtime snapshots expose `retired_runtime_path` as the source of record; they must not publish an active `cortex` sibling payload or require `cortex_snapshot()` helpers.
 - Subcortex Spike Health is the first operational-stability slice inside Runtime Evidence Report: it can flag silent, saturated, stale routing, or windowed over-correlation risk, while full operational-manifold health remains a future benchmark-level claim.
 - Subcortex Self-Repair Candidates turn Spike Health into reviewable repair pressure for Living Loop and Policy Actuator sidecars. The Self-Repair Promotion Gate must keep action execution, fact promotion, and structural mutation false until a separate replay/deep-sleep/operator path approves the repair.
 - Self-Repair Gate Artifact is exposed separately from Replay Plan so repair pressure can be reviewed without becoming a replay execution candidate or mutating runtime state. Runtime Truth may include a compact gate summary, but the full artifact remains the review surface.
