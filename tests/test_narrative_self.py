@@ -4,12 +4,14 @@ Covers:
   1. NarrativeSelf autobiographical summary generation
   2. NarrativeSelf persistence across sessions
   3. ThalamicGate narrative injection
-  4. ThoughtLoop depth tuning from predictive/surprise signals
+  4. Retired ThoughtLoop depth tuning behavior (skipped)
 """
 
 from __future__ import annotations
 
 import time
+
+import pytest
 
 from hecsn.cortex.core import MockCortex, ThoughtDepth, ThoughtResult
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
@@ -120,6 +122,7 @@ class TestNarrativeGateIntegration:
         assert "volcanic" in packet.working_memory_narrative
 
 
+@pytest.mark.skip(reason="ThoughtLoop runtime path is retired; narrative primitives stay tested without the old loop")
 class TestPhase2DepthTuning:
     def _make_loop(self, signal_payload=None, *, narrative_state_path=None):
         signal_payload = signal_payload or {}

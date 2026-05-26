@@ -266,7 +266,6 @@ class HECSNServiceManager:
                 interaction_recent_query_gaps=lambda: self._interaction_pipeline.recent_query_gaps(),
                 normalize_action_text=self._normalize_action_text,
                 source_text_overlap=self._source_text_overlap,
-                thought_loop=lambda: self._thought_loop_actual,
             )
         )
         self._autonomy_planner = AutonomyPlanner(self)
@@ -915,6 +914,9 @@ class HECSNServiceManager:
     def load_persisted_traces(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence.load_persisted_traces(*args, **kwargs)
 
+    def recent_traces(self, *args: Any, **kwargs: Any) -> Any:
+        return self._runtime_persistence.recent_traces(*args, **kwargs)
+
     def _service_state_snapshot(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._service_state_snapshot(*args, **kwargs)
 
@@ -950,6 +952,15 @@ class HECSNServiceManager:
 
     def _replay_sample_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._replay_sample_summary_locked(*args, **kwargs)
+
+    def replay_plan_status(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.replay_plan_status(*args, **kwargs)
+
+    def replay_sample(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.replay_sample(*args, **kwargs)
+
+    def replay_sample_history(self, *args: Any, **kwargs: Any) -> Any:
+        return self._replay_controller.replay_sample_history(*args, **kwargs)
 
     def _replay_sample_state_counts_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._replay_sample_state_counts_locked(*args, **kwargs)
@@ -1493,18 +1504,6 @@ class HECSNServiceManager:
 
     def _cortex_factories_are_mocked(self, *args: Any, **kwargs: Any) -> Any:
         return self._cortex_controller._cortex_factories_are_mocked(*args, **kwargs)
-
-    def _inject_action_record_into_loop(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._inject_action_record_into_loop(*args, **kwargs)
-
-    def _build_cortex_thought_loop(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._build_cortex_thought_loop(*args, **kwargs)
-
-    def _start_cortex_initialization(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._start_cortex_initialization(*args, **kwargs)
-
-    def _ensure_cortex_initialized(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cortex_controller._ensure_cortex_initialized(*args, **kwargs)
 
     def _request_cortex_sleep_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._cortex_controller._request_cortex_sleep_locked(*args, **kwargs)

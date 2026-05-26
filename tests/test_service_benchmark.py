@@ -34,12 +34,31 @@ def _fake_service_app() -> FastAPI:
             "generated_at": "2026-01-01T00:00:00+00:00",
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
+            "retired_runtime_path": {
+                "name": "cortex",
+                "available": True,
+                "retired": False,
+                "active_runtime_requirement": False,
+                "operator_surface": False,
+                "compatibility_aliases": ["cortex_available", "cortex_retired"],
+            },
+            "retired_runtime_path_available": True,
+            "retired_runtime_path_retired": False,
             "cortex_available": True,
+            "cortex_retired": False,
             "memory_pressure": {"fill_fraction": 0.1, "size": 2, "capacity": 64, "pressure": "low"},
             "replay_role": "preview_only_not_training",
             "safety_flags": {"replay_dataset_preview_only": True, "training_started": False},
             "latency_ms": {"last_tick": 1.0, "tokens_per_second": 10.0},
-            "evidence": {"configured": True, "running": True, "token_count": 12},
+            "evidence": {
+                "configured": True,
+                "running": True,
+                "token_count": 12,
+                "retired_runtime_path_enabled": True,
+                "retired_runtime_path_retired": False,
+                "cortex_enabled": True,
+                "cortex_retired": False,
+            },
         }
 
     @app.get("/status")

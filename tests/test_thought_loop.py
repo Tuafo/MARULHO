@@ -20,8 +20,13 @@ from hecsn.cortex.drives import (
     ThalamicGate,
     AntiRuminationCircuit,
 )
-from hecsn.cortex.thought_loop import CognitiveSignalState, ThoughtLoop, BrainStats
+from hecsn.cortex.thought_loop import (
+    THOUGHT_LOOP_RETIRED_REASON,
+    ThoughtLoop,
+)
 from hecsn.cortex.working_memory import WMItemType
+from hecsn.semantics.brain_stats import BrainStats
+from hecsn.semantics.cognitive_signal import CognitiveSignalState
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +510,7 @@ class TestDriveSystem:
             ds.tick()
         assert ds.state.fatigue < 0.5
 
+    @pytest.mark.skip(reason="ThoughtLoop runtime is retired; Cognitive Signal is tested through Subcortex status surfaces")
     def test_cognitive_signal_state_accepts_typed_provider_payload(self):
         signal = CognitiveSignalState(
             source="test.subcortex",
@@ -630,6 +636,30 @@ class TestThalamicGate:
         assert any("indoors" in item.text.lower() for item in packet.grounded_evidence)
         assert "cats" in packet.forced_topic.lower()
 
+    def test_emit_deliberation_feedback_routes_topics_and_valence(self):
+        mem = EpisodicMemory(capacity=100)
+        drives = DriveSystem()
+        gate = ThalamicGate(mem, drives)
+
+        result = ThoughtResult(
+            raw_text="",
+            thought="Explore reef chemistry uncertainty.",
+            topics=("Reef Chemistry", "AI"),
+            confidence=0.25,
+            emotional_valence=-0.6,
+        )
+
+        feedback = gate.emit_deliberation_feedback(result)
+
+        assert feedback["topic_boosts"] == [
+            ("reef chemistry", pytest.approx(0.125)),
+            ("ai", pytest.approx(0.125)),
+        ]
+        assert feedback["grounding_candidates"] == ["Reef", "Chemistry"]
+        assert feedback["emotional_valence"] == pytest.approx(-0.6)
+        assert feedback["confidence"] == pytest.approx(0.25)
+        assert drives.state.anxiety == pytest.approx(0.03)
+
     def test_working_memory_replaces_thread_replay(self):
         """Wakeful assembly should not include raw thought-thread replay.
 
@@ -682,6 +712,12 @@ class TestThalamicGate:
 # ThoughtLoop
 # ---------------------------------------------------------------------------
 
+def test_thought_loop_constructor_is_retired():
+    with pytest.raises(RuntimeError, match=THOUGHT_LOOP_RETIRED_REASON):
+        ThoughtLoop(cortex=MockCortex())
+
+
+@pytest.mark.skip(reason="ThoughtLoop runtime path is retired; keep only primitive/static helper tests active")
 class TestThoughtLoop:
     def test_step_with_fake_cortex(self):
         cortex = MockCortex()

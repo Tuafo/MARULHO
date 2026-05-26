@@ -390,6 +390,11 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
                     "uncertainty": 0.1,
                     "policy_score": {"cost": 0.1, "budget_use": 0.1},
                 },
+                "retired_runtime_path": {
+                    "name": "cortex",
+                    "retired": True,
+                    "active_runtime_requirement": False,
+                },
                 "cortex": {"drives": {"fatigue": 0.91}},
             }
         )

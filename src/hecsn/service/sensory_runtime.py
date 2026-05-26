@@ -61,10 +61,6 @@ class SensoryRuntimeMixin:
 
     def _sensory_focus_terms_locked(self, limit: int = 12) -> list[str]:
         phrases: list[str] = []
-        if self._thought_loop_actual is not None and hasattr(self._thought_loop_actual, "gate"):
-            target = str(getattr(self._thought_loop_actual.gate, "active_exploration_target", "")).strip()
-            if target:
-                phrases.append(target)
         recent_query_gaps = self._interaction_pipeline.recent_query_gaps()
         if recent_query_gaps:
             recent_gap = recent_query_gaps[0]
@@ -481,8 +477,6 @@ class SensoryRuntimeMixin:
         semantic_match: float | None = None,
         evidence_unit_count: int | None = None,
     ) -> dict[str, Any]:
-        if self._thought_loop_actual is None:
-            return {"topics": [], "salience": 0.0}
         text = " ".join(str(episode.text).split()).strip()
         if not text:
             return {"topics": [], "salience": 0.0}
@@ -547,15 +541,13 @@ class SensoryRuntimeMixin:
                 "encoder": deepcopy(episode.metadata.get("encoder")),
                 "semantic_match": float(semantic_score),
                 "item_semantic_match": float(runtime.last_item_semantic_match),
+                "observation_sink": "subcortex_grounded_sensory_observation",
+                "retired_loop_mirrored": False,
             },
         )
-        self._thought_loop_actual.inject_observation(
-            content=text,
-            topics=deduped_topics,
-            salience=salience,
-            metadata=metadata,
-        )
         return {
+            "observation_sink": "subcortex_grounded_sensory_observation",
+            "retired_loop_mirrored": False,
             "observation_kind": "sensory",
             "source_name": runtime.name,
             "source_type": "sensory",
@@ -571,6 +563,7 @@ class SensoryRuntimeMixin:
             "semantic_match": float(semantic_score),
             "item_semantic_match": float(runtime.last_item_semantic_match),
             "focus_terms": focus_terms,
+            "metadata": metadata,
         }
 
     def _record_sensory_preview_locked(

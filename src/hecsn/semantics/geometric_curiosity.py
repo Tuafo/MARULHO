@@ -206,7 +206,7 @@ class GeometricCuriosityController:
         }
 
     def boost_concept(self, label: str, amount: float = 0.1) -> None:
-        """Boost curiosity for a concept — used by cortex→SNN feedback loop.
+        """Boost curiosity for a concept used by deliberation feedback.
 
         Lowers the concept's certainty in the abstraction layer, making it
         a more attractive curiosity target for the next training steps.

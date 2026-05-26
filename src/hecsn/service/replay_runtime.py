@@ -110,8 +110,8 @@ class ReplayController:
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
-            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             return build_replay_plan(living_loop, limit=limit).to_payload()
 
     def replay_sample(
@@ -152,8 +152,8 @@ class ReplayController:
 
         with self._lock:
             before = self._replay_sample_state_counts_locked()
-            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             plan = build_replay_plan(living_loop, limit=MAX_RUNTIME_TRACE_EXPORT_LIMIT).to_payload()
             candidates = [dict(item) for item in plan.get("candidates", []) if isinstance(item, Mapping)]
             if requested_candidate_id:

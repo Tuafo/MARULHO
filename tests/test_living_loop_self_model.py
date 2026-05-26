@@ -551,6 +551,12 @@ class TestOperationalSelfModelBuild(unittest.TestCase):
                 },
             },
             cortex={"enabled": True, "memory_count": 4},
+            retired_runtime_path={
+                "name": "cortex",
+                "available": True,
+                "retired": False,
+                "active_runtime_requirement": False,
+            },
             generated_at="2026-01-01T00:00:00+00:00",
         )
         self.assertEqual(model.token_count, 12)
@@ -559,6 +565,9 @@ class TestOperationalSelfModelBuild(unittest.TestCase):
         self.assertTrue(model.running)
         self.assertEqual(len(model.actions), 2)
         self.assertIsNotNone(model.world_model_lite)
+        payload = model.to_payload()
+        self.assertEqual(payload["retired_runtime_path"]["name"], "cortex")
+        self.assertIn("retired_runtime_path_snapshot", payload["capabilities"])
 
     def test_build_with_minimal_inputs(self) -> None:
         model = OperationalSelfModel.build(
@@ -875,7 +884,7 @@ class TestOperationalSelfModelSurfaceMethods(unittest.TestCase):
         )
         self.assertEqual(health["status"], "no_grounding_observed")
 
-    def test_surface_capabilities_includes_cortex(self) -> None:
+    def test_surface_capabilities_includes_retired_runtime_path(self) -> None:
         model = OperationalSelfModel.build(
             token_count=0,
             state_revision=0,
@@ -883,12 +892,18 @@ class TestOperationalSelfModelSurfaceMethods(unittest.TestCase):
             running=True,
             provenance=ProvenanceState(),
             cortex={"enabled": True},
+            retired_runtime_path={
+                "name": "cortex",
+                "available": True,
+                "active_runtime_requirement": False,
+            },
         )
         skills = model._surface_skill_memories()
         caps = model._surface_capabilities(
             skill_memories=skills,
             world_model_lite=model.world_model_lite or WorldModelLiteSummary(),
         )
+        self.assertIn("retired_runtime_path_snapshot", caps)
         self.assertIn("cortex_loop_snapshot", caps)
 
     def test_surface_limits_no_truncation(self) -> None:

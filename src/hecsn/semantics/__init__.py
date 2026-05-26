@@ -1,5 +1,9 @@
 from .concepts import ConceptStore, OnlineSlowFeatureMap, summarize_concepts
+from .brain_stats import BrainStats
+from .cognitive_signal import CognitiveSignalState
+from .exploration_state import ExplorationState, normalize_exploration_target
 from .geometric_curiosity import GeometricCuriosityController
+from .grounding_diagnostics import GroundingDiagnostics
 from .language_surface import (
     attach_cognitive_signal_language_surface,
     build_cognitive_signal_language_surface,
@@ -13,6 +17,10 @@ from .provenance import Provenance
 
 __all__ = [
     "ConceptStore",
+    "BrainStats",
+    "CognitiveSignalState",
+    "ExplorationState",
+    "GroundingDiagnostics",
     "OnlineSlowFeatureMap",
     "GeometricCuriosityController",
     "Provenance",
@@ -23,5 +31,6 @@ __all__ = [
     "build_subcortical_self_repair_evaluation_surface",
     "build_subcortical_self_repair_surface",
     "build_subcortical_structural_plasticity_surface",
+    "normalize_exploration_target",
     "summarize_concepts",
 ]

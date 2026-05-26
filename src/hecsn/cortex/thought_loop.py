@@ -1,20 +1,9 @@
-"""ThoughtLoop -- the gated cognition orchestrator of Terminus.
+"""Retired ThoughtLoop compatibility module.
 
-Implements the continuous thinking cycle:
-  Fast SNN tick (10ms)  → drive updates, surprise, salience
-  Deliberation (event)  → cortex backend inference triggered by spike threshold
-  Sleep (periodic)      → replay, compression, dream/hypothesis generation
-
-Deliberation depth (System 1 / System 2):
-  QUICK (1 call)    → Fast pattern matching, gut reaction
-  STANDARD (2 calls) → Observe + question
-  DEEP (4 calls)    → Observe → question → reason → synthesize
-
-The SNN decides depth based on prediction error, working memory
-tensions, and drive state.
-
-The loop runs in a background thread and produces a stream of thoughts
-that can be observed via callbacks or polled from the UI.
+The active cognition path is Subcortex/Living Loop. This module is retained
+temporarily for historical helper classes and static utilities while the old
+LLM-backed loop is deleted from runtime paths. Instantiating ThoughtLoop is
+blocked so tests or compatibility callers cannot reanimate the retired path.
 """
 
 from __future__ import annotations
@@ -24,7 +13,7 @@ import re
 import threading
 import time
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional, Sequence
 
@@ -41,258 +30,29 @@ from hecsn.cortex.episodic_memory import Episode, EpisodicMemory, Provenance
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
 from hecsn.cortex.narrative_self import NarrativeSelf
 from hecsn.cortex.working_memory import WorkingMemory, WMItemType
+from hecsn.semantics.brain_stats import BrainStats
+from hecsn.semantics.cognitive_signal import CognitiveSignalState
+from hecsn.semantics.deliberation_merge import (
+    dedupe_sentences,
+    merge_chain_results,
+    statementize_question,
+    text_keywords,
+    text_overlap,
+)
+from hecsn.semantics.grounding_diagnostics import GroundingDiagnostics
 from hecsn.semantics.grounding_text import match_terms, query_focused_clauses, salient_query_terms
+from hecsn.semantics.exploration_state import ExplorationState
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class BrainStats:
-    """Observable statistics of the living brain."""
-    thoughts_generated: int = 0
-    dreams_generated: int = 0
-    sleep_cycles: int = 0
-    ticks: int = 0
-    total_inference_ms: float = 0.0
-    last_thought: str = ""
-    last_thought_time: float = 0.0
-    current_mode: str = "idle"
-    is_sleeping: bool = False
-    memory_count: int = 0
-    memory_fill_ratio: float = 0.0
-
-    # Thought quality metrics
-    topic_diversity: float = 0.0  # Shannon entropy over topics (higher = more diverse)
-    concreteness_ratio: float = 0.0  # Fraction of thoughts with verifiable content
-    avg_novelty: float = 0.0  # Mean cosine distance between consecutive thought embeddings
-    snn_alignment: float = 0.0  # Fraction of thought topics present in SNN concepts
-    dream_verification_rate: float = 0.0  # Verified dreams / total dreams
-    grounded_query_alignment: float = 0.0  # Mean answer/evidence alignment for external queries
-    grounded_query_recovery_rate: float = 0.0  # Fraction of query answers recovered from evidence
-    grounded_query_count: int = 0
-    grounded_wakeful_alignment: float = 0.0  # Mean thought/evidence alignment for non-query wakeful thoughts
-    grounded_wakeful_recovery_rate: float = 0.0  # Fraction of wakeful grounded thoughts recovered from evidence
-    grounded_wakeful_count: int = 0
-    _topic_counts: dict = field(default_factory=dict)
-    _total_topics: int = 0
-    _concrete_count: int = 0
-    _snn_aligned_count: int = 0
-    _dreams_verified: int = 0
-    _dreams_total: int = 0
-    _grounded_query_alignment_total: float = 0.0
-    _grounded_query_recoveries: int = 0
-    _grounded_wakeful_alignment_total: float = 0.0
-    _grounded_wakeful_recoveries: int = 0
-
-    @property
-    def avg_inference_ms(self) -> float:
-        total = self.thoughts_generated + self.dreams_generated
-        if total == 0:
-            return 0.0
-        return self.total_inference_ms / total
-
-    def update_quality_metrics(
-        self,
-        result: ThoughtResult,
-        snn_concepts: list[str] | None = None,
-    ) -> None:
-        """Update thought quality metrics from a new thought result."""
-        import math as _math
-
-        # Topic diversity (Shannon entropy)
-        for topic in result.topics:
-            key = topic.lower().strip()
-            if key:
-                self._topic_counts[key] = self._topic_counts.get(key, 0) + 1
-                self._total_topics += 1
-
-        if self._total_topics > 0 and self._topic_counts:
-            total = float(self._total_topics)
-            entropy = 0.0
-            for count in self._topic_counts.values():
-                p = count / total
-                if p > 0:
-                    entropy -= p * _math.log2(p)
-            max_entropy = _math.log2(max(1, len(self._topic_counts)))
-            self.topic_diversity = entropy / max(1.0, max_entropy)
-
-        # Concreteness: thoughts with confidence > 0.5 and specific topics
-        if result.confidence > 0.5 and len(result.topics) > 0:
-            self._concrete_count += 1
-        total_thoughts = max(1, self.thoughts_generated)
-        self.concreteness_ratio = self._concrete_count / total_thoughts
-
-        # SNN alignment: fraction of topics present in SNN concept store
-        if result.topics and snn_concepts:
-            snn_lower = {c.lower() for c in snn_concepts}
-            aligned = sum(
-                1 for t in result.topics
-                if any(t.lower() in c or c in t.lower() for c in snn_lower)
-            )
-            self._snn_aligned_count += aligned
-            total_topic_instances = max(1, self._total_topics)
-            self.snn_alignment = self._snn_aligned_count / total_topic_instances
-
-    def update_grounding_metrics(self, diagnostics: "GroundingDiagnostics" | None) -> None:
-        """Update grounding metrics from a grounded query or wakeful thought."""
-        if diagnostics is None or diagnostics.grounded_evidence_count <= 0:
-            return
-        if diagnostics.kind == "query":
-            self.grounded_query_count += 1
-            self._grounded_query_alignment_total += float(diagnostics.alignment_score)
-            self.grounded_query_alignment = (
-                self._grounded_query_alignment_total / max(1, self.grounded_query_count)
-            )
-            if diagnostics.fallback_used:
-                self._grounded_query_recoveries += 1
-            self.grounded_query_recovery_rate = (
-                self._grounded_query_recoveries / max(1, self.grounded_query_count)
-            )
-            return
-
-        self.grounded_wakeful_count += 1
-        self._grounded_wakeful_alignment_total += float(diagnostics.alignment_score)
-        self.grounded_wakeful_alignment = (
-            self._grounded_wakeful_alignment_total / max(1, self.grounded_wakeful_count)
-        )
-        if diagnostics.fallback_used:
-            self._grounded_wakeful_recoveries += 1
-        self.grounded_wakeful_recovery_rate = (
-            self._grounded_wakeful_recoveries / max(1, self.grounded_wakeful_count)
-        )
-
-
-@dataclass(frozen=True)
-class GroundingDiagnostics:
-    """Grounding diagnostics for a grounded cortex output."""
-
-    kind: str
-    target: str
-    target_terms: tuple[str, ...] = ()
-    matched_target_terms: tuple[str, ...] = ()
-    evidence_supported_terms: tuple[str, ...] = ()
-    grounded_evidence_count: int = 0
-    response_coverage: float = 0.0
-    evidence_coverage: float = 0.0
-    evidence_alignment: float = 0.0
-    alignment_score: float = 0.0
-    fallback_used: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "target": self.target,
-            "target_terms": list(self.target_terms),
-            "matched_target_terms": list(self.matched_target_terms),
-            "evidence_supported_terms": list(self.evidence_supported_terms),
-            "grounded_evidence_count": int(self.grounded_evidence_count),
-            "response_coverage": float(self.response_coverage),
-            "evidence_coverage": float(self.evidence_coverage),
-            "evidence_alignment": float(self.evidence_alignment),
-            "alignment_score": float(self.alignment_score),
-            "fallback_used": bool(self.fallback_used),
-        }
-
-
-@dataclass
-class CognitiveSignalState:
-    """Recent SNN-side signals that influence deliberation depth."""
-
-    schema_version: str = "cognitive_signal.v1"
-    source: str = "subcortex"
-    sampled_at: float = 0.0
-    prediction_error_mean: float = 0.0
-    prediction_error_max: float = 0.0
-    predictive_confidence_mean: float = 0.5
-    predictive_confidence_min: float = 0.5
-    dopamine: float = 0.0
-    norepinephrine: float = 0.0
-    recent_concepts: tuple[str, ...] = ()
-    concept_candidates: tuple[dict[str, Any], ...] = ()
-
-    @classmethod
-    def from_mapping(cls, payload: Any | None) -> "CognitiveSignalState":
-        if isinstance(payload, cls):
-            return payload
-        payload = payload or {}
-        if not hasattr(payload, "get"):
-            payload = {}
-        concepts = payload.get("recent_concepts", ())
-        if not isinstance(concepts, (list, tuple)):
-            concepts = ()
-        raw_candidates = payload.get("concept_candidates", ())
-        concept_candidates: list[dict[str, Any]] = []
-        if isinstance(raw_candidates, (list, tuple)):
-            for item in raw_candidates[:8]:
-                if not isinstance(item, dict):
-                    continue
-                label = str(item.get("label", "")).strip()
-                top_terms = [str(term).strip() for term in list(item.get("top_terms") or [])[:4] if str(term).strip()]
-                example_windows = [
-                    str(text).strip()
-                    for text in list(item.get("example_windows") or [])[:2]
-                    if str(text).strip()
-                ]
-                concept_candidates.append(
-                    {
-                        "label": label,
-                        "top_terms": top_terms,
-                        "match_count": int(item.get("match_count", item.get("observations", 0)) or 0),
-                        "observations": int(item.get("observations", item.get("match_count", 0)) or 0),
-                        "uncertainty": max(0.0, min(1.0, float(item.get("uncertainty", 1.0)))),
-                        "temporal_coherence": max(0.0, min(1.0, float(item.get("temporal_coherence", 0.0)))),
-                        "example_windows": example_windows,
-                    }
-                )
-        return cls(
-            schema_version=str(payload.get("schema_version", "cognitive_signal.v1") or "cognitive_signal.v1"),
-            source=str(payload.get("source", "subcortex") or "subcortex"),
-            sampled_at=max(0.0, float(payload.get("sampled_at", 0.0) or 0.0)),
-            prediction_error_mean=max(0.0, min(1.0, float(payload.get("prediction_error_mean", 0.0)))),
-            prediction_error_max=max(0.0, min(1.0, float(payload.get("prediction_error_max", 0.0)))),
-            predictive_confidence_mean=max(0.0, min(1.0, float(payload.get("predictive_confidence_mean", 0.5)))),
-            predictive_confidence_min=max(0.0, min(1.0, float(payload.get("predictive_confidence_min", 0.5)))),
-            dopamine=max(0.0, min(1.0, float(payload.get("dopamine", 0.0)))),
-            norepinephrine=max(0.0, min(1.0, float(payload.get("norepinephrine", 0.0)))),
-            recent_concepts=tuple(str(c) for c in concepts[:6] if c),
-            concept_candidates=tuple(concept_candidates),
-        )
-
-    def to_mapping(self) -> dict[str, Any]:
-        return {
-            "schema_version": self.schema_version,
-            "source": self.source,
-            "sampled_at": float(self.sampled_at),
-            "prediction_error_mean": float(self.prediction_error_mean),
-            "prediction_error_max": float(self.prediction_error_max),
-            "predictive_confidence_mean": float(self.predictive_confidence_mean),
-            "predictive_confidence_min": float(self.predictive_confidence_min),
-            "dopamine": float(self.dopamine),
-            "norepinephrine": float(self.norepinephrine),
-            "recent_concepts": list(self.recent_concepts),
-            "concept_candidates": [dict(item) for item in self.concept_candidates],
-        }
-
-
-@dataclass
-class ExplorationState:
-    """Current active-exploration target chosen to reduce uncertainty."""
-
-    target: str = ""
-    reason: str = ""
-    source: str = ""
-    score: float = 0.0
-    updated_at: float = 0.0
+THOUGHT_LOOP_RETIRED_REASON = "thought_loop_runtime_retired: use Subcortex/Living Loop surfaces"
 
 
 class ThoughtLoop:
-    """Gated cognition loop for cortex-subcortex interaction.
+    """Retired LLM-backed cognition loop.
 
-    Architecture:
-    - Fast loop: SNN drive updates every tick_interval_ms
-    - Deliberation: cortex backend fires when drives cross threshold (event-driven)
-    - Sleep: enters when fatigue > threshold, runs dream cycles
-    - Anti-rumination: boredom circuit prevents degenerate loops
+    The class remains only as a namespace for historical static helpers while
+    old tests and imports are migrated. Construction is deliberately blocked so
+    compatibility code cannot restart the former Cortex/ThoughtLoop path.
     """
 
     def __init__(
@@ -311,6 +71,7 @@ class ThoughtLoop:
         drives: Optional[DriveSystem] = None,
         on_sleep_summary: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> None:
+        raise RuntimeError(THOUGHT_LOOP_RETIRED_REASON)
         self.cortex = cortex
         self.memory = memory if memory is not None else EpisodicMemory()
         self.drives = drives if drives is not None else DriveSystem()
@@ -322,11 +83,11 @@ class ThoughtLoop:
         self.sleep_dream_count = sleep_dream_count
         self.sleep_cooldown_s = sleep_cooldown_s
 
-        # Give the gate references to active cortex-side context structures.
+        # Give the gate references to language-facing context structures.
         self.gate.working_memory = self.working_memory
         self.gate.narrative_self = self.narrative_self
 
-        # Cortex→SNN feedback: curiosity controller for routing boosts
+        # Deliberation -> Subcortex feedback: curiosity controller for routing boosts.
         self._curiosity_controller = curiosity_controller
         self._signal_provider = signal_provider
 
@@ -411,7 +172,7 @@ class ThoughtLoop:
         self._running = False
 
     def set_curiosity_controller(self, controller: Any) -> None:
-        """Set or update the curiosity controller for cortex→SNN feedback."""
+        """Set or update the curiosity controller for deliberation feedback."""
         self._curiosity_controller = controller
 
     def set_signal_provider(self, provider: Optional[Callable[[], Any]]) -> None:
@@ -1141,12 +902,11 @@ class ThoughtLoop:
         cleaned = self._candidate_target_text(target)
         if not cleaned:
             return
-        self._exploration_state = ExplorationState(
-            target=cleaned,
-            reason=" ".join(reason.split()).strip()[:160],
-            source=source[:40],
-            score=max(0.0, min(1.0, float(score))),
-            updated_at=time.time(),
+        self._exploration_state = ExplorationState.from_target(
+            cleaned,
+            reason=reason,
+            source=source,
+            score=score,
         )
         self.gate.set_active_exploration_target(
             cleaned,
@@ -1853,142 +1613,23 @@ class ThoughtLoop:
 
     @staticmethod
     def _text_keywords(text: str) -> set[str]:
-        stopwords = {
-            "the", "and", "with", "that", "this", "from", "into", "about", "than",
-            "their", "there", "because", "while", "where", "which", "have", "has",
-            "when", "then", "they", "them", "what", "how", "why", "does", "under",
-            "through", "between", "could", "would", "should", "these", "those",
-        }
-        words: set[str] = set()
-        for raw in re.findall(r"[a-zA-Z][a-zA-Z'-]+", text.lower()):
-            word = raw.strip("'")
-            if len(word) >= 4 and word not in stopwords:
-                words.add(word)
-        return words
+        return text_keywords(text)
 
     @classmethod
     def _text_overlap(cls, left: str, right: str) -> float:
-        left_words = cls._text_keywords(left)
-        right_words = cls._text_keywords(right)
-        if not left_words or not right_words:
-            return 0.0
-        return len(left_words & right_words) / max(1.0, min(len(left_words), len(right_words)))
+        return text_overlap(left, right)
 
     @staticmethod
     def _statementize_question(text: str) -> str:
-        cleaned = " ".join(text.split()).strip()
-        if not cleaned:
-            return ""
-        lowered = cleaned.lower()
-        if lowered.startswith("open question:") or lowered.startswith("question:"):
-            _, _, suffix = cleaned.partition(":")
-            cleaned = suffix.strip()
-            lowered = cleaned.lower()
-        if not cleaned.endswith("?"):
-            return cleaned
-
-        stem = cleaned[:-1].strip()
-        lower_stem = stem.lower()
-        replacements = (
-            ("how do ", "how "),
-            ("how does ", "how "),
-            ("how did ", "how "),
-            ("why do ", "why "),
-            ("why does ", "why "),
-            ("why did ", "why "),
-            ("what is ", "what "),
-            ("what are ", "what "),
-        )
-        for prefix, replacement in replacements:
-            if lower_stem.startswith(prefix):
-                tail = stem[len(prefix):].strip()
-                if prefix == "what is ":
-                    stem = f"what {tail} is"
-                elif prefix == "what are ":
-                    stem = f"what {tail} are"
-                else:
-                    stem = f"{replacement}{tail}"
-                lower_stem = stem.lower()
-                break
-
-        yes_no_prefixes = ("can ", "could ", "should ", "would ", "is ", "are ", "do ", "does ", "did ", "was ", "were ")
-        if any(lower_stem.startswith(prefix) for prefix in yes_no_prefixes):
-            _, _, remainder = stem.partition(" ")
-            stem = f"whether {remainder.strip()}"
-        elif stem and stem.split()[0] in {"What", "How", "Why", "When", "Where", "Which"}:
-            stem = stem[0].lower() + stem[1:]
-
-        return f"A key open question is {stem}."
+        return statementize_question(text)
 
     @classmethod
     def _dedupe_sentences(cls, text: str) -> str:
-        cleaned = " ".join(text.split()).strip()
-        if not cleaned:
-            return ""
-        parts = [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", cleaned) if segment.strip()]
-        if len(parts) <= 1:
-            return cleaned
-
-        kept: list[str] = []
-        for part in parts:
-            matched = False
-            for idx, existing in enumerate(kept):
-                if cls._text_overlap(part, existing) >= 0.78:
-                    if len(part) > len(existing):
-                        kept[idx] = part
-                    matched = True
-                    break
-            if not matched:
-                kept.append(part)
-        return " ".join(kept).strip()
+        return dedupe_sentences(text)
 
     @classmethod
     def _merge_chain_results(cls, chain: list[ThoughtResult]) -> ThoughtResult:
-        """Merge a chain of thoughts into a single result.
-
-        The last step remains primary, but short chains are merged more carefully
-        so observation+question outputs stay readable and do not echo themselves.
-        """
-        if len(chain) == 1:
-            return chain[0]
-
-        final = chain[-1]
-        all_topics: list[str] = []
-        seen: set[str] = set()
-        for r in chain:
-            for t in r.topics:
-                key = t.lower().strip()
-                if key and key not in seen:
-                    all_topics.append(t)
-                    seen.add(key)
-
-        total_latency = sum(r.latency_ms for r in chain)
-
-        if len(chain) >= 3:
-            thought = cls._dedupe_sentences(cls._statementize_question(final.thought))
-        else:
-            observation = cls._dedupe_sentences(chain[0].thought)
-            follow_up = cls._dedupe_sentences(cls._statementize_question(final.thought))
-            if not follow_up:
-                thought = observation
-            elif cls._text_overlap(observation, follow_up) >= 0.78:
-                thought = follow_up if len(follow_up) >= len(observation) else observation
-            else:
-                thought = cls._dedupe_sentences(f"{observation} {follow_up}")
-            if len(thought) > 300:
-                clipped = thought[:300].rstrip()
-                thought = clipped.rsplit(" ", 1)[0].rstrip(" ,;:") + "..."
-
-        return ThoughtResult(
-            raw_text=final.raw_text,
-            thought=thought,
-            topics=tuple(all_topics[:8]),
-            emotional_valence=final.emotional_valence,
-            confidence=final.confidence,
-            action_intent=final.action_intent,
-            latency_ms=total_latency,
-            parse_success=final.parse_success,
-        )
+        return merge_chain_results(chain)
 
     def _post_process_thought(
         self,
@@ -2026,8 +1667,8 @@ class ThoughtLoop:
         # Update drives from thought
         self.drives.update_from_thought(result)
 
-        # Cortex→SNN feedback
-        feedback = self.gate.emit_cortex_feedback(result)
+        # Deliberation -> Subcortex feedback.
+        feedback = self.gate.emit_deliberation_feedback(result)
 
         if self._curiosity_controller is not None:
             for label, amount in feedback.get("topic_boosts", []):

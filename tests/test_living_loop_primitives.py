@@ -719,6 +719,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "grounding_health",
             "benchmark_telemetry",
             "replay_plan",
+            "retired_runtime_path",
         }
         self.assertLessEqual(required_living_loop_fields, set(living_loop))
         self.assertLessEqual(required_living_loop_fields, set(endpoint_loop))
@@ -729,6 +730,9 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(endpoint_loop["budgets"]["action_snapshot_used"], 1)
         self.assertEqual(endpoint_loop["memory_health"]["status"], "no_memory_snapshot")
         self.assertEqual(endpoint_loop["grounding_health"]["status"], "grounded")
+        self.assertEqual(endpoint_loop["retired_runtime_path"]["name"], "cortex")
+        self.assertFalse(endpoint_loop["retired_runtime_path"]["active_runtime_requirement"])
+        self.assertIn("retired_runtime_path_snapshot", endpoint_loop["capabilities"])
         self.assertIn("drives", endpoint_loop["cortex"])
         benchmark = living_loop["benchmark_telemetry"]
         endpoint_benchmark = endpoint_loop["benchmark_telemetry"]

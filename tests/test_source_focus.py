@@ -41,14 +41,8 @@ class _FakeConceptStore:
         }
 
 
-class _FakeThoughtLoop:
-    def __init__(self) -> None:
-        self.gate = SimpleNamespace(active_exploration_target="quantum cats")
-
-
 class _FakeManager:
     def __init__(self) -> None:
-        self._thought_loop_actual = _FakeThoughtLoop()
         self._geometric_curiosity = _FakeGeometricCuriosity()
         self._concept_store = _FakeConceptStore()
         self._brain_recent_query_gaps = deque(
@@ -128,7 +122,6 @@ def _source_focus_from_fake(fake: _FakeManager) -> SourceFocusScorer:
             interaction_recent_query_gaps=lambda: fake._interaction_pipeline.recent_query_gaps(),
             normalize_action_text=lambda value: " ".join(str(value).split()).strip(),
             source_text_overlap=fake._source_text_overlap,
-            thought_loop=lambda: fake._thought_loop_actual,
         )
     )
 
@@ -193,6 +186,7 @@ class SourceFocusSeamTests(unittest.TestCase):
 
         self.assertTrue(focus_terms)
         self.assertIn("mice", focus_terms)
+        self.assertNotIn("quantum", focus_terms)
         self.assertGreater(semantic_match, 0.0)
         self.assertGreater(score, 0.0)
         self.assertGreaterEqual(fairness, 0.0)

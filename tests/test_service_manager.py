@@ -196,7 +196,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertTrue(env_info["dotenv_loaded"])
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-checkpoint-key")
-                    self.assertIsNotNone(manager._cortex_factory_refs)
+                    self.assertIsNone(manager._cortex_factory_refs)
                     self.assertFalse(manager._cortex_available)
                     self.assertIsNone(manager._thought_loop_actual)
                 finally:
@@ -256,7 +256,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(Path(str(env_info["env_root"])).resolve(), env_root.resolve())
                     self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-explicit-root")
-                    self.assertIsNotNone(manager._cortex_factory_refs)
+                    self.assertIsNone(manager._cortex_factory_refs)
                     self.assertFalse(manager._cortex_available)
                     self.assertIsNone(manager._thought_loop_actual)
                 finally:
@@ -2558,7 +2558,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_terminus_tick_injects_grounded_source_evidence_into_cortex(self) -> None:
+    def test_terminus_tick_records_grounded_source_evidence_without_retired_loop_mirroring(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_grounded_source_observation")
@@ -2567,29 +2567,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 "Cats rest indoors and chase mice at night. " * 80,
                 encoding="utf-8",
             )
-            observations: list[dict[str, object]] = []
-
-            class _DummyThoughtLoop:
-                is_running = False
-
-                def inject_surprise(self, **kwargs):
-                    return None
-
-                def inject_observation(self, content, topics=(), salience=0.7, metadata=None):
-                    observations.append(
-                        {
-                            "content": content,
-                            "topics": list(topics),
-                            "salience": salience,
-                            "metadata": dict(metadata or {}),
-                        }
-                    )
-
-                def snapshot(self):
-                    return {"enabled": True}
-
             try:
-                manager._thought_loop = _DummyThoughtLoop()
                 manager.runtime_facade.configure_terminus(
                     source_bank=[
                         {
@@ -2603,18 +2581,21 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     repeat_sources=False,
                 )
                 ticked = manager.runtime_facade.terminus_tick(steps=2)
-                self.assertGreater(len(observations), 0)
-                observation = observations[-1]
-                content = str(observation["content"]).lower()
-                self.assertIn("cats", content)
-                self.assertIn("indoors", content)
-                self.assertIn("mice", content)
-                self.assertNotIn("snn processed", content)
-                self.assertNotIn("recent concepts", content)
                 self.assertIn("grounded_observation", ticked["tick_summaries"][0]["source"])
                 grounded = ticked["tick_summaries"][0]["source"]["grounded_observation"]
                 self.assertIn("cats", grounded["content"].lower())
+                self.assertIn("indoors", grounded["content"].lower())
+                self.assertIn("mice", grounded["content"].lower())
+                self.assertNotIn("snn processed", grounded["content"].lower())
+                self.assertNotIn("recent concepts", grounded["content"].lower())
                 self.assertGreater(len(grounded["topics"]), 0)
+                self.assertEqual(grounded["observation_sink"], "subcortex_grounded_source_observation")
+                self.assertFalse(grounded["retired_loop_mirrored"])
+                self.assertTrue(grounded["metadata"]["grounded"])
+                self.assertEqual(grounded["metadata"]["observation_kind"], "source")
+                self.assertEqual(grounded["metadata"]["source_name"], "cats_source")
+                self.assertEqual(grounded["metadata"]["source_type"], "file")
+                self.assertEqual(grounded["metadata"]["modality"], "text")
             finally:
                 manager.close()
 
@@ -2709,7 +2690,6 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_real_sensory")
             calls: list[dict[str, object]] = []
-            observations: list[dict[str, object]] = []
             episode = SensoryEpisode(
                 text="A scientific figure shows two sharply separated regions in a lattice.",
                 visual_spikes=torch.ones(64),
@@ -2734,22 +2714,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 manager._trainer.token_count += 1
                 return {"cross_modal_visual_accepted": True, "cross_modal_audio_accepted": False}
 
-            class _DummyThoughtLoop:
-                is_running = False
-
-                def inject_observation(self, content, topics=(), salience=0.7, metadata=None):
-                    observations.append({
-                        "content": content,
-                        "topics": list(topics),
-                        "salience": salience,
-                        "metadata": dict(metadata or {}),
-                    })
-
-                def snapshot(self):
-                    return {"enabled": True}
-
             try:
-                manager._thought_loop = _DummyThoughtLoop()
                 manager._trainer.config.enable_cross_modal = True
                 manager._brain_config["sensory"] = {
                     "enabled": True,
@@ -2796,21 +2761,15 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(summary["sources"][0]["window_budget"], 4)
                 self.assertIsNotNone(calls[0].get("visual_spikes"))
                 self.assertIsNone(calls[0].get("audio_spikes"))
-                self.assertTrue(observations)
-                self.assertIn("scientific figure", str(observations[0]["content"]).lower())
-                self.assertNotIn("image-grounded episode", str(observations[0]["content"]).lower())
-                self.assertGreater(float(observations[0]["salience"]), 0.8)
-                self.assertEqual(observations[0]["metadata"]["observation_kind"], "sensory")
-                self.assertEqual(observations[0]["metadata"]["source_type"], "sensory")
-                self.assertEqual(observations[0]["metadata"]["modality"], "image")
-                self.assertEqual(observations[0]["metadata"]["device"], "cpu")
-                self.assertEqual(observations[0]["metadata"]["encoder"]["encoder"], "event_camera")
-                self.assertGreater(float(observations[0]["metadata"]["grounding_signal"]), 0.3)
                 grounded = summary["sources"][0]["grounded_observation"]
                 self.assertEqual(grounded["observation_kind"], "sensory")
                 self.assertEqual(grounded["modality"], "image")
                 self.assertEqual(grounded["device"], "cpu")
                 self.assertEqual(grounded["encoder"]["device"], "cpu")
+                self.assertEqual(grounded["observation_sink"], "subcortex_grounded_sensory_observation")
+                self.assertFalse(grounded["retired_loop_mirrored"])
+                self.assertEqual(grounded["metadata"]["observation_sink"], "subcortex_grounded_sensory_observation")
+                self.assertFalse(grounded["metadata"]["retired_loop_mirrored"])
                 self.assertIn("lattice", grounded["content"].lower())
                 self.assertEqual(runtime["sensory"]["source_progress"][0]["episodes_processed"], 1)
                 self.assertEqual(runtime["multimodal"]["real_episodes_completed"], 1)
@@ -4172,16 +4131,6 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_sensory_semantics")
 
-            class _Gate:
-                active_exploration_target = "scientific diagram of lattice phases"
-
-            class _DummyThoughtLoop:
-                gate = _Gate()
-                is_running = False
-
-                def snapshot(self):
-                    return {"enabled": True}
-
             figure_episode = SensoryEpisode(
                 text="A scientific figure showing a lattice phase transition.",
                 visual_spikes=torch.ones(64),
@@ -4201,7 +4150,20 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 return iter([audio_episode])
 
             try:
-                manager._thought_loop = _DummyThoughtLoop()
+                manager._interaction_pipeline.record_recent_query_gap(
+                    query_text="scientific diagram of lattice phases",
+                    gap_plan={
+                        "unsupported_terms": ["scientific", "diagram", "lattice", "phases"],
+                        "gap_terms": [
+                            {"term": "scientific", "weight": 2.0},
+                            {"term": "diagram", "weight": 2.0},
+                            {"term": "lattice", "weight": 2.0},
+                            {"term": "phases", "weight": 2.0},
+                        ],
+                        "grounded_fraction": 0.0,
+                    },
+                    source="test",
+                )
                 manager._brain_config["sensory"] = {
                     "enabled": True,
                     "source_bank": [
@@ -4250,7 +4212,20 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 runtime_snapshot = manager.runtime_facade.terminus_status()["terminus_runtime"]
                 self.assertIn("scientific", runtime_snapshot["multimodal"]["focus_terms"])
 
-                manager._thought_loop.gate.active_exploration_target = "environmental sound of water and footsteps"
+                manager._interaction_pipeline.record_recent_query_gap(
+                    query_text="environmental sound of water and footsteps",
+                    gap_plan={
+                        "unsupported_terms": ["environmental", "sound", "water", "footsteps"],
+                        "gap_terms": [
+                            {"term": "environmental", "weight": 2.0},
+                            {"term": "sound", "weight": 2.0},
+                            {"term": "water", "weight": 2.0},
+                            {"term": "footsteps", "weight": 2.0},
+                        ],
+                        "grounded_fraction": 0.0,
+                    },
+                    source="test",
+                )
                 selection2 = manager._select_sensory_runtime_locked(set())
                 self.assertIsNotNone(selection2)
                 idx2, runtime2, semantic_match2, modality_need2, selection_score2 = selection2  # type: ignore[misc]
@@ -4272,19 +4247,6 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="service_manager_sensory_item_retrieval")
-
-            class _Gate:
-                active_exploration_target = "environmental sound of water wind and footsteps"
-
-            class _DummyThoughtLoop:
-                gate = _Gate()
-                is_running = False
-
-                def inject_observation(self, content, topics=(), salience=0.7, metadata=None):
-                    return None
-
-                def snapshot(self):
-                    return {"enabled": True}
 
             episodes = [
                 SensoryEpisode(
@@ -4333,7 +4295,21 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 return {"cross_modal_visual_accepted": False, "cross_modal_audio_accepted": True}
 
             try:
-                manager._thought_loop = _DummyThoughtLoop()
+                manager._interaction_pipeline.record_recent_query_gap(
+                    query_text="environmental sound of water wind and footsteps",
+                    gap_plan={
+                        "unsupported_terms": ["environmental", "sound", "water", "wind", "footsteps"],
+                        "gap_terms": [
+                            {"term": "environmental", "weight": 2.0},
+                            {"term": "sound", "weight": 2.0},
+                            {"term": "water", "weight": 2.0},
+                            {"term": "wind", "weight": 2.0},
+                            {"term": "footsteps", "weight": 2.0},
+                        ],
+                        "grounded_fraction": 0.0,
+                    },
+                    source="test",
+                )
                 manager._trainer.config.enable_cross_modal = True
                 manager._brain_config["sensory"] = {
                     "enabled": True,
@@ -4380,6 +4356,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(summary["sources"][0]["name"], "environmental_audio")
                 self.assertGreater(summary["sources"][0]["item_semantic_match"], 0.5)
                 self.assertEqual(summary["sources"][0]["item_candidates_considered"], 3)
+                grounded = summary["sources"][0]["grounded_observation"]
+                self.assertEqual(grounded["observation_sink"], "subcortex_grounded_sensory_observation")
+                self.assertFalse(grounded["retired_loop_mirrored"])
+                grounded_terms = " ".join(list(grounded["topics"]) + list(grounded["metadata"]["focus_terms"]))
+                self.assertIn("water", grounded_terms)
+                self.assertIn("wind", grounded_terms)
+                self.assertIn("footsteps", grounded["content"].lower())
 
                 previews = manager.runtime_facade.sensory_previews(limit=1)
                 preview = previews["previews"][0]

@@ -1459,22 +1459,35 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(truth["verdict"], "partial")
         self.assertEqual(truth["recommended_action"], "configure_terminus_sources")
 
-    def test_verdict_alive_when_cortex_retired_but_runtime_progresses(self) -> None:
-        """Retired cortex should not keep an otherwise progressing runtime partial."""
+    def test_verdict_alive_when_retired_runtime_path_retired_but_runtime_progresses(self) -> None:
+        """Retired runtime path should not keep an otherwise progressing runtime partial."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_no_cortex_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
         self.assertEqual(truth["verdict"], "alive")
         self.assertEqual(truth["recommended_action"], "continue_monitoring")
-        self.assertFalse(truth["cortex_available"])
-        self.assertTrue(truth["cortex_retired"])
         self.assertFalse(truth["retired_runtime_path_available"])
         self.assertTrue(truth["retired_runtime_path_retired"])
+        self.assertEqual(
+            truth["retired_runtime_path"],
+            {
+                "name": "cortex",
+                "available": False,
+                "retired": True,
+                "active_runtime_requirement": False,
+                "operator_surface": False,
+                "compatibility_aliases": ["cortex_available", "cortex_retired"],
+            },
+        )
+        self.assertEqual(truth["cortex_available"], truth["retired_runtime_path_available"])
+        self.assertEqual(truth["cortex_retired"], truth["retired_runtime_path_retired"])
         self.assertFalse(truth["evidence"]["retired_runtime_path_enabled"])
         self.assertTrue(truth["evidence"]["retired_runtime_path_retired"])
+        self.assertEqual(truth["evidence"]["cortex_enabled"], truth["evidence"]["retired_runtime_path_enabled"])
+        self.assertEqual(truth["evidence"]["cortex_retired"], truth["evidence"]["retired_runtime_path_retired"])
 
     def test_verdict_degraded_when_no_progress(self) -> None:
-        """When configured+cortex but no progress, the verdict should be 'degraded'."""
+        """When configured with retired-path compatibility but no progress, verdict is degraded."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_degraded_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
@@ -1482,20 +1495,24 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(truth["recommended_action"], "run_tick_or_start_runtime")
 
     def test_verdict_alive_when_configured_with_progress(self) -> None:
-        """When configured+cortex+progress, the verdict should be 'alive'."""
+        """When configured runtime observes progress, the verdict should be 'alive'."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_alive_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
         self.assertEqual(truth["verdict"], "alive")
         self.assertEqual(truth["recommended_action"], "continue_monitoring")
 
-    def test_verdict_includes_cortex_available_flag(self) -> None:
-        """Runtime Truth surfaces cortex_available from the brain snapshot."""
+    def test_verdict_includes_retired_runtime_path_state(self) -> None:
+        """Runtime Truth surfaces canonical retired-runtime-path state from the brain snapshot."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_alive_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
-        self.assertTrue(truth["cortex_available"])
-        self.assertFalse(truth["cortex_retired"])
+        self.assertTrue(truth["retired_runtime_path_available"])
+        self.assertFalse(truth["retired_runtime_path_retired"])
+        self.assertEqual(truth["retired_runtime_path"]["name"], "cortex")
+        self.assertFalse(truth["retired_runtime_path"]["active_runtime_requirement"])
+        self.assertEqual(truth["cortex_available"], truth["retired_runtime_path_available"])
+        self.assertEqual(truth["cortex_retired"], truth["retired_runtime_path_retired"])
 
     def test_verdict_includes_source_configuration_evidence(self) -> None:
         """Runtime Truth includes source configuration with hash and payload."""
@@ -1893,12 +1910,16 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(truth["schema_version"], 1)
         self.assertIn("verdict", truth)
         self.assertIn("recommended_action", truth)
+        self.assertIn("retired_runtime_path", truth)
+        self.assertIn("retired_runtime_path_available", truth)
         self.assertIn("cortex_available", truth)
         self.assertIn("memory_pressure", truth)
         self.assertIn("safety_flags", truth)
         self.assertIn("latency_ms", truth)
         self.assertIn("evidence", truth)
         self.assertIn("configured", truth["evidence"])
+        self.assertIn("retired_runtime_path", truth["evidence"])
+        self.assertIn("retired_runtime_path_enabled", truth["evidence"])
         self.assertIn("token_count", truth["evidence"])
         self.assertIn("subcortex_spike_health", truth["evidence"])
         self.assertTrue(truth["evidence"]["subcortex_spike_health"]["not_liveness_claim"])

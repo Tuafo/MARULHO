@@ -3,11 +3,13 @@
 Covers:
   1. DriveSystem predictive-processing updates
   2. Active exploration target selection and consumption
-  3. ThoughtLoop prediction-error-triggered thinking
+  3. Retired ThoughtLoop exploration behavior (skipped)
   4. Snapshot telemetry for exploration state and neuromodulation
 """
 
 from __future__ import annotations
+
+import pytest
 
 from hecsn.cortex.core import MockCortex, ThoughtDepth, ThoughtResult
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
@@ -93,6 +95,13 @@ class TestActiveExplorationGate:
         packet = gate.assemble()
         assert packet.forced_topic == "reef chemistry"
         assert gate.active_exploration_target == ""
+        assert gate.active_exploration_state.to_dict() == {
+            "target": "",
+            "reason": "",
+            "source": "",
+            "score": 0.0,
+            "updated_at": 0.0,
+        }
 
     def test_gate_normalizes_exploration_target_text(self):
         mem = EpisodicMemory(capacity=100)
@@ -104,8 +113,12 @@ class TestActiveExplorationGate:
             score=0.7,
         )
         assert gate.active_exploration_target == "bears claw adaptation"
+        assert gate.active_exploration_state.reason == "prediction_error"
+        assert gate.active_exploration_state.source == "prediction_error"
+        assert gate.active_exploration_state.score == 0.7
 
 
+@pytest.mark.skip(reason="ThoughtLoop runtime path is retired; exploration now belongs to Subcortex focus/control surfaces")
 class TestThoughtLoopExploration:
     def test_signal_refresh_sets_exploration_target(self):
         memory = EpisodicMemory(capacity=100)

@@ -1,11 +1,12 @@
-"""MultiCortex -- NVIDIA NIM cortex routing for Terminus.
+"""Retired NVIDIA NIM Cortex adapter definitions.
 
-Supports NVIDIA NIM cloud models exclusively:
-- Fast model (nemotron-nano-8b) for routine THINK/REFLECT
-- Deep model (llama-3.3-70b) for DREAM/ANSWER
+The active runtime must not create an external LLM Cortex. Classes in this
+module remain for historical tests and compatibility audits while the
+Subcortex/Living Loop path replaces the former ThoughtLoop stack.
 
-No local Ollama fallback and no silent runtime downgrade.
-`create_cortex_from_env()` raises if NVIDIA NIM is unavailable.
+`create_cortex_from_env()` is retired and always raises. Embedder creation is
+still available for explicit submodule callers while remaining strict by
+default.
 """
 
 from __future__ import annotations
@@ -325,57 +326,8 @@ class MultiCortex(CorticalCore):
 
 
 def create_cortex_from_env() -> CorticalCore:
-    """Factory: create a strict NVIDIA NIM cortex from environment config.
-
-    Requires NVIDIA_API_KEY in environment. Raises RuntimeError if
-    the key is missing or NIM is unreachable.
-    """
-    nim_key = os.environ.get("NVIDIA_API_KEY", "")
-    nim_fast_model = os.environ.get("NIM_FAST_MODEL", DEFAULT_FAST_MODEL)
-    nim_deep_model = os.environ.get("NIM_DEEP_MODEL", DEFAULT_DEEP_MODEL)
-    try:
-        nim_max_rpm = int(os.environ.get("NIM_MAX_RPM", str(DEFAULT_MAX_RPM)))
-    except ValueError:
-        nim_max_rpm = DEFAULT_MAX_RPM
-
-    if not nim_key:
-        raise RuntimeError(
-            "NVIDIA_API_KEY not set. Add it to .env or set the environment variable. "
-            "Get a free key at https://build.nvidia.com/"
-        )
-
-    nim_fast = NIMCortex(
-        model=nim_fast_model,
-        api_key=nim_key,
-        temperature=0.7,
-        max_rpm=nim_max_rpm,
-    )
-    nim_deep = NIMCortex(
-        model=nim_deep_model,
-        api_key=nim_key,
-        temperature=0.8,
-        max_rpm=nim_max_rpm,
-    )
-
-    # Retry health check up to 3 times (NIM can be briefly unreachable)
-    import time as _time
-    for attempt in range(3):
-        if nim_fast.is_available():
-            logger.info(
-                "MultiCortex: NIM fast=%s, NIM deep=%s, budget=%drpm",
-                nim_fast_model,
-                nim_deep_model,
-                nim_max_rpm,
-            )
-            return MultiCortex(fast_cortex=nim_fast, deep_cortex=nim_deep)
-        if attempt < 2:
-            logger.warning("NIM health check failed (attempt %d/3), retrying in 5s...", attempt + 1)
-            _time.sleep(5)
-
-    raise RuntimeError(
-        f"NIM API unreachable after 3 attempts (model={nim_fast_model}). "
-        "Check your NVIDIA_API_KEY and network connection."
-    )
+    """Retired factory for the former external LLM Cortex path."""
+    raise RuntimeError("cortex_runtime_retired: use Subcortex/Living Loop surfaces")
 
 
 def create_embedder_from_env(*, allow_fallback: bool = False):

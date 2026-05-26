@@ -241,11 +241,11 @@ class _BrainRuntimeFixtureBase:
     def _living_loop_snapshot_locked(
         self,
         *,
-        cortex_snapshot: dict[str, object],
+        retired_runtime_path_snapshot: dict[str, object],
         include_replay_dataset_summary: bool = True,
     ) -> dict[str, object]:
         return {
-            "cortex_snapshot": deepcopy(cortex_snapshot),
+            "retired_runtime_path_snapshot": deepcopy(retired_runtime_path_snapshot),
             "include_replay_dataset_summary": bool(include_replay_dataset_summary),
         }
 
@@ -393,8 +393,12 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(module._brain_tick_count, 1)
         self.assertEqual(module._brain_source_index, 1)
         self.assertEqual(manager._runtime_state.mutated, 2)
-        self.assertEqual(len(manager._thought_loop_actual.observations), 1)
-        self.assertEqual(len(manager._thought_loop_actual.surprises), 1)
+        self.assertEqual(grounded["observation_sink"], "subcortex_grounded_source_observation")
+        self.assertFalse(grounded["retired_loop_mirrored"])
+        self.assertEqual(grounded["metadata"]["observation_sink"], "subcortex_grounded_source_observation")
+        self.assertFalse(grounded["metadata"]["retired_loop_mirrored"])
+        self.assertEqual(len(manager._thought_loop_actual.observations), 0)
+        self.assertEqual(len(manager._thought_loop_actual.surprises), 0)
         self.assertEqual(manager._brain_events[-1]["type"], "tick")
         self.assertGreater(module._background_source_utility_entry_locked(runtime)["utility_ema"], 0.0)
 
@@ -419,7 +423,8 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(snapshot["background_source_routing"]["selection_order"], ["source_a"])
         self.assertEqual(snapshot["background_source_routing"]["delayed_consequence_tracking"]["record_count"], 0)
         self.assertEqual(snapshot["text_learning_balance"]["background_tokens_processed"], 8)
-        self.assertEqual(snapshot["living_loop"]["cortex_snapshot"]["enabled"], True)
+        self.assertEqual(snapshot["living_loop"]["retired_runtime_path_snapshot"]["enabled"], True)
+        self.assertEqual(snapshot["retired_runtime_path"]["enabled"], True)
 
 
 if __name__ == "__main__":

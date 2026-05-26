@@ -734,8 +734,6 @@ class BrainRuntime:
         total_trained: int,
         last_metrics: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        if self._thought_loop_actual is None:
-            return {"content": "", "topics": [], "salience": 0.0}
         sentences = self._grounded_source_sentences(evidence_windows)
         excerpt = " ".join(sentences).strip()
         if not excerpt:
@@ -788,15 +786,13 @@ class BrainRuntime:
             focus_terms=deduped_topics[:4],
             extra={
                 "evidence_window_count": int(len(evidence_windows)),
+                "observation_sink": "subcortex_grounded_source_observation",
+                "retired_loop_mirrored": False,
             },
         )
-        self._thought_loop_actual.inject_observation(
-            content=excerpt,
-            topics=deduped_topics,
-            salience=salience,
-            metadata=metadata,
-        )
         return {
+            "observation_sink": "subcortex_grounded_source_observation",
+            "retired_loop_mirrored": False,
             "content": excerpt,
             "topics": deduped_topics,
             "salience": float(salience),
@@ -939,20 +935,6 @@ class BrainRuntime:
             source_summary = {"did_work": False, "reason": "no_tokens"}
 
         autonomy_summary = self._run_brain_autonomy_locked()
-        cortex_work = bool(source_summary.get("did_work")) or autonomy_summary is not None
-
-        if cortex_work and self._thought_loop_actual is not None:
-            try:
-                surprise = self._trainer.model.surprise
-                self._thought_loop_actual.inject_surprise(
-                    dopamine=float(surprise.dopamine),
-                    serotonin=float(surprise.serotonin),
-                    norepinephrine=float(surprise.norepinephrine),
-                    acetylcholine=float(surprise.acetylcholine),
-                )
-            except Exception:
-                pass
-
         if source_info is not None and total_trained > 0:
             try:
                 source_runtime = cast(_BrainSourceRuntime, source_info["runtime"])
@@ -1284,9 +1266,9 @@ class BrainRuntime:
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
-        cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+        retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
         living_loop_snapshot = self._living_loop_snapshot_locked(
-            cortex_snapshot=cortex_snapshot,
+            retired_runtime_path_snapshot=retired_runtime_path_snapshot,
             include_replay_dataset_summary=include_replay_dataset_summary,
         )
         return {
@@ -1419,7 +1401,8 @@ class BrainRuntime:
             },
             "multimodal": self._multimodal_runtime_summary_locked(),
             "living_loop": living_loop_snapshot,
-            "cortex": cortex_snapshot,
+            "retired_runtime_path": retired_runtime_path_snapshot,
+            "cortex": retired_runtime_path_snapshot,
         }
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:

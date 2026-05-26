@@ -16,6 +16,7 @@ from hecsn.cortex.core import (
 from hecsn.cortex.episodic_memory import EpisodicMemory
 from hecsn.cortex.drives import DriveSystem, ThalamicGate
 from hecsn.cortex.thought_loop import ThoughtLoop
+from hecsn.semantics.deliberation_merge import merge_chain_results
 
 
 # ===========================================================================
@@ -277,6 +278,7 @@ class TestContextPacketWorkingMemory:
 # Deliberation chain tests (with MockCortex)
 # ===========================================================================
 
+@pytest.mark.skip(reason="ThoughtLoop runtime path is retired; working-memory primitives stay tested without the old loop")
 class TestDeliberationChains:
     """Test the multi-step inner monologue mechanism."""
 
@@ -488,13 +490,13 @@ class TestMergeChainResults:
             raw_text="", thought="single thought", topics=("a",),
             latency_ms=100.0, parse_success=True,
         )
-        merged = ThoughtLoop._merge_chain_results([result])
+        merged = merge_chain_results([result])
         assert merged is result
 
     def test_two_results_concatenated(self):
         r1 = ThoughtResult(raw_text="", thought="Observation.", topics=("a",), latency_ms=50.0)
         r2 = ThoughtResult(raw_text="", thought="Question?", topics=("b",), latency_ms=60.0)
-        merged = ThoughtLoop._merge_chain_results([r1, r2])
+        merged = merge_chain_results([r1, r2])
         assert "Observation" in merged.thought
         assert "Question" in merged.thought
         assert merged.latency_ms == 110.0
@@ -507,7 +509,7 @@ class TestMergeChainResults:
             ThoughtResult(raw_text="", thought="Reasoning here", topics=("c",), latency_ms=25.0),
             ThoughtResult(raw_text="", thought="The actual insight", topics=("d",), latency_ms=25.0),
         ]
-        merged = ThoughtLoop._merge_chain_results(results)
+        merged = merge_chain_results(results)
         # Should use the LAST (synthesis) step
         assert merged.thought == "The actual insight"
         assert merged.latency_ms == 100.0
@@ -516,7 +518,7 @@ class TestMergeChainResults:
     def test_deduplicates_topics(self):
         r1 = ThoughtResult(raw_text="", thought="A", topics=("physics", "energy"), latency_ms=10.0)
         r2 = ThoughtResult(raw_text="", thought="B", topics=("physics", "heat"), latency_ms=10.0)
-        merged = ThoughtLoop._merge_chain_results([r1, r2])
+        merged = merge_chain_results([r1, r2])
         topic_list = list(merged.topics)
         assert topic_list.count("physics") == 1  # Deduplicated
         assert "energy" in topic_list
@@ -525,12 +527,12 @@ class TestMergeChainResults:
     def test_two_result_merge_statementizes_question(self):
         r1 = ThoughtResult(raw_text="", thought="Coral polyps build reefs.", topics=("coral",), latency_ms=10.0)
         r2 = ThoughtResult(raw_text="", thought="How do coral polyps tolerate warming?", topics=("warming",), latency_ms=10.0)
-        merged = ThoughtLoop._merge_chain_results([r1, r2])
+        merged = merge_chain_results([r1, r2])
         assert "A key open question is" in merged.thought
         assert "?" not in merged.thought
 
     def test_two_result_merge_avoids_redundant_repetition(self):
         r1 = ThoughtResult(raw_text="", thought="Cave formations can be shaped by tidal forces.", topics=("caves",), latency_ms=10.0)
         r2 = ThoughtResult(raw_text="", thought="Cave formations can be influenced by tidal forces.", topics=("tidal forces",), latency_ms=10.0)
-        merged = ThoughtLoop._merge_chain_results([r1, r2])
+        merged = merge_chain_results([r1, r2])
         assert merged.thought.count("Cave formations") == 1

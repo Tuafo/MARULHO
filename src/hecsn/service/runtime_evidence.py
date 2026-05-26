@@ -138,9 +138,9 @@ class RuntimeEvidenceMixin:
         export_created_at = created_at or datetime.now(timezone.utc).isoformat()
         before = self._replay_sample_state_counts_locked()
         if living_loop is None:
-            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(
-                cortex_snapshot=cortex_snapshot,
+                retired_runtime_path_snapshot=retired_runtime_path_snapshot,
                 include_replay_dataset_summary=False,
             )
         policy_decision = self._runtime_trace_export_policy_decision_summary(
@@ -255,8 +255,8 @@ class RuntimeEvidenceMixin:
         with self._lock:
             count = min(MAX_RUNTIME_TRACE_EXPORT_LIMIT, max(1, int(limit)))
             endpoint_filter = self._normalize_runtime_trace_export_filter(endpoint)
-            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             policy_decision = self._runtime_trace_export_policy_decision_summary(
                 living_loop.get("policy_decision") if isinstance(living_loop, Mapping) else None
             )
@@ -328,8 +328,8 @@ class RuntimeEvidenceMixin:
         with self._lock:
             count = min(MAX_REPLAY_DATASET_EXPORT_LIMIT, max(1, int(limit)))
             before = self._replay_sample_state_counts_locked()
-            cortex_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(cortex_snapshot=cortex_snapshot)
+            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._cortex_unavailable_snapshot()
+            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             plan = build_replay_plan(living_loop, limit=count).to_payload()
             after = self._replay_sample_state_counts_locked()
             candidates = [

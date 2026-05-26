@@ -82,6 +82,7 @@ def validate_live_long_run(
     runtime_verdict = str(runtime_truth.get("verdict", "unknown"))
     liveness_verdict = str(long_test_report.get("health_verdict", long_test_report.get("acceptance_verdict", "unknown")))
 
+    runtime_truth_evidence = _mapping(runtime_truth.get("evidence"))
     checks = {
         "runtime_truth_present": runtime_verdict in {"alive", "degraded", "partial", "failed"},
         "liveness_verdict_present": liveness_verdict in {"alive", "degraded", "dead", "passed", "partial", "failed"},
@@ -113,7 +114,12 @@ def validate_live_long_run(
         },
         "retired_cortex": {
             "available": bool(long_test_report.get("cortex_available", False)),
-            "retired": bool(_mapping(runtime_truth.get("evidence")).get("cortex_retired", False)),
+            "retired": bool(
+                runtime_truth_evidence.get(
+                    "retired_runtime_path_retired",
+                    runtime_truth_evidence.get("cortex_retired", False),
+                )
+            ),
         },
         "embedding_health": dict(embedder),
         "replay_safety_status": replay_safety,

@@ -300,6 +300,9 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         sample_interval_s=5.0,
         preset="curriculum",
         memory_capacity=16384,
+        retired_runtime_path_name="cortex",
+        retired_runtime_path_model="retired",
+        retired_runtime_path_available=False,
         cortex_model="multi(test-fast,test-deep)",
         cortex_available=True,
         terminus_configured=True,
@@ -422,6 +425,9 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
     assert "## Liveness Diagnosis" in md_text
     assert "## Memory Pressure" in md_text
     assert "## Global Workspace" in md_text
+    assert "Retired runtime path" in md_text
+    assert "Retired cortex active" not in md_text
+    assert "**Cortex:**" not in md_text
     assert "Runtime truth verdict" in md_text
     assert "continue_monitoring" in md_text
     assert "équilibre" in md_text

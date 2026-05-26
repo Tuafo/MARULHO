@@ -283,37 +283,34 @@ class CortexControllerTests(unittest.TestCase):
 
         controller._thought_loop = loop
         ask = controller.cortex_ask("  cats   chase   mice  ")
-        self.assertTrue(ask["accepted"])
-        self.assertEqual(loop.submitted_queries, ["  cats   chase   mice  "])
-        self.assertEqual(controller._last_cortex_query_hint_text, "cats chase mice")
+        self.assertFalse(ask["accepted"])
+        self.assertEqual(ask["reason"], "cortex_runtime_retired")
+        self.assertEqual(loop.submitted_queries, [])
+        self.assertIsNone(controller._last_cortex_query_hint_text)
         self.assertNotIn("_last_cortex_query_hint_text", fake_manager.__dict__)
 
         sleep = controller.cortex_sleep("  rest   now  ")
-        self.assertTrue(sleep["accepted"])
-        self.assertEqual(loop.sleep_requests[0]["request"]["reason"], "rest now")
-        self.assertEqual(fake_manager.recorded_events[-1]["type"], "cortex_sleep_requested")
+        self.assertFalse(sleep["accepted"])
+        self.assertEqual(sleep["reason"], "cortex_unavailable")
+        self.assertEqual(loop.sleep_requests, [])
+        self.assertEqual(fake_manager.recorded_events, [])
 
         thoughts = controller.cortex_thoughts(limit=1)
-        self.assertTrue(thoughts["enabled"])
-        self.assertEqual(len(thoughts["thoughts"]), 1)
+        self.assertFalse(thoughts["enabled"])
+        self.assertTrue(thoughts["retired"])
+        self.assertEqual(thoughts["thoughts"], [])
         snapshot = controller.cortex_snapshot()
-        self.assertTrue(snapshot["enabled"])
+        self.assertFalse(snapshot["enabled"])
+        self.assertTrue(snapshot["retired"])
+        self.assertIsNone(controller._thought_loop_actual)
 
-    def test_build_thought_loop_injects_action_history(self) -> None:
+    def test_build_thought_loop_is_retired(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))
         controller = _cortex_controller(fake_manager)
-        injected_loop = _FakeThoughtLoop()
-
-        def _create_cortex() -> _FakeCortex:
-            return _FakeCortex()
-
-        def _create_embedder(*, allow_fallback: bool = False) -> _FakeEmbedder:
-            return _FakeEmbedder()
-
         controller._cortex_factory_refs = (
             _BuildableFakeThoughtLoop,
-            _create_cortex,
-            _create_embedder,
+            lambda: _FakeCortex(),
+            lambda allow_fallback=False: _FakeEmbedder(),
             _FakeMemory,
         )
         action_history = [
@@ -325,16 +322,12 @@ class CortexControllerTests(unittest.TestCase):
             }
         ]
 
-        with patch.object(controller, "_inject_action_record_into_loop", wraps=controller._inject_action_record_into_loop) as inject:
-            built = controller._build_cortex_thought_loop(action_history)
+        with self.assertRaisesRegex(RuntimeError, "cortex_runtime_retired"):
+            controller._build_cortex_thought_loop(action_history)
+        self.assertIsNone(controller._thought_loop_actual)
+        self.assertFalse(controller._cortex_available)
 
-        self.assertIsInstance(built, _BuildableFakeThoughtLoop)
-        self.assertEqual(inject.call_count, 1)
-        self.assertEqual(built.injected_action_results[0]["content"], "workspace search episode")
-        self.assertEqual(built.injected_action_results[0]["topics"], ("cats", "mice"))
-        self.assertEqual(built.injected_action_results[0]["metadata"]["action_id"], "action-1")
-
-    def test_delayed_initialization_starts_loop_when_runtime_active(self) -> None:
+    def test_delayed_initialization_keeps_cortex_retired(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))
         fake_manager._brain_running = True
         controller = _cortex_controller(fake_manager)
@@ -344,10 +337,11 @@ class CortexControllerTests(unittest.TestCase):
             controller._start_cortex_initialization()
             self.assertTrue(controller._cortex_init_event.wait(timeout=1.0))
 
-        self.assertTrue(build_loop.called)
-        self.assertIs(controller._thought_loop_actual, loop)
-        self.assertTrue(loop.is_running)
-        self.assertTrue(controller._cortex_available)
+        self.assertFalse(build_loop.called)
+        self.assertIsNone(controller._thought_loop_actual)
+        self.assertFalse(loop.is_running)
+        self.assertFalse(controller._cortex_available)
+        self.assertIn("retired", controller._cortex_init_error or "")
 
     def test_action_intent_reuses_recent_verified_action(self) -> None:
         fake_manager = _FakeManager(checkpoint_dir=Path("C:/tmp"))

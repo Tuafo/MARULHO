@@ -229,9 +229,34 @@ class StatusReadModel:
         trace_history_size: int,
     ) -> dict[str, Any]:
         """Build the Runtime Truth contract. Reads self._trainer for token_count only."""
-        cortex = terminus_runtime.get("cortex") if isinstance(terminus_runtime, Mapping) else {}
-        cortex_available = bool(isinstance(cortex, Mapping) and cortex.get("enabled"))
-        cortex_retired = bool(isinstance(cortex, Mapping) and cortex.get("retired"))
+        retired_runtime_path_source = (
+            terminus_runtime.get("retired_runtime_path")
+            or terminus_runtime.get("cortex")
+            if isinstance(terminus_runtime, Mapping)
+            else {}
+        )
+        retired_runtime_path_available = bool(
+            isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("enabled")
+        )
+        retired_runtime_path_retired = bool(
+            isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("retired")
+        )
+        retired_runtime_path = {
+            "name": "cortex",
+            "available": retired_runtime_path_available,
+            "retired": retired_runtime_path_retired,
+            "active_runtime_requirement": False,
+            "operator_surface": False,
+            "compatibility_aliases": ["cortex_available", "cortex_retired"],
+        }
+        retired_runtime_path_evidence = {
+            "name": "cortex",
+            "enabled": retired_runtime_path_available,
+            "retired": retired_runtime_path_retired,
+            "active_runtime_requirement": False,
+            "operator_surface": False,
+            "compatibility_aliases": ["cortex_enabled", "cortex_retired"],
+        }
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
         last_error = str(terminus_runtime.get("last_error") or "").strip()
@@ -432,10 +457,11 @@ class StatusReadModel:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "verdict": verdict,
             "recommended_action": recommended_action,
-            "retired_runtime_path_available": cortex_available,
-            "retired_runtime_path_retired": cortex_retired,
-            "cortex_available": cortex_available,
-            "cortex_retired": cortex_retired,
+            "retired_runtime_path": retired_runtime_path,
+            "retired_runtime_path_available": retired_runtime_path_available,
+            "retired_runtime_path_retired": retired_runtime_path_retired,
+            "cortex_available": retired_runtime_path_available,
+            "cortex_retired": retired_runtime_path_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -454,10 +480,11 @@ class StatusReadModel:
                 "autonomy_tokens_processed": autonomy_tokens,
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
-                "retired_runtime_path_enabled": cortex_available,
-                "retired_runtime_path_retired": cortex_retired,
-                "cortex_enabled": cortex_available,
-                "cortex_retired": cortex_retired,
+                "retired_runtime_path": retired_runtime_path_evidence,
+                "retired_runtime_path_enabled": retired_runtime_path_available,
+                "retired_runtime_path_retired": retired_runtime_path_retired,
+                "cortex_enabled": retired_runtime_path_available,
+                "cortex_retired": retired_runtime_path_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "subcortex_spike_health": subcortex_spike_health,

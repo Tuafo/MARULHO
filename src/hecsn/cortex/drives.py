@@ -1,12 +1,11 @@
-"""Drive system and thalamic gate — SNN control over the cortex.
+"""Drive system and thalamic gate for Subcortex control.
 
 The drive system converts SNN signals (surprise, curiosity, neuromodulators)
-into actionable drives that determine WHEN and WHAT the LLM thinks about.
+into actionable drives that determine when language/readout surfaces wake.
 The thalamic gate assembles budgeted context packets from drives + memories.
 
-This is the critical integration point: the SNN doesn't understand language,
-but it controls the LLM's attention through these biologically-inspired
-mechanisms.
+This is a control interface: the SNN does not need to reason in language, but
+it can expose bounded focus targets for language-facing readouts.
 
 Anti-rumination: boredom circuit with exponential decay on repeated topics,
 diversity penalties, and verified-progress triggers prevent degenerate loops.
@@ -22,6 +21,7 @@ from typing import Any, Sequence
 
 from hecsn.cortex.core import ContextPacket, MemoryItem, ThinkingMode, ThoughtResult
 from hecsn.cortex.episodic_memory import EpisodicMemory
+from hecsn.semantics.exploration_state import ExplorationState
 
 logger = logging.getLogger(__name__)
 
@@ -714,15 +714,31 @@ class ThalamicGate:
         self.drives = drives
         self.max_memories = max_memories
         self._snn_concept_labels: list[str] = []
-        self.working_memory: Any = None  # Set by ThoughtLoop
-        self.narrative_self: Any = None  # Set by ThoughtLoop
-        self.active_exploration_target: str = ""
-        self.active_exploration_reason: str = ""
-        self.active_exploration_source: str = ""
-        self.active_exploration_score: float = 0.0
-        self.active_exploration_updated_at: float = 0.0
+        self.working_memory: Any = None  # Attached by the active deliberation surface.
+        self.narrative_self: Any = None  # Attached by the active deliberation surface.
+        self.active_exploration_state = ExplorationState()
         from collections import deque
         self._query_queue: deque[str] = deque(maxlen=max_query_queue)
+
+    @property
+    def active_exploration_target(self) -> str:
+        return self.active_exploration_state.target
+
+    @property
+    def active_exploration_reason(self) -> str:
+        return self.active_exploration_state.reason
+
+    @property
+    def active_exploration_source(self) -> str:
+        return self.active_exploration_state.source
+
+    @property
+    def active_exploration_score(self) -> float:
+        return self.active_exploration_state.score
+
+    @property
+    def active_exploration_updated_at(self) -> float:
+        return self.active_exploration_state.updated_at
 
     def has_pending_query(self) -> bool:
         return bool(self._query_queue)
@@ -743,23 +759,20 @@ class ThalamicGate:
         score: float = 0.0,
     ) -> None:
         """Set the next wakeful exploration target chosen by the brain."""
-        cleaned = " ".join(str(topic).replace("/", " ").replace("|", " ").split()).strip()
-        if not cleaned:
+        state = ExplorationState.from_target(
+            topic,
+            reason=reason,
+            source=source,
+            score=score,
+        )
+        if not state.target:
             self.clear_active_exploration_target()
             return
-        self.active_exploration_target = cleaned[:120]
-        self.active_exploration_reason = " ".join(str(reason).split()).strip()[:160]
-        self.active_exploration_source = str(source).strip()[:40]
-        self.active_exploration_score = max(0.0, min(1.0, float(score)))
-        self.active_exploration_updated_at = time.time()
+        self.active_exploration_state = state
 
     def clear_active_exploration_target(self) -> None:
         """Clear the active exploration target after it has been consumed."""
-        self.active_exploration_target = ""
-        self.active_exploration_reason = ""
-        self.active_exploration_source = ""
-        self.active_exploration_score = 0.0
-        self.active_exploration_updated_at = 0.0
+        self.active_exploration_state = ExplorationState()
 
     @staticmethod
     def _memory_item_from_episode(ep: Any, *, text: str | None = None) -> MemoryItem:
@@ -921,12 +934,12 @@ class ThalamicGate:
         )
         return packet
 
-    def emit_cortex_feedback(self, result: ThoughtResult) -> dict[str, Any]:
-        """Build a feedback payload from ThoughtResult for SNN consumption.
+    def emit_deliberation_feedback(self, result: ThoughtResult) -> dict[str, Any]:
+        """Build feedback from a language-facing result for Subcortex control.
 
-        Called by ThoughtLoop._deliberate() after each cortex inference.
-        Routes thought topics back into SNN curiosity routing, cross-modal
-        grounding, and context assembly — closing the cortex→SNN loop.
+        Called by a deliberation surface after each supported inference.
+        Routes topics back into SNN curiosity routing, cross-modal grounding,
+        and context assembly so language-facing outputs stay evidence-coupled.
         """
         boosts: list[tuple[str, float]] = []
         grounding_candidates: list[str] = []

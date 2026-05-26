@@ -196,6 +196,7 @@ def build_runtime_benchmark_telemetry(
     action_loop: Mapping[str, Any] | None = None,
     memory: Mapping[str, Any] | None = None,
     runtime_memory: Mapping[str, Any] | None = None,
+    retired_runtime_path: Mapping[str, Any] | None = None,
     cortex: Mapping[str, Any] | None = None,
     runtime: Mapping[str, Any] | None = None,
     feedback_summary: Mapping[str, Any] | None = None,
@@ -203,6 +204,7 @@ def build_runtime_benchmark_telemetry(
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Transparent benchmark telemetry from already-recorded runtime facts."""
+    retired_runtime_path_data = dict(retired_runtime_path or cortex or {})
     episode_records = tuple(
         item if isinstance(item, RuntimeEpisodeTrace) else RuntimeEpisodeTrace.from_payload(item)
         for item in runtime_episodes
@@ -303,8 +305,8 @@ def build_runtime_benchmark_telemetry(
         }
 
     cache_summary = _extract_cache_summary(
-        (dict(cortex or {}).get("episodic_memory") or {}).get("embedder", {})
-        if isinstance((dict(cortex or {}).get("episodic_memory") or {}), Mapping)
+        (retired_runtime_path_data.get("episodic_memory") or {}).get("embedder", {})
+        if isinstance((retired_runtime_path_data.get("episodic_memory") or {}), Mapping)
         else {}
     )
 
@@ -327,7 +329,7 @@ def build_runtime_benchmark_telemetry(
         "endpoint_latency_ms": endpoint_latency_ms,
         "tokens_per_second": tokens_per_second,
         "memory": _memory_counter_summary(memory, runtime_memory),
-        "nim": _extract_nim_summary(cortex),
+        "nim": _extract_nim_summary(retired_runtime_path_data),
         "cache": cache_summary,
         "action_success": {
             "action_count": int(total_actions),
@@ -383,6 +385,7 @@ class OperationalSelfModel:
     memory: dict[str, Any] = field(default_factory=dict)
     narrative: dict[str, Any] = field(default_factory=dict)
     cortex: dict[str, Any] = field(default_factory=dict)
+    retired_runtime_path: dict[str, Any] = field(default_factory=dict)
     world_model_lite: WorldModelLiteSummary | None = None
     skill_memories: tuple[SkillMemoryRecord, ...] = ()
 
@@ -455,6 +458,7 @@ class OperationalSelfModel:
             memory=dict(data.get("memory") or {}),
             narrative=dict(data.get("narrative") or {}),
             cortex=dict(data.get("cortex") or {}),
+            retired_runtime_path=dict(data.get("retired_runtime_path") or {}),
             world_model_lite=world_model_lite,
             skill_memories=skill_memories or SkillMemoryRecord.from_action_records(actions),
         )
@@ -476,6 +480,7 @@ class OperationalSelfModel:
         memory: Mapping[str, Any] | None = None,
         narrative: Mapping[str, Any] | None = None,
         cortex: Mapping[str, Any] | None = None,
+        retired_runtime_path: Mapping[str, Any] | None = None,
         generated_at: str | None = None,
     ) -> "OperationalSelfModel":
         runtime_episode_records = tuple(runtime_episodes)
@@ -523,6 +528,7 @@ class OperationalSelfModel:
             memory=dict(memory or {}),
             narrative=dict(narrative or {}),
             cortex=dict(cortex or {}),
+            retired_runtime_path=dict(retired_runtime_path or {}),
             world_model_lite=world_model_lite,
             skill_memories=SkillMemoryRecord.from_action_records(action_records),
         )
@@ -578,6 +584,8 @@ class OperationalSelfModel:
             capabilities.append("delayed_consequence_consolidation_tracking")
         if self.memory:
             capabilities.append("episodic_memory_snapshot")
+        if self.retired_runtime_path:
+            capabilities.append("retired_runtime_path_snapshot")
         if self.cortex.get("enabled", False):
             capabilities.append("cortex_loop_snapshot")
         capabilities.append("world_model_lite_policy_scoring")
@@ -840,6 +848,7 @@ class OperationalSelfModel:
                 world_model_lite=world_model_lite,
                 action_loop=self.action_loop,
                 memory=self.memory,
+                retired_runtime_path=self.retired_runtime_path or self.cortex,
                 cortex=self.cortex,
                 generated_at=self.generated_at,
             ),
@@ -858,5 +867,6 @@ class OperationalSelfModel:
             "action_loop": dict(self.action_loop),
             "memory": dict(self.memory),
             "narrative": dict(self.narrative),
+            "retired_runtime_path": dict(self.retired_runtime_path),
             "cortex": dict(self.cortex),
         }

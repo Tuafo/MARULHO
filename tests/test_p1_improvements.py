@@ -232,6 +232,32 @@ class TestSmallWorldHubTracking:
 class TestNIMCortexNoOllama:
     """Verify that NO Ollama is referenced or launched."""
 
+    def test_public_cortex_boundary_excludes_active_product_path(self):
+        import hecsn.cortex as cortex
+
+        retired_exports = {
+            "ThoughtLoop",
+            "BrainStats",
+            "NIMCortex",
+            "MultiCortex",
+            "create_cortex_from_env",
+            "create_embedder_from_env",
+        }
+        for name in retired_exports:
+            assert not hasattr(cortex, name)
+            assert name not in cortex.__all__
+
+        for name in {
+            "CorticalCore",
+            "ContextPacket",
+            "MemoryItem",
+            "ThoughtResult",
+            "ThinkingMode",
+            "MockCortex",
+        }:
+            assert hasattr(cortex, name)
+            assert name in cortex.__all__
+
     def test_no_ollama_in_cortex_imports(self):
         import hecsn.cortex.core as core_module
         source = open(core_module.__file__).read()
@@ -240,18 +266,21 @@ class TestNIMCortexNoOllama:
         assert "api/generate" not in source
         assert "httpx.Client" not in source
 
-    def test_create_cortex_from_env_no_ollama(self):
-        """Without API key, raise RuntimeError — no silent MockCortex fallback."""
+    def test_create_cortex_from_env_is_retired(self):
+        """The old external LLM Cortex factory is retired, regardless of API key."""
         import os
-        old_key = os.environ.pop("NVIDIA_API_KEY", None)
+        old_key = os.environ.get("NVIDIA_API_KEY")
         try:
+            os.environ["NVIDIA_API_KEY"] = "would-not-enable-retired-path"
             from hecsn.cortex.multi_cortex import create_cortex_from_env
             import pytest
-            with pytest.raises(RuntimeError, match="NVIDIA_API_KEY not set"):
+            with pytest.raises(RuntimeError, match="cortex_runtime_retired"):
                 create_cortex_from_env()
         finally:
-            if old_key:
+            if old_key is not None:
                 os.environ["NVIDIA_API_KEY"] = old_key
+            else:
+                os.environ.pop("NVIDIA_API_KEY", None)
 
     def test_create_embedder_from_env_is_strict_by_default(self):
         import os

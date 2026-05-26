@@ -35,7 +35,6 @@ DEFAULT_HEALTH_THRESHOLDS: dict[str, int] = {
     "min_samples": 1,
     "min_runtime_progress_tokens": 1,
 }
-DEFAULT_CORTEX_INIT_WAIT_S = 15.0
 DEFAULT_LONG_TEST_MEMORY_CAPACITY = 16_384
 
 
@@ -55,7 +54,7 @@ class MetricSnapshot:
     memory_size: int = 0
     consolidation_mean: float = 0.0
     ripple_tagged: int = 0
-    cortex_latency_ms: float = 0.0
+    runtime_latency_ms: float = 0.0
     topic_diversity: int = 0
     da_level: float = 0.0
     serotonin_level: float = 0.0
@@ -65,7 +64,7 @@ class MetricSnapshot:
     prediction_error_max: float = 0.0
     dream_verification_rate: float = 0.0
     depth_counts: dict[str, int] = field(default_factory=dict)
-    cortex_model: str = ""
+    retired_runtime_path_model: str = "retired"
     narrative_summary: str = ""
     exploration_target: str = ""
     exploration_reason: str = ""
@@ -89,6 +88,9 @@ class TestReport:
     sample_interval_s: float = 0.0
     preset: str = ""
     memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY
+    retired_runtime_path_name: str = "cortex"
+    retired_runtime_path_model: str = "retired"
+    retired_runtime_path_available: bool = False
     cortex_model: str = ""
     cortex_available: bool = False
     terminus_configured: bool = False
@@ -295,73 +297,6 @@ def _memory_pressure_snapshot(
     }
 
 
-def _thought_lifecycle_snapshot(
-    cortex_snapshot: Mapping[str, Any],
-    thoughts_data: Mapping[str, Any],
-) -> dict[str, Any]:
-    gating = cortex_snapshot.get("gating") if isinstance(cortex_snapshot.get("gating"), Mapping) else {}
-    lifecycle = cortex_snapshot.get("thought_lifecycle") if isinstance(cortex_snapshot.get("thought_lifecycle"), Mapping) else {}
-    recent = list(thoughts_data.get("thoughts") or []) if isinstance(thoughts_data, Mapping) else []
-    successful = int(thoughts_data.get("thoughts_generated", cortex_snapshot.get("thoughts_generated", 0)) or 0)
-    attempts = int(lifecycle.get("attempts", successful) or 0)
-    blocked_ticks = int(lifecycle.get("blocked_ticks", 0) or 0)
-    last_blocked = dict(lifecycle.get("last_blocked") or {}) if isinstance(lifecycle.get("last_blocked"), Mapping) else {}
-    if successful <= 0 and attempts <= 0:
-        rejected_reason = str(last_blocked.get("reason") or gating.get("inhibition_reason") or gating.get("last_gate_reason") or "no_deliberation_attempt")
-    elif attempts > successful:
-        rejected_reason = str(last_blocked.get("reason") or "some_attempts_blocked_or_rejected")
-    else:
-        rejected_reason = ""
-    return {
-        "enabled": bool(cortex_snapshot.get("enabled", False)),
-        "running": bool(cortex_snapshot.get("running", False)),
-        "mode": str(cortex_snapshot.get("current_mode", "")),
-        "attempts": attempts,
-        "successful": successful,
-        "dreams": int(cortex_snapshot.get("dreams_generated", 0) or 0),
-        "blocked_ticks": blocked_ticks,
-        "recent_thought_count": len(recent),
-        "wake_triggers": {
-            "pending_grounded_observations": int(gating.get("pending_grounded_observations", 0) or 0),
-            "pending_substrate_wakes": int(gating.get("pending_substrate_wakes", 0) or 0),
-            "active_tension_count": int(gating.get("active_tension_count", 0) or 0),
-            "last_gate_reason": str(gating.get("last_gate_reason", "")),
-            "inhibition_reason": str(gating.get("inhibition_reason", "")),
-            "startup_quiet": bool(gating.get("startup_quiet", False)),
-        },
-        "depth_policy": dict(cortex_snapshot.get("depth_policy") or {}) if isinstance(cortex_snapshot.get("depth_policy"), Mapping) else {},
-        "last_attempt": dict(lifecycle.get("last_attempt") or {}) if isinstance(lifecycle.get("last_attempt"), Mapping) else {},
-        "last_blocked": last_blocked,
-        "rejected_or_blocked_reason": rejected_reason,
-    }
-
-
-def _global_workspace_snapshot(cortex_snapshot: Mapping[str, Any]) -> dict[str, Any]:
-    working_memory = cortex_snapshot.get("working_memory") if isinstance(cortex_snapshot.get("working_memory"), Mapping) else {}
-    items = [
-        dict(item)
-        for item in list(working_memory.get("items") or [])[:5]
-        if isinstance(item, Mapping)
-    ]
-    active_exploration = cortex_snapshot.get("active_exploration") if isinstance(cortex_snapshot.get("active_exploration"), Mapping) else {}
-    narrative = cortex_snapshot.get("narrative_self") if isinstance(cortex_snapshot.get("narrative_self"), Mapping) else {}
-    return {
-        "capacity": int(working_memory.get("capacity", 0) or 0),
-        "size": int(working_memory.get("size", 0) or 0),
-        "selected_context_items": items,
-        "broadcast": str(working_memory.get("broadcast", ""))[:300],
-        "has_tension": bool(working_memory.get("has_tension", False)),
-        "has_question": bool(working_memory.get("has_question", False)),
-        "active_exploration": dict(active_exploration),
-        "narrative_summary": str(narrative.get("summary", "")),
-        "evidence_boundary": {
-            "grounded_items": sum(1 for item in items if str(item.get("type", "")) in {"observation", "insight"}),
-            "hypothesis_items": sum(1 for item in items if str(item.get("type", "")) == "hypothesis"),
-            "hypotheses_promoted_to_fact": 0,
-        },
-    }
-
-
 def _summarize_memory_pressure(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
     if not snapshots:
         return {}
@@ -430,7 +365,6 @@ def run_acceptance_harness(
     env_root: str | Path | None = None,
     idle_wait_s: float = 0.35,
     tick_steps: int = 2,
-    cortex_wait_s: float = DEFAULT_CORTEX_INIT_WAIT_S,
 ) -> dict[str, Any]:
     """Run a small deterministic acceptance harness on maintained runtime paths."""
 
@@ -665,8 +599,8 @@ def _collect_snapshot(
     snapshot.memory_size = int(memory_store.get("size", 0) or 0)
     snapshot.consolidation_mean = float(memory_store.get("mean_consolidation_level", 0.0) or 0.0)
     snapshot.ripple_tagged = int(memory_store.get("ripple_tagged", 0) or 0)
-    snapshot.cortex_model = "retired"
-    snapshot.cortex_latency_ms = 0.0
+    snapshot.retired_runtime_path_model = "retired"
+    snapshot.runtime_latency_ms = 0.0
     snapshot.embedder = {"kind": "retired_cortex", "available": False}
     snapshot.runtime_truth = dict(runtime_truth)
     snapshot.thought_lifecycle = {"enabled": False, "retired": True}
@@ -756,6 +690,9 @@ def run_long_test(
             )
 
         time.sleep(2.0)
+        report.retired_runtime_path_name = "cortex"
+        report.retired_runtime_path_available = False
+        report.retired_runtime_path_model = "retired"
         report.cortex_available = False
         report.cortex_model = "retired"
 
@@ -794,14 +731,14 @@ def run_long_test(
                     logger.warning("Snapshot error: %s", exc)
                 snapshots.append(snapshot)
                 logger.info(
-                    "[%3.0fs/%3.0fs] thoughts=%d (+%d) tokens=%d bg=%d latency=%.0fms mem=%.0f%% topics=%d",
+                    "[%3.0fs/%3.0fs] thoughts=%d (+%d) tokens=%d bg=%d runtime_latency=%.0fms mem=%.0f%% topics=%d",
                     snapshot.elapsed_s,
                     duration_s,
                     snapshot.thoughts_total,
                     snapshot.thoughts_delta,
                     snapshot.token_count,
                     snapshot.background_tokens_processed,
-                    snapshot.cortex_latency_ms,
+                    snapshot.runtime_latency_ms,
                     snapshot.memory_fill * 100.0,
                     snapshot.topic_diversity,
                 )
@@ -834,8 +771,10 @@ def run_long_test(
     report.unique_topics = int(len(all_topics))
     report.all_topics = sorted(all_topics)
     report.topic_diversity_ratio = float(len(all_topics)) / float(max(1, report.total_thoughts))
-    if not report.cortex_model and snapshots:
-        report.cortex_model = str(snapshots[0].cortex_model)
+    if not report.retired_runtime_path_model and snapshots:
+        report.retired_runtime_path_model = str(snapshots[0].retired_runtime_path_model)
+    if not report.cortex_model:
+        report.cortex_model = report.retired_runtime_path_model
     report.final_prediction_error_mean = float(snapshots[-1].prediction_error_mean) if snapshots else 0.0
     report.final_prediction_error_max = float(snapshots[-1].prediction_error_max) if snapshots else 0.0
     report.final_dream_verification_rate = float(snapshots[-1].dream_verification_rate) if snapshots else 0.0
@@ -879,7 +818,7 @@ def run_long_test(
             "background_tokens_processed": item.background_tokens_processed,
             "tick_count": item.tick_count,
             "runtime_running": item.runtime_running,
-            "latency_ms": item.cortex_latency_ms,
+            "latency_ms": item.runtime_latency_ms,
             "memory_fill": item.memory_fill,
             "memory_size": item.memory_size,
             "consolidation": item.consolidation_mean,
@@ -934,7 +873,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
         f"**Sampling interval:** {report.sample_interval_s:.1f} s",
             f"**Preset:** {report.preset}",
             f"**Memory capacity:** {report.memory_capacity}",
-            f"**Cortex:** {report.cortex_model or '-'}",
+            f"**Retired runtime path:** {report.retired_runtime_path_name} ({report.retired_runtime_path_model or '-'})",
         "",
         "## Health Verdict",
         "",
@@ -1008,7 +947,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Retired cortex active | {report.cortex_available} |",
+            f"| Retired runtime path active | {report.retired_runtime_path_available} |",
             f"| Terminus configured | {report.terminus_configured} |",
             f"| Final runtime running | {report.terminus_running} |",
             f"| Samples collected | {report.samples_collected} |",

@@ -27,7 +27,6 @@ class SourceFocusDependencies:
     interaction_recent_query_gaps: Callable[[], Sequence[Mapping[str, Any]]]
     normalize_action_text: Callable[[Any], str]
     source_text_overlap: Callable[[str, str], float]
-    thought_loop: Callable[[], Any | None]
 
 
 class SourceFocusScorer:
@@ -37,10 +36,6 @@ class SourceFocusScorer:
     @property
     def _brain_source_runtimes(self) -> Sequence[_BrainSourceRuntime]:
         return self._dependencies.brain_source_runtimes()
-
-    @property
-    def _thought_loop_actual(self) -> Any | None:
-        return self._dependencies.thought_loop()
 
     def _background_source_utility_entry_locked(self, runtime: _BrainSourceRuntime) -> Mapping[str, Any]:
         return self._dependencies.background_source_utility_entry(runtime)
@@ -53,12 +48,6 @@ class SourceFocusScorer:
 
     def _focus_gap_terms_locked(self, limit: int = 4) -> list[str]:
         terms: list[str] = []
-
-        exploration_target = ""
-        if self._thought_loop_actual is not None and hasattr(self._thought_loop_actual, "gate"):
-            exploration_target = str(getattr(self._thought_loop_actual.gate, "active_exploration_target", "")).strip()
-        if exploration_target:
-            terms.append(exploration_target)
 
         try:
             plan = self._dependencies.geometric_curiosity_focus_plan(max(1, limit))
