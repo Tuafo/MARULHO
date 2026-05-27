@@ -48,6 +48,7 @@ _LEGACY_MIXIN_CLASSES = frozenset({
     "TerminusAutonomyMixin",
     "RuntimePersistence",
     "RetiredCortexCompatibilityController",
+    "CortexController",
     "ManagerBoundModule",
 })
 
@@ -131,7 +132,7 @@ _ADR_0003_DEEP_MODULES = (
     "Runtime Controller",
     "Status Read Model",
     "Action Executor",
-    "Retired Cortex Compatibility Controller",
+    "Retired Runtime Path State Holder",
     "Runtime Persistence",
     "Runtime Config",
     "Runtime Sources",
@@ -322,7 +323,7 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_runtime_state",
             "_brain_runtime",
             "_runtime_control",
-            "_cortex_controller",
+            "_retired_runtime_path_state",
             "_interaction_pipeline",
             "_action_executor",
             "_feedback_applier",
@@ -458,7 +459,7 @@ class TestADR0003DocumentStatus(unittest.TestCase):
             "RuntimeState",
             "InteractionPipeline",
             "ActionExecutor",
-            "RetiredCortexCompatibilityController",
+            "RetiredRuntimePathState",
         ):
             self.assertIn(module_name, text)
 

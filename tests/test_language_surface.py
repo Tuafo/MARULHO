@@ -4,6 +4,7 @@ import unittest
 
 from hecsn.semantics import (
     build_snn_language_readiness_surface,
+    build_subcortical_spike_readout_evidence,
     build_subcortical_deliberation_surface,
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
@@ -72,6 +73,40 @@ class SubcorticalDeliberationSurfaceTests(unittest.TestCase):
 
 
 class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
+    def test_spike_readout_evidence_is_owned_cuda_aware_and_non_generative(self) -> None:
+        evidence = build_subcortical_spike_readout_evidence(
+            {
+                "prediction_error_mean": 0.31,
+                "prediction_error_max": 0.56,
+                "predictive_confidence_mean": 0.67,
+                "predictive_confidence_min": 0.41,
+                "dopamine": 0.18,
+                "norepinephrine": 0.28,
+                "recent_concepts": ["spike language"],
+                "concept_candidates": [{"label": "spike language", "observations": 4}],
+            },
+            {
+                "cuda_first_runtime": {
+                    "tensor_device": "cuda:0",
+                    "subcortex_tensor_devices": {"competitive": {"prototype_device": "cuda:0"}},
+                }
+            },
+        )
+
+        self.assertEqual(evidence["artifact_kind"], "terminus_subcortical_spike_readout_evidence")
+        self.assertEqual(evidence["surface"], "subcortical_spike_readout_evidence.v1")
+        self.assertTrue(evidence["grounded"])
+        self.assertTrue(evidence["advisory"])
+        self.assertFalse(evidence["executable"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+        self.assertFalse(evidence["generates_text"])
+        self.assertFalse(evidence["retired_runtime_dependency"])
+        self.assertEqual(evidence["device_evidence"]["device"], "cuda:0")
+        self.assertTrue(evidence["device_evidence"]["cuda_device_selected"])
+        self.assertEqual(evidence["population_code"]["concept_focus"], "spike language")
+        self.assertEqual(evidence["readout_slots"][0]["label"], "spike language")
+        self.assertFalse(evidence["promotion_constraints"]["eligible_for_language_generation"])
+
     def test_readiness_tracks_pure_snn_language_research_without_enabling_generation(self) -> None:
         surface = build_snn_language_readiness_surface(
             {
@@ -137,6 +172,14 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertTrue(surface["safety_invariants"]["requires_hecsn_controlled_training"])
         self.assertIn("HECSN must own", " ".join(surface["limitations"]))
         self.assertTrue(surface["readiness_checks"]["grounded_language_surface_available"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_evidence_available"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_grounded"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_device_evidence_available"])
+        self.assertEqual(surface["current_spike_readout_evidence"]["surface"], "subcortical_spike_readout_evidence.v1")
+        self.assertEqual(surface["current_spike_readout_evidence"]["device"], "cuda:0")
+        self.assertTrue(surface["current_spike_readout_evidence"]["cuda_device_selected"])
+        self.assertFalse(surface["current_spike_readout_evidence"]["generates_text"])
         self.assertFalse(surface["readiness_checks"]["local_snn_language_generator_available"])
         self.assertIn("activation_sparsity_report", surface["success_evidence"])
 

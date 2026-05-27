@@ -733,7 +733,7 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
         self.assertEqual(cached_result["checkpoint_path"], first["checkpoint_path"])
 
     def test_telemetry_snapshot_reuses_cache_at_same_revision_when_cortex_inactive(self) -> None:
-        """When cortex is inactive and revision is the same, telemetry returns the cached snapshot."""
+        """When revision is unchanged, telemetry returns the cached snapshot."""
         call_count = 0
         brain_snapshot = _build_brain_snapshot()
 
@@ -771,7 +771,7 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
         self.assertEqual(call_count, first_call_count)
 
     def test_telemetry_snapshot_rebuilds_on_revision_change_when_cortex_inactive(self) -> None:
-        """When cortex is inactive but revision changes, telemetry rebuilds."""
+        """When revision changes, telemetry rebuilds."""
         cfg = _build_config()
         trainer = HECSNTrainer(HECSNModel(cfg), cfg)
         lock = threading.RLock()
@@ -851,7 +851,7 @@ def _build_living_loop_snapshot() -> dict[str, Any]:
             "action_loop": {"enabled": True, "root_path": "/tmp", "supported_actions": [], "actions_recorded": 0, "verified_actions": 0, "contradicted_actions": 0, "last_action": None},
             "memory": {},
             "narrative": {},
-            "retired_runtime_path": {"name": "cortex", "enabled": False, "retired": True},
+            "retired_runtime_path": {"name": "retired_runtime_path", "enabled": False, "retired": True},
             "feedback_summary": {"feedback_count": 0, "verified_count": 0, "contradicted_count": 0, "unverified_count": 0, "recent_feedback": [], "grounding_impact": "none"},
             "feedback_count": 0,
             "verified_feedback_count": 0,
@@ -908,10 +908,7 @@ def _build_cognitive_signal_state_snapshot() -> dict[str, Any]:
     }
 
 
-def _build_read_model_with_living_loop(
-    *,
-    use_legacy_cortex_signal_fn: bool = False,
-) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState, dict[str, int]]:
+def _build_read_model_with_living_loop() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState, dict[str, int]]:
     """Build a StatusReadModel with living loop callbacks wired for testing."""
     cfg = _build_config()
     trainer = HECSNTrainer(HECSNModel(cfg), cfg)
@@ -926,7 +923,6 @@ def _build_read_model_with_living_loop(
         "living_loop": 0,
         "policy_actuator": 0,
         "cognitive_signal": 0,
-        "cortex_signal": 0,
     }
 
     def living_loop_snapshot_fn() -> dict[str, Any]:
@@ -939,10 +935,6 @@ def _build_read_model_with_living_loop(
 
     def cognitive_signal_state_fn() -> dict[str, Any]:
         call_counts["cognitive_signal"] += 1
-        return deepcopy(cognitive_signal_result)
-
-    def cortex_signal_state_fn() -> dict[str, Any]:
-        call_counts["cortex_signal"] += 1
         return deepcopy(cognitive_signal_result)
 
     model = StatusReadModel(
@@ -960,8 +952,7 @@ def _build_read_model_with_living_loop(
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         living_loop_status_fn=living_loop_snapshot_fn,
         policy_actuator_status_fn=policy_actuator_snapshot_fn,
-        cognitive_signal_state_fn=None if use_legacy_cortex_signal_fn else cognitive_signal_state_fn,
-        cortex_signal_state_fn=cortex_signal_state_fn if use_legacy_cortex_signal_fn else None,
+        cognitive_signal_state_fn=cognitive_signal_state_fn,
     )
     return model, trainer, lock, runtime_state, call_counts
 
@@ -1187,6 +1178,13 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
         self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
         self.assertEqual(
+            surface["current_spike_readout_evidence"]["surface"],
+            "subcortical_spike_readout_evidence.v1",
+        )
+        self.assertFalse(surface["current_spike_readout_evidence"]["generates_text"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_evidence_available"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_non_generative"])
+        self.assertEqual(
             [candidate["integration_status"] for candidate in surface["research_candidates"]],
             ["reference_for_hecsn_owned_reimplementation", "reference_for_hecsn_owned_reimplementation"],
         )
@@ -1222,53 +1220,20 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         model.cognitive_signal_state()
         self.assertGreater(call_counts["cognitive_signal"], 0)
 
-    def test_cortex_signal_state_returns_payload_keys(self) -> None:
-        """cortex_signal_state() remains as a compatibility wrapper."""
+    def test_cortex_signal_state_alias_is_removed(self) -> None:
+        """The retired Cortex signal alias must not remain on the read model."""
         model, _, _, _, _ = _build_read_model_with_living_loop()
-        result = model.cortex_signal_state()
-        self.assertIn("prediction_error_mean", result)
-        self.assertIn("prediction_error_max", result)
-        self.assertIn("predictive_confidence_mean", result)
-        self.assertIn("predictive_confidence_min", result)
-        self.assertIn("dopamine", result)
-        self.assertIn("norepinephrine", result)
-        self.assertIn("recent_concepts", result)
-        self.assertIn("concept_candidates", result)
+        self.assertFalse(hasattr(model, "cortex_signal_state"))
 
-    def test_cortex_signal_state_returns_cached_on_lock_contention(self) -> None:
-        """When the lock is held, cortex_signal_state() returns cached data."""
-        model, _, lock, _, _ = _build_read_model_with_living_loop()
-        first = model.cortex_signal_state()
-        cached_result = _run_under_lock_contention(lock, model.cortex_signal_state)
-        self.assertIsNotNone(cached_result)
-        self.assertEqual(cached_result["dopamine"], first["dopamine"])
-
-    def test_cortex_signal_state_delegates_to_callback(self) -> None:
-        """cortex_signal_state() should delegate through the injected callback."""
-        model, _, _, _, call_counts = _build_read_model_with_living_loop()
-        model.cortex_signal_state()
-        self.assertGreater(call_counts["cognitive_signal"], 0)
-
-    def test_legacy_cortex_signal_callback_is_fallback_only(self) -> None:
-        """The retired callback name still works when the canonical callback is absent."""
-        model, _, _, _, call_counts = _build_read_model_with_living_loop(use_legacy_cortex_signal_fn=True)
-        result = model.cognitive_signal_state()
-        self.assertIn("subcortical_language", result)
-        self.assertEqual(call_counts["cognitive_signal"], 0)
-        self.assertGreater(call_counts["cortex_signal"], 0)
-
-    def test_cortex_signal_state_caches_result(self) -> None:
-        """The compatibility wrapper updates old and new cache fields."""
+    def test_cognitive_signal_state_caches_result(self) -> None:
+        """The canonical signal path updates only the canonical cache."""
         model, _, _, _, _ = _build_read_model_with_living_loop()
-        first = model.cortex_signal_state()
-        cached_state = model._cached_cortex_signal_state
-        canonical_cached_state = model._cached_cognitive_signal_state
+        first = model.cognitive_signal_state()
+        self.assertFalse(hasattr(model, "_cached_cortex_signal_state"))
+        cached_state = model._cached_cognitive_signal_state
         self.assertIsNotNone(cached_state)
-        self.assertIsNotNone(canonical_cached_state)
         assert cached_state is not None
-        assert canonical_cached_state is not None
         self.assertEqual(cached_state["dopamine"], first["dopamine"])
-        self.assertEqual(canonical_cached_state["dopamine"], first["dopamine"])
 
 
 class StatusReadModelLivingLoopReadonlyTests(unittest.TestCase):
@@ -1457,7 +1422,7 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(
             truth["retired_runtime_path"],
             {
-                "name": "cortex",
+                "name": "retired_runtime_path",
                 "available": False,
                 "retired": True,
                 "active_runtime_requirement": False,
@@ -1490,7 +1455,7 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         truth = result["runtime_truth"]
         self.assertTrue(truth["retired_runtime_path_available"])
         self.assertFalse(truth["retired_runtime_path_retired"])
-        self.assertEqual(truth["retired_runtime_path"]["name"], "cortex")
+        self.assertEqual(truth["retired_runtime_path"]["name"], "retired_runtime_path")
         self.assertFalse(truth["retired_runtime_path"]["active_runtime_requirement"])
 
     def test_verdict_includes_source_configuration_evidence(self) -> None:
@@ -1645,11 +1610,10 @@ class StatusReadModelNullAdapterFallbackTests(unittest.TestCase):
         result = model.cognitive_signal_state()
         self.assertEqual(result, {})
 
-    def test_cortex_signal_state_without_callback_returns_empty(self) -> None:
-        """The retired Cortex compatibility wrapper returns the same empty payload."""
+    def test_cortex_signal_state_without_callback_is_removed(self) -> None:
+        """The retired Cortex compatibility wrapper is gone."""
         model, _, _, _ = _build_read_model()
-        result = model.cortex_signal_state()
-        self.assertEqual(result, {})
+        self.assertFalse(hasattr(model, "cortex_signal_state"))
 
 
 class StatusReadModelLivingLoopCacheTests(unittest.TestCase):
@@ -1933,11 +1897,16 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(language_gate["eligible_for_fact_promotion"])
         self.assertFalse(language_gate["eligible_for_cognition_substrate"])
         self.assertTrue(language_gate["requires_hecsn_owned_implementation"])
+        self.assertTrue(language_gate["hecsn_spike_readout_evidence_available"])
+        self.assertTrue(language_gate["hecsn_spike_readout_grounded"])
+        self.assertTrue(language_gate["hecsn_spike_readout_non_generative"])
+        self.assertIn("hecsn_spike_readout_device_evidence_available", language_gate)
         for forbidden_key in (
             "endpoint",
             "research_candidates",
             "current_language_surface",
             "current_deliberation_surface",
+            "current_spike_readout_evidence",
             "readiness_checks",
             "success_evidence",
             "suggested_endpoint",
@@ -1996,19 +1965,14 @@ class StatusReadModelCognitiveSignalReadonlyTests(unittest.TestCase):
         model.cognitive_signal_state()
         self.assertFalse(runtime_state.dirty_state)
 
-    def test_cortex_signal_state_does_not_advance_revision(self) -> None:
-        """The retired Cortex wrapper remains read-only."""
-        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
-        rev_before = runtime_state.state_revision
-        model.cortex_signal_state()
-        rev_after = runtime_state.state_revision
-        self.assertEqual(rev_before, rev_after)
-
-    def test_cortex_signal_state_does_not_set_dirty_state(self) -> None:
-        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
-        runtime_state.mark_clean()
-        model.cortex_signal_state()
-        self.assertFalse(runtime_state.dirty_state)
+    def test_manager_cortex_signal_state_alias_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="removed_cortex_signal_alias")
+            try:
+                self.assertFalse(hasattr(manager, "cortex_signal_state"))
+            finally:
+                manager.close()
 
 
 class RuntimeFacadeDelegationTests(unittest.TestCase):

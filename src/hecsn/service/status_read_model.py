@@ -38,7 +38,6 @@ from hecsn.service.runtime_state import RuntimeState
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
 DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS = 0.05
-DEFAULT_CORTEX_SIGNAL_LOCK_TIMEOUT_SECONDS = DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -109,7 +108,6 @@ class StatusReadModel:
         living_loop_status_fn: Callable[[], dict[str, Any]] | None = None,
         policy_actuator_status_fn: Callable[[], dict[str, Any]] | None = None,
         cognitive_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
-        cortex_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
@@ -130,7 +128,7 @@ class StatusReadModel:
         self._animation_snapshot_fn = animation_snapshot_fn
         self._living_loop_status_fn = living_loop_status_fn
         self._policy_actuator_status_fn = policy_actuator_status_fn
-        self._cognitive_signal_state_fn = cognitive_signal_state_fn or cortex_signal_state_fn
+        self._cognitive_signal_state_fn = cognitive_signal_state_fn
 
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
@@ -138,7 +136,6 @@ class StatusReadModel:
         self._cached_telemetry: dict[str, Any] | None = None
         self._cached_telemetry_rev: int = -1
         self._cached_cognitive_signal_state: dict[str, Any] | None = None
-        self._cached_cortex_signal_state: dict[str, Any] | None = None
         self._cached_snn_language_readiness_surface: dict[str, Any] | None = None
         self._cached_living_loop_status: dict[str, Any] | None = None
         self._cached_policy_actuator_status: dict[str, Any] | None = None
@@ -236,14 +233,14 @@ class StatusReadModel:
             isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("retired")
         )
         retired_runtime_path = {
-            "name": "cortex",
+            "name": "retired_runtime_path",
             "available": retired_runtime_path_available,
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
             "operator_surface": False,
         }
         retired_runtime_path_evidence = {
-            "name": "cortex",
+            "name": "retired_runtime_path",
             "enabled": retired_runtime_path_available,
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
@@ -442,6 +439,16 @@ class StatusReadModel:
             ),
             "grounding_support_report_available": bool(
                 readiness_checks.get("grounding_support_report_available")
+            ),
+            "hecsn_spike_readout_evidence_available": bool(
+                readiness_checks.get("hecsn_spike_readout_evidence_available")
+            ),
+            "hecsn_spike_readout_grounded": bool(readiness_checks.get("hecsn_spike_readout_grounded")),
+            "hecsn_spike_readout_non_generative": bool(
+                readiness_checks.get("hecsn_spike_readout_non_generative")
+            ),
+            "hecsn_spike_readout_device_evidence_available": bool(
+                readiness_checks.get("hecsn_spike_readout_device_evidence_available")
             ),
         }
         return {
@@ -820,7 +827,7 @@ class StatusReadModel:
 
         Non-blocking: return cached data when the brain loop holds the lock
         (prevents SSE/API starvation during training or HF network I/O). When
-        the cortex is inactive and the state revision hasn't changed, the
+        the runtime revision hasn't changed, the
         previously cached telemetry snapshot is reused instead of rebuilding.
         """
         return self._read_snapshot(
@@ -1012,14 +1019,9 @@ class StatusReadModel:
         try:
             payload = attach_cognitive_signal_language_surface(cognitive_signal_state_fn())
             self._cached_cognitive_signal_state = payload
-            self._cached_cortex_signal_state = payload
             return payload
         finally:
             self._lock.release()
-
-    def cortex_signal_state(self) -> dict[str, Any]:
-        """Compatibility wrapper for the retired Cortex signal name."""
-        return self.cognitive_signal_state()
 
     def subcortical_language_surface(self) -> dict[str, Any]:
         """Return the Cognitive Signal language surface without changing runtime state."""

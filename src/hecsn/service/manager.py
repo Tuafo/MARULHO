@@ -36,7 +36,7 @@ from hecsn.training.query_runner import build_query_result, feed_text
 
 import logging as _logging
 
-_cortex_logger = _logging.getLogger(__name__ + ".cortex")
+_retired_runtime_logger = _logging.getLogger(__name__ + ".retired_runtime")
 
 
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
@@ -84,8 +84,6 @@ DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT
 MAX_REPLAY_DATASET_EXPORT_LIMIT = MAX_RUNTIME_TRACE_EXPORT_LIMIT
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 MAX_REPLAY_SAMPLE_LIMIT = 20
-DEFAULT_CORTEX_INIT_TIMEOUT_SECONDS = 2.0
-DEFAULT_CORTEX_ACTION_INIT_TIMEOUT_SECONDS = 0.25
 RUNTIME_TRACE_EXPORT_SCHEMA_VERSION = 1
 REPLAY_DATASET_SCHEMA_VERSION = 1
 REPLAY_DATASET_TRAINING_ROLE = "replay_dataset_preview_only_not_training_no_mutation"
@@ -149,7 +147,7 @@ from hecsn.service.feedback_applier import FeedbackApplier
 from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
 from hecsn.service.delayed_consequence import DELAYED_CONSEQUENCE_STATE_FIELDS, DelayedConsequenceDependencies, DelayedConsequenceTracker
 from hecsn.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
-from hecsn.service.cortex_controller import CORTEX_CONTROLLER_STATE_FIELDS, CortexController, CortexControllerDependencies
+from hecsn.service.retired_runtime_path import RETIRED_RUNTIME_PATH_STATE_FIELDS, RetiredRuntimePathState
 from hecsn.service.reporting import ServiceReportingMixin
 from hecsn.service.replay_runtime import ReplayController, ReplayControllerDependencies
 from hecsn.service.interaction_runtime import InteractionRuntimeMixin
@@ -204,7 +202,7 @@ class HECSNServiceManager:
       _runtime_state        � mutation truth and brain event history
       _brain_runtime        � source rebuild, tick, source utility, autonomy, snapshots
       _runtime_control      � configure/start/stop/tick lifecycle and prewarm
-      _cortex_controller    � cortex ask/sleep/thought/action-intent control
+      _retired_runtime_path_state � retired runtime path state and snapshot
       _delayed_consequence   � long-horizon consequence record state machines
       _interaction_pipeline � query/feed/respond turn seam
       _action_executor      � digital action execution and history
@@ -270,28 +268,7 @@ class HECSNServiceManager:
         )
         self._autonomy_planner = AutonomyPlanner(self)
         self._runtime_control = RuntimeControl(self)
-        self._cortex_controller = CortexController(
-            CortexControllerDependencies(
-                action_history=lambda: self._action_history,
-                action_history_memory_metadata=self._action_history_memory_metadata,
-                action_query_terms=self._action_query_terms,
-                action_focus_query_text=self._action_focus_query_text,
-                api_request_record_matches_explicit_url=self._api_request_record_matches_explicit_url,
-                checkpoint_dir=lambda: self._checkpoint_dir,
-                cortex_signal_state=self._cortex_signal_state,
-                lock=self._lock,
-                query_api_url_candidate=self._query_api_url_candidate,
-                query_web_url_candidate=self._query_web_url_candidate,
-                query_workspace_path_candidate=self._query_workspace_path_candidate_locked,
-                recent_relevant_action_records=self._recent_relevant_action_records_locked,
-                record_brain_event=self._record_brain_event_locked,
-                action_record_relevance_score=self._action_record_relevance_score_locked,
-                action_record_to_response_episodes=self._action_record_to_response_episodes_locked,
-                augment_query_result_with_action_records=self._augment_query_result_with_action_records_locked,
-                brain_running=lambda: self._brain_running,
-                execute_digital_action=lambda *args, **kwargs: self._action_executor.execute_digital_action(*args, **kwargs),
-            )
-        )
+        self._retired_runtime_path_state = RetiredRuntimePathState()
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
@@ -326,7 +303,7 @@ class HECSNServiceManager:
         self._replay_controller = ReplayController(
             ReplayControllerDependencies(
                 action_history=lambda: self._action_history,
-                retired_runtime_path_unavailable_snapshot=lambda: self._cortex_controller._retired_runtime_path_unavailable_snapshot(),
+                retired_runtime_path_unavailable_snapshot=lambda: self._retired_runtime_path_state._retired_runtime_path_unavailable_snapshot(),
                 living_loop_snapshot=lambda **kwargs: LivingStatusMixin._living_loop_snapshot_locked(self, **kwargs),
                 lock=self._lock,
                 normalize_action_text=self._normalize_action_text,
@@ -335,7 +312,6 @@ class HECSNServiceManager:
                 runtime_feedback_summary=lambda: RuntimeEvidenceMixin._runtime_feedback_summary_locked(self),
                 runtime_state=self._runtime_state,
                 runtime_trace_export_safe_value=lambda value: RuntimeEvidenceMixin._runtime_trace_export_safe_value(self, value),
-                thought_loop=lambda: self._thought_loop_actual,
                 trainer=lambda: self._trainer,
             ),
             replay_sample_history=list(terminus_state.get("replay_sample_history") or []),
@@ -416,7 +392,7 @@ class HECSNServiceManager:
             interaction_pipeline=lambda: self._interaction_pipeline,
             action_executor=lambda: self._action_executor,
             replay_controller=lambda: self._replay_controller,
-            cortex_controller=lambda: self._cortex_controller,
+            retired_runtime_path_state=lambda: self._retired_runtime_path_state,
             concept_store=lambda: self._concept_store,
             geometric_curiosity=lambda: self._geometric_curiosity,
             runtime_environment_summary=self._runtime_environment_summary,
@@ -836,14 +812,6 @@ class HECSNServiceManager:
         """Build policy actuator status under lock (called by read model callback)."""
         return LivingStatusMixin.policy_actuator_status(self)
 
-    def _cortex_signal_state(self) -> dict[str, Any]:
-        """Compatibility delegate for the retired Cortex signal name."""
-        return self._status_read_model.cognitive_signal_state()
-
-    def _cortex_signal_state_impl(self) -> dict[str, Any]:
-        """Compatibility implementation for the retired Cortex signal name."""
-        return self._cognitive_signal_state_impl()
-
     def _cognitive_signal_state_impl(self) -> dict[str, Any]:
         """Build Cognitive Signal state under lock (called by read model callback)."""
         return LivingStatusMixin._cognitive_signal_state(self)
@@ -913,9 +881,6 @@ class HECSNServiceManager:
     def load_persisted_traces(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence.load_persisted_traces(*args, **kwargs)
 
-    def recent_traces(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.recent_traces(*args, **kwargs)
-
     def _service_state_snapshot(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._service_state_snapshot(*args, **kwargs)
 
@@ -951,15 +916,6 @@ class HECSNServiceManager:
 
     def _replay_sample_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._replay_sample_summary_locked(*args, **kwargs)
-
-    def replay_plan_status(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.replay_plan_status(*args, **kwargs)
-
-    def replay_sample(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.replay_sample(*args, **kwargs)
-
-    def replay_sample_history(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller.replay_sample_history(*args, **kwargs)
 
     def _replay_sample_state_counts_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._replay_sample_state_counts_locked(*args, **kwargs)
@@ -1125,9 +1081,6 @@ class HECSNServiceManager:
 
     def _read_sensory_previews(self, *args: Any, **kwargs: Any) -> Any:
         return self._status_read_model._read_sensory_previews(*args, **kwargs)
-
-    def cortex_signal_state(self, *args: Any, **kwargs: Any) -> Any:
-        return self._status_read_model.cortex_signal_state(*args, **kwargs)
 
     def cognitive_signal_state(self, *args: Any, **kwargs: Any) -> Any:
         return self._status_read_model.cognitive_signal_state(*args, **kwargs)
@@ -1866,9 +1819,8 @@ for _name in BRAIN_RUNTIME_STATE_FIELDS:
     _install_state_property(_name, "_brain_runtime")
 for _name in RUNTIME_CONTROL_STATE_FIELDS:
     _install_state_property(_name, "_runtime_control")
-for _name in CORTEX_CONTROLLER_STATE_FIELDS:
-    _install_state_property(_name, "_cortex_controller")
-_install_state_property("_thought_loop", "_cortex_controller")
+for _name in RETIRED_RUNTIME_PATH_STATE_FIELDS:
+    _install_state_property(_name, "_retired_runtime_path_state")
 for _name in DELAYED_CONSEQUENCE_STATE_FIELDS:
     _install_state_property(_name, "_delayed_consequence")
 

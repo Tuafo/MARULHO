@@ -27,7 +27,6 @@ class _FakeReplayManager:
     def __init__(self) -> None:
         self._lock = RLock()
         self._runtime_state = _FakeRuntimeState()
-        self._thought_loop_actual = None
         self._replay_sample_history = deque(maxlen=256)
         self._trainer = type("_Trainer", (), {"token_count": 13})()
         self._action_history = deque(maxlen=24)
@@ -100,7 +99,6 @@ def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
             runtime_feedback_summary=manager._runtime_feedback_summary_locked,
             runtime_state=manager._runtime_state,
             runtime_trace_export_safe_value=manager._runtime_trace_export_safe_value,
-            thought_loop=lambda: manager._thought_loop_actual,
             trainer=lambda: manager._trainer,
         )
     )

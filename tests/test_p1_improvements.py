@@ -9,6 +9,15 @@ from hecsn.consolidation.memory_store import DualMemoryStore
 from hecsn.core.hypercube import HypercubeBindingLayer, HypercubeTopology
 
 
+def _module_missing(name: str) -> bool:
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(name) is None
+    except ModuleNotFoundError:
+        return True
+
+
 def _outgoing_count(layer: HypercubeBindingLayer, source_id: int) -> int:
     count = 0
     for target in range(layer.n_columns):
@@ -229,89 +238,25 @@ class TestSmallWorldHubTracking:
         assert torch.equal(layer.degree, layer._base_degree)
 
 
-class TestNIMCortexNoOllama:
-    """Verify that NO Ollama is referenced or launched."""
+class TestRetiredCortexExternalLLMPath:
+    """Verify that external LLM Cortex paths are deleted from the public surface."""
 
-    def test_public_cortex_boundary_excludes_active_product_path(self):
-        import hecsn.cortex as cortex
+    def test_cortex_package_is_deleted(self):
+        assert _module_missing("hecsn.cortex")
 
-        retired_exports = {
-            "ThoughtLoop",
-            "BrainStats",
-            "NIMCortex",
-            "MultiCortex",
-            "create_cortex_from_env",
-            "create_embedder_from_env",
-        }
-        for name in retired_exports:
-            assert not hasattr(cortex, name)
-            assert name not in cortex.__all__
+    def test_retired_llm_core_module_is_deleted(self):
+        assert _module_missing("hecsn.cortex.core")
 
-        for name in {
-            "CorticalCore",
-            "ContextPacket",
-            "MemoryItem",
-            "ThoughtResult",
-            "ThinkingMode",
-            "MockCortex",
-        }:
-            assert hasattr(cortex, name)
-            assert name in cortex.__all__
+    def test_retired_llm_prompts_module_is_deleted(self):
+        assert _module_missing("hecsn.cortex.prompts")
 
-    def test_no_ollama_in_cortex_imports(self):
-        import hecsn.cortex.core as core_module
-        source = open(core_module.__file__).read()
-        # Should have no Ollama connection code
-        assert "127.0.0.1:11434" not in source
-        assert "api/generate" not in source
-        assert "httpx.Client" not in source
+    def test_external_llm_adapter_module_is_deleted(self):
+        assert _module_missing("hecsn.cortex.multi_cortex")
 
-    def test_create_cortex_from_env_is_retired(self):
-        """The old external LLM Cortex factory is retired, regardless of API key."""
-        import os
-        old_key = os.environ.get("NVIDIA_API_KEY")
-        try:
-            os.environ["NVIDIA_API_KEY"] = "would-not-enable-retired-path"
-            from hecsn.cortex.multi_cortex import create_cortex_from_env
-            import pytest
-            with pytest.raises(RuntimeError, match="cortex_runtime_retired"):
-                create_cortex_from_env()
-        finally:
-            if old_key is not None:
-                os.environ["NVIDIA_API_KEY"] = old_key
-            else:
-                os.environ.pop("NVIDIA_API_KEY", None)
+    def test_mock_cortex_is_not_public_cognition_contract(self):
+        """Mock Cortex must not be used as a replacement language/thought path."""
+        assert _module_missing("hecsn.cortex")
 
-    def test_create_embedder_from_env_is_strict_by_default(self):
-        import os
-        old_key = os.environ.pop("NVIDIA_API_KEY", None)
-        try:
-            from hecsn.cortex.multi_cortex import create_embedder_from_env
-            with pytest.raises(RuntimeError, match="NVIDIA_API_KEY not set"):
-                create_embedder_from_env()
-        finally:
-            if old_key:
-                os.environ["NVIDIA_API_KEY"] = old_key
-
-    def test_create_embedder_from_env_can_opt_into_simple_fallback(self):
-        import os
-        old_key = os.environ.pop("NVIDIA_API_KEY", None)
-        try:
-            from hecsn.cortex.multi_cortex import create_embedder_from_env
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
-            embedder = create_embedder_from_env(allow_fallback=True)
-            assert isinstance(embedder, SimpleEmbedder)
-        finally:
-            if old_key:
-                os.environ["NVIDIA_API_KEY"] = old_key
-
-    def test_mock_cortex_works_standalone(self):
-        from hecsn.cortex.core import MockCortex, ContextPacket, ThinkingMode
-        cortex = MockCortex()
-        result = cortex.generate(ContextPacket(
-            drive_summary="test curiosity",
-            mode=ThinkingMode.THINK,
-        ))
-        assert result.parse_success
-        assert result.thought
-        assert result.latency_ms == 10.0
+    def test_thought_loop_body_is_deleted(self):
+        """The retired loop must not remain importable as hidden Cortex code."""
+        assert _module_missing("hecsn.cortex.thought_loop")

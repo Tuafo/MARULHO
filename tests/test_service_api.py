@@ -81,21 +81,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            with patch.dict("os.environ", {"NVIDIA_API_KEY": "real-env-placeholder"}), patch(
-                "hecsn.cortex.multi_cortex.create_cortex_from_env"
-            ) as create_cortex, patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env"
-            ) as create_embedder:
-                app = create_app(_build_checkpoint(root, test_case="service_api_cortex_lazy_startup"), trace_dir=root / "traces")
-                with TestClient(app) as client:
-                    health_response = client.get("/health")
-                    status_response = client.get("/status")
-                app.state.hecsn_manager.close()
+            app = create_app(_build_checkpoint(root, test_case="service_api_cortex_lazy_startup"), trace_dir=root / "traces")
+            with TestClient(app) as client:
+                health_response = client.get("/health")
+                status_response = client.get("/status")
+            app.state.hecsn_manager.close()
 
             self.assertEqual(health_response.status_code, 200)
             self.assertEqual(status_response.status_code, 200)
-            create_cortex.assert_not_called()
-            create_embedder.assert_not_called()
+            terminus_runtime = status_response.json()["terminus_runtime"]
+            self.assertNotIn("cortex", terminus_runtime)
+            self.assertTrue(terminus_runtime["retired_runtime_path"]["retired"])
 
     def test_status_and_terminus_endpoints_expose_runtime_truth_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -165,6 +161,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_language_gate["eligible_for_fact_promotion"])
         self.assertFalse(status_language_gate["eligible_for_cognition_substrate"])
         self.assertTrue(status_language_gate["requires_hecsn_owned_implementation"])
+        self.assertTrue(status_language_gate["hecsn_spike_readout_evidence_available"])
+        self.assertTrue(status_language_gate["hecsn_spike_readout_grounded"])
+        self.assertTrue(status_language_gate["hecsn_spike_readout_non_generative"])
+        self.assertEqual(
+            terminus_language_gate["hecsn_spike_readout_evidence_available"],
+            status_language_gate["hecsn_spike_readout_evidence_available"],
+        )
+        self.assertEqual(
+            terminus_language_gate["hecsn_spike_readout_non_generative"],
+            status_language_gate["hecsn_spike_readout_non_generative"],
+        )
         self.assertNotIn("research_candidates", status_language_gate)
         self.assertNotIn("endpoint", status_language_gate)
         self.assertNotIn("readiness_checks", status_language_gate)
@@ -205,6 +212,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(readiness["executable"])
         self.assertFalse(readiness["mutates_runtime_state"])
         self.assertFalse(readiness["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(
+            readiness["current_spike_readout_evidence"]["surface"],
+            "subcortical_spike_readout_evidence.v1",
+        )
+        self.assertFalse(readiness["current_spike_readout_evidence"]["generates_text"])
         self.assertEqual(
             [candidate["name"] for candidate in readiness["research_candidates"]],
             ["NeuronSpark", "Nord-AI"],

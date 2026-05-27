@@ -151,19 +151,11 @@ class ActionRuntimeMixin:
         return " ".join(str(value).split()).strip()
 
     def _inject_action_record_into_retired_loop_locked(self, record: Mapping[str, Any]) -> None:
-        if self._thought_loop_actual is None:
-            return
-        self._inject_action_record_into_loop(self._thought_loop_actual, record)
-
-    def _inject_action_record_into_cortex_locked(self, record: Mapping[str, Any]) -> None:
-        self._inject_action_record_into_retired_loop_locked(record)
+        return
 
     def _replay_action_history_into_retired_loop_locked(self) -> None:
         for record in reversed(list(self._action_history)):
             self._inject_action_record_into_retired_loop_locked(record)
-
-    def _replay_action_history_into_cortex_locked(self) -> None:
-        self._replay_action_history_into_retired_loop_locked()
 
     def _action_loop_summary_locked(self) -> dict[str, Any]:
         verified = 0
@@ -184,11 +176,11 @@ class ActionRuntimeMixin:
             "contradicted_actions": int(contradicted),
             "last_action": last_action,
             "retired_loop_sync": {
-                "status": "active_loop_only" if self._thought_loop_actual is not None else "skipped_retired_loop_absent",
+                "status": "disabled_subcortex_ledger_only",
                 "initializes_retired_loop": False,
                 "reason": (
                     "Digital action history is retained in the Subcortex runtime ledger; "
-                    "retired ThoughtLoop mirroring is best-effort only and must not initialize Cortex."
+                    "retired ThoughtLoop mirroring is removed and must not initialize the retired LLM path."
                 ),
             },
         }

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from hecsn.cortex.core import ThoughtResult
+from hecsn.semantics.language_result import LanguageResult
 
 
 @dataclass
@@ -55,7 +55,7 @@ class BrainStats:
 
     def update_quality_metrics(
         self,
-        result: ThoughtResult,
+        result: LanguageResult,
         snn_concepts: list[str] | None = None,
     ) -> None:
         """Update quality metrics from a language-facing result."""

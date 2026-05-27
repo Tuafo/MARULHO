@@ -711,8 +711,7 @@ def build_policy_actuator_status(
         or _clean_text(retired_runtime_path_state.get("current_mode")).lower() == "sleeping"
     )
     retired_runtime_sleeping = (
-        _clean_text(retired_runtime_path.get("name")).lower() == "cortex"
-        and not bool(retired_runtime_path.get("active_runtime_requirement", True))
+        not bool(retired_runtime_path.get("active_runtime_requirement", True))
         and retired_runtime_path_sleeping
     )
 

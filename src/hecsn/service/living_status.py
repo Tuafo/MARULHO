@@ -33,12 +33,7 @@ class LivingStatusMixin:
         include_replay_dataset_summary: bool = False,
     ) -> dict[str, Any]:
         retired_runtime_path_data = dict(
-            retired_runtime_path_snapshot
-            or (
-                self._thought_loop_actual.snapshot()
-                if self._thought_loop_actual is not None
-                else self._retired_runtime_path_unavailable_snapshot()
-            )
+            retired_runtime_path_snapshot or self._retired_runtime_path_unavailable_snapshot()
         )
         episodic_memory = (
             retired_runtime_path_data.get("episodic_memory")
@@ -86,7 +81,7 @@ class LivingStatusMixin:
             else {},
         }
         retired_runtime_path = {
-            "name": "cortex",
+            "name": "retired_runtime_path",
             "available": bool(retired_runtime_path_summary["enabled"]),
             "running": bool(retired_runtime_path_summary["running"]),
             "retired": bool(
@@ -190,7 +185,7 @@ class LivingStatusMixin:
 
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
             runtime_mutation = self._runtime_state.mutation_summary()
             return {
                 "living_loop": self._living_loop_snapshot_locked(
@@ -203,7 +198,7 @@ class LivingStatusMixin:
 
     def policy_actuator_status(self) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(
                 retired_runtime_path_snapshot=retired_runtime_path_snapshot
             )
@@ -218,7 +213,7 @@ class LivingStatusMixin:
         """Expose recent Subcortex predictive/surprise signals."""
         acquired = self._lock.acquire(timeout=0.05)
         if not acquired:
-            return getattr(self, "_cached_cognitive_signal_state", getattr(self, "_cached_cortex_signal_state", {}))
+            return getattr(self, "_cached_cognitive_signal_state", {})
         try:
             predictive = getattr(self._trainer.model, "predictive", None)
             surprise = getattr(self._trainer.model, "surprise", None)
@@ -284,11 +279,6 @@ class LivingStatusMixin:
                     pass
 
             self._cached_cognitive_signal_state = payload
-            self._cached_cortex_signal_state = payload
             return payload
         finally:
             self._lock.release()
-
-    def _cortex_signal_state(self) -> dict[str, Any]:
-        """Compatibility wrapper for the retired Cortex signal name."""
-        return self._cognitive_signal_state()

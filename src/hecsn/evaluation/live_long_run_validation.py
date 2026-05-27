@@ -112,7 +112,7 @@ def validate_live_long_run(
             "benchmark_total_latency_ms": benchmark_report.get("total_latency_ms"),
             "cost_usd": benchmark_report.get("cost_usd", 0),
         },
-        "retired_cortex": {
+        "retired_runtime_path": {
             "available": bool(long_test_report.get("retired_runtime_path_available", False)),
             "retired": bool(runtime_truth_evidence.get("retired_runtime_path_retired", False)),
         },

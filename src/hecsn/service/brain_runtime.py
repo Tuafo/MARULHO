@@ -109,7 +109,7 @@ class BrainRuntimeDependencies:
     interaction_pipeline: Callable[[], Any]
     action_executor: Callable[[], Any]
     replay_controller: Callable[[], Any]
-    cortex_controller: Callable[[], Any]
+    retired_runtime_path_state: Callable[[], Any]
     concept_store: Callable[[], Any]
     geometric_curiosity: Callable[[], Any]
     runtime_environment_summary: Callable[[], dict[str, Any]]
@@ -1266,7 +1266,7 @@ class BrainRuntime:
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
-        retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
+        retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
         living_loop_snapshot = self._living_loop_snapshot_locked(
             retired_runtime_path_snapshot=retired_runtime_path_snapshot,
             include_replay_dataset_summary=include_replay_dataset_summary,
@@ -1550,9 +1550,8 @@ _install_dependency_alias_property("_replay_sample_history", "replay_controller"
 
 for _name in (
     "_retired_runtime_path_unavailable_snapshot",
-    "_thought_loop_actual",
 ):
-    _install_dependency_property(_name, "cortex_controller")
+    _install_dependency_property(_name, "retired_runtime_path_state")
 
 _install_dependency_object_property("_concept_store", "concept_store")
 _install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")

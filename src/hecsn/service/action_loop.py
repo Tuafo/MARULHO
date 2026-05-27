@@ -54,7 +54,6 @@ _IGNORED_DIR_NAMES: frozenset[str] = frozenset(
 )
 _IGNORED_FILE_NAMES: frozenset[str] = frozenset(
     {
-        "cortex_narrative_self.json",
     }
 )
 _IGNORED_SUFFIXES: frozenset[str] = frozenset(

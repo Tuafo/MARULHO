@@ -15,7 +15,7 @@ to the module that actually owned the behaviour.
 The remaining manager methods fall into two groups:
 
 1. **Operator-facing runtime calls** such as status, feed/query/respond,
-   checkpointing, replay, cortex, action, feedback, and Terminus control.
+   checkpointing, replay, retired-runtime status, action, feedback, and Terminus control.
 2. **Internal dependency callbacks** used by existing deep modules while they
    are still being converted away from manager-shaped dependencies.
 
@@ -52,7 +52,7 @@ Introduce `RuntimeFacade` as the single operator-facing runtime interface.
 - `RuntimeFacade` temporarily knows about a few mixin-shaped implementation
   modules for trace export and replay dataset packaging.
 - Some internal manager callback hooks remain until RuntimeControl,
-  BrainRuntime, the retired Cortex compatibility controller, RuntimePersistence, and related modules move
+  BrainRuntime, the retired runtime path state holder, RuntimePersistence, and related modules move
   to narrower dependency objects.
 
 ### Neutral

@@ -148,7 +148,6 @@ class _PlannerBackedManager:
         self._brain_source_runtimes = []
         self._concept_store = _FakeConceptStore()
         self._geometric_curiosity = _FakeGeometricCuriosity()
-        self._thought_loop_actual = None
         self._brain_source_utility = {}
 
     def _background_source_utility_entry_locked(self, runtime):

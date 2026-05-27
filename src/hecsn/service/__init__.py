@@ -12,7 +12,7 @@ Module structure:
 - brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
-- cortex_controller.py: Retired Cortex compatibility controller while old thought-loop internals are removed
+- retired_runtime_path.py: Unavailable retired-runtime snapshot for the removed Cortex/ThoughtLoop path
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior

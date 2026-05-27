@@ -296,7 +296,7 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         sample_interval_s=5.0,
         preset="curriculum",
         memory_capacity=16384,
-        retired_runtime_path_name="cortex",
+        retired_runtime_path_name="retired_runtime_path",
         retired_runtime_path_model="retired",
         retired_runtime_path_available=False,
         terminus_configured=True,
@@ -313,7 +313,7 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         health_reasons=["Run met the minimum activity and acceptance thresholds."],
         acceptance_verdict="passed",
         acceptance_checks=[
-            {"name": "idle_gating", "passed": True, "summary": "Idle cortex stayed quiet.", "details": {}},
+            {"name": "idle_gating", "passed": True, "summary": "Retired path stayed inactive.", "details": {}},
             {"name": "query_answer", "passed": True, "summary": "Grounded answer returned.", "details": {}},
         ],
         acceptance_passed=2,

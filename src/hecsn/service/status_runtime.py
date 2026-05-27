@@ -26,7 +26,6 @@ class StatusRuntimeMixin:
             "dotenv_loaded": bool(self._runtime_env.get("dotenv_loaded", False)),
             "dotenv_path": self._runtime_env.get("dotenv_path"),
             "reason": str(self._runtime_env.get("reason", "unknown")),
-            "nvidia_api_key_present": bool(os.environ.get("NVIDIA_API_KEY", "").strip()),
             "hf_token_present": bool(huggingface_token_from_env()),
         }
 
@@ -106,14 +105,14 @@ class StatusRuntimeMixin:
             isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("retired")
         )
         retired_runtime_path = {
-            "name": "cortex",
+            "name": "retired_runtime_path",
             "available": retired_runtime_path_available,
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
             "operator_surface": False,
         }
         retired_runtime_path_evidence = {
-            "name": "cortex",
+            "name": "retired_runtime_path",
             "enabled": retired_runtime_path_available,
             "retired": retired_runtime_path_retired,
             "active_runtime_requirement": False,
@@ -306,10 +305,9 @@ class StatusRuntimeMixin:
         """Build the telemetry dict. Caller MUST hold self._lock."""
         runtime_mutation = self._runtime_state.mutation_summary()
         current_rev = int(runtime_mutation["state_revision"])
-        cortex_active = self._thought_loop_actual is not None and self._thought_loop_actual.is_running
         cached = getattr(self, "_cached_telemetry", None)
         cached_rev = getattr(self, "_cached_telemetry_rev", -1)
-        if not cortex_active and cached is not None and cached_rev == current_rev:
+        if cached is not None and cached_rev == current_rev:
             return cached
 
         memory_store = self._trainer.model.memory_store.summary_stats()

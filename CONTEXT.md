@@ -7,10 +7,10 @@ HECSN/Terminus is a grounded Subcortex runtime for auditable autonomous cognitio
 **Subcortex** — the grounded predictive spiking substrate. Owns sparse routing, multimodal grounding, predictive error, neuromodulation, replay, and curiosity pressure. Does not reason in language.
 _Avoid_: SSN, raw SNN side
 
-**Retired Cortex Path** — the former LLM/ThoughtLoop deliberation path. It is no longer an active runtime requirement because it added external dependency and code weight without being the living substrate. Public HTTP endpoints for this path are removed; any temporary internal compatibility surface must report the path as retired, not unavailable or required.
+**Retired LLM Path** — the former external LLM/ThoughtLoop deliberation path. It is no longer an active runtime requirement because it added external dependency and code weight without being the living substrate. Public HTTP endpoints for this path are removed; any temporary internal compatibility surface must report the path as retired, not unavailable or required.
 _Avoid_: treating LLM/NIM as the mind, mandatory reasoning core, or active production path
 
-**Subcortex Action Ledger** — the runtime-owned record of digital action execution, verification, contradiction, feedback, and consequence evidence. Action recording must not initialize the Retired Cortex Path; any retired-loop mirroring is compatibility-only and best-effort when an old loop already exists.
+**Subcortex Action Ledger** — the runtime-owned record of digital action execution, verification, contradiction, feedback, and consequence evidence. Action recording must not initialize or mirror into the Retired LLM Path.
 _Avoid_: action history as ThoughtLoop memory, booting Cortex to mirror an action
 
 **Subcortex Grounded Observation** — the runtime-owned source or sensory evidence packet created from real text, visual, audio, or multimodal input. It carries grounded metadata, focus terms, salience, and device/encoder evidence without requiring ThoughtLoop observation or surprise injection.
@@ -35,6 +35,9 @@ _Avoid_: treating generated text counts as Living Brain evidence by themselves
 
 **Subcortex Language Surface** — an evidence-facing translation layer that can express runtime state in language without becoming the cognition substrate. It has two grounded slices: the interaction responder's native-decode surface, and the Cognitive Signal surface that turns prediction error, confidence, neuromodulator pressure, and concept focus into auditable operator text.
 _Avoid_: treating text fluency as liveness, hidden LLM mind, or ungrounded thought generation
+
+**Subcortex Spike Readout Evidence** — a HECSN-owned, read-only bridge from Cognitive Signal and CUDA/runtime placement evidence into bounded spike-language readout slots. It is deterministic population-code evidence for future SNN decoders; it must not generate text, mutate runtime state, load external checkpoints, or become the cognition substrate.
+_Avoid_: treating readout slots as generated thoughts, importing reference checkpoints, or bypassing sparsity/device/grounding gates
 
 **SNN-Native Language Readiness Gate** — the operator-facing read-only artifact for future HECSN-owned language generation. External pure-SNN language projects may inform design, but HECSN must own the language neurons, decoder, training loop, grounding, telemetry, and promotion gates before language generation can move beyond a surface.
 _Avoid_: loading external checkpoints as the brain, outsourcing language cognition, treating reference implementations as runtime dependencies
@@ -63,13 +66,13 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 
 **Routing Index** — the subcortical retrieval path that maps queries to candidate assemblies/prototypes. CUDA evidence requires actual cache/backend device telemetry, not only configured device intent.
 
-**ThoughtLoop** — retired LLM cognition orchestrator. `ThoughtLoop()` is non-instantiable and must raise a retirement error; historical tests may keep skipped behavior coverage while reusable primitive/static helpers are migrated.
+**ThoughtLoop** — deleted LLM cognition orchestrator. The name survives only in retirement documentation and negative tests; no module, constructor, skipped behavior suite, or compatibility namespace should remain.
 
 **DriveSystem** — converts predictive error, surprise, fatigue, and novelty into cognitive pressure and thalamic context.
 
 **ThalamicGate** — assembles budgeted language/readout context packets from memory, drives, and source evidence.
 
-**Cognitive Signal** — the typed Subcortex control packet carrying prediction error, predictive confidence, neuromodulator mirrors, recent concepts, source, and sample time. It is owned by Subcortex/semantics code, not the Retired Cortex Path.
+**Cognitive Signal** — the typed Subcortex control packet carrying prediction error, predictive confidence, neuromodulator mirrors, recent concepts, source, and sample time. It is owned by Subcortex/semantics code, not the Retired LLM Path.
 
 **WorkingMemory** — chain-local global workspace. Active scratchpad with strength-based decay and broadcast compression.
 
@@ -123,7 +126,7 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 - **Runtime Controller** — runtime lifecycle state machine (configure/start/stop/tick), brain loop orchestration, active execution counters, thread lifecycle, and prewarm management. Uses an explicit dependency adapter rather than manager-bound owner forwarding.
 - **Status Read Model** — read-only projection of all runtime state into status/telemetry/terminus snapshots, including direct sensory preview projection.
 - **Action Executor** — digital action execution with path sandboxing, outcome calibration scoring, action history, and action-assist query augmentation.
-- **Retired Cortex Compatibility Controller** — temporary internal adapter for the former LLM/ThoughtLoop path. It may expose retired status snapshots and cleanup hooks while old internals are removed, but it is not an operator-facing runtime surface and must not own liveness, action policy, or CUDA-first claims.
+- **Retired Runtime Path State Holder** — temporary internal state holder for the former LLM/ThoughtLoop path. It exposes only retired status snapshots; it has no ThoughtLoop slot and does not own ask/sleep/action-intent behavior, liveness, action policy, or CUDA-first claims.
 - **Runtime Persistence** — checkpoint save/restore and trace persistence. Runtime State owns the brain event history. Uses an explicit dependency object instead of owner-forwarded manager fields.
 - **Runtime Config** — input validation and normalization gate for all operator configs. Stateless.
 - **Runtime Sources** — stream construction, cache I/O, serialization, window reconstruction.
@@ -138,7 +141,7 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 **Retired Runtime Path Evidence** — Runtime Truth evidence for a former runtime path that may still appear in compatibility payloads but no longer owns liveness, operator surfaces, or active runtime requirements. `retired_runtime_path` is the canonical status vocabulary; active status and report contracts must not emit `cortex_*` aliases.
 
 **Runtime Evidence Report** — operator-facing status evidence that joins model CUDA scope, trainer-owned encoder device reports, memory-store placement, runtime truth, and source configuration. It is read-only and must not advance runtime state.
-_Avoid_: using retired Cortex snapshots as the evidence source of record
+_Avoid_: using retired LLM-path snapshots as the evidence source of record
 
 **Subcortex Spike Health** — read-only operational stability evidence from competitive-column activity, bounded recent spike windows, local spike fraction, stale routing counters, visible silence/saturation thresholds, and windowed over-correlation risk. It is evidence for Runtime Truth, not a standalone liveness verdict.
 _Avoid_: treating endpoint uptime as neural health, hiding threshold heuristics, treating one scalar correlation as full manifold health
@@ -163,20 +166,21 @@ _Avoid_: treating evaluation readiness as repair approval, hiding rollback/devic
 
 ## Key Relationships
 
-- Subcortex is the active cognition substrate; the former Cortex/ThoughtLoop path is retired from runtime liveness claims.
-- Subcortex Action Ledger owns action evidence. Digital action execution may update runtime history, provider calibration, consequences, and Runtime Truth evidence, but it must not initialize the Retired Cortex Path just to mirror action records.
+- Subcortex is the active cognition substrate; the former external LLM/ThoughtLoop path is retired from runtime liveness claims.
+- Subcortex Action Ledger owns action evidence. Digital action execution may update runtime history, provider calibration, consequences, and Runtime Truth evidence, but it must not initialize the Retired LLM Path just to mirror action records.
 - Subcortex Grounded Observations own source and sensory evidence. Focus selection comes from query gaps, autonomy plans, geometric curiosity, concept state, and source metadata; it must not depend on a retired ThoughtLoop exploration target.
 - Grounding Diagnostics belong to the Subcortex Language Surface boundary. Retired compatibility code may consume them, but future SNN language/readout modules must be able to produce and inspect them without instantiating ThoughtLoop.
 - Active Exploration State belongs to Subcortex control. ThalamicGate stores the canonical state object and may expose compatibility properties; future curiosity, source-focus, and SNN deliberation modules must be able to normalize and inspect exploration targets without instantiating ThoughtLoop.
 - Runtime Truth owns retired-path vocabulary through `retired_runtime_path`; `cortex_available`, `cortex_retired`, `cortex_enabled`, and evidence `cortex_retired` are removed from active status and report contracts.
-- Living Loop and Runtime Truth consumers should read `retired_runtime_path` as the source of record for the retired former Cortex path.
+- Living Loop and Runtime Truth consumers should read `retired_runtime_path` as the source of record for the retired former external LLM path.
 - Living Loop payloads must not emit a `cortex` sibling snapshot or `cortex_loop_snapshot` capability; replay pressure reads sleep/fatigue state from `retired_runtime_path`.
-- Long-test reports should describe the former Cortex as a Retired Runtime Path, not as an active model/component. `cortex_*` report fields are removed from the active JSON/Markdown contract.
+- Long-test reports should describe the former external LLM path as a Retired Runtime Path, not as an active model/component. `cortex_*` report fields are removed from the active JSON/Markdown contract.
 - Subcortex Language Surface may describe, narrate, or decode Subcortex state, but it must not own memory, policy, liveness, or Runtime Truth.
 - Native-decode Subcortex Language is a bridge, not a generator: it may speak only from decoded assembly text and selected evidence, with support metrics attached.
 - Cognitive Signal Subcortex Language is a status decoder: it may express runtime pressure and focus, but the numeric signal remains authoritative.
 - SNN-Native Language Readiness Gate keeps NeuronSpark/Nord-style work as implementation references only; the target is HECSN-owned language neurons and decoder machinery under CUDA/device, sparsity, grounding, replay/evaluation, and operator-control gates. Runtime Truth may include a compact readiness summary, while the full artifact remains the review surface.
-- Cognitive Signal is the canonical runtime signal surface. Its state primitive must be importable without `ThoughtLoop`; any `cortex_signal` name is a retired compatibility alias and must not be used for new operator-facing paths.
+- Subcortex Spike Readout Evidence is the first owned SNN-language readiness primitive: it turns Cognitive Signal pressure, concept focus, and CUDA/Subcortex device reports into readout slots and population-code bands without decoding or generating text.
+- Cognitive Signal is the canonical runtime signal surface. Its state primitive must be importable without `ThoughtLoop`; `cortex_signal` aliases are deleted and must not be reintroduced.
 - Subcortex Deliberation candidates are advisory control candidates until replay, policy, or operator evidence promotes them; they must not be stored as facts, treated as generated thoughts, or queued as LLM prompts.
 - Deliberation Feedback belongs to Subcortex control. `emit_deliberation_feedback` is the active API; the old `emit_cortex_feedback` path is removed.
 - Deliberation Text Merge belongs to the Subcortex Language Surface boundary. Active code and tests should call the merge helper directly instead of using `ThoughtLoop` as a namespace.
@@ -189,13 +193,22 @@ _Avoid_: treating evaluation readiness as repair approval, hiding rollback/devic
 - Structural Mutation Ledger is required when topology changes at runtime; growth/pruning must leave countable evidence before it can support Living Brain claims.
 - Structural Plasticity Gate Artifact is the read-only promotion surface for Developmental Plasticity: it can expose concept growth pressure, hypercube/binding mutation ledger state, and CUDA/device evidence, but structural mutation remains behind isolated evaluation and operator gates. Runtime Truth may include a compact gate summary, while the full artifact remains the review surface.
 - Cognitive Signal is the telemetry/control contract that lets Subcortex update runtime pressure, concept alignment, and future Subcortex Deliberation modules.
-- Retired ThoughtLoop code may remain temporarily during cleanup but must not block Runtime Truth, CUDA evidence, or long-run liveness. Cognitive Signal state, Active Exploration State, Grounding Diagnostics, Brain Runtime Metrics, and deliberation text merge belong to Subcortex-owned modules.
-- Retired Cortex Compatibility Controller must not build, lazily initialize, or start ThoughtLoop. It may only report retired state and reject old compatibility calls while Subcortex/Living Loop surfaces take over.
-- The top-level `hecsn.cortex` package is not an active cognition API. It may expose historical primitives during cleanup, but it must not export ThoughtLoop or the external LLM Cortex factory as product entry points.
+- Retired ThoughtLoop code is deleted and must not block Runtime Truth, CUDA evidence, or long-run liveness. Cognitive Signal state, Active Exploration State, Grounding Diagnostics, Brain Runtime Metrics, and deliberation text merge belong to Subcortex-owned modules.
+- Retired Runtime Path State Holder must not build, lazily initialize, start, store, or snapshot a ThoughtLoop. It may only report retired state while Subcortex/Living Loop surfaces own runtime behavior.
+- The top-level `hecsn.cortex` package is deleted. Runtime, mock, memory, drive, prompt, narrative, and language primitives must not be reintroduced under that namespace.
+- External LLM Cortex adapters are deleted. `NIMCortex`, `MultiCortex`, and Cortex environment factories are not valid runtime, testing, or extension points.
+- External embedding adapters are deleted from Episodic Memory. Local sparse text encoders may remain as transitional indexing machinery, but remote API keys, NIM request accounting, and external embedding clients are not valid memory substrates.
+- Remote API rate limiting is deleted with the external adapters. Runtime throttling should be reintroduced only for concrete maintained sources, not as Cortex/NIM budgeting.
+- Mock Cortex is deleted. Tests may assert retirement boundaries, but `MockCortex` must not exist as a production-source class or stand in for language, thought, memory, sleep, or reasoning.
+- ThoughtLoop's runnable body and module are deleted. There must be no hidden generation, sleep, or background-loop branches.
+- Language Result is the Subcortex/semantics-owned result packet for language/readout quality metrics. Active code must import `LanguageResult` directly and must not use `ThoughtResult` aliases.
+- Language Packet is the Subcortex/semantics-owned context contract for language/readout slots, mode, memory items, and depth. Active code must import `ContextPacket`, `MemoryItem`, `ReadoutMode`, and `DeliberationDepth` from `hecsn.semantics.language_packet`; `hecsn.cortex.core` is deleted.
+- Cortex prompt templates are deleted. Language/readout steering should be semantics/Subcortex-owned and grounded by packet evidence, not preserved as Cortex-owned static LLM prompts.
+- The `hecsn.cortex` package is deleted. Cortex-owned drives, episodic memory, working memory, narrative self, prompt, core, and ThoughtLoop modules must not be active extension points; reusable concepts belong under semantics, service runtime, or Subcortex modules.
 - Gap Planner and Curiosity Controller feed Source Bank selection for autonomous acquisition
 - Replay Pipeline feeds adapter experiments that never touch production runtime
 - Service Manager wires the Runtime Facade and deep modules. Living Loop evidence is produced by Subcortex runtime state, replay, grounding, and policy surfaces; it must not require ThoughtLoop.
-- CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The retired Cortex path is not a CUDA-first claim or architectural requirement.
+- CUDA-first Runtime applies to tensor-heavy Subcortex modules such as routing, predictive columns, neuron dynamics, binding, plasticity, cross-modal grounding, text encoders, and sensory encoders. The Retired LLM Path is not a CUDA-first claim or architectural requirement.
 - Runtime Evidence Report is the bridge from internal CUDA-first claims to operator-visible status; it must include trainer-owned Encoder evidence as well as model-owned Subcortex evidence.
 - Runtime Evidence Report and replay/export planning should read `retired_runtime_path` as the canonical retired-path snapshot. A `cortex` payload may remain only as an external compatibility alias while clients migrate.
 - Brain runtime snapshots expose `retired_runtime_path` as the source of record; they must not publish an active `cortex` sibling payload or require `cortex_snapshot()` helpers.

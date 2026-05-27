@@ -12,7 +12,7 @@ def _long_test() -> dict[str, object]:
         "health_verdict": "alive",
         "avg_latency_ms": 12.0,
         "p95_latency_ms": 20.0,
-        "final_embedder": {"kind": "NIMEmbedder", "available": True, "degraded": False, "fallback_calls": 0},
+        "final_embedder": {"kind": "SimpleEmbedder", "available": False, "degraded": False, "fallback_calls": 0},
         "final_memory_fill": 0.1,
         "action_count": 0,
         "snapshots": [{"runtime_truth": {"verdict": "alive"}}],
@@ -116,5 +116,5 @@ def test_live_long_run_validation_file_writes_evidence_report() -> None:
 
     assert report["passed"] is True
     assert loaded["latency_and_cost"]["cost_usd"] == 0
-    assert loaded["retired_cortex"]["retired"] is True
+    assert loaded["retired_runtime_path"]["retired"] is True
     assert loaded["recommended_operator_action"] == "continue_monitoring"

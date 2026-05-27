@@ -119,6 +119,98 @@ def build_subcortical_deliberation_surface(cognitive_signal: Mapping[str, Any]) 
     }
 
 
+def build_subcortical_spike_readout_evidence(
+    cognitive_signal: Mapping[str, Any],
+    runtime_scope: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build HECSN-owned spike-language readout evidence without generating text."""
+
+    prediction_error_mean = _float(cognitive_signal.get("prediction_error_mean"), 0.0)
+    prediction_error_max = _float(cognitive_signal.get("prediction_error_max"), 0.0)
+    confidence_mean = _float(cognitive_signal.get("predictive_confidence_mean"), 0.5)
+    confidence_min = _float(cognitive_signal.get("predictive_confidence_min"), 0.5)
+    dopamine = _float(cognitive_signal.get("dopamine"), 0.0)
+    norepinephrine = _float(cognitive_signal.get("norepinephrine"), 0.0)
+    concept_candidates = _concept_candidates(cognitive_signal.get("concept_candidates"))
+    recent_concepts = _strings(cognitive_signal.get("recent_concepts"), limit=4)
+    focus = _focus_label(concept_candidates, recent_concepts)
+    cuda_runtime = (
+        runtime_scope.get("cuda_first_runtime")
+        if isinstance(runtime_scope.get("cuda_first_runtime"), Mapping)
+        else {}
+    )
+    subcortex_devices = (
+        cuda_runtime.get("subcortex_tensor_devices")
+        if isinstance(cuda_runtime.get("subcortex_tensor_devices"), Mapping)
+        else {}
+    )
+    device = _spike_readout_device(cuda_runtime, subcortex_devices)
+    pressure = max(prediction_error_mean, 1.0 - confidence_min, abs(dopamine), abs(norepinephrine))
+    pressure_band = _band(pressure, low=0.20, high=0.65)
+    readout_slots = _spike_readout_slots(
+        concept_candidates=concept_candidates,
+        recent_concepts=recent_concepts,
+        focus=focus,
+        pressure_band=pressure_band,
+    )
+    return {
+        "schema_version": 1,
+        "artifact_kind": "terminus_subcortical_spike_readout_evidence",
+        "surface": "subcortical_spike_readout_evidence.v1",
+        "available": True,
+        "source": "service.status_read_model.cognitive_signal_and_runtime_scope",
+        "grounded": True,
+        "advisory": True,
+        "executable": False,
+        "mutates_runtime_state": False,
+        "generates_text": False,
+        "not_cognition_substrate": True,
+        "retired_runtime_dependency": False,
+        "device_evidence": {
+            "device": device,
+            "cuda_report_available": bool(cuda_runtime),
+            "subcortex_device_evidence_available": bool(subcortex_devices),
+            "cuda_device_selected": _is_cuda_device(device),
+        },
+        "population_code": {
+            "prediction_error_band": _band(prediction_error_mean, low=0.10, high=0.35),
+            "prediction_error_peak_band": _band(prediction_error_max, low=0.20, high=0.60),
+            "confidence_band": _confidence_band(confidence_mean),
+            "confidence_floor_band": _confidence_band(confidence_min),
+            "neuromodulator_pressure_band": _band(max(abs(dopamine), abs(norepinephrine)), low=0.20, high=0.65),
+            "readout_pressure_band": pressure_band,
+            "concept_focus": focus or None,
+            "concept_count": len(concept_candidates),
+        },
+        "readout_slots": readout_slots,
+        "promotion_constraints": {
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_language_generation": False,
+            "requires_hecsn_owned_decoder": True,
+            "requires_grounding_support": True,
+            "requires_sparsity_evidence": True,
+            "requires_device_evidence": True,
+            "requires_replay_or_eval_dataset_report": True,
+        },
+        "grounding": {
+            "prediction_error_mean": prediction_error_mean,
+            "prediction_error_max": prediction_error_max,
+            "predictive_confidence_mean": confidence_mean,
+            "predictive_confidence_min": confidence_min,
+            "dopamine": dopamine,
+            "norepinephrine": norepinephrine,
+            "concept_focus": focus or None,
+            "concept_count": len(concept_candidates),
+        },
+        "limitations": [
+            "Readout evidence only; it does not decode, generate, sample, or train language.",
+            "The population code is deterministic telemetry evidence for a future HECSN-owned spike decoder.",
+        ],
+    }
+
+
 def build_snn_language_readiness_surface(
     cognitive_signal: Mapping[str, Any],
     runtime_scope: Mapping[str, Any],
@@ -127,6 +219,7 @@ def build_snn_language_readiness_surface(
 
     language_surface = build_cognitive_signal_language_surface(cognitive_signal)
     deliberation_surface = build_subcortical_deliberation_surface(cognitive_signal)
+    spike_readout_evidence = build_subcortical_spike_readout_evidence(cognitive_signal, runtime_scope)
     cuda_runtime = (
         runtime_scope.get("cuda_first_runtime")
         if isinstance(runtime_scope.get("cuda_first_runtime"), Mapping)
@@ -140,6 +233,7 @@ def build_snn_language_readiness_surface(
     readiness_checks = _snn_language_readiness_checks(
         language_surface=language_surface,
         deliberation_surface=deliberation_surface,
+        spike_readout_evidence=spike_readout_evidence,
         cuda_runtime=cuda_runtime,
         subcortex_devices=subcortex_devices,
     )
@@ -185,6 +279,24 @@ def build_snn_language_readiness_surface(
                 else 0
             ),
         },
+        "current_spike_readout_evidence": {
+            "surface": spike_readout_evidence.get("surface"),
+            "grounded": bool(spike_readout_evidence.get("grounded")),
+            "not_cognition_substrate": bool(spike_readout_evidence.get("not_cognition_substrate")),
+            "retired_runtime_dependency": bool(spike_readout_evidence.get("retired_runtime_dependency")),
+            "generates_text": bool(spike_readout_evidence.get("generates_text")),
+            "readout_slot_count": len(list(spike_readout_evidence.get("readout_slots") or [])),
+            "device": (
+                (spike_readout_evidence.get("device_evidence") or {}).get("device")
+                if isinstance(spike_readout_evidence.get("device_evidence"), Mapping)
+                else None
+            ),
+            "cuda_device_selected": bool(
+                (spike_readout_evidence.get("device_evidence") or {}).get("cuda_device_selected")
+                if isinstance(spike_readout_evidence.get("device_evidence"), Mapping)
+                else False
+            ),
+        },
         "research_candidates": [
             {
                 "name": "NeuronSpark",
@@ -225,7 +337,7 @@ def build_snn_language_readiness_surface(
             "grounding_support_report",
             "runtime_truth_delta",
             "replay_or_eval_dataset_report",
-            "retired_cortex_dependency_absent",
+            "retired_runtime_dependency_absent",
         ],
         "safety_invariants": {
             "eligible_for_action": False,
@@ -235,7 +347,7 @@ def build_snn_language_readiness_surface(
             "requires_grounding_support": True,
             "requires_sparsity_evidence": True,
             "requires_device_evidence": True,
-            "requires_no_retired_cortex_dependency": True,
+            "requires_no_retired_runtime_dependency": True,
             "requires_hecsn_owned_implementation": True,
             "requires_hecsn_controlled_training": True,
         },
@@ -659,20 +771,33 @@ def _snn_language_readiness_checks(
     *,
     language_surface: Mapping[str, Any],
     deliberation_surface: Mapping[str, Any],
+    spike_readout_evidence: Mapping[str, Any],
     cuda_runtime: Mapping[str, Any],
     subcortex_devices: Mapping[str, Any],
 ) -> dict[str, bool]:
+    readout_device = (
+        spike_readout_evidence.get("device_evidence")
+        if isinstance(spike_readout_evidence.get("device_evidence"), Mapping)
+        else {}
+    )
     return {
         "grounded_language_surface_available": bool(language_surface.get("grounded")),
         "language_surface_not_cognition_substrate": bool(language_surface.get("not_cognition_substrate")),
         "deliberation_surface_available": bool(deliberation_surface.get("grounded")),
         "deliberation_not_llm_thought_loop": not bool(deliberation_surface.get("retired_runtime_dependency")),
+        "hecsn_spike_readout_evidence_available": bool(spike_readout_evidence.get("available")),
+        "hecsn_spike_readout_grounded": bool(spike_readout_evidence.get("grounded")),
+        "hecsn_spike_readout_non_generative": not bool(spike_readout_evidence.get("generates_text")),
+        "hecsn_spike_readout_device_evidence_available": bool(
+            readout_device.get("cuda_report_available")
+            or readout_device.get("subcortex_device_evidence_available")
+        ),
         "cuda_runtime_scope_available": bool(cuda_runtime),
         "subcortex_device_evidence_available": bool(subcortex_devices),
         "local_snn_language_generator_available": bool(cuda_runtime.get("snn_language_generator_device_report")),
         "activation_sparsity_report_available": bool(cuda_runtime.get("snn_language_activation_sparsity")),
         "grounding_support_report_available": bool(cuda_runtime.get("snn_language_grounding_support")),
-        "retired_cortex_dependency_absent": not bool(language_surface.get("retired_runtime_dependency")),
+        "retired_runtime_dependency_absent": not bool(language_surface.get("retired_runtime_dependency")),
     }
 
 
@@ -681,9 +806,19 @@ def _snn_language_promotion_gate(readiness_checks: Mapping[str, bool]) -> dict[s
         "grounded_language_surface_available": bool(readiness_checks.get("grounded_language_surface_available")),
         "language_surface_not_cognition_substrate": bool(readiness_checks.get("language_surface_not_cognition_substrate")),
         "deliberation_not_llm_thought_loop": bool(readiness_checks.get("deliberation_not_llm_thought_loop")),
+        "hecsn_spike_readout_evidence_available": bool(
+            readiness_checks.get("hecsn_spike_readout_evidence_available")
+        ),
+        "hecsn_spike_readout_grounded": bool(readiness_checks.get("hecsn_spike_readout_grounded")),
+        "hecsn_spike_readout_non_generative": bool(
+            readiness_checks.get("hecsn_spike_readout_non_generative")
+        ),
+        "hecsn_spike_readout_device_evidence_available": bool(
+            readiness_checks.get("hecsn_spike_readout_device_evidence_available")
+        ),
         "cuda_runtime_scope_available": bool(readiness_checks.get("cuda_runtime_scope_available")),
         "subcortex_device_evidence_available": bool(readiness_checks.get("subcortex_device_evidence_available")),
-        "retired_cortex_dependency_absent": bool(readiness_checks.get("retired_cortex_dependency_absent")),
+        "retired_runtime_dependency_absent": bool(readiness_checks.get("retired_runtime_dependency_absent")),
     }
     generator_ready = (
         bool(readiness_checks.get("local_snn_language_generator_available"))
@@ -1049,6 +1184,60 @@ def _self_repair_evaluation_target(intent: str) -> str:
     if intent == "review_decorrelation_or_prune":
         return "reduce_overcorrelation_without_losing_sparse_responsiveness"
     return "collect_stable_spike_health_window"
+
+
+def _spike_readout_device(cuda_runtime: Mapping[str, Any], subcortex_devices: Mapping[str, Any]) -> str:
+    direct_device = _text(cuda_runtime.get("tensor_device"))
+    if direct_device:
+        return direct_device
+    for report in subcortex_devices.values():
+        if not isinstance(report, Mapping):
+            continue
+        for key in (
+            "prototype_device",
+            "location_state_device",
+            "binding_matrix_device",
+            "encoder_device",
+        ):
+            candidate = _text(report.get(key))
+            if candidate:
+                return candidate
+    return "unknown"
+
+
+def _is_cuda_device(device: str) -> bool:
+    return device.lower().startswith("cuda")
+
+
+def _spike_readout_slots(
+    *,
+    concept_candidates: Sequence[Mapping[str, Any]],
+    recent_concepts: Sequence[str],
+    focus: str,
+    pressure_band: str,
+) -> list[dict[str, Any]]:
+    labels: list[str] = []
+    for candidate in concept_candidates:
+        label = _text(candidate.get("label"))
+        if label and label not in labels:
+            labels.append(label)
+    for concept in recent_concepts:
+        if concept and concept not in labels:
+            labels.append(concept)
+    if not labels and focus:
+        labels.append(focus)
+    if not labels:
+        labels.append("unfocused_subcortex_state")
+    return [
+        {
+            "slot_id": f"spike_readout_{index}",
+            "kind": "concept_pressure",
+            "label": label,
+            "pressure_band": pressure_band,
+            "grounded": label != "unfocused_subcortex_state",
+        }
+        for index, label in enumerate(labels[:4])
+    ]
 
 
 def _self_repair_baseline_metrics(grounding: Mapping[str, Any]) -> dict[str, Any]:

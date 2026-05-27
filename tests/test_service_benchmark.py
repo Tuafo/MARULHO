@@ -35,7 +35,7 @@ def _fake_service_app() -> FastAPI:
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
             "retired_runtime_path": {
-                "name": "cortex",
+                "name": "retired_runtime_path",
                 "available": True,
                 "retired": False,
                 "active_runtime_requirement": False,

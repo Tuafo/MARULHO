@@ -31,7 +31,6 @@ class ReplayControllerDependencies:
     runtime_feedback_summary: Callable[[], Mapping[str, Any]]
     runtime_state: Any
     runtime_trace_export_safe_value: Callable[[Any], Any]
-    thought_loop: Callable[[], Any | None]
     trainer: Callable[[], Any]
 
 
@@ -61,10 +60,6 @@ class ReplayController:
     @property
     def _runtime_state(self) -> Any:
         return self._dependencies.runtime_state
-
-    @property
-    def _thought_loop_actual(self) -> Any | None:
-        return self._dependencies.thought_loop()
 
     @property
     def _trainer(self) -> Any:
@@ -110,7 +105,7 @@ class ReplayController:
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             return build_replay_plan(living_loop, limit=limit).to_payload()
 
@@ -152,7 +147,7 @@ class ReplayController:
 
         with self._lock:
             before = self._replay_sample_state_counts_locked()
-            retired_runtime_path_snapshot = self._thought_loop_actual.snapshot() if self._thought_loop_actual is not None else self._retired_runtime_path_unavailable_snapshot()
+            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
             plan = build_replay_plan(living_loop, limit=MAX_RUNTIME_TRACE_EXPORT_LIMIT).to_payload()
             candidates = [dict(item) for item in plan.get("candidates", []) if isinstance(item, Mapping)]

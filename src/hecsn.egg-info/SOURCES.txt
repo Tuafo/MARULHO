@@ -25,16 +25,6 @@ src/hecsn/core/predictive_columns.py
 src/hecsn/core/sparsity.py
 src/hecsn/core/surprise.py
 src/hecsn/core/topographic.py
-src/hecsn/cortex/__init__.py
-src/hecsn/cortex/core.py
-src/hecsn/cortex/drives.py
-src/hecsn/cortex/episodic_memory.py
-src/hecsn/cortex/multi_cortex.py
-src/hecsn/cortex/narrative_self.py
-src/hecsn/cortex/prompts.py
-src/hecsn/cortex/rate_limit.py
-src/hecsn/cortex/thought_loop.py
-src/hecsn/cortex/working_memory.py
 src/hecsn/data/__init__.py
 src/hecsn/data/base_encoder.py
 src/hecsn/data/cochleagram_encoder.py
@@ -81,6 +71,8 @@ src/hecsn/semantics/concepts.py
 src/hecsn/semantics/frontier.py
 src/hecsn/semantics/geometric_curiosity.py
 src/hecsn/semantics/grounding_text.py
+src/hecsn/semantics/language_packet.py
+src/hecsn/semantics/language_result.py
 src/hecsn/service/__init__.py
 src/hecsn/service/action_assist.py
 src/hecsn/service/action_executor.py
@@ -89,7 +81,7 @@ src/hecsn/service/action_runtime.py
 src/hecsn/service/api.py
 src/hecsn/service/autonomy_planner.py
 src/hecsn/service/brain_runtime.py
-src/hecsn/service/cortex_controller.py
+src/hecsn/service/retired_runtime_path.py
 src/hecsn/service/delayed_consequence.py
 src/hecsn/service/feedback_applier.py
 src/hecsn/service/history_store.py
@@ -165,8 +157,8 @@ tests/test_columns.py
 tests/test_concept_store.py
 tests/test_context_circuits.py
 tests/test_corpus_loader.py
-tests/test_cortex_controller.py
-tests/test_cortical_core.py
+tests/test_retired_runtime_path.py
+tests/test_language_contracts.py
 tests/test_cross_modal.py
 tests/test_curriculum.py
 tests/test_dataset_adapters.py
@@ -197,11 +189,9 @@ tests/test_meaning_grounding.py
 tests/test_memory_consolidation.py
 tests/test_multi_hour_live_validation.py
 tests/test_multimodal_loader.py
-tests/test_narrative_self.py
 tests/test_native_decoder.py
 tests/test_p1_improvements.py
 tests/test_pattern_loader.py
-tests/test_phase5_exploration.py
 tests/test_predictive_columns.py
 tests/test_presets.py
 tests/test_query_runner.py
@@ -233,9 +223,7 @@ tests/test_sparsity.py
 tests/test_status_read_model.py
 tests/test_surprise.py
 tests/test_terminus_sensory.py
-tests/test_thought_loop.py
 tests/test_topographic.py
 tests/test_trace_export_runner.py
 tests/test_triplet_stdp.py
 tests/test_turboquant_store.py
-tests/test_working_memory.py

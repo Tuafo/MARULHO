@@ -88,7 +88,7 @@ class TestReport:
     sample_interval_s: float = 0.0
     preset: str = ""
     memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY
-    retired_runtime_path_name: str = "cortex"
+    retired_runtime_path_name: str = "retired_runtime_path"
     retired_runtime_path_model: str = "retired"
     retired_runtime_path_available: bool = False
     terminus_configured: bool = False
@@ -599,7 +599,7 @@ def _collect_snapshot(
     snapshot.ripple_tagged = int(memory_store.get("ripple_tagged", 0) or 0)
     snapshot.retired_runtime_path_model = "retired"
     snapshot.runtime_latency_ms = 0.0
-    snapshot.embedder = {"kind": "retired_cortex", "available": False}
+    snapshot.embedder = {"kind": "retired_runtime_path", "available": False}
     snapshot.runtime_truth = dict(runtime_truth)
     snapshot.thought_lifecycle = {"enabled": False, "retired": True}
     snapshot.memory_pressure = _memory_pressure_snapshot(memory_store, runtime_truth)
@@ -688,7 +688,7 @@ def run_long_test(
             )
 
         time.sleep(2.0)
-        report.retired_runtime_path_name = "cortex"
+        report.retired_runtime_path_name = "retired_runtime_path"
         report.retired_runtime_path_available = False
         report.retired_runtime_path_model = "retired"
 
@@ -727,7 +727,7 @@ def run_long_test(
                     logger.warning("Snapshot error: %s", exc)
                 snapshots.append(snapshot)
                 logger.info(
-                    "[%3.0fs/%3.0fs] thoughts=%d (+%d) tokens=%d bg=%d runtime_latency=%.0fms mem=%.0f%% topics=%d",
+                    "[%3.0fs/%3.0fs] readouts=%d (+%d) tokens=%d bg=%d runtime_latency=%.0fms mem=%.0f%% topics=%d",
                     snapshot.elapsed_s,
                     duration_s,
                     snapshot.thoughts_total,
@@ -949,9 +949,9 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Final token count | {report.final_token_count} |",
             f"| Max background tokens processed | {report.max_background_tokens_processed} |",
             f"| Final tick count | {report.final_tick_count} |",
-            f"| Total thoughts | {report.total_thoughts} |",
+            f"| Total language/readouts | {report.total_thoughts} |",
             f"| Unique topics | {report.unique_topics} |",
-            f"| Topic diversity | {report.topic_diversity_ratio:.2f} topics/thought |",
+            f"| Topic diversity | {report.topic_diversity_ratio:.2f} topics/readout |",
             f"| Avg latency | {report.avg_latency_ms:.0f} ms |",
             f"| P95 latency | {report.p95_latency_ms:.0f} ms |",
             f"| Max latency | {report.max_latency_ms:.0f} ms |",
@@ -967,7 +967,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Embedder | {report.final_embedder.get('kind', '-')}: {report.final_embedder.get('model', '-')} |",
             f"| Embedder degraded | {report.final_embedder.get('degraded', False)} |",
             f"| Embedder fallback calls | {report.final_embedder.get('fallback_calls', 0)} |",
-            f"| Embedder rate-limit hits | {report.final_embedder.get('rate_limit_hits', 0)} |",
+            f"| Embedder external throttle hits | {report.final_embedder.get('external_throttle_hits', 0)} |",
             f"| Runtime truth verdict | {report.final_runtime_truth.get('verdict', '-') if report.final_runtime_truth else '-'} |",
             f"| Runtime truth action | {report.final_runtime_truth.get('recommended_action', '-') if report.final_runtime_truth else '-'} |",
             f"| Recorded actions | {report.action_count} |",
@@ -985,8 +985,8 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Thought attempts | {thought_summary.get('attempts', 0)} |",
-            f"| Successful thoughts | {thought_summary.get('successful', report.total_thoughts)} |",
+            f"| Readout attempts | {thought_summary.get('attempts', 0)} |",
+            f"| Successful readouts | {thought_summary.get('successful', report.total_thoughts)} |",
             f"| Dreams | {thought_summary.get('dreams', 0)} |",
             f"| Blocked ticks | {thought_summary.get('blocked_ticks', 0)} |",
             f"| Wake triggers | {thought_summary.get('wake_triggers', {})} |",
@@ -1022,7 +1022,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "## Timeline",
             "",
-            "| Time (s) | Tokens | Thoughts | ΔThoughts | Bg tokens | Tick count | Latency (ms) | Memory | Topics | Ingestion |",
+            "| Time (s) | Tokens | Readouts | ΔReadouts | Bg tokens | Tick count | Latency (ms) | Memory | Topics | Ingestion |",
             "|----------|--------|----------|-----------|-----------|------------|--------------|--------|--------|-----------|",
         ]
     )
@@ -1044,7 +1044,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
     if report.sample_thoughts:
         lines.extend([
             "",
-            "## Sample Thoughts",
+            "## Sample Language Readouts",
             "",
         ])
         for index, thought in enumerate(report.sample_thoughts[:10], 1):
@@ -1102,7 +1102,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\nTest complete!")
     print(f"  Health: {report.health_verdict}")
     print(f"  Acceptance: {report.acceptance_verdict}")
-    print(f"  Thoughts: {report.total_thoughts}")
+    print(f"  Language/readouts: {report.total_thoughts}")
     print(f"  Topics: {report.unique_topics}")
     print(f"  Avg latency: {report.avg_latency_ms:.0f}ms")
     print(f"  Report: {md_path}")

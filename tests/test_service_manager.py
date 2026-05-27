@@ -160,7 +160,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
             checkpoint_dir = root / "checkpoints"
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
             env_path = root / ".env"
-            env_path.write_text("NVIDIA_API_KEY=dotenv-checkpoint-key\n", encoding="utf-8")
+            env_path.write_text("HF_TOKEN=dotenv-checkpoint-token\n", encoding="utf-8")
 
             cfg = HECSNConfig(
                 n_columns=4,
@@ -180,32 +180,25 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                 metadata={"test_case": "bootstrap_checkpoint_ancestry"},
             )
 
-            old_key = os.environ.pop("NVIDIA_API_KEY", None)
+            old_token = os.environ.pop("HF_TOKEN", None)
             try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-                with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                    "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                    return_value=SimpleEmbedder(dim=128),
-                ):
-                    manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+                manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
                 try:
                     env_info = manager.runtime_facade.status()["terminus_runtime"]["environment"]
                     self.assertTrue(env_info["dotenv_available"])
                     self.assertTrue(env_info["dotenv_loaded"])
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
-                    self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-checkpoint-key")
-                    self.assertIsNone(manager._cortex_factory_refs)
+                    self.assertEqual(os.environ.get("HF_TOKEN"), "dotenv-checkpoint-token")
+                    self.assertTrue(env_info["hf_token_present"])
                     self.assertFalse(manager._retired_runtime_path_available)
-                    self.assertIsNone(manager._thought_loop_actual)
+                    self.assertFalse(hasattr(manager, "_thought_loop_actual"))
                 finally:
                     manager.close()
             finally:
-                if old_key is None:
-                    os.environ.pop("NVIDIA_API_KEY", None)
+                if old_token is None:
+                    os.environ.pop("HF_TOKEN", None)
                 else:
-                    os.environ["NVIDIA_API_KEY"] = old_key
+                    os.environ["HF_TOKEN"] = old_token
 
     def test_manager_loads_runtime_env_from_explicit_env_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -213,7 +206,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
             env_root = root / "project_root"
             env_root.mkdir(parents=True, exist_ok=True)
             env_path = env_root / ".env"
-            env_path.write_text("NVIDIA_API_KEY=dotenv-explicit-root\n", encoding="utf-8")
+            env_path.write_text("HF_TOKEN=dotenv-explicit-root\n", encoding="utf-8")
             checkpoint_dir = root / "external_checkpoints"
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
@@ -235,37 +228,30 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                 metadata={"test_case": "bootstrap_env_root"},
             )
 
-            old_key = os.environ.pop("NVIDIA_API_KEY", None)
+            old_token = os.environ.pop("HF_TOKEN", None)
             try:
-                from hecsn.cortex.core import MockCortex
-                from hecsn.cortex.episodic_memory import SimpleEmbedder
-
-                with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                    "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                    return_value=SimpleEmbedder(dim=128),
-                ):
-                    manager = HECSNServiceManager(
-                        checkpoint_path,
-                        trace_dir=root / "traces",
-                        env_root=env_root,
-                    )
+                manager = HECSNServiceManager(
+                    checkpoint_path,
+                    trace_dir=root / "traces",
+                    env_root=env_root,
+                )
                 try:
                     env_info = manager.runtime_facade.status()["terminus_runtime"]["environment"]
                     self.assertTrue(env_info["dotenv_available"])
                     self.assertTrue(env_info["dotenv_loaded"])
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(Path(str(env_info["env_root"])).resolve(), env_root.resolve())
-                    self.assertEqual(os.environ.get("NVIDIA_API_KEY"), "dotenv-explicit-root")
-                    self.assertIsNone(manager._cortex_factory_refs)
+                    self.assertEqual(os.environ.get("HF_TOKEN"), "dotenv-explicit-root")
+                    self.assertTrue(env_info["hf_token_present"])
                     self.assertFalse(manager._retired_runtime_path_available)
-                    self.assertIsNone(manager._thought_loop_actual)
+                    self.assertFalse(hasattr(manager, "_thought_loop_actual"))
                 finally:
                     manager.close()
             finally:
-                if old_key is None:
-                    os.environ.pop("NVIDIA_API_KEY", None)
+                if old_token is None:
+                    os.environ.pop("HF_TOKEN", None)
                 else:
-                    os.environ["NVIDIA_API_KEY"] = old_key
+                    os.environ["HF_TOKEN"] = old_token
 
 
 class ServiceManagerCheckpointTests(unittest.TestCase):
@@ -433,8 +419,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "traces")
                 try:
-                    replay_history = restored.replay_sample_history(limit=10)
-                    traces = restored.recent_traces(limit=10)
+                    replay_history = restored.runtime_facade.replay_sample_history(limit=10)
+                    traces = restored.runtime_facade.recent_traces(limit=10)
 
                     self.assertEqual(replay_history["count"], 1)
                     self.assertEqual(replay_history["history"][0]["replay_sample_id"], replay_record["replay_sample_id"])
@@ -7813,20 +7799,13 @@ class CortexIntegrationTests(unittest.TestCase):
     def test_manager_creation_status_do_not_eagerly_initialize_cortex(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            with patch.dict(os.environ, {"NVIDIA_API_KEY": "real-env-placeholder"}), patch(
-                "hecsn.cortex.multi_cortex.create_cortex_from_env"
-            ) as create_cortex, patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env"
-            ) as create_embedder:
-                manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
-                try:
-                    status = manager.runtime_facade.status()
-                    snapshot = status["terminus_runtime"]["retired_runtime_path"]
-                finally:
-                    manager.close()
+            manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
+            try:
+                status = manager.runtime_facade.status()
+                snapshot = status["terminus_runtime"]["retired_runtime_path"]
+            finally:
+                manager.close()
 
-            create_cortex.assert_not_called()
-            create_embedder.assert_not_called()
             self.assertIn("terminus_runtime", status)
             self.assertNotIn("cortex", status["terminus_runtime"])
             self.assertFalse(snapshot["enabled"])
@@ -8063,18 +8042,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 "Cats rest indoors during the day.\nCats chase mice at night.\n",
                 encoding="utf-8",
             )
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_workspace_search",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_workspace_search",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8089,7 +8062,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 self.assertEqual(runtime["action_loop"]["contradicted_actions"], 0)
                 self.assertFalse(runtime["action_loop"]["retired_loop_sync"]["initializes_retired_loop"])
                 self.assertEqual(runtime["action_loop"]["retired_loop_sync"]["status"], "disabled_subcortex_ledger_only")
-                self.assertIsNone(manager._thought_loop_actual)
+                self.assertFalse(hasattr(manager, "_thought_loop_actual"))
                 self.assertEqual(runtime["recent_events"][0]["type"], "digital_action_executed")
                 self.assertEqual(result["result"]["verification"]["status"], "verified")
 
@@ -8097,15 +8070,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8180,18 +8149,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), _EchoJsonApiHandler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_parameterized_api_request",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_parameterized_api_request",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8218,15 +8181,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8255,18 +8214,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_structured_api_verification",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_structured_api_verification",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8290,15 +8243,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8327,18 +8276,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_api_assertions",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_api_assertions",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8365,15 +8308,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8402,18 +8341,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_api_value_assertions",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_api_value_assertions",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8440,15 +8373,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8474,18 +8403,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_api_predicate_assertions",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_api_predicate_assertions",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8512,15 +8435,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8547,18 +8466,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_api_composite_predicate_assertions",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_api_composite_predicate_assertions",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8587,15 +8500,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8622,18 +8531,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_api_logical_group_assertions",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_api_logical_group_assertions",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8669,15 +8572,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)
@@ -8706,18 +8605,12 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             server = ThreadingHTTPServer(("127.0.0.1", port), handler)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
-            from hecsn.cortex.core import MockCortex
-            from hecsn.cortex.episodic_memory import SimpleEmbedder
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                manager = _build_manager(
-                    root,
-                    test_case="service_manager_action_loop_api_wildcard_nested_groups",
-                    env_root=root,
-                )
+            manager = _build_manager(
+                root,
+                test_case="service_manager_action_loop_api_wildcard_nested_groups",
+                env_root=root,
+            )
             try:
                 result = manager.runtime_facade.execute_digital_action(
                     {
@@ -8763,15 +8656,11 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            with patch("hecsn.cortex.multi_cortex.create_cortex_from_env", return_value=MockCortex()), patch(
-                "hecsn.cortex.multi_cortex.create_embedder_from_env",
-                return_value=SimpleEmbedder(),
-            ):
-                restored = HECSNServiceManager(
-                    saved["path"],
-                    trace_dir=root / "restored_traces",
-                    env_root=root,
-                )
+            restored = HECSNServiceManager(
+                saved["path"],
+                trace_dir=root / "restored_traces",
+                env_root=root,
+            )
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["count"], 1)

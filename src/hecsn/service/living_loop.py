@@ -56,7 +56,7 @@ __all__ = [
     "_endpoint_latency_empty",
     "_enum_value",
     "_extract_cache_summary",
-    "_extract_nim_summary",
+    "_extract_retired_external_adapter_summary",
     "_latency_summary",
     "_latest_text",
     "_limited_unique_clean_text",
@@ -136,7 +136,7 @@ from hecsn.service.living_loop_self_model import (  # re-exported for backward c
     _endpoint_bucket_name,
     _endpoint_latency_empty,
     _extract_cache_summary,
-    _extract_nim_summary,
+    _extract_retired_external_adapter_summary,
     _latency_summary,
     _memory_counter_summary,
 )

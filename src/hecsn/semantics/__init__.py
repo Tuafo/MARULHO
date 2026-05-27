@@ -4,10 +4,13 @@ from .cognitive_signal import CognitiveSignalState
 from .exploration_state import ExplorationState, normalize_exploration_target
 from .geometric_curiosity import GeometricCuriosityController
 from .grounding_diagnostics import GroundingDiagnostics
+from .language_packet import ContextPacket, DeliberationDepth, MemoryItem, ReadoutMode
+from .language_result import LanguageResult
 from .language_surface import (
     attach_cognitive_signal_language_surface,
     build_cognitive_signal_language_surface,
     build_snn_language_readiness_surface,
+    build_subcortical_spike_readout_evidence,
     build_subcortical_deliberation_surface,
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
@@ -21,12 +24,18 @@ __all__ = [
     "CognitiveSignalState",
     "ExplorationState",
     "GroundingDiagnostics",
+    "ContextPacket",
+    "LanguageResult",
+    "MemoryItem",
     "OnlineSlowFeatureMap",
     "GeometricCuriosityController",
     "Provenance",
+    "ReadoutMode",
+    "DeliberationDepth",
     "attach_cognitive_signal_language_surface",
     "build_cognitive_signal_language_surface",
     "build_snn_language_readiness_surface",
+    "build_subcortical_spike_readout_evidence",
     "build_subcortical_deliberation_surface",
     "build_subcortical_self_repair_evaluation_surface",
     "build_subcortical_self_repair_surface",

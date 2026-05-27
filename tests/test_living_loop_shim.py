@@ -74,7 +74,7 @@ from hecsn.service.living_loop_self_model import (
     _endpoint_bucket_name,
     _endpoint_latency_empty,
     _extract_cache_summary,
-    _extract_nim_summary,
+    _extract_retired_external_adapter_summary,
     _latency_summary,
     _memory_counter_summary,
 )
@@ -147,7 +147,7 @@ _REEXPORTED_SYMBOLS: list[tuple[str, object]] = [
     ("_endpoint_bucket_name", _endpoint_bucket_name),
     ("_endpoint_latency_empty", _endpoint_latency_empty),
     ("_extract_cache_summary", _extract_cache_summary),
-    ("_extract_nim_summary", _extract_nim_summary),
+    ("_extract_retired_external_adapter_summary", _extract_retired_external_adapter_summary),
     ("_latency_summary", _latency_summary),
     ("_memory_counter_summary", _memory_counter_summary),
 ]

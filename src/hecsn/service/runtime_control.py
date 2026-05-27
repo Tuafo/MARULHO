@@ -15,7 +15,7 @@ DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 
-_cortex_logger = _logging.getLogger(__name__ + ".cortex")
+_retired_runtime_logger = _logging.getLogger(__name__ + ".retired_runtime")
 
 def _build_runtime_control_initial_state() -> dict[str, Any]:
     active_execution_idle_event = Event()
@@ -357,7 +357,7 @@ class RuntimeControl(RuntimePrewarmMixin):
             )
         if raise_on_timeout:
             raise RuntimeError(message)
-        _cortex_logger.warning(message)
+        _retired_runtime_logger.warning(message)
         return False
 
     def _request_brain_stop_locked(self, *, reason: str | None = None) -> Thread | None:

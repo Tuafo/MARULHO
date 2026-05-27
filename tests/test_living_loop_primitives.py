@@ -8,7 +8,7 @@ import unittest
 from fastapi.testclient import TestClient
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.cortex.episodic_memory import Provenance
+from hecsn.semantics.provenance import Provenance
 from hecsn.service.api import create_app
 from hecsn.service.living_loop import (
     ActionExecutionRecord,
@@ -337,15 +337,15 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             world_model_lite=world,
             action_loop={"actions_recorded": 2},
             memory={"size": 4, "capacity": 16, "fill_ratio": 0.25, "total_stored": 4, "total_evicted": 0},
-            cortex={
+            retired_runtime_path={
                 "enabled": True,
                 "thoughts_generated": 2,
                 "dreams_generated": 1,
                 "episodic_memory": {
                     "embedder": {
-                        "kind": "NIMEmbedder",
-                        "nim_calls": 4,
-                        "rate_limit_hits": 1,
+                        "kind": "RetiredExternalEmbedder",
+                        "external_calls": 4,
+                        "external_throttle_hits": 1,
                         "cache_hits": 3,
                         "cache_misses": 1,
                         "cache_size": 3,
@@ -377,9 +377,10 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(telemetry["endpoint_latency_ms"]["runtime_action"]["count"], 3)
         self.assertAlmostEqual(telemetry["tokens_per_second"]["value"], 500.0)
         self.assertEqual(telemetry["memory"]["status"], "available")
-        self.assertEqual(telemetry["nim"]["observed_call_count"], 7)
-        self.assertIsNone(telemetry["nim"]["calls_per_minute"])
-        self.assertEqual(telemetry["nim"]["rate_limit_hits"], 1)
+        adapter = telemetry["retired_external_adapter"]
+        self.assertEqual(adapter["observed_call_count"], 7)
+        self.assertIsNone(adapter["calls_per_minute"])
+        self.assertEqual(adapter["external_throttle_hits"], 1)
         self.assertAlmostEqual(telemetry["cache"]["hit_rate"], 0.75)
         self.assertAlmostEqual(telemetry["action_success"]["success_rate"], 0.5)
         self.assertAlmostEqual(telemetry["verification_success"]["success_rate"], 0.5)
@@ -448,7 +449,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                 "total_evicted": 0,
                 "provenance_distribution": {"verified": 1, "contradicted": 1},
             },
-            cortex={"enabled": True, "memory_count": 4},
+            retired_runtime_path={"enabled": True, "memory_count": 4},
         )
 
         payload = model.to_payload()
@@ -500,7 +501,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                     "endpoint_latency_ms": {"query": {"avg_ms": 2500.0, "max_ms": 3000.0}},
                 },
             },
-            retired_runtime_path_snapshot={"name": "cortex", "active_runtime_requirement": False, "drives": {"fatigue": 0.95}},
+            retired_runtime_path_snapshot={"name": "retired_runtime_path", "active_runtime_requirement": False, "drives": {"fatigue": 0.95}},
         ).to_payload()
 
         self.assertEqual(policy["action"], "investigate_contradictions")
@@ -528,7 +529,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                 ],
                 "memory_health": {"fill_ratio": 0.99},
             },
-            retired_runtime_path_snapshot={"name": "cortex", "active_runtime_requirement": False, "drives": {"fatigue": 0.9}},
+            retired_runtime_path_snapshot={"name": "retired_runtime_path", "active_runtime_requirement": False, "drives": {"fatigue": 0.9}},
         ).to_payload()
 
         self.assertEqual(policy["action"], "verify_pending_evidence")
@@ -730,7 +731,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(endpoint_loop["budgets"]["action_snapshot_used"], 1)
         self.assertEqual(endpoint_loop["memory_health"]["status"], "no_memory_snapshot")
         self.assertEqual(endpoint_loop["grounding_health"]["status"], "grounded")
-        self.assertEqual(endpoint_loop["retired_runtime_path"]["name"], "cortex")
+        self.assertEqual(endpoint_loop["retired_runtime_path"]["name"], "retired_runtime_path")
         self.assertFalse(endpoint_loop["retired_runtime_path"]["active_runtime_requirement"])
         self.assertIn("retired_runtime_path_snapshot", endpoint_loop["capabilities"])
         self.assertNotIn("cortex", endpoint_loop)
@@ -945,7 +946,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "Uncertainty after safety/cost checks",
             "The safety boundary is strict",
             "**does not execute actions, mutate action history, advance state revision, start sleep, "
-            "post feedback, call the cortex, or change runtime configuration**",
+            "post feedback, call the retired runtime path, or change runtime configuration**",
             "`suggested_endpoint` and `suggested_input` are operator guidance",
             "`benchmark_telemetry.policy_recommendations` includes `total`, `latest`, `counts`",
             "sanitized top-level `policy_decision`",
@@ -1038,7 +1039,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "allow_sleep_maintenance=False",
             "sleep_maintenance_deferred",
             "Background/runtime trainer behavior remains unchanged",
-            "service construction plus `/health` and `/status` avoid eager NIM/embedder calls",
+            "Service startup plus `/health` and `/status` must not construct retired external LLM, NIM, or external embedder paths",
             "benchmark_telemetry",
             "endpoint_latency_ms",
             "tokens_per_second",

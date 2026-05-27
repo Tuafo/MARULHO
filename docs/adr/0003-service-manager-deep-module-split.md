@@ -45,7 +45,7 @@ The accepted implementation goes further than simple mixin extraction:
 | RuntimeController | RuntimeControlMixin + RuntimePrewarmMixin behavior | ~1600 | brain thread, stop event, active execution counters, prewarm thread lifecycle |
 | StatusReadModel | StatusRuntimeMixin + LivingStatusMixin + sensory preview + shallow ReportingMixin behavior | ~1000 | cached status/telemetry/terminus snapshots |
 | ActionExecutor | ActionRuntimeMixin + ActionAssistMixin | ~750 | action history |
-| RetiredCortexCompatibilityController | CortexRuntimeMixin | 350 | temporary retired-path status and cleanup hooks |
+| RetiredRuntimePathState | retired_runtime_path.py | minimal | retired-path status snapshot only; no ask/sleep/thought/action hooks |
 | RuntimePersistence | PersistenceMixin | 233 | trace history and checkpoint save/restore orchestration |
 | RuntimeConfig | RuntimeConfigMixin | 513 | (stateless — normalization only) |
 | RuntimeSources | RuntimeSourcesMixin | 390 | source runtime dataclasses |
@@ -70,7 +70,7 @@ This ADR does not reopen or contradict ADR 0001 or ADR 0002. The Living Loop dep
 
 ### Backward compatibility
 
-The Service Manager retains its current public method signatures (`query()`, `feed()`, `respond()`, `acquire()`, `status()`, `terminus_status()`, etc.). Internally, each method delegates to the corresponding deep module. FastAPI routes require no changes.
+The Service Manager no longer owns the operator-facing runtime method surface. FastAPI routes call `RuntimeFacade`, and manager methods that remain are internal dependency callbacks for explicitly wired deep modules.
 
 Compatibility imports such as `RuntimeControlMixin = RuntimeControl` may remain for tests and older imports, but `HECSNServiceManager` must not inherit from those aliases or recover behavior through an unbound mixin fallback.
 
@@ -113,7 +113,7 @@ Per-module locks create deadlock risk (A holds lock_A, waits for B which holds l
 - Cross-cutting concerns (`mark_mutated`, `record_event`) have a dedicated home
 - Shallow modules are collapsed — no more pass-throughs
 - Future changes to one module don't require re-validating unrelated modules
-- Retired Cortex compatibility is named as cleanup scaffolding, not an active runtime module
+- Retired runtime path state is named as cleanup scaffolding, not an active runtime module
 - The 9,277-line test file can decompose into 15 per-module test files
 
 ### Negative

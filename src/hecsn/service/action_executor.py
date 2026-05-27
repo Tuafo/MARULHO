@@ -1046,7 +1046,7 @@ class ActionExecutor:
                 "initializes_retired_loop": False,
                 "reason": (
                     "Digital action history is retained in the Subcortex runtime ledger; "
-                    "the retired Cortex/ThoughtLoop path is not initialized for action mirroring."
+                    "the retired LLM/ThoughtLoop path is not initialized for action mirroring."
                 ),
             },
         }

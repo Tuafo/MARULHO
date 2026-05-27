@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from hecsn.cortex.core import ThoughtResult
+from hecsn.semantics.language_result import LanguageResult
 
 
 def text_keywords(text: str) -> set[str]:
@@ -101,7 +101,7 @@ def dedupe_sentences(text: str) -> str:
     return " ".join(kept).strip()
 
 
-def merge_chain_results(chain: list[ThoughtResult]) -> ThoughtResult:
+def merge_chain_results(chain: list[LanguageResult]) -> LanguageResult:
     """Merge deliberation chain outputs into a single auditable result."""
     if len(chain) == 1:
         return chain[0]
@@ -133,7 +133,7 @@ def merge_chain_results(chain: list[ThoughtResult]) -> ThoughtResult:
             clipped = thought[:300].rstrip()
             thought = clipped.rsplit(" ", 1)[0].rstrip(" ,;:") + "..."
 
-    return ThoughtResult(
+    return LanguageResult(
         raw_text=final.raw_text,
         thought=thought,
         topics=tuple(all_topics[:8]),

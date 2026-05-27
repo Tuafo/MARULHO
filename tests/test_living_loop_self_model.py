@@ -6,7 +6,7 @@ Covers:
 - OperationalSelfModel.to_payload structure and surface methods
 - build_runtime_benchmark_telemetry with synthetic runtime samples
 - Telemetry helpers: _endpoint_bucket_name, _latency_summary,
-  _extract_cache_summary, _extract_nim_summary, _memory_counter_summary,
+  _extract_cache_summary, _extract_retired_external_adapter_summary, _memory_counter_summary,
   _endpoint_latency_empty
 - Re-export verification: symbols still importable from living_loop
 """
@@ -40,7 +40,7 @@ from hecsn.service.living_loop_self_model import (
     _endpoint_bucket_name,
     _endpoint_latency_empty,
     _extract_cache_summary,
-    _extract_nim_summary,
+    _extract_retired_external_adapter_summary,
     _latency_summary,
     _memory_counter_summary,
 )
@@ -149,19 +149,19 @@ class TestExtractCacheSummary(unittest.TestCase):
         self.assertEqual(result["cache_size"], 0)
 
 
-class TestExtractNimSummary(unittest.TestCase):
-    """_extract_nim_summary extracts NIM call statistics from retired-path data."""
+class TestExtractRetiredExternalAdapterSummary(unittest.TestCase):
+    """Retired adapter summary extracts historical external call statistics."""
 
-    def test_full_cortex(self) -> None:
-        cortex = {
+    def test_full_retired_runtime_path(self) -> None:
+        retired_runtime_path = {
             "enabled": True,
             "thoughts_generated": 2,
             "dreams_generated": 1,
             "episodic_memory": {
                 "embedder": {
-                    "kind": "NIMEmbedder",
-                    "nim_calls": 4,
-                    "rate_limit_hits": 1,
+                    "kind": "RetiredExternalEmbedder",
+                    "external_calls": 4,
+                    "external_throttle_hits": 1,
                     "available": True,
                     "degraded": False,
                     "fallback_calls": 0,
@@ -169,26 +169,26 @@ class TestExtractNimSummary(unittest.TestCase):
                 },
             },
         }
-        result = _extract_nim_summary(cortex)
+        result = _extract_retired_external_adapter_summary(retired_runtime_path)
         self.assertTrue(result["available"])
         self.assertEqual(result["chat_generations_observed"], 3)
-        self.assertEqual(result["embedding_nim_calls"], 4)
+        self.assertEqual(result["embedding_external_calls"], 4)
         self.assertEqual(result["observed_call_count"], 7)
         self.assertIsNone(result["calls_per_minute"])
-        self.assertEqual(result["rate_limit_hits"], 1)
+        self.assertEqual(result["external_throttle_hits"], 1)
         embedder = result["embedder"]
-        self.assertEqual(embedder["kind"], "NIMEmbedder")
+        self.assertEqual(embedder["kind"], "RetiredExternalEmbedder")
         self.assertTrue(embedder["available"])
         self.assertFalse(embedder["degraded"])
         self.assertEqual(embedder["error_calls"], 2)
 
     def test_none_cortex(self) -> None:
-        result = _extract_nim_summary(None)
+        result = _extract_retired_external_adapter_summary(None)
         self.assertFalse(result["available"])
         self.assertEqual(result["observed_call_count"], 0)
 
     def test_empty_cortex(self) -> None:
-        result = _extract_nim_summary({})
+        result = _extract_retired_external_adapter_summary({})
         self.assertFalse(result["available"])
         self.assertEqual(result["chat_generations_observed"], 0)
 
@@ -349,7 +349,7 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
             telemetry["tokens_per_second"]["source"], "runtime_episode_traces"
         )
 
-    def test_memory_nim_and_cache(self) -> None:
+    def test_memory_retired_external_adapter_and_cache(self) -> None:
         episodes = self._make_episodes()
         actions = self._make_actions()
         world = WorldModelLiteSummary.from_records(actions=actions)
@@ -365,15 +365,15 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
                 "total_stored": 4,
                 "total_evicted": 0,
             },
-            cortex={
+            retired_runtime_path={
                 "enabled": True,
                 "thoughts_generated": 2,
                 "dreams_generated": 1,
                 "episodic_memory": {
                     "embedder": {
-                        "kind": "NIMEmbedder",
-                        "nim_calls": 4,
-                        "rate_limit_hits": 1,
+                        "kind": "RetiredExternalEmbedder",
+                        "external_calls": 4,
+                        "external_throttle_hits": 1,
                         "cache_hits": 3,
                         "cache_misses": 1,
                         "cache_size": 3,
@@ -382,9 +382,10 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
             },
         )
         self.assertEqual(telemetry["memory"]["status"], "available")
-        self.assertEqual(telemetry["nim"]["observed_call_count"], 7)
-        self.assertIsNone(telemetry["nim"]["calls_per_minute"])
-        self.assertEqual(telemetry["nim"]["rate_limit_hits"], 1)
+        adapter = telemetry["retired_external_adapter"]
+        self.assertEqual(adapter["observed_call_count"], 7)
+        self.assertIsNone(adapter["calls_per_minute"])
+        self.assertEqual(adapter["external_throttle_hits"], 1)
         self.assertAlmostEqual(telemetry["cache"]["hit_rate"], 0.75)
 
     def test_action_and_verification_success_rates(self) -> None:
@@ -550,9 +551,8 @@ class TestOperationalSelfModelBuild(unittest.TestCase):
                     "contradicted": 1,
                 },
             },
-            cortex={"enabled": True, "memory_count": 4},
             retired_runtime_path={
-                "name": "cortex",
+                "name": "retired_runtime_path",
                 "available": True,
                 "retired": False,
                 "active_runtime_requirement": False,
@@ -566,7 +566,7 @@ class TestOperationalSelfModelBuild(unittest.TestCase):
         self.assertEqual(len(model.actions), 2)
         self.assertIsNotNone(model.world_model_lite)
         payload = model.to_payload()
-        self.assertEqual(payload["retired_runtime_path"]["name"], "cortex")
+        self.assertEqual(payload["retired_runtime_path"]["name"], "retired_runtime_path")
         self.assertIn("retired_runtime_path_snapshot", payload["capabilities"])
 
     def test_build_with_minimal_inputs(self) -> None:
@@ -740,7 +740,7 @@ class TestOperationalSelfModelToPayload(unittest.TestCase):
                     "contradicted": 1,
                 },
             },
-            cortex={"enabled": True, "memory_count": 4},
+            retired_runtime_path={"enabled": True, "memory_count": 4},
             generated_at="2026-01-01T00:00:00+00:00",
         )
 
@@ -891,9 +891,8 @@ class TestOperationalSelfModelSurfaceMethods(unittest.TestCase):
             configured=True,
             running=True,
             provenance=ProvenanceState(),
-            cortex={"enabled": True},
             retired_runtime_path={
-                "name": "cortex",
+                "name": "retired_runtime_path",
                 "available": True,
                 "active_runtime_requirement": False,
             },
@@ -944,7 +943,7 @@ class TestSelfModelReExports(unittest.TestCase):
             _endpoint_bucket_name,
             _endpoint_latency_empty,
             _extract_cache_summary,
-            _extract_nim_summary,
+            _extract_retired_external_adapter_summary,
             _latency_summary,
             _memory_counter_summary,
         )
@@ -953,7 +952,7 @@ class TestSelfModelReExports(unittest.TestCase):
         self.assertTrue(callable(_endpoint_bucket_name))
         self.assertTrue(callable(_endpoint_latency_empty))
         self.assertTrue(callable(_extract_cache_summary))
-        self.assertTrue(callable(_extract_nim_summary))
+        self.assertTrue(callable(_extract_retired_external_adapter_summary))
         self.assertTrue(callable(_latency_summary))
         self.assertTrue(callable(_memory_counter_summary))
 

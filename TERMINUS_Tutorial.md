@@ -1,6 +1,6 @@
 # HECSN Tutorial — Current Operator & Developer Guide
 
-> **Current runtime truth:** HECSN/Terminus is a hybrid SNN–LLM system with a predictive spiking substrate plus a **strict NVIDIA NIM** cortex path. There is **no production Ollama path** and no local Gemma runtime in the maintained system surface.
+> **Current runtime truth:** HECSN/Terminus is a Subcortex-first SNN system. The former external LLM/NIM path is retired and must not be used as a runtime, mock path, language engine, or fallback.
 
 ---
 
@@ -13,7 +13,7 @@
 5. [Running the service](#5-running-the-service)
 6. [Building and serving the dashboard](#6-building-and-serving-the-dashboard)
 7. [Terminus runtime](#7-terminus-runtime)
-8. [Cortex, action loop, and sleep control](#8-cortex-action-loop-and-sleep-control)
+8. [Retired path, action loop, and sleep control](#8-retired-path-action-loop-and-sleep-control)
 9. [API reference](#9-api-reference)
 10. [Validation and testing](#10-validation-and-testing)
 11. [Extension points](#11-extension-points)
@@ -23,14 +23,14 @@
 
 ## 1. What HECSN is now
 
-HECSN is a **hybrid cognitive architecture**:
+HECSN is a **Subcortex-first cognitive architecture**:
 
 - a **predictive spiking substrate** handles grounding, prediction error, salience, replay, buffering, and local online adaptation
-- a **cloud-hosted NVIDIA NIM cortex** handles language, reasoning, narrative continuity, question formation, answer generation, and dream-style recombination
+- language, reasoning, narrative continuity, question formation, answer generation, and dream-style recombination must move through HECSN-owned Subcortex/SNN surfaces with explicit grounding and device evidence
 
 The architectural rule is:
 
-> the SNN side controls **when**, **why**, and **how deeply** the cortex thinks; the cortex does not free-run by itself.
+> Subcortex owns **when**, **why**, and **how deeply** cognition runs. Retired external LLM paths do not own thought, language, memory, or sleep.
 
 The maintained system is now centered around five backend truths:
 
@@ -44,18 +44,16 @@ The maintained system is now centered around five backend truths:
 
 ## 2. Current runtime stack
 
-### Cortex / LLM side
+### Retired external LLM side
 
-Production cortex path:
-- **fast model:** `nvidia/llama-3.1-nemotron-nano-8b-v1`
-- **deep model:** `meta/llama-3.3-70b-instruct`
-- **embedder:** `nvidia/llama-nemotron-embed-vl-1b-v2`
+The old external LLM path is retired and is not part of the active runtime stack.
+Do not configure NIM models, LLM factories, or mock language substitutes.
 
 Important:
-- production cortex is **NIM-only**
-- tests may use `MockCortex`
-- `CorticalCore` is the abstract interface, **not** an Ollama wrapper
-- cortex/NIM construction is **lazy and bounded**: service startup, `/health`, and `/status` do not call NIM eagerly; active cortex use starts initialization and waits only for the configured initialization budget before reporting pending/unavailable state
+- production cognition is **Subcortex/Living Loop first**
+- the top-level `hecsn.cortex` package is deleted
+- historical Cortex submodules are not extension points
+- LLM construction must not occur in active service startup, `/health`, `/status`, action execution, or language surfaces
 
 ### Text / multimodal runtime side
 
@@ -89,9 +87,9 @@ These all share the same maintained path for:
 
 ### Maintained sleep control
 
-Explicit sleep control also now has a maintained manager-visible path:
-- operator-triggered via `manager.cortex_sleep()` or `POST /terminus/cortex/sleep`
-- cortex-intent-triggered via `action_intent="sleep"`
+Sleep/consolidation belongs to Subcortex/Living Loop maintenance. Retired
+Retired-path sleep endpoints and retired-intent sleep paths are not maintained product
+surfaces.
 
 ### Acceptance / long-test path
 
@@ -112,7 +110,6 @@ The maintained long-test runner now:
 - Python 3.10+
 - Node.js 20+
 - PyTorch 2.x
-- a valid **NVIDIA NIM API key**
 - Hugging Face access if you want the live HF-backed runtime to behave well
 
 ### Python dependencies
@@ -136,25 +133,21 @@ pip install torch numpy fastapi uvicorn[standard] datasets httpx
 Create a `.env` in the repo root:
 
 ```bash
-NVIDIA_API_KEY=your_nim_key_here
 HF_TOKEN=your_hf_token_here
 ```
 
 Recommended optional overrides:
 
 ```bash
-NIM_FAST_MODEL=nvidia/llama-3.1-nemotron-nano-8b-v1
-NIM_DEEP_MODEL=meta/llama-3.3-70b-instruct
-NIM_MAX_RPM=20
 HECSN_CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 ```
 
 ### Runtime behavior when env is missing
 
-- if `NVIDIA_API_KEY` is missing or NIM is unreachable, the **service can still start**, but cortex-dependent features are disabled
 - if `HF_TOKEN` is missing, the live HF runtime may still work, but with worse limits / slower behavior
 
-This is different from older documentation that implied local Ollama/Gemma operation. That is no longer the production path.
+This is different from older documentation that implied local Ollama/Gemma or
+NVIDIA NIM operation. Those are no longer production paths.
 
 ---
 
@@ -284,7 +277,7 @@ In practice this means:
 1. observe configured sources, sensory previews, operator questions, and action outcomes
 2. predict likely outcomes before acting or answering
 3. convert prediction error, salience, uncertainty, novelty, fatigue, and drive pressure into control signals
-4. reason or act through the cortex and maintained digital action loop
+4. deliberate through Subcortex/Living Loop surfaces and act through the maintained digital action loop
 5. verify action/answer outcomes against grounded evidence
 6. write typed memory with provenance such as `observed`, `inferred`, `dreamed`, `verified`, and `contradicted`
 7. replay and consolidate memories, delayed consequences, source utility, and long-horizon evidence
@@ -369,12 +362,12 @@ Recommendation priority is intentionally conservative:
 
 1. **Contradictions first**: contradicted feedback, predictions, actions, episodes, or `grounding_health.status=contradictions_present` select `investigate_contradictions`.
 2. **Pending evidence next**: unverified feedback, pending predictions, unverified actions, or pending/unverified runtime episodes select `verify_pending_evidence`.
-3. **Maintenance pressure before new evidence**: memory fill at or above `0.90`, cortex fatigue at or above `0.70`, or an already-sleeping cortex selects `consolidate_or_sleep`.
+3. **Maintenance pressure before new evidence**: memory fill at or above `0.90`, retired-runtime fatigue at or above `0.70`, or an already-sleeping retired runtime path selects `consolidate_or_sleep`.
 4. **Cost/latency pressure before exploration**: high endpoint latency, policy cost at or above `0.80`, or budget use at or above `0.80` selects `reduce_scope_or_wait`.
 5. **Uncertainty after safety/cost checks**: high uncertainty, unknown predictions, or surfaced uncertain domains select `collect_more_evidence`.
 6. **Healthy state fallback**: if no pressure crosses a threshold, the actuator returns `continue_current_policy`.
 
-The safety boundary is strict: the policy actuator **does not execute actions, mutate action history, advance state revision, start sleep, post feedback, call the cortex, or change runtime configuration**. `suggested_endpoint` and `suggested_input` are operator guidance for a separate deliberate call. This keeps policy selection visible and benchmarkable while preserving the existing verification-first action path.
+The safety boundary is strict: the policy actuator **does not execute actions, mutate action history, advance state revision, start sleep, post feedback, call the retired runtime path, or change runtime configuration**. `suggested_endpoint` and `suggested_input` are operator guidance for a separate deliberate call. This keeps policy selection visible and benchmarkable while preserving the existing verification-first action path.
 
 Policy-actuator fields are surfaced consistently across telemetry/export/benchmark paths:
 - telemetry: `/terminus/living-loop` includes `policy_decision`, and `benchmark_telemetry.policy_recommendations` includes `total`, `latest`, `counts`, and outcome scores such as `information_gain`, `goal_progress`, `risk`, and `uncertainty`
@@ -595,8 +588,8 @@ The maintained service has one canonical optimized query path:
 - `POST /query` is the routing/evidence endpoint. There is **no separate fast query API**, `/fast-query` route, or alternate backend path to keep in sync.
 - Query latency is optimized inside `src\hecsn\training\query_runner.py`: semantic query-term matching uses bounded in-request caches for evidence units, token forms, and term-pair matches. Callers should use `/query`; they should not bypass it for a special "fast" mode.
 - `POST /feed` uses the normal trainer `train_step` path, but the request handler passes `allow_sleep_maintenance=False`. Due micro/deep sleep maintenance is counted as `sleep_maintenance_deferred` and surfaced with `sleep_maintenance_allowed=false` in the feed result instead of blocking the request. Background/runtime trainer behavior remains unchanged when sleep maintenance is allowed.
-- Cortex startup is lazy: service construction plus `/health` and `/status` avoid eager NIM/embedder calls. Cortex-dependent actions initialize NIM on demand with a bounded wait, so a slow remote NIM health check cannot hold basic status paths hostage.
-- Benchmark telemetry is embedded in the living-loop snapshot. Inspect `benchmark_telemetry` via `GET /terminus/living-loop` or under `terminus_runtime.living_loop.benchmark_telemetry` in `GET /status`. Useful fields include `endpoint_latency_ms`, `tokens_per_second`, `nim`, `cache`, `action_success`, `verification_success`, and `policy_recommendations`.
+- Service startup plus `/health` and `/status` must not construct retired external LLM, NIM, or external embedder paths. Query and action latency belongs to maintained Subcortex/Living Loop surfaces.
+- Benchmark telemetry is embedded in the living-loop snapshot. Inspect `benchmark_telemetry` via `GET /terminus/living-loop` or under `terminus_runtime.living_loop.benchmark_telemetry` in `GET /status`. Useful fields include `endpoint_latency_ms`, `tokens_per_second`, `retired_external_adapter`, `cache`, `action_success`, `verification_success`, and `policy_recommendations`.
 
 #### Stop runtime
 
@@ -646,12 +639,12 @@ curl -X POST http://localhost:8000/terminus/tick \
 
 ---
 
-## 8. Cortex, action loop, and sleep control
+## 8. Retired path, action loop, and sleep control
 
-### Cortex runtime
+### Retired external LLM runtime
 
-The cortex side is organized around:
-- `MultiCortex`
+The old external LLM runtime path is deleted. These names are not active product API
+or extension points:
 - `ThoughtLoop`
 - `DriveSystem`
 - `ThalamicGate`
@@ -659,23 +652,16 @@ The cortex side is organized around:
 - `NarrativeSelf`
 - `EpisodicMemory`
 
-### Programmatic cortex creation
+### Programmatic cognition boundary
 
-Production path:
-
-```python
-from hecsn.cortex import ThoughtLoop, create_cortex_from_env
-
-cortex = create_cortex_from_env()
-brain = ThoughtLoop(cortex=cortex)
-```
-
-Test path:
+Production code should use Subcortex/Living Loop service surfaces. Do not
+create a ThoughtLoop or external LLM runtime:
 
 ```python
-from hecsn.cortex import MockCortex, ThoughtLoop
+from hecsn.service.manager import HECSNServiceManager
 
-brain = ThoughtLoop(cortex=MockCortex())
+manager = HECSNServiceManager("checkpoints/terminus/model.pt")
+status = manager.runtime_facade.living_loop_status()
 ```
 
 ### Maintained action loop
@@ -706,26 +692,9 @@ curl http://localhost:8000/terminus/actions
 
 ### Maintained sleep control
 
-Operator-triggered explicit sleep:
-
-```bash
-curl -X POST http://localhost:8000/terminus/cortex/sleep \
-  -H "Content-Type: application/json" \
-  -d '{"reason": "Operator requested a consolidation cycle."}'
-```
-
-Thought-loop query submission:
-
-```bash
-curl -X POST "http://localhost:8000/terminus/ask?query=What%20do%20cats%20chase%20at%20night%3F"
-```
-
-Recent thought stream:
-
-```bash
-curl http://localhost:8000/terminus/thoughts
-curl http://localhost:8000/terminus/cortex
-```
+Use Living Loop and replay surfaces for maintenance review. Retired
+ThoughtLoop query, thought-stream, and sleep endpoints are not part of the
+maintained path.
 
 ---
 
@@ -767,10 +736,6 @@ curl http://localhost:8000/terminus/cortex
 | `POST` | `/terminus/start` | start background runtime |
 | `POST` | `/terminus/stop` | stop background runtime |
 | `POST` | `/terminus/tick` | manual step-based tick |
-| `POST` | `/terminus/ask` | queue cortex query |
-| `GET` | `/terminus/thoughts` | recent thoughts |
-| `GET` | `/terminus/cortex` | full cortex snapshot |
-| `POST` | `/terminus/cortex/sleep` | explicit maintained sleep request |
 | `GET` | `/terminus/actions` | action history |
 | `POST` | `/terminus/action` | execute maintained digital action |
 | `POST` | `/terminus/runtime-feedback` | record verified/contradicted/unverified feedback for runtime episodes or actions |
@@ -797,8 +762,8 @@ python -m pytest -q
 # service + runtime
 python -m pytest tests/test_service_api.py tests/test_service_manager.py -q
 
-# cortex / thought loop
-python -m pytest tests/test_cortical_core.py tests/test_thought_loop.py -q
+# retired cortex boundary and language packet/result contracts
+python -m pytest tests/test_language_contracts.py tests/test_p1_improvements.py -q
 
 # action loop
 python -m pytest tests/test_action_loop.py -q
@@ -937,15 +902,14 @@ Key backend reports live in:
 The active docs should state current runtime limitations plainly.
 
 ### Runtime limitations
-- production cortex depends on NVIDIA NIM availability and budget
 - live Hugging Face sources can still introduce real latency and transient stalls
 - short smoke runs are now correctly classified, but they remain sensitive to real remote performance
 - replay sampling/execution is currently an operator-gated audit path only; it records review history but does not perform autonomous training, memory promotion, feedback posting, sleep, digital action execution, or external calls
 
 ### Cognitive limitations
 - dream verification remains weak in short runs
-- some wake thoughts are still awkward or generic
-- thought quality is not yet consistent across domains
+- some language/readout surfaces are still awkward or generic
+- language/readout quality is not yet consistent across domains
 - contradicted replay candidates are negative lessons until a separate correction/training process validates them; dreamed or synthetic candidates are never promoted as facts by the sampler/executor
 
 ### Data limitations
@@ -956,7 +920,9 @@ The active docs should state current runtime limitations plainly.
 If you find any operator-facing documentation that still tells you to:
 - start Ollama
 - pull Gemma locally
-- use `FakeCortex`
+- configure NVIDIA NIM / `NVIDIA_API_KEY`
+- use retired external LLM mock backends
+- call ThoughtLoop query, thought, or sleep endpoints as maintained paths
 - use removed quick-start presets like `multimodal`
 
 then that documentation is stale and should be treated as incorrect.
@@ -993,11 +959,6 @@ PYTHONPATH=src python -m hecsn.training.long_test_runner \
 # Quick-start Terminus
 curl -X POST "http://localhost:8000/terminus/quick-start?preset=curriculum"
 
-# Ask cortex
-curl -X POST "http://localhost:8000/terminus/ask?query=What%20is%20the%20sun%3F"
-
-# Explicit cortex sleep
-curl -X POST http://localhost:8000/terminus/cortex/sleep \
-  -H "Content-Type: application/json" \
-  -d '{"reason": "Operator requested a consolidation cycle."}'
+# Review living-loop state
+curl http://localhost:8000/terminus/living-loop
 ```

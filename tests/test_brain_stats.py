@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from hecsn.cortex.core import ThoughtResult
 from hecsn.semantics.brain_stats import BrainStats
+from hecsn.semantics.language_result import LanguageResult
 
 
 def test_brain_stats_average_inference_counts_thoughts_and_dreams() -> None:
@@ -15,7 +15,7 @@ def test_brain_stats_average_inference_counts_thoughts_and_dreams() -> None:
 
 def test_brain_stats_updates_quality_alignment_from_topics() -> None:
     stats = BrainStats(thoughts_generated=2)
-    result = ThoughtResult(
+    result = LanguageResult(
         raw_text="",
         thought="Reef chemistry changes under thermal stress.",
         topics=("reef chemistry", "thermal stress"),
