@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import io
 import json
+import os
 from threading import Event, Lock, Thread
 import time
 import wave
@@ -616,7 +617,7 @@ def bootstrap_sensory_episode_from_row(
     timeout_seconds: float | None = None,
 ) -> SensoryEpisode | None:
     adapter = _normalize_text(spec.get("adapter")).lower()
-    runtime_device = device or torch.device("cpu")
+    runtime_device = _resolve_sensory_device(device)
     if adapter == "s1_mmalign":
         source = _normalize_text(spec.get("source")) or "ScienceOne-AI/S1-MMAlign"
         year_prefixes = list(spec.get("year_prefixes") or ("07", "08", "09"))
@@ -680,7 +681,7 @@ class S1MMAlignSensoryStream:
         self.split = str(split or "train")
         self.year_prefixes = tuple(str(item).zfill(2)[:2] for item in year_prefixes if str(item).strip()) or ("07",)
         self.target_dim = max(1, int(target_dim))
-        self.device = device or torch.device("cpu")
+        self.device = _resolve_sensory_device(device)
         self.max_text_chars = max(64, int(max_text_chars))
         self._visual_encoder = _make_visual_encoder(self.target_dim, device=self.device)
         self._stream = iter(_load_hf_stream(self.source, split=self.split, columns=["png"]))
@@ -731,7 +732,7 @@ class AudioCapsSensoryStream:
         self.target_dim = max(1, int(target_dim))
         self.sample_rate = max(1000, int(sample_rate))
         self.n_fft = max(64, int(n_fft))
-        self.device = device or torch.device("cpu")
+        self.device = _resolve_sensory_device(device)
         self.max_text_chars = max(32, int(max_text_chars))
         self.audio_candidates_per_item = max(1, int(audio_candidates_per_item))
         self._audio_encoder = CochleagramEncoder(
@@ -797,6 +798,7 @@ def build_sensory_stream(
     device: torch.device | None = None,
 ) -> Iterator[SensoryEpisode]:
     adapter = _normalize_text(spec.get("adapter")).lower()
+    runtime_device = _resolve_sensory_device(device)
 
     def _generator() -> Iterator[SensoryEpisode]:
         if adapter == "s1_mmalign":
@@ -805,7 +807,7 @@ def build_sensory_stream(
                 split=_normalize_text(spec.get("split")) or "train",
                 year_prefixes=list(spec.get("year_prefixes") or ("07", "08", "09")),
                 target_dim=visual_dim,
-                device=device,
+                device=runtime_device,
                 max_text_chars=int(spec.get("max_text_chars", 480)),
             )
             return
@@ -816,7 +818,7 @@ def build_sensory_stream(
                 target_dim=audio_dim,
                 sample_rate=int(spec.get("sample_rate", 16000)),
                 n_fft=int(spec.get("n_fft", 512)),
-                device=device,
+                device=runtime_device,
                 max_text_chars=int(spec.get("max_text_chars", 240)),
                 audio_candidates_per_item=int(spec.get("audio_candidates_per_item", 6)),
             )
@@ -824,3 +826,12 @@ def build_sensory_stream(
         raise ValueError(f"Unsupported sensory adapter: {adapter}")
 
     return _generator()
+
+
+def _resolve_sensory_device(device: torch.device | None) -> torch.device:
+    if device is not None:
+        return torch.device(device)
+    env_device = os.environ.get("HECSN_DEVICE")
+    if env_device:
+        return torch.device(env_device)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")

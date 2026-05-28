@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from hecsn.service.interaction_runtime import InteractionRuntimeMixin
+from hecsn.service.operator_interaction import OperatorInteractionRuntime
 from hecsn.service.reporting import ServiceReportingMixin
 from hecsn.service.replay_dataset_bundle import ReplayDatasetBundleMixin
 from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
@@ -83,7 +83,7 @@ class RuntimeFacade:
         return self._root._interaction_pipeline.respond(**kwargs)
 
     def acquire(self, **kwargs: Any) -> dict[str, Any]:
-        return InteractionRuntimeMixin.acquire(self._root, **kwargs)
+        return OperatorInteractionRuntime.acquire(self._root, **kwargs)
 
     def configure_terminus(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._runtime_control.configure_terminus(**kwargs)

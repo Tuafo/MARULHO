@@ -32,7 +32,9 @@ Introduce `RuntimeFacade` as the single operator-facing runtime interface.
   pass-through methods.
 - `RuntimeFacade` delegates to the owning deep module where one exists.
 - Legacy replay-dataset and trace-export behaviour remains behind explicit
-  calls to the existing mixin-shaped modules until those modules are deepened.
+  calls to the remaining mixin-shaped modules until those modules are deepened.
+  Operator interaction and acquisition now route through `OperatorInteractionRuntime`,
+  not the former interaction mixin module.
 - Internal manager callback hooks may remain only when they are consumed by
   explicit constructor dependencies or state-property compatibility inside the
   current deep modules. They are not the operator-facing runtime interface.

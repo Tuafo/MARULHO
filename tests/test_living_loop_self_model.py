@@ -6,7 +6,7 @@ Covers:
 - OperationalSelfModel.to_payload structure and surface methods
 - build_runtime_benchmark_telemetry with synthetic runtime samples
 - Telemetry helpers: _endpoint_bucket_name, _latency_summary,
-  _extract_cache_summary, _extract_retired_external_adapter_summary, _memory_counter_summary,
+  _extract_cache_summary, _memory_counter_summary,
   _endpoint_latency_empty
 - Re-export verification: symbols still importable from living_loop
 """
@@ -40,7 +40,6 @@ from hecsn.service.living_loop_self_model import (
     _endpoint_bucket_name,
     _endpoint_latency_empty,
     _extract_cache_summary,
-    _extract_retired_external_adapter_summary,
     _latency_summary,
     _memory_counter_summary,
 )
@@ -149,50 +148,6 @@ class TestExtractCacheSummary(unittest.TestCase):
         self.assertEqual(result["cache_size"], 0)
 
 
-class TestExtractRetiredExternalAdapterSummary(unittest.TestCase):
-    """Retired adapter summary extracts historical external call statistics."""
-
-    def test_full_retired_runtime_path(self) -> None:
-        retired_runtime_path = {
-            "enabled": True,
-            "thoughts_generated": 2,
-            "dreams_generated": 1,
-            "episodic_memory": {
-                "embedder": {
-                    "kind": "RetiredExternalEmbedder",
-                    "external_calls": 4,
-                    "external_throttle_hits": 1,
-                    "available": True,
-                    "degraded": False,
-                    "fallback_calls": 0,
-                    "error_calls": 2,
-                },
-            },
-        }
-        result = _extract_retired_external_adapter_summary(retired_runtime_path)
-        self.assertTrue(result["available"])
-        self.assertEqual(result["chat_generations_observed"], 3)
-        self.assertEqual(result["embedding_external_calls"], 4)
-        self.assertEqual(result["observed_call_count"], 7)
-        self.assertIsNone(result["calls_per_minute"])
-        self.assertEqual(result["external_throttle_hits"], 1)
-        embedder = result["embedder"]
-        self.assertEqual(embedder["kind"], "RetiredExternalEmbedder")
-        self.assertTrue(embedder["available"])
-        self.assertFalse(embedder["degraded"])
-        self.assertEqual(embedder["error_calls"], 2)
-
-    def test_none_cortex(self) -> None:
-        result = _extract_retired_external_adapter_summary(None)
-        self.assertFalse(result["available"])
-        self.assertEqual(result["observed_call_count"], 0)
-
-    def test_empty_cortex(self) -> None:
-        result = _extract_retired_external_adapter_summary({})
-        self.assertFalse(result["available"])
-        self.assertEqual(result["chat_generations_observed"], 0)
-
-
 class TestMemoryCounterSummary(unittest.TestCase):
     """_memory_counter_summary extracts memory fill and capacity information."""
 
@@ -205,7 +160,7 @@ class TestMemoryCounterSummary(unittest.TestCase):
         self.assertEqual(result["size"], 4)
         self.assertEqual(result["capacity"], 16)
         self.assertAlmostEqual(result["fill_ratio"], 0.25)
-        self.assertEqual(result["source"], "retired_runtime_path_memory")
+        self.assertEqual(result["source"], "subcortex_memory")
 
     def test_capacity_pressure(self) -> None:
         result = _memory_counter_summary(
@@ -349,7 +304,7 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
             telemetry["tokens_per_second"]["source"], "runtime_episode_traces"
         )
 
-    def test_memory_retired_external_adapter_and_cache(self) -> None:
+    def test_memory_and_cache_are_active_runtime_summaries(self) -> None:
         episodes = self._make_episodes()
         actions = self._make_actions()
         world = WorldModelLiteSummary.from_records(actions=actions)
@@ -365,28 +320,10 @@ class TestBuildRuntimeBenchmarkTelemetry(unittest.TestCase):
                 "total_stored": 4,
                 "total_evicted": 0,
             },
-            retired_runtime_path={
-                "enabled": True,
-                "thoughts_generated": 2,
-                "dreams_generated": 1,
-                "episodic_memory": {
-                    "embedder": {
-                        "kind": "RetiredExternalEmbedder",
-                        "external_calls": 4,
-                        "external_throttle_hits": 1,
-                        "cache_hits": 3,
-                        "cache_misses": 1,
-                        "cache_size": 3,
-                    },
-                },
-            },
         )
         self.assertEqual(telemetry["memory"]["status"], "available")
-        adapter = telemetry["retired_external_adapter"]
-        self.assertEqual(adapter["observed_call_count"], 7)
-        self.assertIsNone(adapter["calls_per_minute"])
-        self.assertEqual(adapter["external_throttle_hits"], 1)
-        self.assertAlmostEqual(telemetry["cache"]["hit_rate"], 0.75)
+        self.assertNotIn("retired_external_adapter", telemetry)
+        self.assertFalse(telemetry["cache"]["tracked"])
 
     def test_action_and_verification_success_rates(self) -> None:
         episodes = self._make_episodes()
@@ -551,12 +488,6 @@ class TestOperationalSelfModelBuild(unittest.TestCase):
                     "contradicted": 1,
                 },
             },
-            retired_runtime_path={
-                "name": "retired_runtime_path",
-                "available": True,
-                "retired": False,
-                "active_runtime_requirement": False,
-            },
             generated_at="2026-01-01T00:00:00+00:00",
         )
         self.assertEqual(model.token_count, 12)
@@ -566,8 +497,8 @@ class TestOperationalSelfModelBuild(unittest.TestCase):
         self.assertEqual(len(model.actions), 2)
         self.assertIsNotNone(model.world_model_lite)
         payload = model.to_payload()
-        self.assertEqual(payload["retired_runtime_path"]["name"], "retired_runtime_path")
-        self.assertIn("retired_runtime_path_snapshot", payload["capabilities"])
+        self.assertNotIn("retired_runtime_path", payload)
+        self.assertNotIn("retired_runtime_path_snapshot", payload["capabilities"])
 
     def test_build_with_minimal_inputs(self) -> None:
         model = OperationalSelfModel.build(
@@ -740,7 +671,6 @@ class TestOperationalSelfModelToPayload(unittest.TestCase):
                     "contradicted": 1,
                 },
             },
-            retired_runtime_path={"enabled": True, "memory_count": 4},
             generated_at="2026-01-01T00:00:00+00:00",
         )
 
@@ -884,25 +814,20 @@ class TestOperationalSelfModelSurfaceMethods(unittest.TestCase):
         )
         self.assertEqual(health["status"], "no_grounding_observed")
 
-    def test_surface_capabilities_includes_retired_runtime_path(self) -> None:
+    def test_surface_capabilities_excludes_retired_runtime_path(self) -> None:
         model = OperationalSelfModel.build(
             token_count=0,
             state_revision=0,
             configured=True,
             running=True,
             provenance=ProvenanceState(),
-            retired_runtime_path={
-                "name": "retired_runtime_path",
-                "available": True,
-                "active_runtime_requirement": False,
-            },
         )
         skills = model._surface_skill_memories()
         caps = model._surface_capabilities(
             skill_memories=skills,
             world_model_lite=model.world_model_lite or WorldModelLiteSummary(),
         )
-        self.assertIn("retired_runtime_path_snapshot", caps)
+        self.assertNotIn("retired_runtime_path_snapshot", caps)
         self.assertNotIn("cortex_loop_snapshot", caps)
 
     def test_surface_limits_no_truncation(self) -> None:
@@ -917,44 +842,6 @@ class TestOperationalSelfModelSurfaceMethods(unittest.TestCase):
         skills = model._surface_skill_memories()
         limits = model._surface_limits(skills)
         self.assertFalse(limits["action_history_truncated"])
-
-
-# ---------------------------------------------------------------------------
-# Re-export verification
-# ---------------------------------------------------------------------------
-
-class TestSelfModelReExports(unittest.TestCase):
-    """Verify that symbols are still importable from the living_loop shim."""
-
-    def test_operational_self_model_importable_from_living_loop(self) -> None:
-        from hecsn.service.living_loop import OperationalSelfModel as OSM
-
-        self.assertIs(OSM, OperationalSelfModel)
-
-    def test_build_runtime_benchmark_telemetry_importable(self) -> None:
-        from hecsn.service.living_loop import (
-            build_runtime_benchmark_telemetry as brbt,
-        )
-
-        self.assertIs(brbt, build_runtime_benchmark_telemetry)
-
-    def test_telemetry_helpers_importable(self) -> None:
-        from hecsn.service.living_loop import (
-            _endpoint_bucket_name,
-            _endpoint_latency_empty,
-            _extract_cache_summary,
-            _extract_retired_external_adapter_summary,
-            _latency_summary,
-            _memory_counter_summary,
-        )
-
-        # Verify they are callable
-        self.assertTrue(callable(_endpoint_bucket_name))
-        self.assertTrue(callable(_endpoint_latency_empty))
-        self.assertTrue(callable(_extract_cache_summary))
-        self.assertTrue(callable(_extract_retired_external_adapter_summary))
-        self.assertTrue(callable(_latency_summary))
-        self.assertTrue(callable(_memory_counter_summary))
 
 
 if __name__ == "__main__":

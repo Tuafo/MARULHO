@@ -29,7 +29,7 @@ We split the Living Loop monolith into five modules that mirror the existing int
 | Replay Planning | `living_loop_replay.py` | Layer C | Helpers, Records, Policy |
 | Operational Self-Model | `living_loop_self_model.py` | Layer D | Helpers, Records, Policy, Replay |
 
-The original `living_loop.py` becomes a backward-compatible re-export shim that imports and re-exports every public (and cross-module private) symbol from the five new modules.
+The original `living_loop.py` compatibility shim is deleted after consumer imports are migrated. Active code imports directly from the five owning modules, so the split is enforced by the package boundary instead of hidden behind an aggregator namespace.
 
 ### Unidirectional dependency constraint
 
@@ -37,15 +37,15 @@ Dependency direction is strictly unidirectional: **Helpers → Records → Polic
 
 Violations would create circular dependencies and destroy the acyclic structure that makes the split mechanically clean.
 
-### Backward-compatible re-export shim strategy
+### Direct-import enforcement strategy
 
-The original `living_loop.py` is replaced with a thin shim containing only `import` statements, re-exports, and an `__all__` list. No implementation code remains. This ensures:
+The original `living_loop.py` monolith was split into the owning modules above. Its temporary import bridge was removed once active consumers migrated to direct imports. This ensures:
 
-- All five existing consumer import sites continue to work without modification
-- No silent breakage from removed symbols (every previously available symbol is re-exported)
-- The shim can be validated via AST analysis to confirm it contains no implementation code
+- Active consumers name the module that owns the concept they use
+- No private helper symbols are published through an aggregator `__all__`
+- Import errors expose accidental dependence on the old monolith or shim immediately
 
-Private symbols (`_coerce_feedback_telemetry`, `_policy_count`, etc.) are included in `__all__` and re-exported because they are used across module boundaries and were previously available from the monolith.
+Private symbols (`_coerce_feedback_telemetry`, `_policy_count`, etc.) remain importable only from their owning modules where cross-layer use is intentional.
 
 ## Rationale
 
@@ -55,9 +55,9 @@ A two-module split (e.g., "data" vs "logic") would have left one module still ov
 
 The four depth-aligned modules plus helpers is the natural articulation point: each module corresponds to a naturally acyclic layer already present in the codebase, each stays under 1000 lines, and each has a clear single responsibility.
 
-### Why a re-export shim (not a migration)?
+### Why direct imports (not a permanent shim)?
 
-Migrating consumer imports to the new modules in the same PR as the split would conflate two changes: the structural reorganisation and the import site updates. The re-export shim decouples them, allowing the split to be verified as behaviour-preserving before any consumer changes. Consumer import migration is deferred to a follow-up.
+The temporary shim decoupled the initial split from consumer migration. Keeping it permanently would preserve the monolith's public gravity and make the depth stack look optional. Direct imports make the architectural boundary concrete: Records users import Records, policy users import Policy, replay users import Replay, and self-model users import Self-Model.
 
 ### Why a shared helpers module?
 
@@ -72,19 +72,19 @@ Helpers that are used by only one layer (e.g., `_policy_latency_pressure`, `_rep
 - Each module is under 1000 lines and reviewable in a single pass
 - Each layer can be tested in isolation with dedicated per-module test files
 - Dependency direction is explicit and acyclic by construction
-- The re-export shim ensures zero consumer breakage
+- Direct imports make ownership visible at each consumer
 - Future changes to one layer do not require re-validating unrelated layers
 - Each module docstring documents its depth layer and dependency constraints
 
 ### Negative
 
-- The re-export shim adds one level of indirection for existing consumers until they are migrated
-- Private symbols are visible in `__all__` (necessary for cross-module re-export correctness)
+- Consumers must update imports when symbols move between depth modules
+- Private helper imports remain internal and should be used only by the depth modules that need them
 - The five-file module set is more files to navigate than the single monolith (offset by each file being focused and independently understandable)
 
 ### Neutral
 
-- Consumer import migration to direct module imports is a follow-up task, not part of this decision
+- The former shim is intentionally absent; compatibility is not part of the active runtime surface
 - The helpers module is a "Layer 0" foundation — it may grow if more cross-layer helpers are identified
 
 ## References
@@ -95,4 +95,4 @@ Helpers that are used by only one layer (e.g., `_policy_latency_pressure`, `_rep
 - Issue #4: Extract policy scoring module
 - Issue #5: Extract replay planning module
 - Issue #6: Extract operational self-model and telemetry module
-- Issue #7: Replace living_loop.py with backward-compatible re-export shim
+- Issue #7: Replace living_loop.py with a temporary shim, then delete it after direct import migration

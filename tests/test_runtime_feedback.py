@@ -6,7 +6,7 @@ from threading import RLock
 import unittest
 from typing import Any, Mapping, cast
 
-from hecsn.service.action_runtime import ActionRuntimeMixin
+from hecsn.service.history_store import read_history_record, replace_history_record
 from hecsn.service.runtime_feedback import RuntimeFeedbackMixin
 
 
@@ -56,7 +56,7 @@ class _FeedbackInteractionPipeline:
         return None
 
 
-class _RuntimeFeedbackHarness(RuntimeFeedbackMixin, ActionRuntimeMixin):
+class _RuntimeFeedbackHarness(RuntimeFeedbackMixin):
     def __init__(self) -> None:
         self._lock = RLock()
         self._runtime_state = _FeedbackRuntimeState()
@@ -138,7 +138,8 @@ class _RuntimeFeedbackHarness(RuntimeFeedbackMixin, ActionRuntimeMixin):
 
     def action_record(self, action_id: str) -> dict[str, Any] | None:
         self.action_record_calls.append(str(action_id))
-        return super().action_record(action_id)
+        with self._lock:
+            return read_history_record(self._action_history, record_id=action_id, id_field="action_id")
 
     def replace_action_record(self, action_id: str, record: Mapping[str, Any]) -> dict[str, Any] | None:
         self.replace_action_record_calls.append(
@@ -147,7 +148,14 @@ class _RuntimeFeedbackHarness(RuntimeFeedbackMixin, ActionRuntimeMixin):
                 "record": deepcopy(dict(record)),
             }
         )
-        return super().replace_action_record(action_id, record)
+        with self._lock:
+            self._action_history, replaced = replace_history_record(
+                self._action_history,
+                record_id=action_id,
+                replacement=record,
+                id_field="action_id",
+            )
+            return replaced
 
 
 class ActionRuntimeSeamTests(unittest.TestCase):

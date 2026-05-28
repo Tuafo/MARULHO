@@ -274,7 +274,6 @@ class EvidenceResponder:
             "source": "interaction.responder.native_decode",
             "grounded": True,
             "not_cognition_substrate": True,
-            "retired_runtime_dependency": False,
             "candidate_phrases": candidates[:2],
             "grounding": {
                 "support_score": float(support_score),

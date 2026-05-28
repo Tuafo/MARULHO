@@ -2,8 +2,8 @@
 
 Implements 11D-style hypercube connectivity inspired by the Blue Brain
 Project's discovery of directed cliques up to 11 dimensions in neocortex
-(Reimann et al. 2017) and the snn-llm project (hafufu-stack/snn-llm)
-which demonstrated optimal performance at 11D with 186× parameter reduction.
+(Reimann et al. 2017) and open SNN language prototypes that reported
+strong sparse performance around 11D topology with large parameter reduction.
 
 Key components:
   - HypercubeTopology: reusable graph primitive with bit-flip neighbors
@@ -12,7 +12,7 @@ Key components:
 References:
   - Reimann et al. (2017): Cliques of neurons in neocortex, up to 11D
   - Gorban & Tyukin (2018, PMC6874527): High-dimensional selectivity
-  - hafufu-stack/snn-llm: 11D hypercube SNN achieving PPL 15.9
+  - Open SNN language prototypes: 11D hypercube sparse language routing
 """
 
 from __future__ import annotations

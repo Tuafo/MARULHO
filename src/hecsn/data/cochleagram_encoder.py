@@ -82,6 +82,13 @@ class CochleagramEncoder:
         # Exponential trace for cross-modal STDP
         self._trace: torch.Tensor = torch.zeros(self.n_bands, device=self.device)
         self._trace_tau: float = 10.0
+        self._last_spike_device: str | None = None
+        self._last_spike_shape: tuple[int, ...] | None = None
+
+    def _remember_spikes(self, spikes: torch.Tensor) -> torch.Tensor:
+        self._last_spike_device = str(spikes.device)
+        self._last_spike_shape = tuple(int(item) for item in spikes.shape)
+        return spikes
 
     @property
     def output_dim(self) -> int:
@@ -97,6 +104,8 @@ class CochleagramEncoder:
             "filterbank_device": str(self._filterbank.device),
             "baseline_device": str(self._baseline.device),
             "trace_device": str(self._trace.device),
+            "last_spike_device": self._last_spike_device,
+            "last_spike_shape": self._last_spike_shape,
         }
 
     def encode(self, waveform: torch.Tensor) -> torch.Tensor:
@@ -142,7 +151,7 @@ class CochleagramEncoder:
         decay = (-1.0 / self._trace_tau) if self._trace_tau > 0 else -1.0
         self._trace = self._trace * torch.exp(torch.tensor(decay, device=self.device)) + spikes
 
-        return spikes
+        return self._remember_spikes(spikes)
 
     @property
     def trace(self) -> torch.Tensor:

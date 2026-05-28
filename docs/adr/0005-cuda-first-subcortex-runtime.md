@@ -22,17 +22,20 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Routing indexes must report actual cache placement, not just configured search intent. Tensor-backed backends should expose cache readiness and tensor devices in `stats()`.
 - Predictive columns, competitive columns, plasticity circuits, and binding layers must expose live tensor device reports in the model runtime scope.
 - Neuron dynamics modules such as AdEx must expose voltage, adaptation, and spike-timing tensor devices directly, and checkpoint restore must place live neuron tensors back on the selected runtime device.
+- Checkpoint restore must select the runtime device during `torch.load`. Saving archival tensors on CPU is allowed for portability, but loading live Subcortex state through a hardcoded CPU map is not CUDA-first behavior.
 - Cross-modal grounding and sparse binding variants, including spatial and hypercube binding, must expose live tensor and topology device reports when enabled.
 - Context and abstraction layers must expose live tensor device reports because they control routing gain, curiosity pressure, and top-down feedback.
 - Text encoders must keep tensor-heavy state on the runtime device, including learned chunking codebooks, semantic bucket embeddings, adapter tensors, emitted feature vectors, and spike traces. Python string parsing, segmentation lists, and hash-loop control flow remain CPU/control-plane work.
 - The Memory Store must report its device boundary explicitly: archival replay records remain CPU storage, while trainer replay computation moves sampled tensors to the model device before use.
 - Sensory encoders must expose device reports, and real sensory episodes must carry encoder/device/spike-device metadata into grounded observations and preview metadata.
+- Standalone sensory streams and multimodal loaders must resolve omitted devices the same way as the runtime posture: explicit device first, `HECSN_DEVICE` second, CUDA when available, CPU only as the deterministic fallback. Directory-backed visual/audio tensors must load onto that resolved device before encoding.
 - Unit tests should continue to default to CPU unless a test is explicitly marked as a CUDA scale or device test.
 - The former Cortex execution path is retired from active runtime claims and is not part of the CUDA-first claim. NIM/LLM adapters were removed; future experiments must not return as runtime paths or living-substrate dependencies.
 - Digital action execution records evidence in the Subcortex action ledger and must not initialize the retired external LLM/ThoughtLoop path for action-memory mirroring.
 - Source and sensory observations are Subcortex-owned grounded evidence. They must be emitted from source/sensory runtime paths without requiring ThoughtLoop observation or surprise injection, and focus terms must come from Subcortex query gaps, autonomy, curiosity, concept state, or source metadata.
 - Language generation, when present, should be exposed as a Subcortex Language Surface with explicit grounding/support/device evidence; it must not revive Cortex/ThoughtLoop as the active cognition substrate. The first accepted implementations are native-decode-bound responder language, which reports confidence, query overlap, evidence coverage, memory indices, and concept focus, and Cognitive Signal status language, which reports prediction error, confidence, neuromodulator pressure, and concept focus.
 - Pure-SNN language projects such as NeuronSpark and Nord-AI may be used as implementation references, but HECSN must own any language-neuron module, decoder, training loop, grounding evidence, and CUDA/sparsity telemetry before language generation can be promoted beyond a read-only readiness gate.
+- A Spike Language Decoder Probe may report HECSN-owned sparse tensor code, device placement, and grounded slot support from Subcortex Spike Readout Evidence, but it remains non-generative and must not satisfy `local_snn_language_generator_available` by itself.
 - Runtime Truth may include a compact SNN-Native Language Readiness summary, but it must not embed research candidates, generation payloads, external dependency instructions, or decoder checkpoints.
 - Developmental plasticity work, including growth and pruning, should report sparse structural changes and device placement before being treated as CUDA-first self-improvement evidence.
 - Runtime evidence should include lightweight Subcortex Spike Health metrics from live tensor state: activity state, local spike fraction when available, win-rate EMA ranges, silence/saturation/stale-routing fractions, visible thresholds, bounded recent spike-window correlation, and explicit insufficiency status when the window is too small.
@@ -42,15 +45,16 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - A Self-Repair Evaluation Artifact may describe isolated replay/deep-sleep evaluation requirements for ready repair candidates, but it must remain non-executable and require Runtime Truth improvement, rollback policy, and device evidence before any repair promotion.
 - A Structural Plasticity Gate Artifact may combine ConceptStore growth pressure, hypercube/binding structural mutation ledgers, and CUDA/device placement into promotion readiness evidence, but it must not call observation, binding, growth, pruning, or topology refresh paths.
 - Local plasticity evidence is part of Structural Plasticity readiness: local STDP eligibility traces, homeostatic synaptic scaling, inhibitory balance, spike-health state, synaptic validation, and device placement may support isolated growth/prune evaluation, but the read surface must not mutate synapses or topology.
+- Structural readiness requires observed tensor placement. Concept growth pressure or binding mutation ledgers without binding/local-plasticity device keys must collect device evidence instead of opening isolated structural evaluation.
+- Local plasticity readiness requires eligibility traces, homeostatic state, and non-failed synaptic validation; failed validation is pressure to monitor or repair, not evidence that growth/prune evaluation is ready.
 - Runtime Truth may include a compact summary of the Structural Plasticity Gate Artifact so liveness reports expose structural-promotion pressure without embedding structural cases, device payloads, or mutation ledgers as executable instructions.
 - Runtime status must expose Subcortex CUDA evidence directly so retired LLM adapters cannot be mistaken for the living-brain core.
-- Runtime Truth uses `retired_runtime_path` as the canonical retired-path vocabulary. Active status and long-test report contracts must not emit `cortex_*` booleans as compatibility aliases.
-- Brain runtime, replay planning, and runtime evidence exports should pass retired-path snapshots through `retired_runtime_path_snapshot`; `cortex_snapshot` must not be used for new internal call paths.
-- Brain runtime snapshots must expose `retired_runtime_path` as the source of record and must not publish a `cortex` sibling payload for active internal consumers.
-- Policy Actuator must read sleep/fatigue pressure from `retired_runtime_path` and must not expose `cortex_snapshot` as an input argument.
-- Living Loop status and replay planning must read retired-path fatigue/sleep pressure from `retired_runtime_path`; they must not publish or consume a `cortex` sibling payload or `cortex_loop_snapshot` capability.
-- The retired Cortex controller name is deleted; the remaining `retired_runtime_path` holder is only a retired-runtime state snapshot for the former external LLM path. It must not expose ask/sleep/thought/action-intent helpers, factory references, query hints, or lazy initialization hooks.
-- The retired-runtime state holder must not lazy-build, initialize, start, store, or snapshot ThoughtLoop, even under mocked factories. It only reports retired/unavailable evidence while Subcortex and Living Loop own runtime behavior.
+- Runtime Truth does not use retired-path vocabulary. Active status and long-test report contracts must not emit `retired_runtime_path`, `cortex_*`, or retired evidence aliases as compatibility fields.
+- Brain runtime, replay planning, and runtime evidence exports read active Subcortex evidence directly; `retired_runtime_path_snapshot` and `cortex_snapshot` must not be used for new internal call paths.
+- Brain runtime snapshots must not expose `retired_runtime_path` or publish a `cortex` sibling payload for active internal consumers.
+- Policy Actuator must read sleep/fatigue pressure from Subcortex Sleep Pressure and must not expose `retired_runtime_path` or `cortex_snapshot` as input arguments.
+- Living Loop status and replay planning must read fatigue/sleep pressure from Subcortex Sleep Pressure; they must not publish or consume a `retired_runtime_path`, `cortex` sibling payload, or `cortex_loop_snapshot` capability.
+- The retired Cortex controller name and the `retired_runtime_path` holder are deleted. No active module may expose ask/sleep/thought/action-intent helpers, factory references, query hints, lazy initialization hooks, or retired-runtime state snapshots.
 - Digital action execution must keep evidence in the Subcortex Action Ledger only; retired ThoughtLoop mirroring is removed.
 - `hecsn.cortex.multi_cortex` is deleted. The codebase must not retain `NIMCortex`, `MultiCortex`, `create_cortex_from_env`, or `create_embedder_from_env` as importable external LLM adapter paths. Top-level `hecsn.cortex` is deleted and must not export runtime, mock, memory, drive, language, ThoughtLoop, or external LLM factory entry points.
 - `NIMEmbedder` is deleted from Episodic Memory. Memory indexing must not depend on remote embedding APIs, API keys, NIM request accounting, or external embedding clients; local sparse encoders may remain only as transitional machinery while SNN-native encoders mature.
@@ -88,7 +92,7 @@ The first acceleration targets are routing/index search, predictive column state
 ### Neutral
 
 - This ADR does not change public HTTP routes or runtime payload names.
-- It records runtime posture, not a mandate to remove CPU fallbacks.
+- It records runtime posture, not a mandate to remove explicit CPU support for tests or CPU-only hosts.
 
 ## References
 

@@ -12,13 +12,13 @@ from hecsn.semantics.language_result import LanguageResult
 class BrainStats:
     """Observable quality statistics for a language-facing runtime surface."""
 
-    thoughts_generated: int = 0
-    dreams_generated: int = 0
+    readouts_generated: int = 0
+    replay_samples_generated: int = 0
     sleep_cycles: int = 0
     ticks: int = 0
     total_inference_ms: float = 0.0
-    last_thought: str = ""
-    last_thought_time: float = 0.0
+    last_readout: str = ""
+    last_readout_time: float = 0.0
     current_mode: str = "idle"
     is_sleeping: bool = False
     memory_count: int = 0
@@ -28,7 +28,7 @@ class BrainStats:
     concreteness_ratio: float = 0.0
     avg_novelty: float = 0.0
     snn_alignment: float = 0.0
-    dream_verification_rate: float = 0.0
+    replay_verification_rate: float = 0.0
     grounded_query_alignment: float = 0.0
     grounded_query_recovery_rate: float = 0.0
     grounded_query_count: int = 0
@@ -39,8 +39,8 @@ class BrainStats:
     _total_topics: int = 0
     _concrete_count: int = 0
     _snn_aligned_count: int = 0
-    _dreams_verified: int = 0
-    _dreams_total: int = 0
+    _replay_samples_verified: int = 0
+    _replay_samples_total: int = 0
     _grounded_query_alignment_total: float = 0.0
     _grounded_query_recoveries: int = 0
     _grounded_wakeful_alignment_total: float = 0.0
@@ -48,7 +48,7 @@ class BrainStats:
 
     @property
     def avg_inference_ms(self) -> float:
-        total = self.thoughts_generated + self.dreams_generated
+        total = self.readouts_generated + self.replay_samples_generated
         if total == 0:
             return 0.0
         return self.total_inference_ms / total
@@ -79,8 +79,8 @@ class BrainStats:
 
         if result.confidence > 0.5 and len(result.topics) > 0:
             self._concrete_count += 1
-        total_thoughts = max(1, self.thoughts_generated)
-        self.concreteness_ratio = self._concrete_count / total_thoughts
+        total_readouts = max(1, self.readouts_generated)
+        self.concreteness_ratio = self._concrete_count / total_readouts
 
         if result.topics and snn_concepts:
             snn_lower = {concept.lower() for concept in snn_concepts}

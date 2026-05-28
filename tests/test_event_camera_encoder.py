@@ -22,9 +22,13 @@ class TestEventCameraEncoder(unittest.TestCase):
         self.assertEqual(report["device"], "cpu")
         self.assertEqual(report["trace_device"], "cpu")
         self.assertIsNone(report["ref_device"])
+        self.assertIsNone(report["last_spike_device"])
+        self.assertIsNone(report["last_spike_shape"])
         self.enc.encode(torch.ones(32, 32) * 0.1)
         report = self.enc.device_report()
         self.assertEqual(report["ref_device"], "cpu")
+        self.assertEqual(report["last_spike_device"], "cpu")
+        self.assertEqual(report["last_spike_shape"], (64,))
 
     def test_first_frame_returns_zeros(self) -> None:
         frame = torch.rand(32, 32)

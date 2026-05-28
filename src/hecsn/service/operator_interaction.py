@@ -1,8 +1,8 @@
-"""Compatibility mixin for operator interaction runtime.
+"""Operator interaction runtime helpers for query, feed, respond, and acquire.
 
 Query, feed, and respond delegate through the constructor-injected
-InteractionPipeline seam. Acquire remains here for now, along with the shared
-helpers that those public methods still use.
+InteractionPipeline seam. Acquisition stays here because it is an operator
+interaction flow over autonomy, source selection, training, and trace capture.
 """
 
 from __future__ import annotations
@@ -29,7 +29,9 @@ from hecsn.training.query_runner import build_query_result, feed_text
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
-class InteractionRuntimeMixin:
+
+
+class OperatorInteractionRuntime:
     def query(
         self,
         *,
@@ -125,7 +127,7 @@ class InteractionRuntimeMixin:
                 semantic_shortlist_gap_weight=shortlist_gap_weight,
                 semantic_shortlist_affinity_weight=shortlist_affinity_weight,
                 semantic_plan=focus_plan,
-                on_train_step=self._runtime_concept_callback_locked(),
+                on_train_step=OperatorInteractionRuntime._runtime_concept_callback_locked(self),
             )
             if int(result.get("tokens_trained_total", 0)) > 0:
                 self._runtime_state.mark_mutated()
@@ -225,7 +227,7 @@ class InteractionRuntimeMixin:
             self._trainer,
             self._encoder,
             query_text,
-            on_step=self._runtime_concept_callback_locked(),
+            on_step=OperatorInteractionRuntime._runtime_concept_callback_locked(self),
         )
         evidence_feed = None
         selected_texts = [
@@ -239,7 +241,7 @@ class InteractionRuntimeMixin:
                 self._trainer,
                 self._encoder,
                 "\n".join(selected_texts),
-                on_step=self._runtime_concept_callback_locked(),
+                on_step=OperatorInteractionRuntime._runtime_concept_callback_locked(self),
             )
         elif learn_mode != "user_only":
             raise ValueError(f"Unsupported learn_mode: {learn_mode}")
@@ -270,7 +272,11 @@ class InteractionRuntimeMixin:
 
     def _runtime_concept_callback_locked(self):
         def _observe(raw_window: str, metrics: dict[str, Any]) -> None:
-            self._observe_runtime_concepts_locked(raw_window=raw_window, metrics=metrics)
+            OperatorInteractionRuntime._observe_runtime_concepts_locked(
+                self,
+                raw_window=raw_window,
+                metrics=metrics,
+            )
 
         return _observe
 

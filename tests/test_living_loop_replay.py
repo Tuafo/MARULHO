@@ -527,50 +527,6 @@ class TestCoerceReplaySampleSummary(unittest.TestCase):
         self.assertTrue(result["safety_flags"]["audit_only"])  # default preserved
 
 
-class TestReExportFromLivingLoop(unittest.TestCase):
-    """Verify backward compatibility: symbols still importable from living_loop."""
-
-    def test_replay_candidate_importable(self) -> None:
-        from hecsn.service.living_loop import ReplayCandidate as LL_RC
-        self.assertIs(LL_RC, ReplayCandidate)
-
-    def test_replay_plan_importable(self) -> None:
-        from hecsn.service.living_loop import ReplayPlan as LL_RP
-        self.assertIs(LL_RP, ReplayPlan)
-
-    def test_build_replay_plan_importable(self) -> None:
-        from hecsn.service.living_loop import build_replay_plan as LL_BRP
-        self.assertIs(LL_BRP, build_replay_plan)
-
-    def test_replay_candidate_safety_flags_importable(self) -> None:
-        from hecsn.service.living_loop import replay_candidate_safety_flags as LL_RCSF
-        self.assertIs(LL_RCSF, replay_candidate_safety_flags)
-
-    def test_replay_sample_safety_boundaries_importable(self) -> None:
-        from hecsn.service.living_loop import REPLAY_SAMPLE_SAFETY_BOUNDARIES as LL_RSSB
-        self.assertIs(LL_RSSB, REPLAY_SAMPLE_SAFETY_BOUNDARIES)
-
-    def test_replay_plan_priority_weights_importable(self) -> None:
-        from hecsn.service.living_loop import REPLAY_PLAN_PRIORITY_WEIGHTS as LL_RPPW
-        self.assertIs(LL_RPPW, REPLAY_PLAN_PRIORITY_WEIGHTS)
-
-    def test_replay_reason_precedence_importable(self) -> None:
-        from hecsn.service.living_loop import REPLAY_REASON_PRECEDENCE as LL_RRP
-        self.assertIs(LL_RRP, REPLAY_REASON_PRECEDENCE)
-
-    def test_replay_plan_schema_version_importable(self) -> None:
-        from hecsn.service.living_loop import REPLAY_PLAN_SCHEMA_VERSION as LL_RPSV
-        self.assertIs(LL_RPSV, REPLAY_PLAN_SCHEMA_VERSION)
-
-    def test_replay_plan_default_limit_importable(self) -> None:
-        from hecsn.service.living_loop import REPLAY_PLAN_DEFAULT_LIMIT as LL_RPDL
-        self.assertIs(LL_RPDL, REPLAY_PLAN_DEFAULT_LIMIT)
-
-    def test_replay_plan_max_limit_importable(self) -> None:
-        from hecsn.service.living_loop import REPLAY_PLAN_MAX_LIMIT as LL_RPML
-        self.assertIs(LL_RPML, REPLAY_PLAN_MAX_LIMIT)
-
-
 class TestReplayActionForReasons(unittest.TestCase):
     """_replay_action_for_reasons maps reason code sets to actions."""
 

@@ -846,7 +846,7 @@ ARC-AGI should remain a **separate benchmark path**, not a claim attached to the
 - a DSL/program synthesis layer for candidate transformations
 - a verifier that executes candidates against examples
 - search/refinement over candidates and partial programs
-- optional LLM candidates as proposals, not as the scorer
+- optional Subcortex candidates as proposals, not as the scorer
 - exact-match scoring against held-out task outputs
 
 The initial ARC-specific code lives under `src\hecsn\evaluation\arc_agi.py`. It is intentionally limited to deterministic benchmark plumbing: grid validation, JSON-like task loading, exact-match scoring, an evaluation skeleton, an object parser, and a tiny deterministic DSL/search scaffold explicitly labeled as **not** an ARC solver.
@@ -907,7 +907,7 @@ The active docs should state current runtime limitations plainly.
 - replay sampling/execution is currently an operator-gated audit path only; it records review history but does not perform autonomous training, memory promotion, feedback posting, sleep, digital action execution, or external calls
 
 ### Cognitive limitations
-- dream verification remains weak in short runs
+- replay validation remains weak in short runs
 - some language/readout surfaces are still awkward or generic
 - language/readout quality is not yet consistent across domains
 - contradicted replay candidates are negative lessons until a separate correction/training process validates them; dreamed or synthetic candidates are never promoted as facts by the sampler/executor

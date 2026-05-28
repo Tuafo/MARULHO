@@ -47,8 +47,6 @@ _LEGACY_MIXIN_CLASSES = frozenset({
     "SensoryPreviewMixin",
     "TerminusAutonomyMixin",
     "RuntimePersistence",
-    "RetiredCortexCompatibilityController",
-    "CortexController",
     "ManagerBoundModule",
 })
 
@@ -323,7 +321,6 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_runtime_state",
             "_brain_runtime",
             "_runtime_control",
-            "_retired_runtime_path_state",
             "_interaction_pipeline",
             "_action_executor",
             "_feedback_applier",
@@ -390,6 +387,36 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         )
         leaked = [name for name in removed_runtime_methods if hasattr(HECSNServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes runtime methods: " + ", ".join(leaked))
+
+    def test_manager_does_not_expose_interaction_mixin_delegate_wrappers(self) -> None:
+        """InteractionPipeline callbacks must not survive as manager compatibility methods."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_helpers = (
+            "_build_query_locked",
+            "_learn_from_turn_locked",
+            "_observe_concepts_locked",
+            "_runtime_concept_callback_locked",
+            "_observe_runtime_concepts_locked",
+            "_plan_gaps_locked",
+            "_record_recent_query_gap_locked",
+        )
+        leaked = [name for name in removed_helpers if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes interaction wrappers: " + ", ".join(leaked))
+
+    def test_interaction_runtime_mixin_module_is_removed(self) -> None:
+        """Operator interaction code must live in a domain-named runtime module."""
+        old_path = _SERVICE_SRC_ROOT / "interaction_runtime.py"
+        new_path = _SERVICE_SRC_ROOT / "operator_interaction.py"
+        self.assertFalse(old_path.exists(), "interaction_runtime.py compatibility module must be removed")
+        self.assertTrue(new_path.exists(), "operator_interaction.py must own operator interaction behavior")
+
+    def test_action_runtime_mixin_module_is_removed(self) -> None:
+        """Digital action behavior must live in ActionExecutor, not a mixin module."""
+        old_path = _SERVICE_SRC_ROOT / "action_runtime.py"
+        new_path = _SERVICE_SRC_ROOT / "action_executor.py"
+        self.assertFalse(old_path.exists(), "action_runtime.py compatibility module must be removed")
+        self.assertTrue(new_path.exists(), "action_executor.py must own action execution behavior")
 
     def test_fastapi_routes_use_runtime_facade(self) -> None:
         """FastAPI must call RuntimeFacade for runtime behaviour, not manager pass-through methods."""
@@ -459,7 +486,7 @@ class TestADR0003DocumentStatus(unittest.TestCase):
             "RuntimeState",
             "InteractionPipeline",
             "ActionExecutor",
-            "RetiredRuntimePathState",
+            "ReplayController",
         ):
             self.assertIn(module_name, text)
 

@@ -55,6 +55,13 @@ class EventCameraEncoder:
         # Exponential trace for cross-modal grounding
         self._trace: torch.Tensor = torch.zeros(self._output_dim, device=self.device)
         self._trace_tau: float = 10.0  # decay time-constant in functional ticks
+        self._last_spike_device: str | None = None
+        self._last_spike_shape: tuple[int, ...] | None = None
+
+    def _remember_spikes(self, spikes: torch.Tensor) -> torch.Tensor:
+        self._last_spike_device = str(spikes.device)
+        self._last_spike_shape = tuple(int(item) for item in spikes.shape)
+        return spikes
 
     # -- public API ---------------------------------------------------------
 
@@ -72,6 +79,8 @@ class EventCameraEncoder:
             "pool": int(self.pool),
             "trace_device": str(self._trace.device),
             "ref_device": None if self._ref_log_intensity is None else str(self._ref_log_intensity.device),
+            "last_spike_device": self._last_spike_device,
+            "last_spike_shape": self._last_spike_shape,
         }
 
     def encode(self, frame: torch.Tensor) -> torch.Tensor:
@@ -99,7 +108,7 @@ class EventCameraEncoder:
 
         if self._ref_log_intensity is None:
             self._ref_log_intensity = log_I.clone()
-            return torch.zeros(self._output_dim, device=self.device)
+            return self._remember_spikes(torch.zeros(self._output_dim, device=self.device))
 
         # Per-pixel log-intensity change
         delta = (log_I - self._ref_log_intensity).abs()
@@ -122,7 +131,7 @@ class EventCameraEncoder:
         decay = (-1.0 / self._trace_tau) if self._trace_tau > 0 else -1.0
         self._trace = self._trace * torch.exp(torch.tensor(decay, device=self.device)) + spikes
 
-        return spikes
+        return self._remember_spikes(spikes)
 
     @property
     def trace(self) -> torch.Tensor:

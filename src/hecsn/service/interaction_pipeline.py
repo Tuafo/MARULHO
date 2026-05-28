@@ -19,7 +19,7 @@ from typing import Any, Callable, Mapping, Sequence, TypeVar
 from uuid import uuid4
 
 from hecsn.service.history_store import read_history_record
-from hecsn.service.living_loop import RuntimeEpisodeTrace
+from hecsn.service.living_loop_records import RuntimeEpisodeTrace
 from hecsn.semantics.grounding_text import salient_query_terms
 
 

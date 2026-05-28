@@ -153,9 +153,9 @@ def validate_multi_hour_live_run(
         "health_verdict": multi_hour_long_test_report.get("health_verdict", "unknown"),
         "acceptance_verdict": multi_hour_long_test_report.get("acceptance_verdict", "unknown"),
         "baseline_health_verdict": baseline_long_test_report.get("health_verdict", "unknown"),
-        "thoughts": {
-            "multi_hour_total": multi_hour_long_test_report.get("total_thoughts", 0),
-            "baseline_total": baseline_long_test_report.get("total_thoughts", 0),
+        "readouts": {
+            "multi_hour_total": multi_hour_long_test_report.get("total_readouts", 0),
+            "baseline_total": baseline_long_test_report.get("total_readouts", 0),
             "unique_topics": multi_hour_long_test_report.get("unique_topics", 0),
             "topic_diversity_ratio": multi_hour_long_test_report.get("topic_diversity_ratio", 0),
         },

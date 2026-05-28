@@ -91,7 +91,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertEqual(status_response.status_code, 200)
             terminus_runtime = status_response.json()["terminus_runtime"]
             self.assertNotIn("cortex", terminus_runtime)
-            self.assertTrue(terminus_runtime["retired_runtime_path"]["retired"])
+            self.assertNotIn("retired_runtime_path", terminus_runtime)
+            self.assertNotIn("retired_runtime_dependency", terminus_runtime["living_loop"]["subcortex_sleep_pressure"])
 
     def test_status_and_terminus_endpoints_expose_runtime_truth_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -112,6 +113,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("evidence", status_truth)
         self.assertIn("memory_pressure", status_truth)
         self.assertIn("safety_flags", status_truth)
+        self.assertNotIn("retired_runtime_path", status_truth)
+        self.assertNotIn("retired_runtime_path", status_truth["evidence"])
         self.assertEqual(terminus_truth["verdict"], status_truth["verdict"])
         status_gate = status_truth["evidence"]["self_repair_gate"]
         terminus_gate = terminus_truth["evidence"]["self_repair_gate"]
@@ -156,7 +159,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_language_gate["executable"])
         self.assertFalse(status_language_gate["mutates_runtime_state"])
         self.assertTrue(status_language_gate["not_cognition_substrate"])
-        self.assertFalse(status_language_gate["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", status_language_gate)
         self.assertFalse(status_language_gate["eligible_for_action"])
         self.assertFalse(status_language_gate["eligible_for_fact_promotion"])
         self.assertFalse(status_language_gate["eligible_for_cognition_substrate"])
@@ -164,6 +167,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(status_language_gate["hecsn_spike_readout_evidence_available"])
         self.assertTrue(status_language_gate["hecsn_spike_readout_grounded"])
         self.assertTrue(status_language_gate["hecsn_spike_readout_non_generative"])
+        self.assertIn("hecsn_spike_decoder_probe_available", status_language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_owned", status_language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_non_generative", status_language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_sparse", status_language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_device_evidence_available", status_language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_grounding_supported", status_language_gate)
         self.assertEqual(
             terminus_language_gate["hecsn_spike_readout_evidence_available"],
             status_language_gate["hecsn_spike_readout_evidence_available"],
@@ -175,6 +184,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("research_candidates", status_language_gate)
         self.assertNotIn("endpoint", status_language_gate)
         self.assertNotIn("readiness_checks", status_language_gate)
+        self.assertNotIn("current_decoder_probe_evidence", status_language_gate)
         self.assertEqual(terminus_language_gate["artifact_kind"], status_language_gate["artifact_kind"])
         self.assertEqual(terminus_language_gate["surface"], status_language_gate["surface"])
 
@@ -206,9 +216,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(language["grounded"])
         self.assertTrue(deliberation["grounded"])
         self.assertTrue(readiness["grounded"])
-        self.assertFalse(language["retired_runtime_dependency"])
-        self.assertFalse(deliberation["retired_runtime_dependency"])
-        self.assertFalse(readiness["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", language)
+        self.assertNotIn("retired_runtime_dependency", deliberation)
+        self.assertNotIn("retired_runtime_dependency", readiness)
         self.assertFalse(readiness["executable"])
         self.assertFalse(readiness["mutates_runtime_state"])
         self.assertFalse(readiness["promotion_gate"]["eligible_for_cognition_substrate"])
@@ -217,6 +227,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             "subcortical_spike_readout_evidence.v1",
         )
         self.assertFalse(readiness["current_spike_readout_evidence"]["generates_text"])
+        self.assertEqual(
+            readiness["current_decoder_probe_evidence"]["surface"],
+            "snn_language_decoder_probe_evidence.v1",
+        )
+        self.assertFalse(readiness["current_decoder_probe_evidence"]["generates_text"])
+        self.assertFalse(readiness["current_decoder_probe_evidence"]["executable"])
+        self.assertIn("tensor_device", readiness["current_decoder_probe_evidence"])
+        self.assertIn("mean_sparsity", readiness["current_decoder_probe_evidence"])
+        self.assertIn("grounded_slot_count", readiness["current_decoder_probe_evidence"])
         self.assertEqual(
             [candidate["name"] for candidate in readiness["research_candidates"]],
             ["NeuronSpark", "Nord-AI"],
@@ -482,9 +501,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertTrue(action_body["accepted"])
             self.assertEqual(action_body["result"]["verification"]["status"], "verified")
             self.assertEqual(action_body["terminus_runtime"]["action_loop"]["verified_actions"], 1)
-            self.assertFalse(
-                action_body["terminus_runtime"]["action_loop"]["retired_loop_sync"]["initializes_retired_loop"]
-            )
+            self.assertEqual(action_body["terminus_runtime"]["action_loop"]["ledger_scope"], "subcortex_action_ledger")
+            self.assertNotIn("retired_loop_sync", action_body["terminus_runtime"]["action_loop"])
             self.assertEqual(history_body["count"], 1)
             self.assertEqual(history_body["actions"][0]["action_type"], "workspace_search")
             self.assertEqual(history_body["actions"][0]["verification"]["status"], "verified")
@@ -2877,7 +2895,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             },
                         )
                         with app.state.hecsn_manager._lock:
-                            app.state.hecsn_manager._record_recent_query_gap_locked(
+                            app.state.hecsn_manager._interaction_pipeline.record_recent_query_gap(
                                 query_text="submarine buoyancy ballast",
                                 source="query",
                                 gap_plan={

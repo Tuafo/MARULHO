@@ -649,7 +649,6 @@ class PolicyActuatorRecommendation:
 def build_policy_actuator_status(
     living_loop: Mapping[str, Any],
     *,
-    retired_runtime_path_snapshot: Mapping[str, Any] | None = None,
     created_at: str | None = None,
 ) -> PolicyActuatorRecommendation:
     """Build an advisory-only policy recommendation without executing any action."""
@@ -664,9 +663,7 @@ def build_policy_actuator_status(
     benchmark_memory = _policy_mapping(benchmark.get("memory"))
     budgets = _policy_mapping(loop.get("budgets"))
     grounding_health = _policy_mapping(loop.get("grounding_health"))
-    retired_runtime_path = dict(retired_runtime_path_snapshot or _policy_mapping(loop.get("retired_runtime_path")))
-    retired_runtime_path_state = _policy_mapping(retired_runtime_path.get("legacy_snapshot")) or retired_runtime_path
-    drives = _policy_mapping(retired_runtime_path_state.get("drives"))
+    subcortex_sleep_pressure = _policy_mapping(loop.get("subcortex_sleep_pressure"))
 
     information_gain = _clamp01(_policy_max_float(world.get("information_gain"), policy_score.get("information_gain")))
     goal_progress = _clamp01(_policy_max_float(world.get("goal_progress"), policy_score.get("goal_progress")))
@@ -680,17 +677,22 @@ def build_policy_actuator_status(
             _policy_max_float(
                 world.get("uncertainty"), policy_score.get("uncertainty"), budgets.get("policy_uncertainty")
             ),
-            _policy_float(drives.get("uncertainty")),
+            _policy_float(subcortex_sleep_pressure.get("uncertainty")),
         )
     )
     memory_fill = _clamp01(
         max(
             _policy_float(memory_health.get("fill_ratio"), memory_health.get("fill_fraction")),
             _policy_float(benchmark_memory.get("fill_ratio"), benchmark_memory.get("fill_fraction")),
-            _policy_float(retired_runtime_path_state.get("memory_fill_ratio")),
+            _policy_float(subcortex_sleep_pressure.get("memory_fill_ratio")),
         )
     )
-    fatigue = _clamp01(_policy_float(drives.get("fatigue")))
+    fatigue = _clamp01(
+        _policy_max_float(
+            subcortex_sleep_pressure.get("fatigue"),
+            subcortex_sleep_pressure.get("pressure"),
+        )
+    )
     latency_pressure, latency_detail = _policy_latency_pressure(benchmark)
 
     reasons: list[dict[str, str]] = []
@@ -705,14 +707,10 @@ def build_policy_actuator_status(
     )
     failed_episode_id = _policy_first_episode_target(loop, {"contradicted"})
 
-    retired_runtime_path_sleeping = (
+    subcortex_sleeping = (
         fatigue >= 0.70
-        or bool(retired_runtime_path_state.get("is_sleeping", False))
-        or _clean_text(retired_runtime_path_state.get("current_mode")).lower() == "sleeping"
-    )
-    retired_runtime_sleeping = (
-        not bool(retired_runtime_path.get("active_runtime_requirement", True))
-        and retired_runtime_path_sleeping
+        or bool(subcortex_sleep_pressure.get("is_sleeping", False))
+        or _clean_text(subcortex_sleep_pressure.get("current_mode")).lower() == "sleeping"
     )
 
     if (
@@ -792,7 +790,7 @@ def build_policy_actuator_status(
                     }
                 )
             action = "verify_pending_evidence"
-        elif memory_fill >= 0.90 or retired_runtime_sleeping or retired_runtime_path_sleeping:
+        elif memory_fill >= 0.90 or subcortex_sleeping:
             if memory_fill >= 0.90:
                 reasons.append(
                     {
@@ -800,11 +798,11 @@ def build_policy_actuator_status(
                         "detail": f"Memory fill is {memory_fill:.2f}, at or above 0.90.",
                     }
                 )
-            if retired_runtime_sleeping or retired_runtime_path_sleeping:
+            if subcortex_sleeping:
                 reasons.append(
                     {
                         "code": "fatigue_sleep_pressure",
-                        "detail": f"Retired runtime sleep pressure is {fatigue:.2f}.",
+                        "detail": f"Subcortex sleep pressure is {fatigue:.2f}.",
                     }
                 )
             action = "consolidate_or_sleep"

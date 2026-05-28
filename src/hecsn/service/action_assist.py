@@ -2,7 +2,7 @@
 
 This mixin ranks audited action history and can inject verified action evidence
 into query results. It keeps action support separate from replay/dataset policy
-and never bypasses the execution gates in ActionRuntimeMixin.
+and never bypasses the execution gates in ActionExecutor.
 """
 
 from __future__ import annotations

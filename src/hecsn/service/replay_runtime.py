@@ -8,7 +8,7 @@ import random
 from typing import Any, Callable, Mapping, Sequence, cast
 from uuid import uuid4
 
-from hecsn.service.living_loop import (
+from hecsn.service.living_loop_replay import (
     REPLAY_SAMPLE_SAFETY_BOUNDARIES,
     build_replay_plan,
     replay_candidate_safety_flags,
@@ -22,7 +22,6 @@ MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 @dataclass(frozen=True)
 class ReplayControllerDependencies:
     action_history: Callable[[], Sequence[Mapping[str, Any]]]
-    retired_runtime_path_unavailable_snapshot: Callable[[], Mapping[str, Any]]
     living_loop_snapshot: Callable[..., Mapping[str, Any]]
     lock: Any
     normalize_action_text: Callable[[Any], str]
@@ -65,9 +64,6 @@ class ReplayController:
     def _trainer(self) -> Any:
         return self._dependencies.trainer()
 
-    def _retired_runtime_path_unavailable_snapshot(self) -> Mapping[str, Any]:
-        return self._dependencies.retired_runtime_path_unavailable_snapshot()
-
     def _living_loop_snapshot_locked(self, **kwargs: Any) -> Mapping[str, Any]:
         return self._dependencies.living_loop_snapshot(**kwargs)
 
@@ -105,8 +101,7 @@ class ReplayController:
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
+            living_loop = self._living_loop_snapshot_locked()
             return build_replay_plan(living_loop, limit=limit).to_payload()
 
     def replay_sample(
@@ -147,8 +142,7 @@ class ReplayController:
 
         with self._lock:
             before = self._replay_sample_state_counts_locked()
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
+            living_loop = self._living_loop_snapshot_locked()
             plan = build_replay_plan(living_loop, limit=MAX_RUNTIME_TRACE_EXPORT_LIMIT).to_payload()
             candidates = [dict(item) for item in plan.get("candidates", []) if isinstance(item, Mapping)]
             if requested_candidate_id:

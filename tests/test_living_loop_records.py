@@ -487,35 +487,3 @@ class ConsolidationRecordTests(unittest.TestCase):
         self.assertEqual(record.consolidation_id, "delayed-1")
 
 
-# ---------------------------------------------------------------------------
-# Re-export shim verification: all symbols must remain importable from
-# hecsn.service.living_loop
-# ---------------------------------------------------------------------------
-class ReExportShimTests(unittest.TestCase):
-    def test_records_importable_from_living_loop(self) -> None:
-        from hecsn.service.living_loop import (
-            ActionExecutionRecord as LL_AER,
-            ActionExecutionStatus as LL_AES,
-            ActionVerificationRecord as LL_AVR,
-            ConsolidationRecord as LL_CR,
-            ConsolidationStatus as LL_CS,
-            PredictionRecord as LL_PR,
-            PredictionStatus as LL_PS,
-            ProvenanceState as LL_ProS,
-            RuntimeEpisodeTrace as LL_RET,
-            SkillMemoryRecord as LL_SMR,
-            VerificationStatus as LL_VS,
-        )
-
-        # Verify they are the exact same objects as in the records module
-        self.assertIs(LL_AER, ActionExecutionRecord)
-        self.assertIs(LL_AES, ActionExecutionStatus)
-        self.assertIs(LL_AVR, ActionVerificationRecord)
-        self.assertIs(LL_CR, ConsolidationRecord)
-        self.assertIs(LL_CS, ConsolidationStatus)
-        self.assertIs(LL_PR, PredictionRecord)
-        self.assertIs(LL_PS, PredictionStatus)
-        self.assertIs(LL_ProS, ProvenanceState)
-        self.assertIs(LL_RET, RuntimeEpisodeTrace)
-        self.assertIs(LL_SMR, SkillMemoryRecord)
-        self.assertIs(LL_VS, VerificationStatus)

@@ -160,7 +160,7 @@ class EvidenceResponderTests(unittest.TestCase):
         self.assertEqual(surface["surface"], "subcortical_language.v1")
         self.assertTrue(surface["grounded"])
         self.assertTrue(surface["not_cognition_substrate"])
-        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", surface)
         self.assertIn("Native assembly decode", surface["state_text"])
         self.assertEqual(surface["grounding"]["source_memory_indices"], [4])
         self.assertEqual(surface["grounding"]["concept_focus"], "coral thermal memory")

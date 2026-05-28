@@ -1,15 +1,14 @@
 """Tests for the extracted living_loop_helpers module.
 
 These tests verify that the 12 cross-layer private helper functions
-are importable from the helpers module and produce identical behaviour
-to their original inline definitions in living_loop.py.
+are importable from the helpers module and preserve the behavior expected by
+the depth-aligned Living Loop modules.
 """
 from __future__ import annotations
 
 import unittest
 
 from hecsn.semantics.provenance import Provenance
-from hecsn.service.living_loop import VerificationStatus, WorldModelLiteSummary
 from hecsn.service.living_loop_helpers import (
     _as_mapping,
     _clean_text,
@@ -24,6 +23,8 @@ from hecsn.service.living_loop_helpers import (
     _stable_id,
     _verification_status_from_payload,
 )
+from hecsn.service.living_loop_policy import WorldModelLiteSummary
+from hecsn.service.living_loop_records import VerificationStatus
 
 
 class StableIdTests(unittest.TestCase):
@@ -213,40 +214,6 @@ class CoerceWorldModelLiteTests(unittest.TestCase):
         result = _coerce_world_model_lite(data)
         self.assertIsInstance(result, WorldModelLiteSummary)
         self.assertEqual(result.prediction_count, 10)
-
-
-class ReExportShimTests(unittest.TestCase):
-    """Verify that living_loop.py still re-exports all the helpers so that
-    any internal callers within the file still resolve."""
-
-    def test_helpers_importable_from_living_loop(self) -> None:
-        from hecsn.service.living_loop import (
-            _as_mapping,
-            _clean_text,
-            _clamp01,
-            _coerce_world_model_lite,
-            _enum_value,
-            _latest_text,
-            _limited_unique_clean_text,
-            _provenance_value,
-            _safe_float,
-            _safe_ratio,
-            _stable_id,
-            _verification_status_from_payload,
-        )
-        # Just verify they're callable
-        self.assertTrue(callable(_stable_id))
-        self.assertTrue(callable(_clean_text))
-        self.assertTrue(callable(_clamp01))
-        self.assertTrue(callable(_safe_ratio))
-        self.assertTrue(callable(_limited_unique_clean_text))
-        self.assertTrue(callable(_latest_text))
-        self.assertTrue(callable(_as_mapping))
-        self.assertTrue(callable(_enum_value))
-        self.assertTrue(callable(_provenance_value))
-        self.assertTrue(callable(_verification_status_from_payload))
-        self.assertTrue(callable(_safe_float))
-        self.assertTrue(callable(_coerce_world_model_lite))
 
 
 if __name__ == "__main__":

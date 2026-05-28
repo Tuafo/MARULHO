@@ -20,7 +20,6 @@ def _long_test() -> dict[str, object]:
             "schema_version": 1,
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
-            "evidence": {"retired_runtime_path_retired": True},
             "memory_pressure": {"fill_fraction": 0.1, "pressure": "low"},
             "safety_flags": {
                 "replay_safety": {
@@ -116,5 +115,5 @@ def test_live_long_run_validation_file_writes_evidence_report() -> None:
 
     assert report["passed"] is True
     assert loaded["latency_and_cost"]["cost_usd"] == 0
-    assert loaded["retired_runtime_path"]["retired"] is True
+    assert "retired_runtime_path" not in loaded
     assert loaded["recommended_operator_action"] == "continue_monitoring"

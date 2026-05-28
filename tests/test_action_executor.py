@@ -74,11 +74,8 @@ class ActionExecutorTests(unittest.TestCase):
             self.assertEqual(runtime_state.mark_mutated_calls, 1)
             self.assertEqual(brain_events[0]["type"], "digital_action_executed")
             action_loop = executor.action_loop_summary()
-            self.assertFalse(action_loop["retired_loop_sync"]["initializes_retired_loop"])
-            self.assertEqual(
-                action_loop["retired_loop_sync"]["status"],
-                "disabled_subcortex_ledger_only",
-            )
+            self.assertEqual(action_loop["ledger_scope"], "subcortex_action_ledger")
+            self.assertNotIn("retired_loop_sync", action_loop)
             history = executor.action_history(limit=4)
             self.assertEqual(history["count"], 1)
             self.assertEqual(history["actions"][0]["verification"]["status"], "verified")

@@ -314,8 +314,8 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
                 "benchmark_telemetry": {
                     "endpoint_latency_ms": {"query": {"avg_ms": 2500.0, "max_ms": 3000.0}},
                 },
+                "subcortex_sleep_pressure": {"fatigue": 0.95},
             },
-            retired_runtime_path_snapshot={"name": "retired_runtime_path", "active_runtime_requirement": False, "drives": {"fatigue": 0.95}},
         )
         self.assertEqual(result.action, "investigate_contradictions")
         self.assertEqual(result.target_action_id, "act-1")
@@ -341,8 +341,8 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
                     }
                 ],
                 "memory_health": {"fill_ratio": 0.99},
+                "subcortex_sleep_pressure": {"fatigue": 0.9},
             },
-            retired_runtime_path_snapshot={"name": "retired_runtime_path", "active_runtime_requirement": False, "drives": {"fatigue": 0.9}},
         )
         self.assertEqual(result.action, "verify_pending_evidence")
         self.assertEqual(result.target_action_id, "act-pending")
@@ -383,25 +383,21 @@ class TestBuildPolicyActuatorStatus(unittest.TestCase):
         )
         self.assertEqual(result.action, "consolidate_or_sleep")
 
-    def test_sleep_pressure_reason_uses_retired_runtime_language(self) -> None:
+    def test_sleep_pressure_reason_uses_subcortex_language(self) -> None:
         result = build_policy_actuator_status(
             {
                 "world_model_lite": {
                     "uncertainty": 0.1,
                     "policy_score": {"cost": 0.1, "budget_use": 0.1},
                 },
-                "retired_runtime_path": {
-                    "name": "retired_runtime_path",
-                    "retired": True,
-                    "active_runtime_requirement": False,
-                    "drives": {"fatigue": 0.91},
-                },
+                "subcortex_sleep_pressure": {"fatigue": 0.91},
             }
         )
 
         details = " ".join(reason["detail"] for reason in result.reasons)
         self.assertEqual(result.action, "consolidate_or_sleep")
-        self.assertIn("Retired runtime sleep pressure", details)
+        self.assertIn("Subcortex sleep pressure", details)
+        self.assertNotIn("Retired runtime", details)
         self.assertNotIn("Cortex fatigue", details)
 
     def test_uncertainty_triggers_collect_more_evidence(self) -> None:
@@ -457,26 +453,6 @@ class TestPolicySharedHelpers(unittest.TestCase):
         result = _coerce_feedback_telemetry(None)
         self.assertEqual(result["feedback_count"], 0)
         self.assertEqual(result["grounding_impact"], "none")
-
-
-class TestReExportFromLivingLoop(unittest.TestCase):
-    """Verify backward compatibility: symbols still importable from living_loop."""
-
-    def test_policy_score_importable(self) -> None:
-        from hecsn.service.living_loop import PolicyScore as LL_PS
-        self.assertIs(LL_PS, PolicyScore)
-
-    def test_world_model_lite_summary_importable(self) -> None:
-        from hecsn.service.living_loop import WorldModelLiteSummary as LL_WML
-        self.assertIs(LL_WML, WorldModelLiteSummary)
-
-    def test_policy_actuator_recommendation_importable(self) -> None:
-        from hecsn.service.living_loop import PolicyActuatorRecommendation as LL_PAR
-        self.assertIs(LL_PAR, PolicyActuatorRecommendation)
-
-    def test_build_policy_actuator_status_importable(self) -> None:
-        from hecsn.service.living_loop import build_policy_actuator_status as LL_BPAS
-        self.assertIs(LL_BPAS, build_policy_actuator_status)
 
 
 if __name__ == "__main__":

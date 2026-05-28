@@ -8,15 +8,14 @@ Module structure:
 - runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports
 - runtime_feedback.py: Operator feedback normalization and application
 - action_assist.py: Query action-assist and audited action evidence injection
-- action_runtime.py: Digital action execution and audit summaries
+- action_executor.py: Digital action execution, audit summaries, and action assist
 - brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
 - persistence.py: Checkpoint, trace-history, and JSON-safe persistence helpers with explicit dependencies
-- retired_runtime_path.py: Unavailable retired-runtime snapshot for the removed Cortex/ThoughtLoop path
 - reporting.py: Grounding-probe evaluation helper (architecture summary now delegates through status_read_model)
 - replay_runtime.py: Advisory replay planning and operator-gated replay sampling
 - interaction_pipeline.py: Constructor-injected query/feed/respond-turn seam and runtime trace payload behavior
-- interaction_runtime.py: Query/feed/respond/acquire operator interaction flow helpers
+- operator_interaction.py: Query/feed/respond/acquire operator interaction flow helpers
 - living_status.py: Living-loop and policy-actuator read-only status helpers (living loop and policy snapshots now delegate through status_read_model)
 - runtime_config.py: Operator runtime/source configuration normalization with explicit priority callbacks
 - runtime_control.py: Terminus configure/start/stop/tick runtime control with explicit dependency access

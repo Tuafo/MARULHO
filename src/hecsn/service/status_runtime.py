@@ -93,31 +93,6 @@ class StatusRuntimeMixin:
         replay_dataset_summary: Mapping[str, Any] | None,
         trace_history_size: int,
     ) -> dict[str, Any]:
-        retired_runtime_path_source = (
-            terminus_runtime.get("retired_runtime_path")
-            if isinstance(terminus_runtime, Mapping)
-            else {}
-        )
-        retired_runtime_path_available = bool(
-            isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("enabled")
-        )
-        retired_runtime_path_retired = bool(
-            isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("retired")
-        )
-        retired_runtime_path = {
-            "name": "retired_runtime_path",
-            "available": retired_runtime_path_available,
-            "retired": retired_runtime_path_retired,
-            "active_runtime_requirement": False,
-            "operator_surface": False,
-        }
-        retired_runtime_path_evidence = {
-            "name": "retired_runtime_path",
-            "enabled": retired_runtime_path_available,
-            "retired": retired_runtime_path_retired,
-            "active_runtime_requirement": False,
-            "operator_surface": False,
-        }
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
         last_error = str(terminus_runtime.get("last_error") or "").strip()
@@ -193,9 +168,6 @@ class StatusRuntimeMixin:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "verdict": verdict,
             "recommended_action": recommended_action,
-            "retired_runtime_path": retired_runtime_path,
-            "retired_runtime_path_available": retired_runtime_path_available,
-            "retired_runtime_path_retired": retired_runtime_path_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -214,9 +186,6 @@ class StatusRuntimeMixin:
                 "autonomy_tokens_processed": autonomy_tokens,
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
-                "retired_runtime_path": retired_runtime_path_evidence,
-                "retired_runtime_path_enabled": retired_runtime_path_available,
-                "retired_runtime_path_retired": retired_runtime_path_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
             },

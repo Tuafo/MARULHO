@@ -8,6 +8,7 @@ import wave
 
 import numpy as np
 from PIL import Image
+import torch
 
 from hecsn.service import terminus_sensory as sensory_module
 from hecsn.service.terminus_sensory import (
@@ -388,3 +389,10 @@ def test_build_sensory_stream_is_lazy() -> None:
             episode = next(stream)
             assert mocked.call_count == 1
             assert episode.visual_spikes is not None
+
+
+def test_default_sensory_device_prefers_cuda_when_available(monkeypatch) -> None:
+    monkeypatch.delenv("HECSN_DEVICE", raising=False)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+    assert sensory_module._resolve_sensory_device(None) == torch.device("cuda")

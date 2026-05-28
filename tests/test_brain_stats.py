@@ -8,13 +8,13 @@ from hecsn.semantics.brain_stats import BrainStats
 from hecsn.semantics.language_result import LanguageResult
 
 
-def test_brain_stats_average_inference_counts_thoughts_and_dreams() -> None:
-    stats = BrainStats(thoughts_generated=2, dreams_generated=1, total_inference_ms=120.0)
+def test_brain_stats_average_inference_counts_readouts_and_replay_samples() -> None:
+    stats = BrainStats(readouts_generated=2, replay_samples_generated=1, total_inference_ms=120.0)
     assert stats.avg_inference_ms == 40.0
 
 
 def test_brain_stats_updates_quality_alignment_from_topics() -> None:
-    stats = BrainStats(thoughts_generated=2)
+    stats = BrainStats(readouts_generated=2)
     result = LanguageResult(
         raw_text="",
         thought="Reef chemistry changes under thermal stress.",
@@ -29,7 +29,7 @@ def test_brain_stats_updates_quality_alignment_from_topics() -> None:
     assert stats.snn_alignment == 0.5
 
 
-def test_brain_stats_updates_grounding_metrics_without_thought_loop_types() -> None:
+def test_brain_stats_updates_grounding_metrics_without_retired_loop_types() -> None:
     stats = BrainStats()
 
     stats.update_grounding_metrics(

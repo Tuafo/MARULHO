@@ -11,14 +11,16 @@ from copy import deepcopy
 import time
 from typing import Any, Mapping, cast
 
-from hecsn.service.living_loop import (
+from hecsn.service.living_loop_records import (
     ActionExecutionRecord,
     ConsolidationRecord,
-    OperationalSelfModel,
     ProvenanceState,
     RuntimeEpisodeTrace,
-    build_policy_actuator_status,
-    build_replay_plan,
+)
+from hecsn.service.living_loop_policy import build_policy_actuator_status
+from hecsn.service.living_loop_replay import build_replay_plan
+from hecsn.service.living_loop_self_model import (
+    OperationalSelfModel,
     build_runtime_benchmark_telemetry,
 )
 
@@ -29,20 +31,12 @@ class LivingStatusMixin:
     def _living_loop_snapshot_locked(
         self,
         *,
-        retired_runtime_path_snapshot: Mapping[str, Any] | None = None,
         include_replay_dataset_summary: bool = False,
     ) -> dict[str, Any]:
-        retired_runtime_path_data = dict(
-            retired_runtime_path_snapshot or self._retired_runtime_path_unavailable_snapshot()
-        )
-        episodic_memory = (
-            retired_runtime_path_data.get("episodic_memory")
-            if isinstance(retired_runtime_path_data.get("episodic_memory"), Mapping)
-            else {}
-        )
+        memory_snapshot = self._trainer.model.memory_store.summary_stats()
         provenance = ProvenanceState.from_distribution(
-            cast(Mapping[str, Any], episodic_memory).get("provenance_distribution")
-            if isinstance(episodic_memory, Mapping)
+            cast(Mapping[str, Any], memory_snapshot).get("provenance_distribution")
+            if isinstance(memory_snapshot, Mapping)
             else {}
         )
         action_records = [
@@ -60,41 +54,7 @@ class LivingStatusMixin:
             for item in list(self._interaction_pipeline.runtime_episode_traces())[:12]
             if isinstance(item, Mapping)
         ]
-        narrative = (
-            retired_runtime_path_data.get("narrative_self")
-            if isinstance(retired_runtime_path_data.get("narrative_self"), Mapping)
-            else {}
-        )
         runtime_state_revision = int(self._runtime_state.state_revision)
-        retired_runtime_path_summary = {
-            "enabled": bool(retired_runtime_path_data.get("enabled", False)),
-            "running": bool(retired_runtime_path_data.get("running", False)),
-            "current_mode": str(retired_runtime_path_data.get("current_mode", "idle")),
-            "is_sleeping": bool(retired_runtime_path_data.get("is_sleeping", False)),
-            "thoughts_generated": int(retired_runtime_path_data.get("thoughts_generated", 0) or 0),
-            "dreams_generated": int(retired_runtime_path_data.get("dreams_generated", 0) or 0),
-            "sleep_cycles": int(retired_runtime_path_data.get("sleep_cycles", 0) or 0),
-            "memory_count": int(retired_runtime_path_data.get("memory_count", 0) or 0),
-            "memory_fill_ratio": float(retired_runtime_path_data.get("memory_fill_ratio", 0.0) or 0.0),
-            "drives": deepcopy(dict(retired_runtime_path_data.get("drives") or {}))
-            if isinstance(retired_runtime_path_data.get("drives"), Mapping)
-            else {},
-        }
-        retired_runtime_path = {
-            "name": "retired_runtime_path",
-            "available": bool(retired_runtime_path_summary["enabled"]),
-            "running": bool(retired_runtime_path_summary["running"]),
-            "retired": bool(
-                retired_runtime_path_data.get("retired", not bool(retired_runtime_path_summary["enabled"]))
-            ),
-            "active_runtime_requirement": False,
-            "operator_surface": False,
-            "current_mode": str(retired_runtime_path_summary["current_mode"]),
-            "is_sleeping": bool(retired_runtime_path_summary["is_sleeping"]),
-            "memory_fill_ratio": float(retired_runtime_path_summary["memory_fill_ratio"]),
-            "drives": deepcopy(dict(retired_runtime_path_summary["drives"])),
-            "legacy_snapshot_keys": sorted(str(key) for key in retired_runtime_path_summary.keys()),
-        }
         model = OperationalSelfModel.build(
             token_count=int(self._trainer.token_count),
             state_revision=runtime_state_revision,
@@ -106,9 +66,8 @@ class LivingStatusMixin:
             consolidations=consolidation_records,
             runtime_episodes=runtime_episodes,
             action_loop=self._action_loop_summary_locked(),
-            memory=dict(episodic_memory) if isinstance(episodic_memory, Mapping) else {},
-            narrative=dict(narrative) if isinstance(narrative, Mapping) else {},
-            retired_runtime_path=retired_runtime_path,
+            memory=dict(memory_snapshot) if isinstance(memory_snapshot, Mapping) else {},
+            narrative={},
         )
         payload = model.to_payload()
         feedback_summary = self._runtime_feedback_summary_locked()
@@ -140,14 +99,26 @@ class LivingStatusMixin:
         elif feedback_summary["unverified_count"] > 0 and grounding_health.get("status") == "grounded":
             grounding_health["status"] = "needs_verification"
         payload["grounding_health"] = grounding_health
+        memory_stats = self._trainer.model.memory_store.summary_stats()
+        memory_fill = float(memory_stats.get("fill_fraction", 0.0) or 0.0)
+        subcortex_sleep_pressure = {
+            "source": "subcortex_memory_and_trainer_sleep_counters",
+            "pressure": max(0.0, min(1.0, memory_fill)),
+            "fatigue": max(0.0, min(1.0, memory_fill)),
+            "is_sleeping": False,
+            "memory_fill_ratio": memory_fill,
+            "sleep_events": int(self._trainer.sleep_events),
+            "micro_sleep_events": int(self._trainer.micro_sleep_events),
+            "deep_sleep_events": int(self._trainer.deep_sleep_events),
+        }
+        payload["subcortex_sleep_pressure"] = subcortex_sleep_pressure
         payload["benchmark_telemetry"] = build_runtime_benchmark_telemetry(
             runtime_episodes=runtime_episodes,
             actions=action_records,
             world_model_lite=payload.get("world_model_lite") if isinstance(payload.get("world_model_lite"), Mapping) else None,
             action_loop=payload.get("action_loop") if isinstance(payload.get("action_loop"), Mapping) else {},
             memory=payload.get("memory") if isinstance(payload.get("memory"), Mapping) else {},
-            runtime_memory=self._trainer.model.memory_store.summary_stats(),
-            retired_runtime_path=retired_runtime_path_data,
+            runtime_memory=memory_stats,
             runtime={
                 "tokens_per_second": (
                     float(self._brain_last_tick_token_delta) / (float(self._brain_last_tick_duration_ms) / 1000.0)
@@ -162,7 +133,6 @@ class LivingStatusMixin:
         )
         payload["policy_decision"] = build_policy_actuator_status(
             payload,
-            retired_runtime_path_snapshot=retired_runtime_path,
         ).to_payload()
         replay_plan = build_replay_plan(payload).to_payload()
         payload["replay_plan"] = replay_plan
@@ -185,11 +155,9 @@ class LivingStatusMixin:
 
     def living_loop_status(self) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
             runtime_mutation = self._runtime_state.mutation_summary()
             return {
                 "living_loop": self._living_loop_snapshot_locked(
-                    retired_runtime_path_snapshot=retired_runtime_path_snapshot,
                     include_replay_dataset_summary=True,
                 ),
                 **runtime_mutation,
@@ -198,15 +166,9 @@ class LivingStatusMixin:
 
     def policy_actuator_status(self) -> dict[str, Any]:
         with self._lock:
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(
-                retired_runtime_path_snapshot=retired_runtime_path_snapshot
-            )
+            living_loop = self._living_loop_snapshot_locked()
             return build_policy_actuator_status(
                 living_loop,
-                retired_runtime_path_snapshot=living_loop.get("retired_runtime_path")
-                if isinstance(living_loop.get("retired_runtime_path"), Mapping)
-                else None,
             ).to_payload()
 
     def _cognitive_signal_state(self) -> dict[str, Any]:

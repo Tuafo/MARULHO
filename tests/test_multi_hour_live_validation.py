@@ -18,7 +18,7 @@ def _baseline() -> dict[str, object]:
         "final_token_count": 180,
         "max_background_tokens_processed": 80,
         "final_tick_count": 4,
-        "total_thoughts": 0,
+        "total_readouts": 0,
         "p95_latency_ms": 1000.0,
     }
 
@@ -32,7 +32,7 @@ def _multi_hour(memory_fill: float = 0.2, health: str = "alive") -> dict[str, ob
         "final_token_count": 400,
         "max_background_tokens_processed": 300,
         "final_tick_count": 12,
-        "total_thoughts": 0,
+        "total_readouts": 0,
         "unique_topics": 20,
         "topic_diversity_ratio": 0.47,
         "avg_latency_ms": 750.0,

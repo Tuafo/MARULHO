@@ -82,7 +82,6 @@ def validate_live_long_run(
     runtime_verdict = str(runtime_truth.get("verdict", "unknown"))
     liveness_verdict = str(long_test_report.get("health_verdict", long_test_report.get("acceptance_verdict", "unknown")))
 
-    runtime_truth_evidence = _mapping(runtime_truth.get("evidence"))
     checks = {
         "runtime_truth_present": runtime_verdict in {"alive", "degraded", "partial", "failed"},
         "liveness_verdict_present": liveness_verdict in {"alive", "degraded", "dead", "passed", "partial", "failed"},
@@ -111,10 +110,6 @@ def validate_live_long_run(
             "long_test_p95_latency_ms": long_test_report.get("p95_latency_ms"),
             "benchmark_total_latency_ms": benchmark_report.get("total_latency_ms"),
             "cost_usd": benchmark_report.get("cost_usd", 0),
-        },
-        "retired_runtime_path": {
-            "available": bool(long_test_report.get("retired_runtime_path_available", False)),
-            "retired": bool(runtime_truth_evidence.get("retired_runtime_path_retired", False)),
         },
         "embedding_health": dict(embedder),
         "replay_safety_status": replay_safety,

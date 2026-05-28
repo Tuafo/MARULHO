@@ -120,7 +120,7 @@ def _benchmark(verdict: str = "alive", *, unsafe: bool = False) -> dict[str, obj
 
 
 def _long_test(verdict: str = "alive") -> dict[str, object]:
-    return {"health_verdict": verdict, "total_errors": 0, "total_thoughts": 1}
+    return {"health_verdict": verdict, "total_errors": 0, "total_readouts": 1}
 
 
 def test_isolated_experiment_writes_artifact_and_comparison() -> None:

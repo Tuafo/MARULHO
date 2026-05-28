@@ -34,15 +34,6 @@ def _fake_service_app() -> FastAPI:
             "generated_at": "2026-01-01T00:00:00+00:00",
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
-            "retired_runtime_path": {
-                "name": "retired_runtime_path",
-                "available": True,
-                "retired": False,
-                "active_runtime_requirement": False,
-                "operator_surface": False,
-            },
-            "retired_runtime_path_available": True,
-            "retired_runtime_path_retired": False,
             "memory_pressure": {"fill_fraction": 0.1, "size": 2, "capacity": 64, "pressure": "low"},
             "replay_role": "preview_only_not_training",
             "safety_flags": {"replay_dataset_preview_only": True, "training_started": False},
@@ -51,8 +42,6 @@ def _fake_service_app() -> FastAPI:
                 "configured": True,
                 "running": True,
                 "token_count": 12,
-                "retired_runtime_path_enabled": True,
-                "retired_runtime_path_retired": False,
             },
         }
 

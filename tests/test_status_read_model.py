@@ -51,7 +51,6 @@ def _build_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "retired_runtime_path": {"enabled": False, "retired": True},
         "living_loop": {},
     }
 
@@ -851,7 +850,6 @@ def _build_living_loop_snapshot() -> dict[str, Any]:
             "action_loop": {"enabled": True, "root_path": "/tmp", "supported_actions": [], "actions_recorded": 0, "verified_actions": 0, "contradicted_actions": 0, "last_action": None},
             "memory": {},
             "narrative": {},
-            "retired_runtime_path": {"name": "retired_runtime_path", "enabled": False, "retired": True},
             "feedback_summary": {"feedback_count": 0, "verified_count": 0, "contradicted_count": 0, "unverified_count": 0, "recent_feedback": [], "grounding_impact": "none"},
             "feedback_count": 0,
             "verified_feedback_count": 0,
@@ -976,7 +974,7 @@ class StatusReadModelLivingLoopTests(unittest.TestCase):
         self.assertEqual(sidecar["surface"], "subcortical_control_candidates.v1")
         self.assertTrue(sidecar["grounded"])
         self.assertTrue(sidecar["not_cognition_substrate"])
-        self.assertFalse(sidecar["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", sidecar)
         self.assertNotIn("prompt", sidecar["candidates"][0])
         for replay_key in ("candidate_id", "target_type", "suggested_endpoint", "suggested_input", "reason_codes"):
             self.assertNotIn(replay_key, sidecar["candidates"][0])
@@ -1000,12 +998,13 @@ class StatusReadModelLivingLoopTests(unittest.TestCase):
         self.assertTrue(sidecar["advisory"])
         self.assertFalse(sidecar["executable"])
         self.assertTrue(sidecar["not_cognition_substrate"])
-        self.assertFalse(sidecar["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", sidecar)
         self.assertEqual(sidecar["candidates"][0]["intent"], "review_column_revival")
         self.assertFalse(sidecar["candidates"][0]["promotion_gate"]["eligible_for_action"])
         self.assertFalse(sidecar["candidates"][0]["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertFalse(sidecar["promotion_summary"]["eligible_for_structural_mutation"])
-        self.assertEqual(sidecar["promotion_gate"]["status"], "ready_for_replay_review")
+        self.assertEqual(sidecar["promotion_gate"]["status"], "insufficient_evidence")
+        self.assertEqual(sidecar["promotion_gate"]["next_gate"], "collect_spike_window")
         self.assertFalse(sidecar["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
@@ -1066,7 +1065,7 @@ class StatusReadModelPolicyActuatorTests(unittest.TestCase):
         self.assertEqual(candidates["surface"], "subcortical_control_candidates.v1")
         self.assertTrue(candidates["advisory"])
         self.assertFalse(candidates["executable"])
-        self.assertFalse(candidates["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", candidates)
         self.assertTrue(candidates["not_cognition_substrate"])
         self.assertIn("candidates", candidates)
         self.assertIn("promotion_summary", candidates)
@@ -1116,13 +1115,13 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertEqual(surface["surface"], "subcortical_language.v1")
         self.assertTrue(surface["grounded"])
         self.assertTrue(surface["not_cognition_substrate"])
-        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", surface)
         self.assertEqual(surface["grounding"]["concept_focus"], "coral thermal memory")
         deliberation = result["subcortical_deliberation"]
         self.assertEqual(deliberation["surface"], "subcortical_control_candidates.v1")
         self.assertTrue(deliberation["grounded"])
         self.assertTrue(deliberation["not_cognition_substrate"])
-        self.assertFalse(deliberation["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", deliberation)
         self.assertGreaterEqual(len(deliberation["candidates"]), 1)
         self.assertEqual(deliberation["candidates"][0]["intent"], "maintain_current_focus")
         self.assertEqual(deliberation["candidates"][0]["promotion_gate"]["status"], "advisory_monitor_only")
@@ -1152,7 +1151,7 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertEqual(surface["source"], "service.status_read_model.cognitive_signal")
         self.assertEqual(surface["control_hint"], "maintain_current_focus")
         self.assertTrue(surface["grounded"])
-        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", surface)
         self.assertTrue(surface["candidates"])
         first = surface["candidates"][0]
         self.assertEqual(first["phase"], "monitor")
@@ -1173,7 +1172,7 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(surface["executable"])
         self.assertFalse(surface["mutates_runtime_state"])
         self.assertTrue(surface["not_cognition_substrate"])
-        self.assertFalse(surface["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", surface)
         self.assertEqual(surface["promotion_gate"]["status"], "research_candidate_only")
         self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
         self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
@@ -1182,8 +1181,17 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
             "subcortical_spike_readout_evidence.v1",
         )
         self.assertFalse(surface["current_spike_readout_evidence"]["generates_text"])
+        self.assertEqual(
+            surface["current_decoder_probe_evidence"]["surface"],
+            "snn_language_decoder_probe_evidence.v1",
+        )
+        self.assertTrue(surface["current_decoder_probe_evidence"]["owned_by_hecsn"])
+        self.assertFalse(surface["current_decoder_probe_evidence"]["generates_text"])
+        self.assertFalse(surface["current_decoder_probe_evidence"]["executable"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_evidence_available"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_available"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_non_generative"])
         self.assertEqual(
             [candidate["integration_status"] for candidate in surface["research_candidates"]],
             ["reference_for_hecsn_owned_reimplementation", "reference_for_hecsn_owned_reimplementation"],
@@ -1297,7 +1305,6 @@ def _build_alive_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": "2026-05-09T12:00:01Z",
         "source_bank": [{"name": "test_source", "source_type": "file"}],
-        "retired_runtime_path": {"enabled": True, "retired": False},
         "living_loop": {},
         "sleep_interval_seconds": 0.01,
         "tick_tokens": 64,
@@ -1317,13 +1324,12 @@ def _build_error_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "retired_runtime_path": {"enabled": True, "retired": False},
         "living_loop": {},
     }
 
 
 def _build_degraded_brain_snapshot() -> dict[str, Any]:
-    """Build a brain snapshot for a 'degraded' verdict — configured+cortex but no progress."""
+    """Build a configured brain snapshot with no progress."""
     return {
         "configured": True,
         "running": False,
@@ -1334,13 +1340,12 @@ def _build_degraded_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "retired_runtime_path": {"enabled": True, "retired": False},
         "living_loop": {},
     }
 
 
-def _build_no_cortex_brain_snapshot() -> dict[str, Any]:
-    """Build a configured snapshot with the retired cortex path disabled."""
+def _build_idle_brain_snapshot() -> dict[str, Any]:
+    """Build a configured idle snapshot."""
     return {
         "configured": True,
         "running": False,
@@ -1351,7 +1356,6 @@ def _build_no_cortex_brain_snapshot() -> dict[str, Any]:
         "autonomy_tokens_processed": 0,
         "last_work_at": None,
         "source_bank": [],
-        "retired_runtime_path": {"enabled": False, "retired": True},
         "living_loop": {},
     }
 
@@ -1410,30 +1414,18 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(truth["verdict"], "partial")
         self.assertEqual(truth["recommended_action"], "configure_terminus_sources")
 
-    def test_verdict_alive_when_retired_runtime_path_retired_but_runtime_progresses(self) -> None:
-        """Retired runtime path should not keep an otherwise progressing runtime partial."""
-        model, _, _, _ = _build_read_model_with_brain_snapshot(_build_no_cortex_brain_snapshot())
+    def test_verdict_alive_when_runtime_progresses_without_retired_path(self) -> None:
+        """Runtime progress does not require retired runtime evidence."""
+        model, _, _, _ = _build_read_model_with_brain_snapshot(_build_idle_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
         self.assertEqual(truth["verdict"], "alive")
         self.assertEqual(truth["recommended_action"], "continue_monitoring")
-        self.assertFalse(truth["retired_runtime_path_available"])
-        self.assertTrue(truth["retired_runtime_path_retired"])
-        self.assertEqual(
-            truth["retired_runtime_path"],
-            {
-                "name": "retired_runtime_path",
-                "available": False,
-                "retired": True,
-                "active_runtime_requirement": False,
-                "operator_surface": False,
-            },
-        )
-        self.assertFalse(truth["evidence"]["retired_runtime_path_enabled"])
-        self.assertTrue(truth["evidence"]["retired_runtime_path_retired"])
+        self.assertNotIn("retired_runtime_path", truth)
+        self.assertNotIn("retired_runtime_path", truth["evidence"])
 
     def test_verdict_degraded_when_no_progress(self) -> None:
-        """When configured with retired-path compatibility but no progress, verdict is degraded."""
+        """When configured with no progress, verdict is degraded."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_degraded_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
@@ -1448,15 +1440,14 @@ class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):
         self.assertEqual(truth["verdict"], "alive")
         self.assertEqual(truth["recommended_action"], "continue_monitoring")
 
-    def test_verdict_includes_retired_runtime_path_state(self) -> None:
-        """Runtime Truth surfaces canonical retired-runtime-path state from the brain snapshot."""
+    def test_verdict_excludes_retired_runtime_path_state(self) -> None:
+        """Runtime Truth no longer surfaces retired-runtime-path state from the brain snapshot."""
         model, _, _, _ = _build_read_model_with_brain_snapshot(_build_alive_brain_snapshot())
         result = model.status()
         truth = result["runtime_truth"]
-        self.assertTrue(truth["retired_runtime_path_available"])
-        self.assertFalse(truth["retired_runtime_path_retired"])
-        self.assertEqual(truth["retired_runtime_path"]["name"], "retired_runtime_path")
-        self.assertFalse(truth["retired_runtime_path"]["active_runtime_requirement"])
+        self.assertNotIn("retired_runtime_path", truth)
+        self.assertNotIn("retired_runtime_path_available", truth)
+        self.assertNotIn("retired_runtime_path_retired", truth)
 
     def test_verdict_includes_source_configuration_evidence(self) -> None:
         """Runtime Truth includes source configuration with hash and payload."""
@@ -1811,15 +1802,14 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(truth["schema_version"], 1)
         self.assertIn("verdict", truth)
         self.assertIn("recommended_action", truth)
-        self.assertIn("retired_runtime_path", truth)
-        self.assertIn("retired_runtime_path_available", truth)
         self.assertIn("memory_pressure", truth)
         self.assertIn("safety_flags", truth)
         self.assertIn("latency_ms", truth)
         self.assertIn("evidence", truth)
         self.assertIn("configured", truth["evidence"])
-        self.assertIn("retired_runtime_path", truth["evidence"])
-        self.assertIn("retired_runtime_path_enabled", truth["evidence"])
+        self.assertNotIn("retired_runtime_path", truth["evidence"])
+        self.assertNotIn("retired_runtime_path_enabled", truth["evidence"])
+        self.assertNotIn("retired_runtime_path_retired", truth["evidence"])
         self.assertIn("token_count", truth["evidence"])
         self.assertIn("subcortex_spike_health", truth["evidence"])
         self.assertTrue(truth["evidence"]["subcortex_spike_health"]["not_liveness_claim"])
@@ -1864,7 +1854,12 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(structural_gate["eligible_for_structural_mutation"])
         self.assertIn("binding_report_available", structural_gate)
         self.assertIn("local_plasticity_report_available", structural_gate)
+        self.assertIn("binding_device_keys", structural_gate)
+        self.assertIn("local_plasticity_device_keys", structural_gate)
+        self.assertIn("observed_structural_device_key_count", structural_gate)
+        self.assertIn("local_plasticity_eligibility_traces_available", structural_gate)
         self.assertIn("local_plasticity_homeostatic_state_available", structural_gate)
+        self.assertIn("local_plasticity_synaptic_validation_failed", structural_gate)
         for forbidden_key in (
             "structural_cases",
             "endpoint",
@@ -1892,7 +1887,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(language_gate["executable"])
         self.assertFalse(language_gate["mutates_runtime_state"])
         self.assertTrue(language_gate["not_cognition_substrate"])
-        self.assertFalse(language_gate["retired_runtime_dependency"])
+        self.assertNotIn("retired_runtime_dependency", language_gate)
         self.assertFalse(language_gate["eligible_for_action"])
         self.assertFalse(language_gate["eligible_for_fact_promotion"])
         self.assertFalse(language_gate["eligible_for_cognition_substrate"])
@@ -1901,12 +1896,19 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertTrue(language_gate["hecsn_spike_readout_grounded"])
         self.assertTrue(language_gate["hecsn_spike_readout_non_generative"])
         self.assertIn("hecsn_spike_readout_device_evidence_available", language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_available", language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_owned", language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_non_generative", language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_sparse", language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_device_evidence_available", language_gate)
+        self.assertIn("hecsn_spike_decoder_probe_grounding_supported", language_gate)
         for forbidden_key in (
             "endpoint",
             "research_candidates",
             "current_language_surface",
             "current_deliberation_surface",
             "current_spike_readout_evidence",
+            "current_decoder_probe_evidence",
             "readiness_checks",
             "success_evidence",
             "suggested_endpoint",

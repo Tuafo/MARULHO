@@ -34,11 +34,6 @@ from hecsn.training.checkpointing import load_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 from hecsn.training.query_runner import build_query_result, feed_text
 
-import logging as _logging
-
-_retired_runtime_logger = _logging.getLogger(__name__ + ".retired_runtime")
-
-
 PUBLIC_ACQUISITION_PRESET = "autonomy_acquisition_hf_allocation"
 PUBLIC_ACQUISITION_PRESETS: tuple[str, ...] = (PUBLIC_ACQUISITION_PRESET,)
 PUBLIC_ACQUISITION_POLICIES: tuple[str, ...] = ("active", "round_robin")
@@ -147,10 +142,9 @@ from hecsn.service.feedback_applier import FeedbackApplier
 from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
 from hecsn.service.delayed_consequence import DELAYED_CONSEQUENCE_STATE_FIELDS, DelayedConsequenceDependencies, DelayedConsequenceTracker
 from hecsn.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
-from hecsn.service.retired_runtime_path import RETIRED_RUNTIME_PATH_STATE_FIELDS, RetiredRuntimePathState
 from hecsn.service.reporting import ServiceReportingMixin
 from hecsn.service.replay_runtime import ReplayController, ReplayControllerDependencies
-from hecsn.service.interaction_runtime import InteractionRuntimeMixin
+from hecsn.service.operator_interaction import OperatorInteractionRuntime
 from hecsn.service.living_status import LivingStatusMixin
 from hecsn.service.runtime_config import RuntimeConfig
 from hecsn.service.runtime_control import RUNTIME_CONTROL_STATE_FIELDS, RuntimeControl
@@ -165,18 +159,19 @@ from hecsn.service.status_read_model import StatusReadModel
 from hecsn.service.sensory_preview import SensoryPreviewMixin
 from hecsn.service.source_focus import SourceFocusDependencies, SourceFocusScorer
 from hecsn.service.terminus_autonomy import TerminusAutonomyMixin
-from hecsn.service.living_loop import (
+from hecsn.service.living_loop_records import (
     ActionExecutionRecord,
     ConsolidationRecord,
-    OperationalSelfModel,
     ProvenanceState,
     RuntimeEpisodeTrace,
+)
+from hecsn.service.living_loop_policy import build_policy_actuator_status
+from hecsn.service.living_loop_replay import (
     REPLAY_SAMPLE_SAFETY_BOUNDARIES,
-    build_policy_actuator_status,
     build_replay_plan,
-    build_runtime_benchmark_telemetry,
     replay_candidate_safety_flags,
 )
+from hecsn.service.living_loop_self_model import OperationalSelfModel, build_runtime_benchmark_telemetry
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.service.terminus_sensory import SensoryEpisode, bootstrap_sensory_episode_from_row, build_sensory_stream, sensory_bootstrap_columns
 
@@ -202,7 +197,6 @@ class HECSNServiceManager:
       _runtime_state        � mutation truth and brain event history
       _brain_runtime        � source rebuild, tick, source utility, autonomy, snapshots
       _runtime_control      � configure/start/stop/tick lifecycle and prewarm
-      _retired_runtime_path_state � retired runtime path state and snapshot
       _delayed_consequence   � long-horizon consequence record state machines
       _interaction_pipeline � query/feed/respond turn seam
       _action_executor      � digital action execution and history
@@ -268,7 +262,6 @@ class HECSNServiceManager:
         )
         self._autonomy_planner = AutonomyPlanner(self)
         self._runtime_control = RuntimeControl(self)
-        self._retired_runtime_path_state = RetiredRuntimePathState()
         service_state = dict(self._metadata.get("service_state", {}))
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
@@ -303,7 +296,6 @@ class HECSNServiceManager:
         self._replay_controller = ReplayController(
             ReplayControllerDependencies(
                 action_history=lambda: self._action_history,
-                retired_runtime_path_unavailable_snapshot=lambda: self._retired_runtime_path_state._retired_runtime_path_unavailable_snapshot(),
                 living_loop_snapshot=lambda **kwargs: LivingStatusMixin._living_loop_snapshot_locked(self, **kwargs),
                 lock=self._lock,
                 normalize_action_text=self._normalize_action_text,
@@ -392,7 +384,6 @@ class HECSNServiceManager:
             interaction_pipeline=lambda: self._interaction_pipeline,
             action_executor=lambda: self._action_executor,
             replay_controller=lambda: self._replay_controller,
-            retired_runtime_path_state=lambda: self._retired_runtime_path_state,
             concept_store=lambda: self._concept_store,
             geometric_curiosity=lambda: self._geometric_curiosity,
             runtime_environment_summary=self._runtime_environment_summary,
@@ -403,8 +394,10 @@ class HECSNServiceManager:
             living_loop_snapshot_locked=self._living_loop_snapshot_locked,
             maybe_mark_ingestion_warm_locked=self._maybe_mark_ingestion_warm_locked,
             maybe_mark_sensory_warm_locked=self._maybe_mark_sensory_warm_locked,
-            observe_runtime_concepts_locked=self._observe_runtime_concepts_locked,
-            runtime_concept_callback_locked=self._runtime_concept_callback_locked,
+            observe_runtime_concepts_locked=lambda **kwargs: OperatorInteractionRuntime._observe_runtime_concepts_locked(
+                self, **kwargs
+            ),
+            runtime_concept_callback_locked=lambda: OperatorInteractionRuntime._runtime_concept_callback_locked(self),
             run_real_sensory_episode_locked=self._run_real_sensory_episode_locked,
             record_brain_event_locked=self._record_brain_event_locked,
             build_brain_source_stream_locked=lambda spec: self._build_brain_source_stream_locked(spec),
@@ -436,11 +429,13 @@ class HECSNServiceManager:
             lock=self._lock,
             trainer=self._trainer,
             encoder=self._encoder,
-            build_query_result_fn=lambda **kwargs: self._build_query_locked(**kwargs),
-            observe_concepts_fn=lambda **kwargs: self._observe_concepts_locked(**kwargs),
-            plan_gaps_fn=lambda **kwargs: self._plan_gaps_locked(**kwargs),
+            build_query_result_fn=lambda **kwargs: OperatorInteractionRuntime._build_query_locked(self, **kwargs),
+            observe_concepts_fn=lambda **kwargs: OperatorInteractionRuntime._observe_concepts_locked(self, **kwargs),
+            plan_gaps_fn=lambda **kwargs: OperatorInteractionRuntime._plan_gaps_locked(self, **kwargs),
             apply_delayed_query_consequence_fn=lambda **kwargs: self._apply_delayed_query_consequence_locked(**kwargs),
-            observe_runtime_concepts_fn=lambda **kwargs: self._observe_runtime_concepts_locked(**kwargs),
+            observe_runtime_concepts_fn=lambda **kwargs: OperatorInteractionRuntime._observe_runtime_concepts_locked(
+                self, **kwargs
+            ),
             runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
             runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
             runtime_episode_payload_fn=lambda **kwargs: self._runtime_episode_payload_locked(**kwargs),
@@ -452,7 +447,7 @@ class HECSNServiceManager:
             apply_background_source_response_provenance_fn=lambda **kwargs: self._apply_background_source_response_provenance_locked(**kwargs),
             apply_background_source_outcome_calibration_fn=lambda **kwargs: self._apply_background_source_outcome_calibration_locked(**kwargs),
             apply_provider_response_outcome_calibration_fn=apply_provider_response_outcome_calibration_fn,
-            learn_from_turn_fn=lambda **kwargs: self._learn_from_turn_locked(**kwargs),
+            learn_from_turn_fn=lambda **kwargs: OperatorInteractionRuntime._learn_from_turn_locked(self, **kwargs),
             record_response_consequence_candidate_fn=lambda **kwargs: self._record_response_consequence_candidate_locked(**kwargs),
             recent_query_gaps=recent_query_gaps,
             runtime_episode_traces=runtime_episode_traces,
@@ -898,9 +893,6 @@ class HECSNServiceManager:
 
     def _record_brain_event_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._record_brain_event_locked(*args, **kwargs)
-
-    def _retired_runtime_path_unavailable_snapshot(self, *args: Any, **kwargs: Any) -> Any:
-        return self._replay_controller._retired_runtime_path_unavailable_snapshot(*args, **kwargs)
 
     def _living_loop_snapshot_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._replay_controller._living_loop_snapshot_locked(*args, **kwargs)
@@ -1688,27 +1680,6 @@ class HECSNServiceManager:
     def _runtime_episode_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(RuntimeEvidenceMixin, '_runtime_episode_payload_locked', self, *args, **kwargs)
 
-    def _build_query_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_build_query_locked', self, *args, **kwargs)
-
-    def _learn_from_turn_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_learn_from_turn_locked', self, *args, **kwargs)
-
-    def _observe_concepts_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_observe_concepts_locked', self, *args, **kwargs)
-
-    def _runtime_concept_callback_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_runtime_concept_callback_locked', self, *args, **kwargs)
-
-    def _observe_runtime_concepts_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_observe_runtime_concepts_locked', self, *args, **kwargs)
-
-    def _plan_gaps_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_plan_gaps_locked', self, *args, **kwargs)
-
-    def _record_recent_query_gap_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return _call_mixin_delegate(InteractionRuntimeMixin, '_record_recent_query_gap_locked', self, *args, **kwargs)
-
     def _replay_dataset_bundle_fraction(self, *args: Any, **kwargs: Any) -> Any:
         return _call_mixin_delegate(ReplayDatasetBundleMixin, '_replay_dataset_bundle_fraction', self, *args, **kwargs)
 
@@ -1819,8 +1790,6 @@ for _name in BRAIN_RUNTIME_STATE_FIELDS:
     _install_state_property(_name, "_brain_runtime")
 for _name in RUNTIME_CONTROL_STATE_FIELDS:
     _install_state_property(_name, "_runtime_control")
-for _name in RETIRED_RUNTIME_PATH_STATE_FIELDS:
-    _install_state_property(_name, "_retired_runtime_path_state")
 for _name in DELAYED_CONSEQUENCE_STATE_FIELDS:
     _install_state_property(_name, "_delayed_consequence")
 

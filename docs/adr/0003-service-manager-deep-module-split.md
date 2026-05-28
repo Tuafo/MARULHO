@@ -12,7 +12,7 @@ Analysis of the mixin call graph reveals:
 
 1. **No independent interfaces.** Mixins don't have their own test surfaces — they can only be tested as part of the full Service Manager.
 2. **Writer ambiguity.** State like `_brain_source_utility` is initialized in `manager.__init__`, mutated by DelayedConsequenceMixin, and read by TerminusAutonomyMixin and SourceFocusMixin. No single module owns it.
-3. **Cross-cutting infrastructure in the wrong place.** `_mark_mutated()` (called by 8+ mixins) lives in InteractionRuntimeMixin. `_record_brain_event_locked()` (called by 8+ mixins) lives in PersistenceMixin. `_normalize_action_text()` (called by 8+ mixins) lives in RuntimeFeedbackMixin.
+3. **Cross-cutting infrastructure in the wrong place.** `_mark_mutated()` (called by 8+ mixins) lived in the former interaction mixin. `_record_brain_event_locked()` (called by 8+ mixins) lived in PersistenceMixin. `_normalize_action_text()` (called by 8+ mixins) lived in RuntimeFeedbackMixin.
 4. **Shallow mixins that fail the deletion test.** LivingStatusMixin (238L), SensoryPreviewMixin (64L), and the shallow half of ReportingMixin are pure read-side projections — they add no leverage, just file-splitting.
 
 The tightest bidirectional coupling pairs are:
@@ -28,7 +28,7 @@ The accepted implementation goes further than simple mixin extraction:
 
 - `HECSNServiceManager` does not use catch-all `__getattr__`, `__setattr__`, or legacy unbound mixin fallback routing.
 - Manager-owned ADR runtime state is moved behind the owning modules. Brain Runtime owns source runtimes, source utility, tick counters, stream epochs, and sensory episode/preview counters. Interaction Pipeline owns query gap history and runtime episode traces. RuntimeState owns mutation truth and brain event history.
-- Public Service Manager methods remain stable, but internal compatibility is expressed as explicit facade methods and explicit state properties, not manager-bound attribute magic or import-time dynamic delegate installation.
+- Public Service Manager methods remain stable, but internal compatibility is expressed as explicit facade methods and explicit state properties, not manager-bound attribute magic, import-time dynamic delegate installation, or manager-private wrappers around former interaction helper names.
 - Deep modules no longer inherit from `ManagerBoundModule`; the owner-forwarder helper has been removed. RuntimeController and AutonomyPlanner use explicit dependency adapters, and the remaining service modules that previously used owner forwarders now receive explicit dependency objects or constructor callbacks. Module-level `*Mixin = ...` compatibility aliases have been removed. StatusReadModel owns the sensory preview projection directly.
 
 ### Module inventory
@@ -39,13 +39,12 @@ The accepted implementation goes further than simple mixin extraction:
 | DelayedConsequenceTracker | DelayedConsequenceMixin | 2644 | consequence records, cooled/retired/compacted/split/remerged totals |
 | AutonomyPlanner | TerminusAutonomyMixin behavior | 1771 | (reads shared state through an explicit dependency adapter) |
 | BrainRuntime | BrainRuntimeMixin | 1148 | source runtimes, source utility, tick counters, stream epochs, sensory episode/preview counters |
-| InteractionPipeline | InteractionRuntimeMixin + RuntimeEvidenceMixin | ~2000 | query gap history, runtime episode traces |
+| InteractionPipeline + OperatorInteractionRuntime | former InteractionRuntimeMixin + RuntimeEvidenceMixin | ~2000 | query gap history, runtime episode traces, operator acquisition flow |
 | FeedbackApplier | RuntimeFeedbackMixin | 244 | (applies to targets, no persistent own state) |
 | SourceFocusScorer | SourceFocusMixin | 373 | (scoring is stateless per call) |
 | RuntimeController | RuntimeControlMixin + RuntimePrewarmMixin behavior | ~1600 | brain thread, stop event, active execution counters, prewarm thread lifecycle |
 | StatusReadModel | StatusRuntimeMixin + LivingStatusMixin + sensory preview + shallow ReportingMixin behavior | ~1000 | cached status/telemetry/terminus snapshots |
-| ActionExecutor | ActionRuntimeMixin + ActionAssistMixin | ~750 | action history |
-| RetiredRuntimePathState | retired_runtime_path.py | minimal | retired-path status snapshot only; no ask/sleep/thought/action hooks |
+| ActionExecutor | former ActionRuntimeMixin + ActionAssistMixin | ~750 | action history |
 | RuntimePersistence | PersistenceMixin | 233 | trace history and checkpoint save/restore orchestration |
 | RuntimeConfig | RuntimeConfigMixin | 513 | (stateless — normalization only) |
 | RuntimeSources | RuntimeSourcesMixin | 390 | source runtime dataclasses |
@@ -72,7 +71,7 @@ This ADR does not reopen or contradict ADR 0001 or ADR 0002. The Living Loop dep
 
 The Service Manager no longer owns the operator-facing runtime method surface. FastAPI routes call `RuntimeFacade`, and manager methods that remain are internal dependency callbacks for explicitly wired deep modules.
 
-Compatibility imports such as `RuntimeControlMixin = RuntimeControl` may remain for tests and older imports, but `HECSNServiceManager` must not inherit from those aliases or recover behavior through an unbound mixin fallback.
+Compatibility imports such as `RuntimeControlMixin = RuntimeControl` may remain for tests and older imports, but `HECSNServiceManager` must not inherit from those aliases or recover behavior through an unbound mixin fallback. Interaction pipeline collaborators are wired as constructor callbacks to `OperatorInteractionRuntime`, not exposed as manager `_build_query_locked`, `_plan_gaps_locked`, or `_record_recent_query_gap_locked` methods. The former `interaction_runtime.py` compatibility module is deleted.
 
 ### Migration strategy
 

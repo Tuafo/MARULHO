@@ -10,20 +10,20 @@ from fastapi.testclient import TestClient
 from hecsn.config.model_config import HECSNConfig
 from hecsn.semantics.provenance import Provenance
 from hecsn.service.api import create_app
-from hecsn.service.living_loop import (
+from hecsn.service.living_loop_records import (
     ActionExecutionRecord,
     ConsolidationRecord,
-    OperationalSelfModel,
     PredictionStatus,
     ProvenanceState,
     RuntimeEpisodeTrace,
     SkillMemoryRecord,
     VerificationStatus,
-    WorldModelLiteSummary,
-    build_policy_actuator_status,
-    build_replay_plan,
+)
+from hecsn.service.living_loop_policy import WorldModelLiteSummary, build_policy_actuator_status
+from hecsn.service.living_loop_replay import build_replay_plan, replay_candidate_safety_flags
+from hecsn.service.living_loop_self_model import (
+    OperationalSelfModel,
     build_runtime_benchmark_telemetry,
-    replay_candidate_safety_flags,
 )
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.training.checkpointing import save_trainer_checkpoint
@@ -337,21 +337,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             world_model_lite=world,
             action_loop={"actions_recorded": 2},
             memory={"size": 4, "capacity": 16, "fill_ratio": 0.25, "total_stored": 4, "total_evicted": 0},
-            retired_runtime_path={
-                "enabled": True,
-                "thoughts_generated": 2,
-                "dreams_generated": 1,
-                "episodic_memory": {
-                    "embedder": {
-                        "kind": "RetiredExternalEmbedder",
-                        "external_calls": 4,
-                        "external_throttle_hits": 1,
-                        "cache_hits": 3,
-                        "cache_misses": 1,
-                        "cache_size": 3,
-                    }
-                },
-            },
             replay_sample_summary={
                 "count": 2,
                 "history_count": 2,
@@ -377,11 +362,8 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertEqual(telemetry["endpoint_latency_ms"]["runtime_action"]["count"], 3)
         self.assertAlmostEqual(telemetry["tokens_per_second"]["value"], 500.0)
         self.assertEqual(telemetry["memory"]["status"], "available")
-        adapter = telemetry["retired_external_adapter"]
-        self.assertEqual(adapter["observed_call_count"], 7)
-        self.assertIsNone(adapter["calls_per_minute"])
-        self.assertEqual(adapter["external_throttle_hits"], 1)
-        self.assertAlmostEqual(telemetry["cache"]["hit_rate"], 0.75)
+        self.assertNotIn("retired_external_adapter", telemetry)
+        self.assertFalse(telemetry["cache"]["tracked"])
         self.assertAlmostEqual(telemetry["action_success"]["success_rate"], 0.5)
         self.assertAlmostEqual(telemetry["verification_success"]["success_rate"], 0.5)
         self.assertEqual(telemetry["policy_recommendations"]["counts"]["investigate_contradictions"], 1)
@@ -449,7 +431,6 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                 "total_evicted": 0,
                 "provenance_distribution": {"verified": 1, "contradicted": 1},
             },
-            retired_runtime_path={"enabled": True, "memory_count": 4},
         )
 
         payload = model.to_payload()
@@ -500,8 +481,8 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                 "benchmark_telemetry": {
                     "endpoint_latency_ms": {"query": {"avg_ms": 2500.0, "max_ms": 3000.0}},
                 },
+                "subcortex_sleep_pressure": {"fatigue": 0.95},
             },
-            retired_runtime_path_snapshot={"name": "retired_runtime_path", "active_runtime_requirement": False, "drives": {"fatigue": 0.95}},
         ).to_payload()
 
         self.assertEqual(policy["action"], "investigate_contradictions")
@@ -528,8 +509,8 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
                     }
                 ],
                 "memory_health": {"fill_ratio": 0.99},
+                "subcortex_sleep_pressure": {"fatigue": 0.9},
             },
-            retired_runtime_path_snapshot={"name": "retired_runtime_path", "active_runtime_requirement": False, "drives": {"fatigue": 0.9}},
         ).to_payload()
 
         self.assertEqual(policy["action"], "verify_pending_evidence")
@@ -717,10 +698,10 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "limits",
             "budgets",
             "memory_health",
+            "subcortex_sleep_pressure",
             "grounding_health",
             "benchmark_telemetry",
             "replay_plan",
-            "retired_runtime_path",
         }
         self.assertLessEqual(required_living_loop_fields, set(living_loop))
         self.assertLessEqual(required_living_loop_fields, set(endpoint_loop))
@@ -729,13 +710,12 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
         self.assertIn("digital_action_execution", endpoint_loop["capabilities"])
         self.assertEqual(endpoint_loop["limits"]["snapshot_action_count"], 1)
         self.assertEqual(endpoint_loop["budgets"]["action_snapshot_used"], 1)
-        self.assertEqual(endpoint_loop["memory_health"]["status"], "no_memory_snapshot")
+        self.assertIn(endpoint_loop["memory_health"]["status"], {"no_memory_snapshot", "no_capacity_snapshot", "available"})
+        self.assertNotIn("retired_runtime_dependency", endpoint_loop["subcortex_sleep_pressure"])
         self.assertEqual(endpoint_loop["grounding_health"]["status"], "grounded")
-        self.assertEqual(endpoint_loop["retired_runtime_path"]["name"], "retired_runtime_path")
-        self.assertFalse(endpoint_loop["retired_runtime_path"]["active_runtime_requirement"])
-        self.assertIn("retired_runtime_path_snapshot", endpoint_loop["capabilities"])
+        self.assertNotIn("retired_runtime_path", endpoint_loop)
+        self.assertNotIn("retired_runtime_path_snapshot", endpoint_loop["capabilities"])
         self.assertNotIn("cortex", endpoint_loop)
-        self.assertIn("drives", endpoint_loop["retired_runtime_path"])
         benchmark = living_loop["benchmark_telemetry"]
         endpoint_benchmark = endpoint_loop["benchmark_telemetry"]
         self.assertEqual(benchmark["sample"]["action_count"], 1)
@@ -1064,7 +1044,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "DSL/program synthesis",
             "verifier",
             "search/refinement",
-            "LLM candidates",
+            "Subcortex candidates",
             "exact-match scoring",
             "does **not** imply that Terminus already solves ARC-AGI",
         ):

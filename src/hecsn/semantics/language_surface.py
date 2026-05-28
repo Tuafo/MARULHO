@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from hecsn.semantics.spike_language_decoder import build_spike_language_decoder_probe
+
 
 def build_cognitive_signal_language_surface(cognitive_signal: Mapping[str, Any]) -> dict[str, Any]:
     """Decode Cognitive Signal telemetry into bounded operator language."""
@@ -35,7 +37,6 @@ def build_cognitive_signal_language_surface(cognitive_signal: Mapping[str, Any])
         "state_text": state_text,
         "grounded": True,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "candidate_phrases": _candidate_phrases(concept_candidates, recent_concepts),
         "grounding": {
             "prediction_error_mean": prediction_error_mean,
@@ -98,7 +99,6 @@ def build_subcortical_deliberation_surface(cognitive_signal: Mapping[str, Any]) 
         "source": "service.status_read_model.cognitive_signal",
         "grounded": True,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "control_hint": control_hint,
         "candidates": candidates,
         "promotion_summary": promotion_summary,
@@ -113,7 +113,7 @@ def build_subcortical_deliberation_surface(cognitive_signal: Mapping[str, Any]) 
             "concept_count": len(concept_candidates),
         },
         "limitations": [
-            "Bounded control hypotheses from Cognitive Signal, not LLM ThoughtLoop output.",
+            "Bounded control hypotheses from Cognitive Signal, not generated text output.",
             "Candidates are advisory until replay, policy, or operator evidence promotes them.",
         ],
     }
@@ -144,7 +144,7 @@ def build_subcortical_spike_readout_evidence(
         if isinstance(cuda_runtime.get("subcortex_tensor_devices"), Mapping)
         else {}
     )
-    device = _spike_readout_device(cuda_runtime, subcortex_devices)
+    device_evidence = _spike_readout_device_evidence(cuda_runtime, subcortex_devices)
     pressure = max(prediction_error_mean, 1.0 - confidence_min, abs(dopamine), abs(norepinephrine))
     pressure_band = _band(pressure, low=0.20, high=0.65)
     readout_slots = _spike_readout_slots(
@@ -165,12 +165,14 @@ def build_subcortical_spike_readout_evidence(
         "mutates_runtime_state": False,
         "generates_text": False,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "device_evidence": {
-            "device": device,
+            "device": device_evidence["device"],
             "cuda_report_available": bool(cuda_runtime),
             "subcortex_device_evidence_available": bool(subcortex_devices),
-            "cuda_device_selected": _is_cuda_device(device),
+            "cuda_device_selected": bool(device_evidence["cuda_device_selected"]),
+            "source": device_evidence["source"],
+            "observed_device_count": device_evidence["observed_device_count"],
+            "observed_devices": device_evidence["observed_devices"],
         },
         "population_code": {
             "prediction_error_band": _band(prediction_error_mean, low=0.10, high=0.35),
@@ -220,6 +222,7 @@ def build_snn_language_readiness_surface(
     language_surface = build_cognitive_signal_language_surface(cognitive_signal)
     deliberation_surface = build_subcortical_deliberation_surface(cognitive_signal)
     spike_readout_evidence = build_subcortical_spike_readout_evidence(cognitive_signal, runtime_scope)
+    decoder_probe = build_spike_language_decoder_probe(spike_readout_evidence)
     cuda_runtime = (
         runtime_scope.get("cuda_first_runtime")
         if isinstance(runtime_scope.get("cuda_first_runtime"), Mapping)
@@ -234,6 +237,7 @@ def build_snn_language_readiness_surface(
         language_surface=language_surface,
         deliberation_surface=deliberation_surface,
         spike_readout_evidence=spike_readout_evidence,
+        decoder_probe=decoder_probe,
         cuda_runtime=cuda_runtime,
         subcortex_devices=subcortex_devices,
     )
@@ -251,13 +255,11 @@ def build_snn_language_readiness_surface(
         "executable": False,
         "mutates_runtime_state": False,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "current_language_surface": {
             "surface": language_surface.get("surface"),
             "source": language_surface.get("source"),
             "grounded": bool(language_surface.get("grounded")),
             "not_cognition_substrate": bool(language_surface.get("not_cognition_substrate")),
-            "retired_runtime_dependency": bool(language_surface.get("retired_runtime_dependency")),
             "concept_focus": (language_surface.get("grounding") or {}).get("concept_focus")
             if isinstance(language_surface.get("grounding"), Mapping)
             else None,
@@ -267,7 +269,6 @@ def build_snn_language_readiness_surface(
             "surface": deliberation_surface.get("surface"),
             "grounded": bool(deliberation_surface.get("grounded")),
             "not_cognition_substrate": bool(deliberation_surface.get("not_cognition_substrate")),
-            "retired_runtime_dependency": bool(deliberation_surface.get("retired_runtime_dependency")),
             "candidate_count": int(
                 (deliberation_surface.get("promotion_summary") or {}).get("candidate_count", 0)
                 if isinstance(deliberation_surface.get("promotion_summary"), Mapping)
@@ -283,7 +284,6 @@ def build_snn_language_readiness_surface(
             "surface": spike_readout_evidence.get("surface"),
             "grounded": bool(spike_readout_evidence.get("grounded")),
             "not_cognition_substrate": bool(spike_readout_evidence.get("not_cognition_substrate")),
-            "retired_runtime_dependency": bool(spike_readout_evidence.get("retired_runtime_dependency")),
             "generates_text": bool(spike_readout_evidence.get("generates_text")),
             "readout_slot_count": len(list(spike_readout_evidence.get("readout_slots") or [])),
             "device": (
@@ -294,6 +294,40 @@ def build_snn_language_readiness_surface(
             "cuda_device_selected": bool(
                 (spike_readout_evidence.get("device_evidence") or {}).get("cuda_device_selected")
                 if isinstance(spike_readout_evidence.get("device_evidence"), Mapping)
+                else False
+            ),
+        },
+        "current_decoder_probe_evidence": {
+            "surface": decoder_probe.get("surface"),
+            "owned_by_hecsn": bool(decoder_probe.get("owned_by_hecsn")),
+            "external_dependency": bool(decoder_probe.get("external_dependency")),
+            "generates_text": bool(decoder_probe.get("generates_text")),
+            "executable": bool(decoder_probe.get("executable")),
+            "mutates_runtime_state": bool(decoder_probe.get("mutates_runtime_state")),
+            "decodes_text": bool(decoder_probe.get("decodes_text")),
+            "tensor_device": (
+                (decoder_probe.get("device_evidence") or {}).get("tensor_device")
+                if isinstance(decoder_probe.get("device_evidence"), Mapping)
+                else None
+            ),
+            "mean_sparsity": (
+                (decoder_probe.get("sparsity_evidence") or {}).get("mean_sparsity")
+                if isinstance(decoder_probe.get("sparsity_evidence"), Mapping)
+                else None
+            ),
+            "readout_slot_count": (
+                (decoder_probe.get("support_evidence") or {}).get("readout_slot_count")
+                if isinstance(decoder_probe.get("support_evidence"), Mapping)
+                else 0
+            ),
+            "grounded_slot_count": (
+                (decoder_probe.get("support_evidence") or {}).get("grounded_slot_count")
+                if isinstance(decoder_probe.get("support_evidence"), Mapping)
+                else 0
+            ),
+            "supported": (
+                (decoder_probe.get("support_evidence") or {}).get("supported")
+                if isinstance(decoder_probe.get("support_evidence"), Mapping)
                 else False
             ),
         },
@@ -333,11 +367,11 @@ def build_snn_language_readiness_surface(
         "promotion_gate": promotion_gate,
         "success_evidence": [
             "local_snn_generator_device_report",
+            "hecsn_spike_language_decoder_probe_report",
             "activation_sparsity_report",
             "grounding_support_report",
             "runtime_truth_delta",
             "replay_or_eval_dataset_report",
-            "retired_runtime_dependency_absent",
         ],
         "safety_invariants": {
             "eligible_for_action": False,
@@ -347,7 +381,7 @@ def build_snn_language_readiness_surface(
             "requires_grounding_support": True,
             "requires_sparsity_evidence": True,
             "requires_device_evidence": True,
-            "requires_no_retired_runtime_dependency": True,
+            "requires_hecsn_decoder_probe": True,
             "requires_hecsn_owned_implementation": True,
             "requires_hecsn_controlled_training": True,
         },
@@ -393,7 +427,6 @@ def build_subcortical_self_repair_surface(spike_health: Mapping[str, Any]) -> di
         "advisory": True,
         "executable": False,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "candidates": candidates,
         "promotion_summary": {
             **promotion_summary,
@@ -440,7 +473,6 @@ def build_subcortical_self_repair_evaluation_surface(spike_health: Mapping[str, 
         "executable": False,
         "mutates_runtime_state": False,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "repair_surface": {
             "surface": repair_surface.get("surface"),
             "artifact_kind": repair_surface.get("artifact_kind"),
@@ -523,7 +555,11 @@ def build_subcortical_structural_plasticity_surface(
         spike_health,
         weight_distribution,
     )
-    promotion_gate = _structural_plasticity_promotion_gate(structural_cases, binding_report)
+    promotion_gate = _structural_plasticity_promotion_gate(
+        structural_cases,
+        binding_report,
+        local_plasticity_report,
+    )
     return {
         "schema_version": 1,
         "artifact_kind": "terminus_subcortical_structural_plasticity_gate_plan",
@@ -537,7 +573,6 @@ def build_subcortical_structural_plasticity_surface(
         "executable": False,
         "mutates_runtime_state": False,
         "not_cognition_substrate": True,
-        "retired_runtime_dependency": False,
         "promotion_gate": promotion_gate,
         "structural_cases": structural_cases,
         "concept_growth": {
@@ -772,6 +807,7 @@ def _snn_language_readiness_checks(
     language_surface: Mapping[str, Any],
     deliberation_surface: Mapping[str, Any],
     spike_readout_evidence: Mapping[str, Any],
+    decoder_probe: Mapping[str, Any],
     cuda_runtime: Mapping[str, Any],
     subcortex_devices: Mapping[str, Any],
 ) -> dict[str, bool]:
@@ -780,11 +816,24 @@ def _snn_language_readiness_checks(
         if isinstance(spike_readout_evidence.get("device_evidence"), Mapping)
         else {}
     )
+    decoder_sparsity = (
+        decoder_probe.get("sparsity_evidence")
+        if isinstance(decoder_probe.get("sparsity_evidence"), Mapping)
+        else {}
+    )
+    decoder_device = (
+        decoder_probe.get("device_evidence") if isinstance(decoder_probe.get("device_evidence"), Mapping) else {}
+    )
+    decoder_support = (
+        decoder_probe.get("support_evidence")
+        if isinstance(decoder_probe.get("support_evidence"), Mapping)
+        else {}
+    )
     return {
         "grounded_language_surface_available": bool(language_surface.get("grounded")),
         "language_surface_not_cognition_substrate": bool(language_surface.get("not_cognition_substrate")),
         "deliberation_surface_available": bool(deliberation_surface.get("grounded")),
-        "deliberation_not_llm_thought_loop": not bool(deliberation_surface.get("retired_runtime_dependency")),
+        "deliberation_grounded_subcortex_control": bool(deliberation_surface.get("grounded")),
         "hecsn_spike_readout_evidence_available": bool(spike_readout_evidence.get("available")),
         "hecsn_spike_readout_grounded": bool(spike_readout_evidence.get("grounded")),
         "hecsn_spike_readout_non_generative": not bool(spike_readout_evidence.get("generates_text")),
@@ -792,12 +841,17 @@ def _snn_language_readiness_checks(
             readout_device.get("cuda_report_available")
             or readout_device.get("subcortex_device_evidence_available")
         ),
+        "hecsn_spike_decoder_probe_available": bool(decoder_probe.get("available")),
+        "hecsn_spike_decoder_probe_owned": bool(decoder_probe.get("owned_by_hecsn")),
+        "hecsn_spike_decoder_probe_non_generative": not bool(decoder_probe.get("generates_text")),
+        "hecsn_spike_decoder_probe_sparse": bool(decoder_sparsity.get("meets_sparse_readout_floor")),
+        "hecsn_spike_decoder_probe_device_evidence_available": bool(decoder_device.get("tensor_device")),
+        "hecsn_spike_decoder_probe_grounding_supported": bool(decoder_support.get("supported")),
         "cuda_runtime_scope_available": bool(cuda_runtime),
         "subcortex_device_evidence_available": bool(subcortex_devices),
         "local_snn_language_generator_available": bool(cuda_runtime.get("snn_language_generator_device_report")),
         "activation_sparsity_report_available": bool(cuda_runtime.get("snn_language_activation_sparsity")),
         "grounding_support_report_available": bool(cuda_runtime.get("snn_language_grounding_support")),
-        "retired_runtime_dependency_absent": not bool(language_surface.get("retired_runtime_dependency")),
     }
 
 
@@ -805,7 +859,7 @@ def _snn_language_promotion_gate(readiness_checks: Mapping[str, bool]) -> dict[s
     required_now = {
         "grounded_language_surface_available": bool(readiness_checks.get("grounded_language_surface_available")),
         "language_surface_not_cognition_substrate": bool(readiness_checks.get("language_surface_not_cognition_substrate")),
-        "deliberation_not_llm_thought_loop": bool(readiness_checks.get("deliberation_not_llm_thought_loop")),
+        "deliberation_grounded_subcortex_control": bool(readiness_checks.get("deliberation_grounded_subcortex_control")),
         "hecsn_spike_readout_evidence_available": bool(
             readiness_checks.get("hecsn_spike_readout_evidence_available")
         ),
@@ -816,9 +870,26 @@ def _snn_language_promotion_gate(readiness_checks: Mapping[str, bool]) -> dict[s
         "hecsn_spike_readout_device_evidence_available": bool(
             readiness_checks.get("hecsn_spike_readout_device_evidence_available")
         ),
+        "hecsn_spike_decoder_probe_available": bool(
+            readiness_checks.get("hecsn_spike_decoder_probe_available")
+        ),
+        "hecsn_spike_decoder_probe_owned": bool(
+            readiness_checks.get("hecsn_spike_decoder_probe_owned")
+        ),
+        "hecsn_spike_decoder_probe_non_generative": bool(
+            readiness_checks.get("hecsn_spike_decoder_probe_non_generative")
+        ),
+        "hecsn_spike_decoder_probe_sparse": bool(
+            readiness_checks.get("hecsn_spike_decoder_probe_sparse")
+        ),
+        "hecsn_spike_decoder_probe_device_evidence_available": bool(
+            readiness_checks.get("hecsn_spike_decoder_probe_device_evidence_available")
+        ),
+        "hecsn_spike_decoder_probe_grounding_supported": bool(
+            readiness_checks.get("hecsn_spike_decoder_probe_grounding_supported")
+        ),
         "cuda_runtime_scope_available": bool(readiness_checks.get("cuda_runtime_scope_available")),
         "subcortex_device_evidence_available": bool(readiness_checks.get("subcortex_device_evidence_available")),
-        "retired_runtime_dependency_absent": bool(readiness_checks.get("retired_runtime_dependency_absent")),
     }
     generator_ready = (
         bool(readiness_checks.get("local_snn_language_generator_available"))
@@ -866,8 +937,14 @@ def _structural_plasticity_cases(
     weight_distribution: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
+    binding_device_evidence_available = bool(_binding_device_keys(binding_report))
+    local_device_evidence_available = bool(_local_plasticity_device_keys(local_plasticity_report))
+    structural_device_evidence_available = bool(
+        binding_device_evidence_available or local_device_evidence_available
+    )
     if growth:
         growth_ready = bool(growth.get("growth_ready"))
+        ready_for_growth_review = bool(growth_ready and structural_device_evidence_available)
         active_growth_concepts = [
             _structural_growth_concept(item)
             for item in list(growth.get("active_growth_concepts") or [])[:4]
@@ -877,9 +954,9 @@ def _structural_plasticity_cases(
             {
                 "intent": "evaluate_concept_capacity_growth",
                 "phase": "structural_review",
-                "ready_for_evaluation": growth_ready,
-                "promotion_status": "ready_for_structural_review" if growth_ready else "monitor_only",
-                "priority": 0.82 if growth_ready else 0.42,
+                "ready_for_evaluation": ready_for_growth_review,
+                "promotion_status": "ready_for_structural_review" if ready_for_growth_review else "monitor_only",
+                "priority": 0.82 if ready_for_growth_review else 0.42,
                 "evaluation_target": "increase_abstraction_capacity_without_memory_or_spike_health_regression",
                 "baseline_metrics": {
                     "requested_output_dim": int(_float(growth.get("requested_output_dim"), 0.0)),
@@ -889,25 +966,36 @@ def _structural_plasticity_cases(
                     "active_growth_concept_count": len(active_growth_concepts),
                     "expansion_events": int(_float(growth.get("expansion_events"), 0.0)),
                     "prune_events": int(_float(growth.get("prune_events"), 0.0)),
+                    "structural_device_evidence_available": structural_device_evidence_available,
                 },
-                "evidence_terms": ["concept_growth", "split_bias", "growth_pressure", "abstraction_capacity"],
-                "promotion_constraints": _structural_promotion_constraints(growth_ready),
+                "evidence_terms": [
+                    "concept_growth",
+                    "split_bias",
+                    "growth_pressure",
+                    "abstraction_capacity",
+                    "structural_device_report",
+                ],
+                "promotion_constraints": _structural_promotion_constraints(ready_for_growth_review),
             }
         )
     binding_summary = _binding_structural_summary(binding_report)
     mutation_count = int(binding_summary["growth_events"]) + int(binding_summary["prune_events"])
     if binding_report:
+        ready_for_binding_review = bool(mutation_count > 0 and binding_device_evidence_available)
         cases.append(
             {
                 "intent": "evaluate_binding_topology_stability",
                 "phase": "structural_review",
-                "ready_for_evaluation": mutation_count > 0,
-                "promotion_status": "ready_for_structural_review" if mutation_count > 0 else "monitor_only",
-                "priority": 0.78 if mutation_count > 0 else 0.40,
+                "ready_for_evaluation": ready_for_binding_review,
+                "promotion_status": "ready_for_structural_review" if ready_for_binding_review else "monitor_only",
+                "priority": 0.78 if ready_for_binding_review else 0.40,
                 "evaluation_target": "preserve_sparse_binding_reachability_with_auditable_edge_ledger",
-                "baseline_metrics": binding_summary,
+                "baseline_metrics": {
+                    **binding_summary,
+                    "binding_device_evidence_available": binding_device_evidence_available,
+                },
                 "evidence_terms": ["binding_topology", "structural_mutation_ledger", "sparse_edges", "device_report"],
-                "promotion_constraints": _structural_promotion_constraints(mutation_count > 0),
+                "promotion_constraints": _structural_promotion_constraints(ready_for_binding_review),
             }
         )
     local_summary = _local_plasticity_summary(local_plasticity_report, spike_health, weight_distribution)
@@ -920,6 +1008,8 @@ def _structural_plasticity_cases(
         ready_for_local_review = (
             bool(local_summary["device_evidence_available"])
             and bool(local_summary["eligibility_traces_available"])
+            and bool(local_summary["homeostatic_state_available"])
+            and not bool(local_summary["synaptic_validation_failed"])
             and local_pressure
         )
         cases.append(
@@ -971,12 +1061,11 @@ def _structural_plasticity_cases(
 def _structural_plasticity_promotion_gate(
     structural_cases: Sequence[Mapping[str, Any]],
     binding_report: Mapping[str, Any],
+    local_plasticity_report: Mapping[str, Any],
 ) -> dict[str, Any]:
     ready_cases = [case for case in structural_cases if bool(case.get("ready_for_evaluation"))]
-    device_evidence_available = bool(binding_report) or any(
-        "concept_growth" in list(case.get("evidence_terms") or [])
-        or "local_plasticity" in list(case.get("evidence_terms") or [])
-        for case in structural_cases
+    device_evidence_available = bool(
+        _binding_device_keys(binding_report) or _local_plasticity_device_keys(local_plasticity_report)
     )
     if ready_cases and device_evidence_available:
         status = "ready_for_isolated_structural_evaluation"
@@ -1038,6 +1127,14 @@ def _binding_structural_summary(binding_report: Mapping[str, Any]) -> dict[str, 
             for item in list(structural_mutations.get("recent_events") or [])[:6]
             if isinstance(item, Mapping)
         ],
+    }
+
+
+def _binding_device_keys(binding_report: Mapping[str, Any]) -> set[str]:
+    return {
+        str(key)
+        for key, value in binding_report.items()
+        if (str(key) == "device" or str(key).endswith("_device")) and value is not None
     }
 
 
@@ -1186,23 +1283,56 @@ def _self_repair_evaluation_target(intent: str) -> str:
     return "collect_stable_spike_health_window"
 
 
-def _spike_readout_device(cuda_runtime: Mapping[str, Any], subcortex_devices: Mapping[str, Any]) -> str:
+def _spike_readout_device_evidence(
+    cuda_runtime: Mapping[str, Any],
+    subcortex_devices: Mapping[str, Any],
+) -> dict[str, Any]:
+    observed_devices = _observed_tensor_devices(subcortex_devices)
+    if observed_devices:
+        cuda_devices = [device for device in observed_devices if _is_cuda_device(device)]
+        selected_device = cuda_devices[0] if cuda_devices else observed_devices[0]
+        return {
+            "device": selected_device,
+            "cuda_device_selected": bool(cuda_devices),
+            "source": "observed_subcortex_tensor_devices",
+            "observed_device_count": len(observed_devices),
+            "observed_devices": observed_devices[:12],
+        }
     direct_device = _text(cuda_runtime.get("tensor_device"))
     if direct_device:
-        return direct_device
-    for report in subcortex_devices.values():
-        if not isinstance(report, Mapping):
-            continue
-        for key in (
-            "prototype_device",
-            "location_state_device",
-            "binding_matrix_device",
-            "encoder_device",
-        ):
-            candidate = _text(report.get(key))
-            if candidate:
-                return candidate
-    return "unknown"
+        return {
+            "device": direct_device,
+            "cuda_device_selected": _is_cuda_device(direct_device),
+            "source": "configured_tensor_device_fallback",
+            "observed_device_count": 0,
+            "observed_devices": [],
+        }
+    return {
+        "device": "unknown",
+        "cuda_device_selected": False,
+        "source": "missing_device_evidence",
+        "observed_device_count": 0,
+        "observed_devices": [],
+    }
+
+
+def _observed_tensor_devices(report: Mapping[str, Any]) -> list[str]:
+    devices: list[str] = []
+
+    def visit(value: Any) -> None:
+        if not isinstance(value, Mapping):
+            return
+        for key, candidate in value.items():
+            if isinstance(candidate, Mapping):
+                visit(candidate)
+                continue
+            if key == "device" or key.endswith("_device"):
+                device = _text(candidate)
+                if device and device not in devices:
+                    devices.append(device)
+
+    visit(report)
+    return devices
 
 
 def _is_cuda_device(device: str) -> bool:
@@ -1355,7 +1485,7 @@ def _self_repair_promotion_gate(candidate: Mapping[str, Any]) -> dict[str, Any]:
     priority = _float(candidate.get("priority"), 0.0)
     intent = _text(candidate.get("intent"))
     grounding = candidate.get("grounding") if isinstance(candidate.get("grounding"), Mapping) else {}
-    evidence_available = bool(grounding.get("correlation_evidence_available")) or intent != "monitor_spike_health"
+    evidence_available = bool(grounding.get("correlation_evidence_available"))
     review_relevant = intent in {
         "review_column_revival",
         "review_inhibitory_balance",
@@ -1366,7 +1496,7 @@ def _self_repair_promotion_gate(candidate: Mapping[str, Any]) -> dict[str, Any]:
         "has_spike_health_evidence": bool(grounding),
         "repair_relevant_intent": review_relevant,
         "priority_at_least_0_70": priority >= 0.70,
-        "correlation_window_available_or_not_required": evidence_available,
+        "correlation_window_available": evidence_available,
     }
     if not satisfied["has_spike_health_evidence"] or not evidence_available:
         status = "insufficient_evidence"

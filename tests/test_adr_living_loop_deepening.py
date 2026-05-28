@@ -65,38 +65,36 @@ class TestADRExists(unittest.TestCase):
         self.assertIn("Self-Model", text)
 
 
-class TestADRDependencyConstraintAndShimStrategy(unittest.TestCase):
-    """ADR must explain the unidirectional dependency constraint and re-export shim strategy."""
+class TestADRDependencyConstraintAndImportStrategy(unittest.TestCase):
+    """ADR must explain the unidirectional dependency constraint and direct-import strategy."""
 
     def test_adr_explains_unidirectional_constraint(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
         self.assertIn("Unidirectional dependency constraint", text)
         self.assertIn("no module may import from a higher layer", text.lower())
 
-    def test_adr_explains_reexport_shim_strategy(self):
+    def test_adr_explains_direct_import_strategy(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
-        self.assertIn("re-export shim", text)
-        self.assertIn("backward", text.lower())
+        self.assertIn("Direct-import enforcement strategy", text)
+        self.assertIn("direct imports", text.lower())
 
-    def test_adr_explains_consumer_compatibility(self):
+    def test_adr_explains_consumer_migration(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
-        # The ADR should explain that existing consumers continue to work
         self.assertTrue(
-            "consumer" in text.lower() and "import" in text.lower(),
-            "ADR must explain that existing consumer imports continue to work",
+            "consumer" in text.lower() and "direct import" in text.lower(),
+            "ADR must explain that consumers import owning modules directly",
         )
 
-    def test_adr_documents_all_symbol_reexport(self):
+    def test_adr_documents_no_aggregator_exports(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
-        # Should mention __all__ or re-export of every symbol
         self.assertTrue(
-            "__all__" in text or ("every" in text.lower() and "symbol" in text.lower()),
-            "ADR must document that every previously available symbol is re-exported",
+            "aggregator" in text.lower() and "__all__" in text,
+            "ADR must document that aggregator exports are no longer the active surface",
         )
 
 
 class TestADRRationale(unittest.TestCase):
-    """ADR must record the rationale for four modules, re-export shim, and helpers module."""
+    """ADR must record the rationale for four modules, direct imports, and helpers module."""
 
     def test_adr_explains_why_four_modules(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
@@ -104,9 +102,9 @@ class TestADRRationale(unittest.TestCase):
         self.assertIn("two-module", text)
         self.assertIn("three-module", text)
 
-    def test_adr_explains_why_reexport_shim(self):
+    def test_adr_explains_why_direct_imports(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
-        self.assertIn("Why a re-export shim", text)
+        self.assertIn("Why direct imports", text)
 
     def test_adr_explains_why_helpers_module(self):
         text = _ADR_PATH.read_text(encoding="utf-8")
@@ -148,8 +146,8 @@ class TestContextMdUpdated(unittest.TestCase):
     def test_context_mentions_self_model_module(self):
         self.assertIn("living_loop_self_model", self.context_text)
 
-    def test_context_mentions_reexport_shim(self):
-        self.assertIn("re-export shim", self.context_text)
+    def test_context_mentions_deleted_shim(self):
+        self.assertIn("compatibility shim is deleted", self.context_text)
 
     def test_context_maps_records_to_domain_vocab(self):
         self.assertIn("Living Loop records", self.context_text)

@@ -23,6 +23,7 @@ text, it cycles.
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from typing import Iterator, Optional
 
 import torch
@@ -79,7 +80,7 @@ class MultimodalStreamLoader:
         self._visual_source = visual_source
         self._audio_source = audio_source
         self._synthetic = synthetic
-        self._device = device or torch.device("cpu")
+        self._device = _resolve_multimodal_device(device)
         self._char_buffer: list[str] = []
 
     def __iter__(self) -> Iterator[MultimodalSample]:
@@ -103,7 +104,7 @@ class MultimodalStreamLoader:
     def _next_visual(self) -> Optional[torch.Tensor]:
         if self._visual_source is not None:
             try:
-                return next(self._visual_source)
+                return next(self._visual_source).to(self._device)
             except StopIteration:
                 self._visual_source = None
         if self._synthetic and self._visual_encoder is not None:
@@ -114,7 +115,7 @@ class MultimodalStreamLoader:
     def _next_audio(self) -> Optional[torch.Tensor]:
         if self._audio_source is not None:
             try:
-                return next(self._audio_source)
+                return next(self._audio_source).to(self._device)
             except StopIteration:
                 self._audio_source = None
         if self._synthetic and self._audio_encoder is not None:
@@ -145,6 +146,7 @@ def load_directory(
     text_dir = root / "text"
     visual_dir = root / "visual"
     audio_dir = root / "audio"
+    runtime_device = _resolve_multimodal_device(device)
 
     def _text_iter() -> Iterator[str]:
         if text_dir.is_dir():
@@ -154,14 +156,14 @@ def load_directory(
     def _visual_iter() -> Iterator[torch.Tensor]:
         if visual_dir.is_dir():
             for f in sorted(visual_dir.glob("*.pt")):
-                frames = torch.load(f, map_location="cpu", weights_only=True)
+                frames = torch.load(f, map_location=runtime_device, weights_only=True)
                 for i in range(frames.shape[0]):
                     yield frames[i]
 
     def _audio_iter() -> Iterator[torch.Tensor]:
         if audio_dir.is_dir():
             for f in sorted(audio_dir.glob("*.pt")):
-                chunks = torch.load(f, map_location="cpu", weights_only=True)
+                chunks = torch.load(f, map_location=runtime_device, weights_only=True)
                 for i in range(chunks.shape[0]):
                     yield chunks[i]
 
@@ -175,5 +177,14 @@ def load_directory(
         audio_encoder=audio_encoder,
         visual_source=_visual_iter() if has_visual else None,
         audio_source=_audio_iter() if has_audio else None,
-        device=device,
+        device=runtime_device,
     )
+
+
+def _resolve_multimodal_device(device: Optional[torch.device]) -> torch.device:
+    if device is not None:
+        return torch.device(device)
+    env_device = os.environ.get("HECSN_DEVICE")
+    if env_device:
+        return torch.device(env_device)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")

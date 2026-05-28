@@ -109,7 +109,6 @@ class BrainRuntimeDependencies:
     interaction_pipeline: Callable[[], Any]
     action_executor: Callable[[], Any]
     replay_controller: Callable[[], Any]
-    retired_runtime_path_state: Callable[[], Any]
     concept_store: Callable[[], Any]
     geometric_curiosity: Callable[[], Any]
     runtime_environment_summary: Callable[[], dict[str, Any]]
@@ -787,12 +786,10 @@ class BrainRuntime:
             extra={
                 "evidence_window_count": int(len(evidence_windows)),
                 "observation_sink": "subcortex_grounded_source_observation",
-                "retired_loop_mirrored": False,
             },
         )
         return {
             "observation_sink": "subcortex_grounded_source_observation",
-            "retired_loop_mirrored": False,
             "content": excerpt,
             "topics": deduped_topics,
             "salience": float(salience),
@@ -1266,9 +1263,7 @@ class BrainRuntime:
             if total_text_learning_tokens <= 0
             else max(0.0, 1.0 - autonomy_share_of_text_learning)
         )
-        retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
         living_loop_snapshot = self._living_loop_snapshot_locked(
-            retired_runtime_path_snapshot=retired_runtime_path_snapshot,
             include_replay_dataset_summary=include_replay_dataset_summary,
         )
         return {
@@ -1401,7 +1396,6 @@ class BrainRuntime:
             },
             "multimodal": self._multimodal_runtime_summary_locked(),
             "living_loop": living_loop_snapshot,
-            "retired_runtime_path": retired_runtime_path_snapshot,
         }
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:
@@ -1547,11 +1541,6 @@ _install_dependency_object_property("_interaction_pipeline", "interaction_pipeli
 _install_dependency_alias_property("_action_history", "action_executor", "history")
 _install_dependency_property("_action_loop_summary_locked", "action_executor")
 _install_dependency_alias_property("_replay_sample_history", "replay_controller", "history")
-
-for _name in (
-    "_retired_runtime_path_unavailable_snapshot",
-):
-    _install_dependency_property(_name, "retired_runtime_path_state")
 
 _install_dependency_object_property("_concept_store", "concept_store")
 _install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")

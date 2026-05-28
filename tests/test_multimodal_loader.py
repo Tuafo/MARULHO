@@ -5,7 +5,8 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.data.multimodal_loader import MultimodalSample, MultimodalStreamLoader
+from hecsn.data import multimodal_loader as multimodal_module
+from hecsn.data.multimodal_loader import MultimodalSample, MultimodalStreamLoader, load_directory
 from hecsn.data.event_camera_encoder import EventCameraEncoder
 from hecsn.data.cochleagram_encoder import CochleagramEncoder
 
@@ -141,3 +142,43 @@ class TestMultimodalStreamLoader:
             assert v_spikes.shape == (v_enc.output_dim,)
             a_spikes = a_enc.encode(sample.audio_chunk)
             assert a_spikes.shape == (a_enc.output_dim,)
+
+    def test_source_tensors_move_to_loader_device(self):
+        frame = torch.rand(16, 16)
+        audio = torch.randn(256)
+        loader = MultimodalStreamLoader(
+            text_source=_text_iter("abcde"),
+            window_size=5,
+            visual_source=iter([frame]),
+            audio_source=iter([audio]),
+            device=torch.device("cpu"),
+        )
+
+        sample = next(iter(loader))
+
+        assert sample.visual_frame is not None
+        assert sample.audio_chunk is not None
+        assert sample.visual_frame.device == torch.device("cpu")
+        assert sample.audio_chunk.device == torch.device("cpu")
+
+    def test_directory_loader_maps_saved_tensors_to_runtime_device(self, tmp_path):
+        (tmp_path / "text").mkdir()
+        (tmp_path / "visual").mkdir()
+        (tmp_path / "audio").mkdir()
+        (tmp_path / "text" / "a.txt").write_text("abcde", encoding="utf-8")
+        torch.save(torch.rand(1, 16, 16), tmp_path / "visual" / "a.pt")
+        torch.save(torch.randn(1, 256), tmp_path / "audio" / "a.pt")
+
+        loader = load_directory(tmp_path, window_size=5, device=torch.device("cpu"))
+        sample = next(iter(loader))
+
+        assert sample.visual_frame is not None
+        assert sample.audio_chunk is not None
+        assert sample.visual_frame.device == torch.device("cpu")
+        assert sample.audio_chunk.device == torch.device("cpu")
+
+    def test_default_multimodal_device_prefers_cuda_when_available(self, monkeypatch):
+        monkeypatch.delenv("HECSN_DEVICE", raising=False)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+        assert multimodal_module._resolve_multimodal_device(None) == torch.device("cuda")

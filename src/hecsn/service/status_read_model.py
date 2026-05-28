@@ -221,31 +221,6 @@ class StatusReadModel:
         trace_history_size: int,
     ) -> dict[str, Any]:
         """Build the Runtime Truth contract. Reads self._trainer for token_count only."""
-        retired_runtime_path_source = (
-            terminus_runtime.get("retired_runtime_path")
-            if isinstance(terminus_runtime, Mapping)
-            else {}
-        )
-        retired_runtime_path_available = bool(
-            isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("enabled")
-        )
-        retired_runtime_path_retired = bool(
-            isinstance(retired_runtime_path_source, Mapping) and retired_runtime_path_source.get("retired")
-        )
-        retired_runtime_path = {
-            "name": "retired_runtime_path",
-            "available": retired_runtime_path_available,
-            "retired": retired_runtime_path_retired,
-            "active_runtime_requirement": False,
-            "operator_surface": False,
-        }
-        retired_runtime_path_evidence = {
-            "name": "retired_runtime_path",
-            "enabled": retired_runtime_path_available,
-            "retired": retired_runtime_path_retired,
-            "active_runtime_requirement": False,
-            "operator_surface": False,
-        }
         configured = bool(terminus_runtime.get("configured"))
         running = bool(terminus_runtime.get("running"))
         last_error = str(terminus_runtime.get("last_error") or "").strip()
@@ -368,6 +343,16 @@ class StatusReadModel:
             if isinstance(structural_surface.get("local_plasticity"), Mapping)
             else {}
         )
+        structural_binding_devices = (
+            structural_device_evidence.get("binding_devices")
+            if isinstance(structural_device_evidence.get("binding_devices"), Mapping)
+            else {}
+        )
+        structural_local_devices = (
+            structural_device_evidence.get("local_plasticity_devices")
+            if isinstance(structural_device_evidence.get("local_plasticity_devices"), Mapping)
+            else {}
+        )
         structural_plasticity_gate = {
             "surface": structural_surface.get("surface"),
             "artifact_kind": structural_surface.get("artifact_kind"),
@@ -384,11 +369,20 @@ class StatusReadModel:
             "case_count": int(structural_gate.get("case_count", 0) or 0),
             "concept_growth_ready": bool(structural_concept_growth.get("growth_ready")),
             "binding_report_available": bool(structural_device_evidence.get("binding_report_available")),
+            "binding_device_keys": sorted(str(key) for key in structural_binding_devices.keys()),
             "local_plasticity_report_available": bool(
                 structural_device_evidence.get("local_plasticity_report_available")
             ),
+            "local_plasticity_device_keys": sorted(str(key) for key in structural_local_devices.keys()),
+            "observed_structural_device_key_count": len(structural_binding_devices) + len(structural_local_devices),
+            "local_plasticity_eligibility_traces_available": bool(
+                structural_local_plasticity.get("eligibility_traces_available")
+            ),
             "local_plasticity_homeostatic_state_available": bool(
                 structural_local_plasticity.get("homeostatic_state_available")
+            ),
+            "local_plasticity_synaptic_validation_failed": bool(
+                structural_local_plasticity.get("synaptic_validation_failed")
             ),
         }
         cognitive_signal = (
@@ -418,7 +412,6 @@ class StatusReadModel:
             "executable": bool(snn_language_surface.get("executable")),
             "mutates_runtime_state": bool(snn_language_surface.get("mutates_runtime_state")),
             "not_cognition_substrate": bool(snn_language_surface.get("not_cognition_substrate")),
-            "retired_runtime_dependency": bool(snn_language_surface.get("retired_runtime_dependency")),
             "promotion_status": snn_language_gate.get("status"),
             "next_gate": snn_language_gate.get("next_gate"),
             "eligible_for_action": bool(snn_language_gate.get("eligible_for_action")),
@@ -450,15 +443,30 @@ class StatusReadModel:
             "hecsn_spike_readout_device_evidence_available": bool(
                 readiness_checks.get("hecsn_spike_readout_device_evidence_available")
             ),
+            "hecsn_spike_decoder_probe_available": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_available")
+            ),
+            "hecsn_spike_decoder_probe_owned": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_owned")
+            ),
+            "hecsn_spike_decoder_probe_non_generative": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_non_generative")
+            ),
+            "hecsn_spike_decoder_probe_sparse": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_sparse")
+            ),
+            "hecsn_spike_decoder_probe_device_evidence_available": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_device_evidence_available")
+            ),
+            "hecsn_spike_decoder_probe_grounding_supported": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_grounding_supported")
+            ),
         }
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "verdict": verdict,
             "recommended_action": recommended_action,
-            "retired_runtime_path": retired_runtime_path,
-            "retired_runtime_path_available": retired_runtime_path_available,
-            "retired_runtime_path_retired": retired_runtime_path_retired,
             "source_configuration": source_configuration,
             "memory_pressure": memory_pressure,
             "replay_role": replay_role,
@@ -477,9 +485,6 @@ class StatusReadModel:
                 "autonomy_tokens_processed": autonomy_tokens,
                 "last_work_at": last_work_at,
                 "last_error": last_error or None,
-                "retired_runtime_path": retired_runtime_path_evidence,
-                "retired_runtime_path_enabled": retired_runtime_path_available,
-                "retired_runtime_path_retired": retired_runtime_path_retired,
                 "replay_endpoint": replay_endpoint,
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "subcortex_spike_health": subcortex_spike_health,

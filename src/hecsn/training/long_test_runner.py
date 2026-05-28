@@ -45,8 +45,8 @@ class MetricSnapshot:
     timestamp: float = 0.0
     elapsed_s: float = 0.0
     token_count: int = 0
-    thoughts_total: int = 0
-    thoughts_delta: int = 0
+    readouts_total: int = 0
+    readouts_delta: int = 0
     background_tokens_processed: int = 0
     tick_count: int = 0
     runtime_running: bool = False
@@ -62,17 +62,15 @@ class MetricSnapshot:
     ne_level: float = 0.0
     prediction_error_mean: float = 0.0
     prediction_error_max: float = 0.0
-    dream_verification_rate: float = 0.0
     depth_counts: dict[str, int] = field(default_factory=dict)
-    retired_runtime_path_model: str = "retired"
-    narrative_summary: str = ""
+    language_surface_summary: str = ""
     exploration_target: str = ""
     exploration_reason: str = ""
     embedder: dict[str, Any] = field(default_factory=dict)
     runtime_truth: dict[str, Any] = field(default_factory=dict)
-    thought_lifecycle: dict[str, Any] = field(default_factory=dict)
+    readout_lifecycle: dict[str, Any] = field(default_factory=dict)
     memory_pressure: dict[str, Any] = field(default_factory=dict)
-    global_workspace: dict[str, Any] = field(default_factory=dict)
+    subcortex_workspace: dict[str, Any] = field(default_factory=dict)
     ingestion_state: str = ""
     action_count: int = 0
     errors: int = 0
@@ -88,14 +86,11 @@ class TestReport:
     sample_interval_s: float = 0.0
     preset: str = ""
     memory_capacity: int = DEFAULT_LONG_TEST_MEMORY_CAPACITY
-    retired_runtime_path_name: str = "retired_runtime_path"
-    retired_runtime_path_model: str = "retired"
-    retired_runtime_path_available: bool = False
     terminus_configured: bool = False
     terminus_running: bool = False
     initial_token_count: int = 0
     final_token_count: int = 0
-    total_thoughts: int = 0
+    total_readouts: int = 0
     total_errors: int = 0
     avg_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
@@ -107,10 +102,9 @@ class TestReport:
     topic_diversity_ratio: float = 0.0
     final_prediction_error_mean: float = 0.0
     final_prediction_error_max: float = 0.0
-    final_dream_verification_rate: float = 0.0
     depth_counts: dict[str, int] = field(default_factory=dict)
     all_topics: list[str] = field(default_factory=list)
-    final_narrative_summary: str = ""
+    final_language_surface_summary: str = ""
     final_exploration_target: str = ""
     final_exploration_reason: str = ""
     final_embedder: dict[str, Any] = field(default_factory=dict)
@@ -129,12 +123,12 @@ class TestReport:
     acceptance_failed: int = 0
     acceptance_skipped: int = 0
     acceptance_failure_details: list[dict[str, Any]] = field(default_factory=list)
-    thought_lifecycle_summary: dict[str, Any] = field(default_factory=dict)
+    readout_lifecycle_summary: dict[str, Any] = field(default_factory=dict)
     memory_pressure_report: dict[str, Any] = field(default_factory=dict)
-    global_workspace_report: dict[str, Any] = field(default_factory=dict)
+    subcortex_workspace_report: dict[str, Any] = field(default_factory=dict)
     source_configuration: dict[str, Any] = field(default_factory=dict)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
-    sample_thoughts: list[str] = field(default_factory=list)
+    sample_readouts: list[str] = field(default_factory=list)
 
 
 def _build_checkpoint(
@@ -321,19 +315,18 @@ def _summarize_memory_pressure(snapshots: list[MetricSnapshot]) -> dict[str, Any
     }
 
 
-def _summarize_thought_lifecycle(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
+def _summarize_readout_lifecycle(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
     if not snapshots:
         return {}
-    final = snapshots[-1].thought_lifecycle
+    final = snapshots[-1].readout_lifecycle
     blocked_reasons = [
-        str(item.thought_lifecycle.get("rejected_or_blocked_reason", ""))
+        str(item.readout_lifecycle.get("rejected_or_blocked_reason", ""))
         for item in snapshots
-        if str(item.thought_lifecycle.get("rejected_or_blocked_reason", "")).strip()
+        if str(item.readout_lifecycle.get("rejected_or_blocked_reason", "")).strip()
     ]
     return {
         "attempts": int(final.get("attempts", 0) or 0),
-        "successful": int(final.get("successful", snapshots[-1].thoughts_total) or 0),
-        "dreams": int(final.get("dreams", 0) or 0),
+        "successful": int(final.get("successful", snapshots[-1].readouts_total) or 0),
         "blocked_ticks": int(final.get("blocked_ticks", 0) or 0),
         "last_blocked": dict(final.get("last_blocked") or {}),
         "wake_triggers": dict(final.get("wake_triggers") or {}),
@@ -341,11 +334,11 @@ def _summarize_thought_lifecycle(snapshots: list[MetricSnapshot]) -> dict[str, A
     }
 
 
-def _summarize_global_workspace(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
+def _summarize_subcortex_workspace(snapshots: list[MetricSnapshot]) -> dict[str, Any]:
     if not snapshots:
         return {}
-    final = snapshots[-1].global_workspace
-    max_size = max(int(item.global_workspace.get("size", 0) or 0) for item in snapshots)
+    final = snapshots[-1].subcortex_workspace
+    max_size = max(int(item.subcortex_workspace.get("size", 0) or 0) for item in snapshots)
     return {
         "final_size": int(final.get("size", 0) or 0),
         "capacity": int(final.get("capacity", 0) or 0),
@@ -571,12 +564,9 @@ def _collect_snapshot(
     runtime: Any,
     *,
     start_perf: float,
-    last_thoughts_count: int,
     all_topics: set[str],
-    thoughts_seen: list[str],
-    seen_thought_texts: set[str],
     fresh_wait_seconds: float,
-) -> tuple[MetricSnapshot, int]:
+) -> MetricSnapshot:
     status = runtime.status(fresh_wait_seconds=fresh_wait_seconds)
     snapshot = MetricSnapshot(timestamp=time.time())
     snapshot.elapsed_s = max(0.0, float(snapshot.timestamp - start_perf))
@@ -587,9 +577,8 @@ def _collect_snapshot(
     runtime_truth = status.get("runtime_truth") if isinstance(status.get("runtime_truth"), Mapping) else {}
 
     snapshot.token_count = int(status.get("token_count", 0) or 0)
-    snapshot.thoughts_total = 0
-    snapshot.thoughts_delta = 0
-    last_thoughts_count = 0
+    snapshot.readouts_total = 0
+    snapshot.readouts_delta = 0
     snapshot.background_tokens_processed = int(terminus_runtime.get("background_tokens_processed", 0) or 0)
     snapshot.tick_count = int(terminus_runtime.get("tick_count", 0) or 0)
     snapshot.runtime_running = bool(terminus_runtime.get("running", False))
@@ -597,18 +586,22 @@ def _collect_snapshot(
     snapshot.memory_size = int(memory_store.get("size", 0) or 0)
     snapshot.consolidation_mean = float(memory_store.get("mean_consolidation_level", 0.0) or 0.0)
     snapshot.ripple_tagged = int(memory_store.get("ripple_tagged", 0) or 0)
-    snapshot.retired_runtime_path_model = "retired"
     snapshot.runtime_latency_ms = 0.0
-    snapshot.embedder = {"kind": "retired_runtime_path", "available": False}
+    snapshot.embedder = {"kind": "subcortex_local_encoder", "available": False}
     snapshot.runtime_truth = dict(runtime_truth)
-    snapshot.thought_lifecycle = {"enabled": False, "retired": True}
+    snapshot.readout_lifecycle = {
+        "source": "subcortex_readout_surface",
+        "attempts": 0,
+        "successful": snapshot.readouts_total,
+        "blocked_ticks": 0,
+    }
     snapshot.memory_pressure = _memory_pressure_snapshot(memory_store, runtime_truth)
-    snapshot.global_workspace = {"retired": True, "size": 0, "capacity": 0}
+    snapshot.subcortex_workspace = {"source": "subcortex_runtime_state", "size": 0, "capacity": 0}
     snapshot.ingestion_state = str(ingestion.get("startup_state", ""))
     snapshot.action_count = int(action_loop.get("actions_recorded", 0) or 0)
 
     snapshot.topic_diversity = int(len(all_topics))
-    return snapshot, last_thoughts_count
+    return snapshot
 
 
 def run_long_test(
@@ -657,8 +650,6 @@ def run_long_test(
     snapshots: list[MetricSnapshot] = []
     latencies: list[float] = []
     all_topics: set[str] = set()
-    thoughts_seen: list[str] = []
-    seen_thought_texts: set[str] = set()
     long_run_error: str | None = None
 
     try:
@@ -688,10 +679,6 @@ def run_long_test(
             )
 
         time.sleep(2.0)
-        report.retired_runtime_path_name = "retired_runtime_path"
-        report.retired_runtime_path_available = False
-        report.retired_runtime_path_model = "retired"
-
         can_sample = long_run_error is None
         if not can_sample:
             if long_run_error is not None:
@@ -704,7 +691,6 @@ def run_long_test(
                 sample_interval_s,
             )
             start_perf = time.time()
-            last_thoughts_count = 0
             interval_s = max(0.1, float(sample_interval_s))
             next_sample_at = min(interval_s, duration_s)
             while time.time() - start_perf < duration_s - 1e-6:
@@ -712,13 +698,10 @@ def run_long_test(
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                 try:
-                    snapshot, last_thoughts_count = _collect_snapshot(
+                    snapshot = _collect_snapshot(
                         runtime,
                         start_perf=start_perf,
-                        last_thoughts_count=last_thoughts_count,
                         all_topics=all_topics,
-                        thoughts_seen=thoughts_seen,
-                        seen_thought_texts=seen_thought_texts,
                         fresh_wait_seconds=max(5.0, float(sample_interval_s)),
                     )
                 except Exception as exc:
@@ -730,8 +713,8 @@ def run_long_test(
                     "[%3.0fs/%3.0fs] readouts=%d (+%d) tokens=%d bg=%d runtime_latency=%.0fms mem=%.0f%% topics=%d",
                     snapshot.elapsed_s,
                     duration_s,
-                    snapshot.thoughts_total,
-                    snapshot.thoughts_delta,
+                    snapshot.readouts_total,
+                    snapshot.readouts_delta,
                     snapshot.token_count,
                     snapshot.background_tokens_processed,
                     snapshot.runtime_latency_ms,
@@ -755,7 +738,7 @@ def run_long_test(
     report.end_time = datetime.now(timezone.utc).isoformat()
     report.samples_collected = int(len(snapshots))
     report.total_errors = int(sum(item.errors for item in snapshots))
-    report.total_thoughts = int(snapshots[-1].thoughts_total) if snapshots else 0
+    report.total_readouts = int(snapshots[-1].readouts_total) if snapshots else 0
     report.final_token_count = int(snapshots[-1].token_count) if snapshots else report.initial_token_count
     report.max_background_tokens_processed = int(max((item.background_tokens_processed for item in snapshots), default=0))
     report.final_background_tokens_processed = int(snapshots[-1].background_tokens_processed) if snapshots else 0
@@ -766,14 +749,11 @@ def run_long_test(
     report.final_ripple_tagged = int(snapshots[-1].ripple_tagged) if snapshots else 0
     report.unique_topics = int(len(all_topics))
     report.all_topics = sorted(all_topics)
-    report.topic_diversity_ratio = float(len(all_topics)) / float(max(1, report.total_thoughts))
-    if not report.retired_runtime_path_model and snapshots:
-        report.retired_runtime_path_model = str(snapshots[0].retired_runtime_path_model)
+    report.topic_diversity_ratio = float(len(all_topics)) / float(max(1, report.total_readouts))
     report.final_prediction_error_mean = float(snapshots[-1].prediction_error_mean) if snapshots else 0.0
     report.final_prediction_error_max = float(snapshots[-1].prediction_error_max) if snapshots else 0.0
-    report.final_dream_verification_rate = float(snapshots[-1].dream_verification_rate) if snapshots else 0.0
     report.depth_counts = dict(snapshots[-1].depth_counts) if snapshots else {}
-    report.final_narrative_summary = str(snapshots[-1].narrative_summary) if snapshots else ""
+    report.final_language_surface_summary = str(snapshots[-1].language_surface_summary) if snapshots else ""
     report.final_exploration_target = str(snapshots[-1].exploration_target) if snapshots else ""
     report.final_exploration_reason = str(snapshots[-1].exploration_reason) if snapshots else ""
     report.final_embedder = dict(snapshots[-1].embedder) if snapshots else {}
@@ -791,10 +771,10 @@ def run_long_test(
                 ),
             }
     report.action_count = int(snapshots[-1].action_count) if snapshots else 0
-    report.thought_lifecycle_summary = _summarize_thought_lifecycle(snapshots)
+    report.readout_lifecycle_summary = _summarize_readout_lifecycle(snapshots)
     report.memory_pressure_report = _summarize_memory_pressure(snapshots)
-    report.global_workspace_report = _summarize_global_workspace(snapshots)
-    report.sample_thoughts = thoughts_seen[:20]
+    report.subcortex_workspace_report = _summarize_subcortex_workspace(snapshots)
+    report.sample_readouts = []
 
     if latencies:
         latencies.sort()
@@ -807,8 +787,8 @@ def run_long_test(
         {
             "elapsed_s": item.elapsed_s,
             "token_count": item.token_count,
-            "thoughts": item.thoughts_total,
-            "thoughts_delta": item.thoughts_delta,
+            "readouts": item.readouts_total,
+            "readouts_delta": item.readouts_delta,
             "background_tokens_processed": item.background_tokens_processed,
             "tick_count": item.tick_count,
             "runtime_running": item.runtime_running,
@@ -820,15 +800,14 @@ def run_long_test(
             "topic_diversity": item.topic_diversity,
             "prediction_error_mean": item.prediction_error_mean,
             "prediction_error_max": item.prediction_error_max,
-            "dream_verification_rate": item.dream_verification_rate,
             "depth_counts": item.depth_counts,
             "exploration_target": item.exploration_target,
             "exploration_reason": item.exploration_reason,
             "embedder": item.embedder,
             "runtime_truth": item.runtime_truth,
-            "thought_lifecycle": item.thought_lifecycle,
+            "readout_lifecycle": item.readout_lifecycle,
             "memory_pressure": item.memory_pressure,
-            "global_workspace": item.global_workspace,
+            "subcortex_workspace": item.subcortex_workspace,
             "ingestion_state": item.ingestion_state,
             "action_count": item.action_count,
             "da": item.da_level,
@@ -867,7 +846,6 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
         f"**Sampling interval:** {report.sample_interval_s:.1f} s",
             f"**Preset:** {report.preset}",
             f"**Memory capacity:** {report.memory_capacity}",
-            f"**Retired runtime path:** {report.retired_runtime_path_name} ({report.retired_runtime_path_model or '-'})",
         "",
         "## Health Verdict",
         "",
@@ -941,7 +919,6 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Retired runtime path active | {report.retired_runtime_path_available} |",
             f"| Terminus configured | {report.terminus_configured} |",
             f"| Final runtime running | {report.terminus_running} |",
             f"| Samples collected | {report.samples_collected} |",
@@ -949,7 +926,7 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Final token count | {report.final_token_count} |",
             f"| Max background tokens processed | {report.max_background_tokens_processed} |",
             f"| Final tick count | {report.final_tick_count} |",
-            f"| Total language/readouts | {report.total_thoughts} |",
+            f"| Total language/readouts | {report.total_readouts} |",
             f"| Unique topics | {report.unique_topics} |",
             f"| Topic diversity | {report.topic_diversity_ratio:.2f} topics/readout |",
             f"| Avg latency | {report.avg_latency_ms:.0f} ms |",
@@ -960,7 +937,6 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Final consolidation | {report.final_consolidation:.3f} |",
             f"| Ripple-tagged memories | {report.final_ripple_tagged} |",
             f"| Prediction error (mean/max) | {report.final_prediction_error_mean:.3f} / {report.final_prediction_error_max:.3f} |",
-            f"| Dream verification rate | {report.final_dream_verification_rate:.1%} |",
             f"| Depth counts | quick={report.depth_counts.get('quick', 0)}, standard={report.depth_counts.get('standard', 0)}, deep={report.depth_counts.get('deep', 0)} |",
             f"| Active exploration target | {report.final_exploration_target or '-'} |",
             f"| Active exploration reason | {report.final_exploration_reason or '-'} |",
@@ -975,9 +951,9 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
         ]
     )
 
-    thought_summary = report.thought_lifecycle_summary if isinstance(report.thought_lifecycle_summary, Mapping) else {}
+    readout_summary = report.readout_lifecycle_summary if isinstance(report.readout_lifecycle_summary, Mapping) else {}
     memory_summary = report.memory_pressure_report if isinstance(report.memory_pressure_report, Mapping) else {}
-    workspace_summary = report.global_workspace_report if isinstance(report.global_workspace_report, Mapping) else {}
+    subcortex_workspace_summary = report.subcortex_workspace_report if isinstance(report.subcortex_workspace_report, Mapping) else {}
     lines.extend(
         [
             "",
@@ -985,12 +961,11 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Readout attempts | {thought_summary.get('attempts', 0)} |",
-            f"| Successful readouts | {thought_summary.get('successful', report.total_thoughts)} |",
-            f"| Dreams | {thought_summary.get('dreams', 0)} |",
-            f"| Blocked ticks | {thought_summary.get('blocked_ticks', 0)} |",
-            f"| Wake triggers | {thought_summary.get('wake_triggers', {})} |",
-            f"| Rejected / blocked reasons | {', '.join(str(item) for item in list(thought_summary.get('rejected_or_blocked_reasons') or [])) or '-'} |",
+            f"| Readout attempts | {readout_summary.get('attempts', 0)} |",
+            f"| Successful readouts | {readout_summary.get('successful', report.total_readouts)} |",
+            f"| Blocked ticks | {readout_summary.get('blocked_ticks', 0)} |",
+            f"| Wake triggers | {readout_summary.get('wake_triggers', {})} |",
+            f"| Rejected / blocked reasons | {', '.join(str(item) for item in list(readout_summary.get('rejected_or_blocked_reasons') or [])) or '-'} |",
             "",
             "## Memory Pressure",
             "",
@@ -1005,15 +980,15 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
             f"| Recommended action | {memory_summary.get('recommended_action', '-')} |",
             f"| Working-set policy | {memory_summary.get('final_policy', {})} |",
             "",
-            "## Global Workspace",
+            "## Subcortex Workspace",
             "",
             "| Metric | Value |",
             "|--------|-------|",
-            f"| Final size / capacity | {workspace_summary.get('final_size', 0)} / {workspace_summary.get('capacity', 0)} |",
-            f"| Max size | {workspace_summary.get('max_size', 0)} |",
-            f"| Active exploration | {workspace_summary.get('active_exploration', {})} |",
-            f"| Evidence boundary | {workspace_summary.get('evidence_boundary', {})} |",
-            f"| Final broadcast | {str(workspace_summary.get('final_broadcast', '')).replace('|', '/')} |",
+            f"| Final size / capacity | {subcortex_workspace_summary.get('final_size', 0)} / {subcortex_workspace_summary.get('capacity', 0)} |",
+            f"| Max size | {subcortex_workspace_summary.get('max_size', 0)} |",
+            f"| Active exploration | {subcortex_workspace_summary.get('active_exploration', {})} |",
+            f"| Evidence boundary | {subcortex_workspace_summary.get('evidence_boundary', {})} |",
+            f"| Final broadcast | {str(subcortex_workspace_summary.get('final_broadcast', '')).replace('|', '/')} |",
         ]
     )
 
@@ -1028,27 +1003,27 @@ def write_report(report: TestReport, output_dir: str = "reports") -> tuple[str, 
     )
     for snapshot in report.snapshots:
         lines.append(
-            f"| {snapshot['elapsed_s']:.0f} | {snapshot['token_count']} | {snapshot['thoughts']} | {snapshot['thoughts_delta']} | "
+            f"| {snapshot['elapsed_s']:.0f} | {snapshot['token_count']} | {snapshot['readouts']} | {snapshot['readouts_delta']} | "
             f"{snapshot['background_tokens_processed']} | {snapshot['tick_count']} | {snapshot['latency_ms']:.0f} | "
             f"{snapshot['memory_fill']:.1%} | {snapshot['topic_diversity']} | {snapshot['ingestion_state'] or '-'} |"
         )
 
-    if report.final_narrative_summary:
+    if report.final_language_surface_summary:
         lines.extend([
             "",
-            "## Narrative Self",
+            "## Language Surface",
             "",
-            report.final_narrative_summary,
+            report.final_language_surface_summary,
         ])
 
-    if report.sample_thoughts:
+    if report.sample_readouts:
         lines.extend([
             "",
             "## Sample Language Readouts",
             "",
         ])
-        for index, thought in enumerate(report.sample_thoughts[:10], 1):
-            lines.append(f"{index}. {thought}")
+        for index, readout in enumerate(report.sample_readouts[:10], 1):
+            lines.append(f"{index}. {readout}")
 
     markdown = "\n".join(lines)
     md_path.write_text(markdown, encoding="utf-8")
@@ -1102,7 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\nTest complete!")
     print(f"  Health: {report.health_verdict}")
     print(f"  Acceptance: {report.acceptance_verdict}")
-    print(f"  Language/readouts: {report.total_thoughts}")
+    print(f"  Language/readouts: {report.total_readouts}")
     print(f"  Topics: {report.unique_topics}")
     print(f"  Avg latency: {report.avg_latency_ms:.0f}ms")
     print(f"  Report: {md_path}")
@@ -1112,3 +1087,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+

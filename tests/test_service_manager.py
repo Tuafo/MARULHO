@@ -26,7 +26,7 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.data.corpus_loader import BackgroundPrefetchIterator
 from hecsn.service import manager as manager_module
 from hecsn.service import terminus_sensory as sensory_module
-from hecsn.service.interaction_runtime import (
+from hecsn.service.operator_interaction import (
     DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
     REQUEST_FEED_ENCODING_MODE,
 )
@@ -190,7 +190,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertEqual(Path(str(env_info["dotenv_path"])).resolve(), env_path.resolve())
                     self.assertEqual(os.environ.get("HF_TOKEN"), "dotenv-checkpoint-token")
                     self.assertTrue(env_info["hf_token_present"])
-                    self.assertFalse(manager._retired_runtime_path_available)
+                    self.assertFalse(hasattr(manager, "_retired_runtime_path_available"))
                     self.assertFalse(hasattr(manager, "_thought_loop_actual"))
                 finally:
                     manager.close()
@@ -243,7 +243,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                     self.assertEqual(Path(str(env_info["env_root"])).resolve(), env_root.resolve())
                     self.assertEqual(os.environ.get("HF_TOKEN"), "dotenv-explicit-root")
                     self.assertTrue(env_info["hf_token_present"])
-                    self.assertFalse(manager._retired_runtime_path_available)
+                    self.assertFalse(hasattr(manager, "_retired_runtime_path_available"))
                     self.assertFalse(hasattr(manager, "_thought_loop_actual"))
                 finally:
                     manager.close()
@@ -303,9 +303,9 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             try:
                 text = ("submarine ballast buoyancy pressure control " * 16).strip()
                 with patch.object(
-                    manager,
-                    "_observe_runtime_concepts_locked",
-                    wraps=manager._observe_runtime_concepts_locked,
+                    manager._interaction_pipeline,
+                    "_observe_runtime_concepts_fn",
+                    wraps=manager._interaction_pipeline._observe_runtime_concepts_fn,
                 ) as observe:
                     result = manager.runtime_facade.feed(text=text)
 
@@ -538,6 +538,47 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_runtime_facade_acquire_uses_operator_interaction_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_facade_acquire_operator_runtime")
+            try:
+                captured: dict[str, object] = {}
+
+                def _fake_run_live_acquisition(**kwargs: object) -> dict[str, object]:
+                    captured.update(kwargs)
+                    callback = kwargs.get("on_train_step")
+                    if callable(callback):
+                        callback("facade acquire concept", {"memory_index": 0})
+                    return {
+                        "tokens_trained_total": 3,
+                        "candidate_results": [],
+                        "policy_name": kwargs.get("policy_name"),
+                    }
+
+                checkpoint_path = root / "facade_acquire.pt"
+                with patch("hecsn.service.operator_interaction.run_live_acquisition", side_effect=_fake_run_live_acquisition):
+                    result = manager.runtime_facade.acquire(
+                        acquisition_slots=1,
+                        acquisition_tokens=3,
+                        save_checkpoint_path=str(checkpoint_path),
+                    )
+
+                self.assertEqual(result["preset"], "autonomy_acquisition_hf_allocation")
+                self.assertEqual(result["policy"], "active")
+                self.assertEqual(result["acquisition_result"]["tokens_trained_total"], 3)
+                self.assertFalse(result["dirty_state"])
+                self.assertEqual(result["checkpoint_save"]["path"], str(checkpoint_path))
+                self.assertTrue(Path(result["trace_path"]).exists())
+                self.assertIs(captured["trainer"], manager._trainer)
+                self.assertIs(captured["encoder"], manager._encoder)
+                self.assertEqual(captured["policy_name"], "active")
+                self.assertEqual(captured["acquisition_tokens"], 3)
+                self.assertEqual(captured["acquisition_slots"], 1)
+                self.assertTrue(callable(captured["on_train_step"]))
+            finally:
+                manager.close()
+
     def test_terminus_tick_trains_from_configured_file_source(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -761,8 +802,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -935,8 +976,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -1022,8 +1063,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -1134,8 +1175,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -1222,8 +1263,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -1304,8 +1345,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -1413,8 +1454,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -1521,8 +1562,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -2576,7 +2617,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertNotIn("recent concepts", grounded["content"].lower())
                 self.assertGreater(len(grounded["topics"]), 0)
                 self.assertEqual(grounded["observation_sink"], "subcortex_grounded_source_observation")
-                self.assertFalse(grounded["retired_loop_mirrored"])
+                self.assertNotIn("retired_loop_mirrored", grounded)
                 self.assertTrue(grounded["metadata"]["grounded"])
                 self.assertEqual(grounded["metadata"]["observation_kind"], "source")
                 self.assertEqual(grounded["metadata"]["source_name"], "cats_source")
@@ -2753,9 +2794,9 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(grounded["device"], "cpu")
                 self.assertEqual(grounded["encoder"]["device"], "cpu")
                 self.assertEqual(grounded["observation_sink"], "subcortex_grounded_sensory_observation")
-                self.assertFalse(grounded["retired_loop_mirrored"])
+                self.assertNotIn("retired_loop_mirrored", grounded)
                 self.assertEqual(grounded["metadata"]["observation_sink"], "subcortex_grounded_sensory_observation")
-                self.assertFalse(grounded["metadata"]["retired_loop_mirrored"])
+                self.assertNotIn("retired_loop_mirrored", grounded["metadata"])
                 self.assertIn("lattice", grounded["content"].lower())
                 self.assertEqual(runtime["sensory"]["source_progress"][0]["episodes_processed"], 1)
                 self.assertEqual(runtime["multimodal"]["real_episodes_completed"], 1)
@@ -4344,7 +4385,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(summary["sources"][0]["item_candidates_considered"], 3)
                 grounded = summary["sources"][0]["grounded_observation"]
                 self.assertEqual(grounded["observation_sink"], "subcortex_grounded_sensory_observation")
-                self.assertFalse(grounded["retired_loop_mirrored"])
+                self.assertNotIn("retired_loop_mirrored", grounded)
                 grounded_terms = " ".join(list(grounded["topics"]) + list(grounded["metadata"]["focus_terms"]))
                 self.assertIn("water", grounded_terms)
                 self.assertIn("wind", grounded_terms)
@@ -4491,7 +4532,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 with manager._lock:
-                    manager._record_recent_query_gap_locked(
+                    manager._interaction_pipeline.record_recent_query_gap(
                         query_text="submarine buoyancy ballast",
                         source="query",
                         gap_plan={
@@ -4554,7 +4595,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 with manager._lock:
-                    manager._record_recent_query_gap_locked(
+                    manager._interaction_pipeline.record_recent_query_gap(
                         query_text="what corrects submarine trim",
                         source="query",
                         gap_plan={
@@ -4607,7 +4648,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 with manager._lock:
-                    manager._record_recent_query_gap_locked(
+                    manager._interaction_pipeline.record_recent_query_gap(
                         query_text="what corrects submarine trim",
                         source="query",
                         gap_plan={
@@ -5063,7 +5104,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     }
 
-                with patch("hecsn.service.interaction_runtime.build_query_result", side_effect=_fake_build_query_result):
+                with patch("hecsn.service.operator_interaction.build_query_result", side_effect=_fake_build_query_result):
                     result = manager.runtime_facade.query(query_text="submarine control depth", top_k_memories=4)
 
                 self.assertIn("ballast", " ".join(captured["retrieval_focus_terms"]).lower())
@@ -5455,7 +5496,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 with manager._lock:
-                    manager._record_recent_query_gap_locked(
+                    manager._interaction_pipeline.record_recent_query_gap(
                         query_text="submarine buoyancy ballast",
                         source="query",
                         gap_plan={
@@ -6272,8 +6313,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -6400,8 +6441,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -6527,8 +6568,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -6626,8 +6667,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -6727,8 +6768,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -6873,8 +6914,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -7020,8 +7061,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "unsupported_terms": [],
                     },
                 ), patch.object(
-                    manager,
-                    "_plan_gaps_locked",
+                    manager._interaction_pipeline,
+                    "_plan_gaps_fn",
                     return_value={
                         "grounded_fraction": 1.0,
                         "unsupported_terms": [],
@@ -7794,7 +7835,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
 
 class CortexIntegrationTests(unittest.TestCase):
-    """Test retired Cortex compatibility boundaries with service manager."""
+    """Test deleted Cortex boundaries with service manager."""
 
     def test_manager_creation_status_do_not_eagerly_initialize_cortex(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -7802,14 +7843,12 @@ class CortexIntegrationTests(unittest.TestCase):
             manager = _build_manager(root, test_case="cortex_lazy_manager_startup", env_root=root)
             try:
                 status = manager.runtime_facade.status()
-                snapshot = status["terminus_runtime"]["retired_runtime_path"]
             finally:
                 manager.close()
 
             self.assertIn("terminus_runtime", status)
             self.assertNotIn("cortex", status["terminus_runtime"])
-            self.assertFalse(snapshot["enabled"])
-            self.assertTrue(snapshot["retired"])
+            self.assertNotIn("retired_runtime_path", status["terminus_runtime"])
 
     def test_cortex_methods_are_removed_from_operator_facade(self) -> None:
         """The LLM Cortex API is retired and no longer part of the operator facade."""
@@ -7846,8 +7885,8 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_runtime_snapshot_marks_retired_runtime_path_retired(self) -> None:
-        """Regression: terminus runtime snapshot marks the former Cortex path as retired.
+    def test_runtime_snapshot_excludes_retired_runtime_path(self) -> None:
+        """Regression: terminus runtime snapshot omits the former Cortex path.
 
         Verdict and payload key coverage is in test_status_read_model.py::StatusReadModelStatusTests
         and StatusReadModelPayloadCompatibilityTests. This stub confirms the manager wiring survives.
@@ -7858,8 +7897,7 @@ class CortexIntegrationTests(unittest.TestCase):
             try:
                 status = manager.runtime_facade.status()
                 self.assertNotIn("cortex", status["terminus_runtime"])
-                self.assertIn("retired_runtime_path", status["terminus_runtime"])
-                self.assertTrue(status["terminus_runtime"]["retired_runtime_path"]["retired"])
+                self.assertNotIn("retired_runtime_path", status["terminus_runtime"])
             finally:
                 manager.close()
 
@@ -8016,8 +8054,8 @@ class CortexIntegrationTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_telemetry_marks_retired_runtime_path_retired(self) -> None:
-        """Regression: telemetry snapshot marks the former Cortex path as retired.
+    def test_telemetry_excludes_retired_runtime_path(self) -> None:
+        """Regression: telemetry snapshot omits the former Cortex path.
 
         Detailed telemetry payload coverage is in
         test_status_read_model.py::StatusReadModelTelemetryTests. This stub confirms
@@ -8029,8 +8067,7 @@ class CortexIntegrationTests(unittest.TestCase):
             try:
                 telemetry = manager.runtime_facade.telemetry_snapshot()
                 self.assertNotIn("cortex", telemetry["terminus_runtime"])
-                self.assertIn("retired_runtime_path", telemetry["terminus_runtime"])
-                self.assertTrue(telemetry["terminus_runtime"]["retired_runtime_path"]["retired"])
+                self.assertNotIn("retired_runtime_path", telemetry["terminus_runtime"])
             finally:
                 manager.close()
 
@@ -8060,8 +8097,8 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 runtime = result["terminus_runtime"]
                 self.assertEqual(runtime["action_loop"]["verified_actions"], 1)
                 self.assertEqual(runtime["action_loop"]["contradicted_actions"], 0)
-                self.assertFalse(runtime["action_loop"]["retired_loop_sync"]["initializes_retired_loop"])
-                self.assertEqual(runtime["action_loop"]["retired_loop_sync"]["status"], "disabled_subcortex_ledger_only")
+                self.assertEqual(runtime["action_loop"]["ledger_scope"], "subcortex_action_ledger")
+                self.assertNotIn("retired_loop_sync", runtime["action_loop"])
                 self.assertFalse(hasattr(manager, "_thought_loop_actual"))
                 self.assertEqual(runtime["recent_events"][0]["type"], "digital_action_executed")
                 self.assertEqual(result["result"]["verification"]["status"], "verified")

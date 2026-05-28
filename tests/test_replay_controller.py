@@ -42,10 +42,7 @@ class _FakeReplayManager:
             return text[:max_chars].rstrip() + "…"
         return text
 
-    def _retired_runtime_path_unavailable_snapshot(self) -> dict[str, object]:
-        return {"enabled": False, "initialization": {"started": False, "finished": True, "timed_out": False, "error": None}}
-
-    def _living_loop_snapshot_locked(self, *, retired_runtime_path_snapshot: dict[str, object]) -> dict[str, object]:
+    def _living_loop_snapshot_locked(self) -> dict[str, object]:
         return {
             "state_revision": self._runtime_state.state_revision,
             "token_count": 13,
@@ -59,9 +56,9 @@ class _FakeReplayManager:
             "feedback_summary": {},
             "benchmark_telemetry": {},
             "memory_health": {"status": "available", "fill_ratio": 0.2},
+            "subcortex_sleep_pressure": {"fatigue": 0.2},
             "policy_decision": {"action": "continue_current_policy"},
             "world_model_lite": {"uncertainty": 0.0},
-            "retired_runtime_path": retired_runtime_path_snapshot,
         }
 
     @staticmethod
@@ -90,7 +87,6 @@ def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
     return ReplayController(
         ReplayControllerDependencies(
             action_history=lambda: manager._action_history,
-            retired_runtime_path_unavailable_snapshot=manager._retired_runtime_path_unavailable_snapshot,
             living_loop_snapshot=manager._living_loop_snapshot_locked,
             lock=manager._lock,
             normalize_action_text=manager._normalize_action_text,

@@ -12,9 +12,9 @@ from hecsn.training.long_test_runner import (
     health_exit_code,
     run_acceptance_harness,
     _acceptance_failure_details,
-    _summarize_global_workspace,
+    _summarize_subcortex_workspace,
     _summarize_memory_pressure,
-    _summarize_thought_lifecycle,
+    _summarize_readout_lifecycle,
     run_long_test,
     write_report,
 )
@@ -27,7 +27,7 @@ def test_classify_test_report_marks_dead_empty_run() -> None:
         final_token_count=100,
         max_background_tokens_processed=0,
         final_tick_count=0,
-        total_thoughts=0,
+        total_readouts=0,
         acceptance_verdict="failed",
     )
 
@@ -39,14 +39,14 @@ def test_classify_test_report_marks_dead_empty_run() -> None:
     assert health_exit_code(report) == 2
 
 
-def test_classify_test_report_marks_alive_when_subcortex_progresses_without_thoughts() -> None:
+def test_classify_test_report_marks_alive_when_subcortex_progresses_without_readouts() -> None:
     report = LongTestReport(
         samples_collected=3,
         initial_token_count=100,
         final_token_count=160,
         max_background_tokens_processed=60,
         final_tick_count=3,
-        total_thoughts=0,
+        total_readouts=0,
         acceptance_verdict="passed",
     )
 
@@ -64,7 +64,7 @@ def test_classify_test_report_uses_runtime_truth_contract_warnings() -> None:
         final_token_count=180,
         max_background_tokens_processed=80,
         final_tick_count=4,
-        total_thoughts=5,
+        total_readouts=5,
         acceptance_verdict="passed",
         final_runtime_truth={
             "verdict": "degraded",
@@ -86,7 +86,7 @@ def test_classify_test_report_warns_on_unrecovered_high_memory_pressure() -> Non
         final_token_count=180,
         max_background_tokens_processed=80,
         final_tick_count=4,
-        total_thoughts=3,
+        total_readouts=3,
         acceptance_verdict="passed",
         memory_pressure_report={
             "unrecovered_high_pressure": True,
@@ -108,7 +108,7 @@ def test_classify_test_report_marks_alive_run() -> None:
         final_token_count=180,
         max_background_tokens_processed=80,
         final_tick_count=4,
-        total_thoughts=5,
+        total_readouts=5,
         acceptance_verdict="passed",
     )
 
@@ -119,7 +119,7 @@ def test_classify_test_report_marks_alive_run() -> None:
     assert health_exit_code(report) == 0
 
 
-def test_run_acceptance_harness_passes_without_cortex() -> None:
+def test_run_acceptance_harness_uses_subcortex_runtime_path() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         result = run_acceptance_harness(output_dir=tmpdir, env_root=Path.cwd())
 
@@ -138,15 +138,14 @@ def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
                 "pressure": "low",
                 "working_set_policy": {"decision": "continue_monitoring"},
             },
-            thought_lifecycle={
+            readout_lifecycle={
                 "attempts": 0,
                 "successful": 0,
-                "dreams": 0,
                 "blocked_ticks": 2,
                 "rejected_or_blocked_reason": "idle_no_trigger",
                 "wake_triggers": {"last_gate_reason": "idle_no_trigger"},
             },
-            global_workspace={
+            subcortex_workspace={
                 "size": 0,
                 "capacity": 5,
                 "selected_context_items": [],
@@ -157,7 +156,7 @@ def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
         ),
         MetricSnapshot(
             memory_fill=1.0,
-            thoughts_total=0,
+            readouts_total=0,
             memory_pressure={
                 "fill_fraction": 1.0,
                 "pressure": "high",
@@ -167,22 +166,21 @@ def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
                     "replay_fact_promotion_allowed": False,
                 },
             },
-            thought_lifecycle={
+            readout_lifecycle={
                 "attempts": 0,
                 "successful": 0,
-                "dreams": 0,
                 "blocked_ticks": 10,
                 "last_blocked": {"reason": "startup_quiet"},
                 "rejected_or_blocked_reason": "startup_quiet",
                 "wake_triggers": {"startup_quiet": True},
             },
-            global_workspace={
+            subcortex_workspace={
                 "size": 1,
                 "capacity": 5,
                 "selected_context_items": [
                     {"content": "possible explanation", "type": "hypothesis", "strength": 0.6}
                 ],
-                "broadcast": "Currently thinking about: possible explanation",
+                "broadcast": "Subcortex focus: possible explanation",
                 "active_exploration": {"target": "memory pressure"},
                 "evidence_boundary": {"hypothesis_items": 1, "hypotheses_promoted_to_fact": 0},
             },
@@ -190,8 +188,8 @@ def test_diagnostic_summaries_capture_phase_8_to_10_evidence() -> None:
     ]
 
     memory = _summarize_memory_pressure(snapshots)
-    lifecycle = _summarize_thought_lifecycle(snapshots)
-    workspace = _summarize_global_workspace(snapshots)
+    lifecycle = _summarize_readout_lifecycle(snapshots)
+    workspace = _summarize_subcortex_workspace(snapshots)
 
     assert memory["unrecovered_high_pressure"] is True
     assert memory["final_policy"]["capacity_increase_recommended"] is False
@@ -223,18 +221,6 @@ def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
                     "running": True,
                     "background_tokens_processed": 100,
                     "tick_count": 10,
-                    "retired_runtime_path": {
-                        "enabled": True,
-                        "retired": False,
-                        "running": True,
-                        "current_mode": "idle",
-                        "thoughts_generated": 1,
-                        "thought_lifecycle": {
-                            "attempts": 1,
-                            "successful": 1,
-                            "blocked_ticks": 0,
-                        },
-                    },
                 },
             }
 
@@ -296,16 +282,13 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         sample_interval_s=5.0,
         preset="curriculum",
         memory_capacity=16384,
-        retired_runtime_path_name="retired_runtime_path",
-        retired_runtime_path_model="retired",
-        retired_runtime_path_available=False,
         terminus_configured=True,
         terminus_running=True,
         initial_token_count=100,
         final_token_count=180,
         max_background_tokens_processed=80,
         final_tick_count=4,
-        total_thoughts=2,
+        total_readouts=2,
         unique_topics=4,
         topic_diversity_ratio=2.0,
         avg_latency_ms=1234.0,
@@ -313,7 +296,7 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
         health_reasons=["Run met the minimum activity and acceptance thresholds."],
         acceptance_verdict="passed",
         acceptance_checks=[
-            {"name": "idle_gating", "passed": True, "summary": "Retired path stayed inactive.", "details": {}},
+            {"name": "idle_gating", "passed": True, "summary": "Deleted path stayed absent.", "details": {}},
             {"name": "query_answer", "passed": True, "summary": "Grounded answer returned.", "details": {}},
         ],
         acceptance_passed=2,
@@ -323,10 +306,9 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
             "verdict": "alive",
             "recommended_action": "continue_monitoring",
         },
-        thought_lifecycle_summary={
+        readout_lifecycle_summary={
             "attempts": 2,
             "successful": 2,
-            "dreams": 0,
             "blocked_ticks": 4,
             "wake_triggers": {"last_gate_reason": "prediction_error"},
             "rejected_or_blocked_reasons": ["interval_cooldown"],
@@ -341,16 +323,16 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
             "recommended_action": "continue_monitoring",
             "final_policy": {"capacity_increase_recommended": False},
         },
-        global_workspace_report={
+        subcortex_workspace_report={
             "final_size": 1,
             "capacity": 5,
             "max_size": 2,
             "active_exploration": {"target": "aurora"},
             "evidence_boundary": {"hypotheses_promoted_to_fact": 0},
-            "final_broadcast": "Currently thinking about: aurora",
+            "final_broadcast": "Subcortex focus: aurora",
         },
-        final_narrative_summary="Coral reefs balance calcium carbonate growth with ocean chemistry — a fragile equilibrium.",
-        sample_thoughts=[
+        final_language_surface_summary="Coral reefs balance calcium carbonate growth with ocean chemistry — a fragile equilibrium.",
+        sample_readouts=[
             "Aurora Borealis occurs when charged solar particles strike Earth's atmosphere.",
             "Zonal reef growth depends on carbonate saturation — a delicate équilibre.",
         ],
@@ -358,8 +340,8 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
             {
                 "elapsed_s": 5.0,
                 "token_count": 140,
-                "thoughts": 1,
-                "thoughts_delta": 1,
+                "readouts": 1,
+                "readouts_delta": 1,
                 "background_tokens_processed": 40,
                 "tick_count": 2,
                 "runtime_running": True,
@@ -371,12 +353,11 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
                 "topic_diversity": 2,
                 "prediction_error_mean": 0.2,
                 "prediction_error_max": 0.4,
-                "dream_verification_rate": 0.0,
                 "depth_counts": {"quick": 1, "standard": 0, "deep": 0},
                 "exploration_target": "aurora",
                 "exploration_reason": "novelty",
                 "embedder": {},
-                "thought_lifecycle": {
+                "readout_lifecycle": {
                     "attempts": 2,
                     "successful": 1,
                     "blocked_ticks": 4,
@@ -387,11 +368,11 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
                     "pressure": "low",
                     "working_set_policy": {"capacity_increase_recommended": False},
                 },
-                "global_workspace": {
+                "subcortex_workspace": {
                     "size": 1,
                     "capacity": 5,
                     "selected_context_items": [],
-                    "broadcast": "Currently thinking about: aurora",
+                    "broadcast": "Subcortex focus: aurora",
                     "evidence_boundary": {"hypotheses_promoted_to_fact": 0},
                 },
                 "ingestion_state": "warm",
@@ -418,8 +399,8 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
     assert "## Source Configuration" in md_text
     assert "## Liveness Diagnosis" in md_text
     assert "## Memory Pressure" in md_text
-    assert "## Global Workspace" in md_text
-    assert "Retired runtime path" in md_text
+    assert "## Subcortex Workspace" in md_text
+    assert "Retired runtime path" not in md_text
     assert "Retired cortex active" not in md_text
     assert "**Cortex:**" not in md_text
     assert "Runtime truth verdict" in md_text
@@ -427,3 +408,5 @@ def test_write_report_handles_unicode_text_and_health_sections() -> None:
     assert "équilibre" in md_text
     assert "Aurora Borealis" in md_text
     assert readme_text == md_text
+
+

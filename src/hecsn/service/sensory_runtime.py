@@ -18,6 +18,7 @@ from uuid import uuid4
 import torch
 
 from hecsn.semantics.grounding_text import salient_query_terms
+from hecsn.service.operator_interaction import OperatorInteractionRuntime
 from hecsn.service.runtime_sources import _SensorySourceRuntime
 from hecsn.service.terminus_sensory import SensoryEpisode
 
@@ -542,12 +543,10 @@ class SensoryRuntimeMixin:
                 "semantic_match": float(semantic_score),
                 "item_semantic_match": float(runtime.last_item_semantic_match),
                 "observation_sink": "subcortex_grounded_sensory_observation",
-                "retired_loop_mirrored": False,
             },
         )
         return {
             "observation_sink": "subcortex_grounded_sensory_observation",
-            "retired_loop_mirrored": False,
             "observation_kind": "sensory",
             "source_name": runtime.name,
             "source_type": "sensory",
@@ -697,7 +696,11 @@ class SensoryRuntimeMixin:
                 runtime.episodes_processed += 1
                 runtime.last_activity_at = datetime.now(timezone.utc).isoformat()
                 runtime.last_text = text[:160]
-                self._observe_runtime_concepts_locked(raw_window=last_raw_window, metrics=last_metrics)
+                OperatorInteractionRuntime._observe_runtime_concepts_locked(
+                    self,
+                    raw_window=last_raw_window,
+                    metrics=last_metrics,
+                )
                 runtime.last_window_budget = int(window_budget)
                 observation = self._inject_sensory_observation_locked(
                     runtime=runtime,

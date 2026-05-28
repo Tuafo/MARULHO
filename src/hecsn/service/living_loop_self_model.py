@@ -122,37 +122,6 @@ def _extract_cache_summary(stats: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _extract_retired_external_adapter_summary(retired_runtime_path: Mapping[str, Any] | None) -> dict[str, Any]:
-    retired_runtime_path_data = dict(retired_runtime_path or {})
-    raw_episodic = retired_runtime_path_data.get("episodic_memory")
-    episodic: Mapping[str, Any] = raw_episodic if isinstance(raw_episodic, Mapping) else {}
-    raw_embedder = episodic.get("embedder")
-    embedder: Mapping[str, Any] = raw_embedder if isinstance(raw_embedder, Mapping) else {}
-    chat_generations = int(retired_runtime_path_data.get("thoughts_generated", 0) or 0) + int(
-        retired_runtime_path_data.get("dreams_generated", 0) or 0
-    )
-    embedding_calls = int(embedder.get("external_calls", 0) or 0)
-    external_throttle_hits = int(embedder.get("external_throttle_hits", 0) or 0)
-    retired_runtime_path_enabled = retired_runtime_path_data.get("enabled", False) or embedder.get("available", False)
-    return {
-        "available": bool(retired_runtime_path_enabled),
-        "chat_generations_observed": int(chat_generations),
-        "embedding_external_calls": int(embedding_calls),
-        "observed_call_count": int(chat_generations + embedding_calls),
-        "calls_per_minute": None,
-        "calls_per_minute_reason": "timestamps_unavailable",
-        "external_throttle_hits": int(external_throttle_hits),
-        "embedder": {
-            "kind": embedder.get("kind"),
-            "model": embedder.get("model"),
-            "available": bool(embedder.get("available", False)),
-            "degraded": bool(embedder.get("degraded", False)),
-            "fallback_calls": int(embedder.get("fallback_calls", 0) or 0),
-            "error_calls": int(embedder.get("error_calls", 0) or 0),
-        },
-    }
-
-
 def _memory_counter_summary(
     memory: Mapping[str, Any] | None,
     runtime_memory: Mapping[str, Any] | None,
@@ -179,7 +148,7 @@ def _memory_counter_summary(
         "source": (
             "runtime_memory_store"
             if runtime_memory
-            else ("retired_runtime_path_memory" if memory else "unavailable")
+            else ("subcortex_memory" if memory else "unavailable")
         ),
     }
 
@@ -196,14 +165,12 @@ def build_runtime_benchmark_telemetry(
     action_loop: Mapping[str, Any] | None = None,
     memory: Mapping[str, Any] | None = None,
     runtime_memory: Mapping[str, Any] | None = None,
-    retired_runtime_path: Mapping[str, Any] | None = None,
     runtime: Mapping[str, Any] | None = None,
     feedback_summary: Mapping[str, Any] | None = None,
     replay_sample_summary: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Transparent benchmark telemetry from already-recorded runtime facts."""
-    retired_runtime_path_data = dict(retired_runtime_path or {})
     episode_records = tuple(
         item if isinstance(item, RuntimeEpisodeTrace) else RuntimeEpisodeTrace.from_payload(item)
         for item in runtime_episodes
@@ -303,11 +270,7 @@ def build_runtime_benchmark_telemetry(
             "seconds": None,
         }
 
-    cache_summary = _extract_cache_summary(
-        (retired_runtime_path_data.get("episodic_memory") or {}).get("embedder", {})
-        if isinstance((retired_runtime_path_data.get("episodic_memory") or {}), Mapping)
-        else {}
-    )
+    cache_summary = _extract_cache_summary({})
 
     recommendation = world.recommended_next_action
     policy_counts = Counter({recommendation: 1}) if recommendation else Counter()
@@ -328,7 +291,6 @@ def build_runtime_benchmark_telemetry(
         "endpoint_latency_ms": endpoint_latency_ms,
         "tokens_per_second": tokens_per_second,
         "memory": _memory_counter_summary(memory, runtime_memory),
-        "retired_external_adapter": _extract_retired_external_adapter_summary(retired_runtime_path_data),
         "cache": cache_summary,
         "action_success": {
             "action_count": int(total_actions),
@@ -383,7 +345,6 @@ class OperationalSelfModel:
     action_loop: dict[str, Any] = field(default_factory=dict)
     memory: dict[str, Any] = field(default_factory=dict)
     narrative: dict[str, Any] = field(default_factory=dict)
-    retired_runtime_path: dict[str, Any] = field(default_factory=dict)
     world_model_lite: WorldModelLiteSummary | None = None
     skill_memories: tuple[SkillMemoryRecord, ...] = ()
 
@@ -455,7 +416,6 @@ class OperationalSelfModel:
             action_loop=dict(data.get("action_loop") or {}),
             memory=dict(data.get("memory") or {}),
             narrative=dict(data.get("narrative") or {}),
-            retired_runtime_path=dict(data.get("retired_runtime_path") or {}),
             world_model_lite=world_model_lite,
             skill_memories=skill_memories or SkillMemoryRecord.from_action_records(actions),
         )
@@ -476,7 +436,6 @@ class OperationalSelfModel:
         action_loop: Mapping[str, Any] | None = None,
         memory: Mapping[str, Any] | None = None,
         narrative: Mapping[str, Any] | None = None,
-        retired_runtime_path: Mapping[str, Any] | None = None,
         generated_at: str | None = None,
     ) -> "OperationalSelfModel":
         runtime_episode_records = tuple(runtime_episodes)
@@ -523,7 +482,6 @@ class OperationalSelfModel:
             action_loop=dict(action_loop or {}),
             memory=dict(memory or {}),
             narrative=dict(narrative or {}),
-            retired_runtime_path=dict(retired_runtime_path or {}),
             world_model_lite=world_model_lite,
             skill_memories=SkillMemoryRecord.from_action_records(action_records),
         )
@@ -579,8 +537,6 @@ class OperationalSelfModel:
             capabilities.append("delayed_consequence_consolidation_tracking")
         if self.memory:
             capabilities.append("episodic_memory_snapshot")
-        if self.retired_runtime_path:
-            capabilities.append("retired_runtime_path_snapshot")
         capabilities.append("world_model_lite_policy_scoring")
         return capabilities
 
@@ -841,7 +797,6 @@ class OperationalSelfModel:
                 world_model_lite=world_model_lite,
                 action_loop=self.action_loop,
                 memory=self.memory,
-                retired_runtime_path=self.retired_runtime_path,
                 generated_at=self.generated_at,
             ),
             "capabilities": self._surface_capabilities(
@@ -859,5 +814,4 @@ class OperationalSelfModel:
             "action_loop": dict(self.action_loop),
             "memory": dict(self.memory),
             "narrative": dict(self.narrative),
-            "retired_runtime_path": dict(self.retired_runtime_path),
         }

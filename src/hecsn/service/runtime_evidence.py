@@ -15,7 +15,8 @@ from hecsn.service.interaction_pipeline import (
     build_respond_runtime_actual_output,
     build_respond_runtime_verification,
 )
-from hecsn.service.living_loop import RuntimeEpisodeTrace, build_replay_plan
+from hecsn.service.living_loop_records import RuntimeEpisodeTrace
+from hecsn.service.living_loop_replay import build_replay_plan
 
 DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
@@ -138,9 +139,7 @@ class RuntimeEvidenceMixin:
         export_created_at = created_at or datetime.now(timezone.utc).isoformat()
         before = self._replay_sample_state_counts_locked()
         if living_loop is None:
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
             living_loop = self._living_loop_snapshot_locked(
-                retired_runtime_path_snapshot=retired_runtime_path_snapshot,
                 include_replay_dataset_summary=False,
             )
         policy_decision = self._runtime_trace_export_policy_decision_summary(
@@ -255,8 +254,7 @@ class RuntimeEvidenceMixin:
         with self._lock:
             count = min(MAX_RUNTIME_TRACE_EXPORT_LIMIT, max(1, int(limit)))
             endpoint_filter = self._normalize_runtime_trace_export_filter(endpoint)
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
+            living_loop = self._living_loop_snapshot_locked()
             policy_decision = self._runtime_trace_export_policy_decision_summary(
                 living_loop.get("policy_decision") if isinstance(living_loop, Mapping) else None
             )
@@ -328,8 +326,7 @@ class RuntimeEvidenceMixin:
         with self._lock:
             count = min(MAX_REPLAY_DATASET_EXPORT_LIMIT, max(1, int(limit)))
             before = self._replay_sample_state_counts_locked()
-            retired_runtime_path_snapshot = self._retired_runtime_path_unavailable_snapshot()
-            living_loop = self._living_loop_snapshot_locked(retired_runtime_path_snapshot=retired_runtime_path_snapshot)
+            living_loop = self._living_loop_snapshot_locked()
             plan = build_replay_plan(living_loop, limit=count).to_payload()
             after = self._replay_sample_state_counts_locked()
             candidates = [

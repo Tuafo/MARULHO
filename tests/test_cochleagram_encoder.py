@@ -38,6 +38,12 @@ class TestCochleagramEncoder(unittest.TestCase):
         self.assertEqual(report["filterbank_device"], "cpu")
         self.assertEqual(report["baseline_device"], "cpu")
         self.assertEqual(report["trace_device"], "cpu")
+        self.assertIsNone(report["last_spike_device"])
+        self.assertIsNone(report["last_spike_shape"])
+        self.enc.encode(torch.zeros(512))
+        report = self.enc.device_report()
+        self.assertEqual(report["last_spike_device"], "cpu")
+        self.assertEqual(report["last_spike_shape"], (64,))
 
     def test_encode_pure_tone(self) -> None:
         """A 1 kHz tone should activate some bands."""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import asdict
+import os
 from pathlib import Path
 from typing import Any
 
@@ -149,9 +150,16 @@ def save_trainer_checkpoint(path: str | Path, trainer: HECSNTrainer, metadata: d
     return output_path
 
 
+def _checkpoint_load_device() -> torch.device:
+    env = os.environ.get("HECSN_DEVICE")
+    if env:
+        return torch.device(env)
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
 def load_trainer_checkpoint(path: str | Path) -> tuple[HECSNTrainer, dict[str, Any]]:
     checkpoint_path = Path(path)
-    payload = torch.load(checkpoint_path, map_location="cpu")
+    payload = torch.load(checkpoint_path, map_location=_checkpoint_load_device())
     cfg = HECSNConfig(**payload["config"])
     model = HECSNModel(cfg)
     trainer = HECSNTrainer(model, cfg)

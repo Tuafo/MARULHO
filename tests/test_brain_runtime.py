@@ -225,11 +225,10 @@ class _BrainRuntimeFixtureBase:
     def _living_loop_snapshot_locked(
         self,
         *,
-        retired_runtime_path_snapshot: dict[str, object],
         include_replay_dataset_summary: bool = True,
     ) -> dict[str, object]:
         return {
-            "retired_runtime_path_snapshot": deepcopy(retired_runtime_path_snapshot),
+            "subcortex_sleep_pressure": {"fatigue": 0.2},
             "include_replay_dataset_summary": bool(include_replay_dataset_summary),
         }
 
@@ -248,9 +247,6 @@ class _BrainRuntimeFixtureBase:
     def _brain_runtime_active_locked(self) -> bool:
         return False
 
-    def _retired_runtime_path_unavailable_snapshot(self) -> dict[str, bool]:
-        return {"enabled": False}
-
 
 def _brain_runtime_dependencies(fixture: _BrainRuntimeFixtureBase) -> BrainRuntimeDependencies:
     return BrainRuntimeDependencies(
@@ -267,7 +263,6 @@ def _brain_runtime_dependencies(fixture: _BrainRuntimeFixtureBase) -> BrainRunti
         interaction_pipeline=lambda: fixture._interaction_pipeline,
         action_executor=lambda: fixture,
         replay_controller=lambda: fixture,
-        retired_runtime_path_state=lambda: fixture,
         concept_store=lambda: fixture._concept_store,
         geometric_curiosity=lambda: fixture._geometric_curiosity,
         runtime_environment_summary=fixture._runtime_environment_summary,
@@ -378,9 +373,9 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(module._brain_source_index, 1)
         self.assertEqual(manager._runtime_state.mutated, 2)
         self.assertEqual(grounded["observation_sink"], "subcortex_grounded_source_observation")
-        self.assertFalse(grounded["retired_loop_mirrored"])
+        self.assertNotIn("retired_loop_mirrored", grounded)
         self.assertEqual(grounded["metadata"]["observation_sink"], "subcortex_grounded_source_observation")
-        self.assertFalse(grounded["metadata"]["retired_loop_mirrored"])
+        self.assertNotIn("retired_loop_mirrored", grounded["metadata"])
         self.assertFalse(hasattr(manager, "_thought_loop_actual"))
         self.assertEqual(manager._brain_events[-1]["type"], "tick")
         self.assertGreater(module._background_source_utility_entry_locked(runtime)["utility_ema"], 0.0)
@@ -406,8 +401,8 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(snapshot["background_source_routing"]["selection_order"], ["source_a"])
         self.assertEqual(snapshot["background_source_routing"]["delayed_consequence_tracking"]["record_count"], 0)
         self.assertEqual(snapshot["text_learning_balance"]["background_tokens_processed"], 8)
-        self.assertEqual(snapshot["living_loop"]["retired_runtime_path_snapshot"]["enabled"], False)
-        self.assertEqual(snapshot["retired_runtime_path"]["enabled"], False)
+        self.assertNotIn("retired_runtime_dependency", snapshot["living_loop"]["subcortex_sleep_pressure"])
+        self.assertNotIn("retired_runtime_path", snapshot)
 
 
 if __name__ == "__main__":
