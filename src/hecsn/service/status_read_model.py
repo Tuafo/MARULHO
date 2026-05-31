@@ -34,12 +34,18 @@ from hecsn.semantics import (
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
     build_subcortical_structural_plasticity_surface,
+    build_spike_language_plasticity_application_design,
+    build_spike_language_plasticity_pressure,
     evaluate_spike_language_adapter_heldout,
+    evaluate_spike_language_plasticity_shadow_application,
+    evaluate_spike_language_plasticity_replay,
     evaluate_spike_language_sequence_mismatch,
     evaluate_spike_language_trainer_dry_run,
     evaluate_subcortical_structural_plasticity_isolated,
     predict_spike_language_sequence,
+    run_spike_language_plasticity_replay_experiment,
     run_spike_language_trainer_dry_run,
+    run_spike_language_plasticity_trial,
 )
 from hecsn.service.runtime_state import RuntimeState
 
@@ -1277,5 +1283,131 @@ class StatusReadModel:
                 prediction_report,
                 observed_readout_slots,
                 device_evidence,
+            ),
+        )
+
+    def snn_language_plasticity_pressure(
+        self,
+        mismatch_report: Mapping[str, Any],
+        *,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Convert prediction-error evidence into plasticity pressure without learning."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_spike_language_plasticity_pressure(
+                mismatch_report,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_plasticity_trial(
+        self,
+        pressure_report: Mapping[str, Any],
+        *,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Simulate language plasticity pressure without applying learning."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: run_spike_language_plasticity_trial(
+                pressure_report,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_plasticity_replay_evaluation(
+        self,
+        trial_report: Mapping[str, Any],
+        *,
+        replay_window: Sequence[Mapping[str, Any]] | None = None,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate a language plasticity trial for isolated replay review only."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_spike_language_plasticity_replay(
+                trial_report,
+                replay_window=replay_window,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_plasticity_replay_experiment(
+        self,
+        replay_evaluation: Mapping[str, Any],
+        *,
+        replay_sequences: Sequence[Mapping[str, Any]] | None = None,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run an isolated language replay experiment without runtime mutation."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: run_spike_language_plasticity_replay_experiment(
+                replay_evaluation,
+                replay_sequences=replay_sequences,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_plasticity_application_design(
+        self,
+        replay_experiment: Mapping[str, Any],
+        *,
+        application_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded language plasticity application without applying it."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_spike_language_plasticity_application_design(
+                replay_experiment,
+                application_policy=application_policy,
+                device_evidence=device_evidence,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_plasticity_shadow_application(
+        self,
+        application_design: Mapping[str, Any],
+        *,
+        shadow_delta: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Verify a shadow language plasticity update without applying it."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_spike_language_plasticity_shadow_application(
+                application_design,
+                shadow_delta=shadow_delta,
+                device_evidence=device_evidence,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
             ),
         )

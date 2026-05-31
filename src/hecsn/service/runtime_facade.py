@@ -73,6 +73,24 @@ class RuntimeFacade:
     def snn_language_sequence_mismatch_probe(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_sequence_mismatch_probe(**kwargs)
 
+    def snn_language_plasticity_pressure(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_pressure(**kwargs)
+
+    def snn_language_plasticity_trial(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_trial(**kwargs)
+
+    def snn_language_plasticity_replay_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_replay_evaluation(**kwargs)
+
+    def snn_language_plasticity_replay_experiment(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_replay_experiment(**kwargs)
+
+    def snn_language_plasticity_application_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_application_design(**kwargs)
+
+    def snn_language_plasticity_shadow_application(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_shadow_application(**kwargs)
+
     def subcortical_self_repair_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_self_repair_surface()
 

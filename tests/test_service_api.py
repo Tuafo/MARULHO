@@ -281,6 +281,70 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "device_evidence": {"device": "cpu", "source": "service_api_test"},
                     },
                 )
+                plasticity_pressure_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-pressure",
+                    json={
+                        "mismatch_report": sequence_mismatch_response.json(),
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
+                    },
+                )
+                plasticity_trial_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-trial",
+                    json={
+                        "pressure_report": plasticity_pressure_response.json(),
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
+                    },
+                )
+                plasticity_replay_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-replay-evaluation",
+                    json={
+                        "trial_report": plasticity_trial_response.json(),
+                        "replay_window": [{"case_id": "sequence-replay-1", "grounded": True}],
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
+                    },
+                )
+                plasticity_replay_experiment_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-replay-experiment",
+                    json={
+                        "replay_evaluation": plasticity_replay_response.json(),
+                        "replay_sequences": [{"sequence_id": "sequence-replay-1", "grounded": True}],
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
+                    },
+                )
+                plasticity_application_design_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-application-design",
+                    json={
+                        "replay_experiment": plasticity_replay_experiment_response.json(),
+                        "application_policy": {
+                            "learning_rate": 0.03,
+                            "max_weight_delta": 0.04,
+                            "locality_radius": 2,
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
+                    },
+                )
+                plasticity_shadow_application_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-shadow-application",
+                    json={
+                        "application_design": plasticity_application_design_response.json(),
+                        "shadow_delta": {
+                            "max_abs_weight_delta": 0.03,
+                            "affected_synapse_count": 4,
+                            "locality_radius": 2,
+                            "pressure_before": 0.4,
+                            "pressure_after": 0.35,
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(signal_response.status_code, 200)
@@ -294,6 +358,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(trainer_evaluation_response.status_code, 200)
         self.assertEqual(sequence_prediction_response.status_code, 200)
         self.assertEqual(sequence_mismatch_response.status_code, 200)
+        self.assertEqual(plasticity_pressure_response.status_code, 200)
+        self.assertEqual(plasticity_trial_response.status_code, 200)
+        self.assertEqual(plasticity_replay_response.status_code, 200)
+        self.assertEqual(plasticity_replay_experiment_response.status_code, 200)
+        self.assertEqual(plasticity_application_design_response.status_code, 200)
+        self.assertEqual(plasticity_shadow_application_response.status_code, 200)
         signal = signal_response.json()
         language = language_response.json()
         deliberation = deliberation_response.json()
@@ -305,6 +375,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         trainer_evaluation = trainer_evaluation_response.json()
         sequence_prediction = sequence_prediction_response.json()
         sequence_mismatch = sequence_mismatch_response.json()
+        plasticity_pressure = plasticity_pressure_response.json()
+        plasticity_trial = plasticity_trial_response.json()
+        plasticity_replay = plasticity_replay_response.json()
+        plasticity_replay_experiment = plasticity_replay_experiment_response.json()
+        plasticity_application_design = plasticity_application_design_response.json()
+        plasticity_shadow_application = plasticity_shadow_application_response.json()
         self.assertEqual(signal["subcortical_language"]["surface"], "subcortical_language.v1")
         self.assertEqual(signal["subcortical_deliberation"]["surface"], "subcortical_control_candidates.v1")
         self.assertEqual(language["surface"], "subcortical_language.v1")
@@ -337,6 +413,42 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             sequence_mismatch["artifact_kind"],
             "terminus_snn_language_sequence_mismatch_probe",
         )
+        self.assertEqual(plasticity_pressure["surface"], "snn_language_plasticity_pressure.v1")
+        self.assertEqual(
+            plasticity_pressure["artifact_kind"],
+            "terminus_snn_language_plasticity_pressure_gate",
+        )
+        self.assertEqual(plasticity_trial["surface"], "snn_language_plasticity_trial.v1")
+        self.assertEqual(plasticity_trial["artifact_kind"], "terminus_snn_language_plasticity_trial")
+        self.assertEqual(plasticity_replay["surface"], "snn_language_plasticity_replay_evaluation.v1")
+        self.assertEqual(
+            plasticity_replay["artifact_kind"],
+            "terminus_snn_language_plasticity_replay_evaluation",
+        )
+        self.assertEqual(
+            plasticity_replay_experiment["surface"],
+            "snn_language_plasticity_replay_experiment.v1",
+        )
+        self.assertEqual(
+            plasticity_replay_experiment["artifact_kind"],
+            "terminus_snn_language_plasticity_replay_experiment",
+        )
+        self.assertEqual(
+            plasticity_application_design["surface"],
+            "snn_language_plasticity_application_design.v1",
+        )
+        self.assertEqual(
+            plasticity_application_design["artifact_kind"],
+            "terminus_snn_language_plasticity_application_design",
+        )
+        self.assertEqual(
+            plasticity_shadow_application["surface"],
+            "snn_language_plasticity_shadow_application.v1",
+        )
+        self.assertEqual(
+            plasticity_shadow_application["artifact_kind"],
+            "terminus_snn_language_plasticity_shadow_application",
+        )
         self.assertTrue(language["grounded"])
         self.assertTrue(deliberation["grounded"])
         self.assertTrue(readiness["grounded"])
@@ -351,6 +463,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("retired_runtime_dependency", trainer_evaluation)
         self.assertNotIn("retired_runtime_dependency", sequence_prediction)
         self.assertNotIn("retired_runtime_dependency", sequence_mismatch)
+        self.assertNotIn("retired_runtime_dependency", plasticity_pressure)
+        self.assertNotIn("retired_runtime_dependency", plasticity_trial)
+        self.assertNotIn("retired_runtime_dependency", plasticity_replay)
+        self.assertNotIn("retired_runtime_dependency", plasticity_replay_experiment)
+        self.assertNotIn("retired_runtime_dependency", plasticity_application_design)
+        self.assertNotIn("retired_runtime_dependency", plasticity_shadow_application)
         self.assertFalse(readiness["executable"])
         self.assertFalse(readiness["mutates_runtime_state"])
         self.assertFalse(readiness["promotion_gate"]["eligible_for_cognition_substrate"])
@@ -382,6 +500,50 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(sequence_mismatch["decodes_text"])
         self.assertFalse(sequence_mismatch["trains_runtime_model"])
         self.assertFalse(sequence_mismatch["mutates_runtime_state"])
+        self.assertFalse(plasticity_pressure["generates_text"])
+        self.assertFalse(plasticity_pressure["decodes_text"])
+        self.assertFalse(plasticity_pressure["trains_runtime_model"])
+        self.assertFalse(plasticity_pressure["applies_plasticity"])
+        self.assertFalse(plasticity_pressure["mutates_runtime_state"])
+        self.assertFalse(plasticity_trial["generates_text"])
+        self.assertFalse(plasticity_trial["decodes_text"])
+        self.assertFalse(plasticity_trial["trains_runtime_model"])
+        self.assertFalse(plasticity_trial["applies_plasticity"])
+        self.assertFalse(plasticity_trial["returns_trained_weights"])
+        self.assertFalse(plasticity_trial["mutates_runtime_state"])
+        self.assertFalse(plasticity_replay["generates_text"])
+        self.assertFalse(plasticity_replay["decodes_text"])
+        self.assertFalse(plasticity_replay["trains_runtime_model"])
+        self.assertFalse(plasticity_replay["applies_plasticity"])
+        self.assertFalse(plasticity_replay["mutates_runtime_state"])
+        self.assertFalse(plasticity_replay["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(plasticity_replay_experiment["generates_text"])
+        self.assertFalse(plasticity_replay_experiment["decodes_text"])
+        self.assertFalse(plasticity_replay_experiment["trains_runtime_model"])
+        self.assertFalse(plasticity_replay_experiment["applies_plasticity"])
+        self.assertFalse(plasticity_replay_experiment["returns_trained_weights"])
+        self.assertFalse(plasticity_replay_experiment["mutates_runtime_state"])
+        self.assertFalse(plasticity_replay_experiment["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(plasticity_application_design["generates_text"])
+        self.assertFalse(plasticity_application_design["decodes_text"])
+        self.assertFalse(plasticity_application_design["trains_runtime_model"])
+        self.assertFalse(plasticity_application_design["applies_plasticity"])
+        self.assertFalse(plasticity_application_design["returns_trained_weights"])
+        self.assertFalse(plasticity_application_design["mutates_runtime_state"])
+        self.assertEqual(plasticity_application_design["device_evidence"]["tensor_device"], "cpu")
+        self.assertTrue(plasticity_application_design["device_evidence"]["device_report_available"])
+        self.assertFalse(plasticity_application_design["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(plasticity_application_design["promotion_gate"]["eligible_for_live_application"])
+        self.assertFalse(plasticity_shadow_application["generates_text"])
+        self.assertFalse(plasticity_shadow_application["decodes_text"])
+        self.assertFalse(plasticity_shadow_application["trains_runtime_model"])
+        self.assertFalse(plasticity_shadow_application["applies_plasticity"])
+        self.assertFalse(plasticity_shadow_application["returns_trained_weights"])
+        self.assertFalse(plasticity_shadow_application["mutates_runtime_state"])
+        self.assertEqual(plasticity_shadow_application["device_evidence"]["tensor_device"], "cpu")
+        self.assertTrue(plasticity_shadow_application["device_evidence"]["device_report_available"])
+        self.assertFalse(plasticity_shadow_application["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(plasticity_shadow_application["promotion_gate"]["eligible_for_live_application"])
         self.assertEqual(
             readiness["current_spike_readout_evidence"]["surface"],
             "subcortical_spike_readout_evidence.v1",

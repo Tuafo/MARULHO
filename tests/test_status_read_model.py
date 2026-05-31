@@ -1382,6 +1382,296 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(report["mutates_runtime_state"])
         self.assertIn("mismatch_score", report["prediction_error"])
 
+    def test_snn_language_plasticity_pressure_does_not_advance_revision(self) -> None:
+        """Plasticity pressure is a gate, not a learning update."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        mismatch = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_plasticity_pressure.v1")
+        self.assertFalse(report["applies_plasticity"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_learning_signal"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
+
+    def test_snn_language_plasticity_trial_does_not_advance_revision(self) -> None:
+        """Plasticity trial simulates a local update without applying it."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        mismatch = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        pressure = model.snn_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_plasticity_trial.v1")
+        self.assertFalse(report["applies_plasticity"])
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
+
+    def test_snn_language_plasticity_replay_evaluation_does_not_advance_revision(self) -> None:
+        """Replay evaluation reviews trial evidence without promoting learning."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        mismatch = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        pressure = model.snn_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = model.snn_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_plasticity_replay_evaluation(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_plasticity_replay_evaluation.v1")
+        self.assertFalse(report["applies_plasticity"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_replay_promotion"])
+
+    def test_snn_language_plasticity_replay_experiment_does_not_advance_revision(self) -> None:
+        """Replay experiment rehearses sparse evidence without applying plasticity."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        mismatch = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        pressure = model.snn_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = model.snn_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = model.snn_language_plasticity_replay_evaluation(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_plasticity_replay_experiment(
+            replay,
+            replay_sequences=[{"sequence_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_plasticity_replay_experiment.v1")
+        self.assertFalse(report["applies_plasticity"])
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
+
+    def test_snn_language_plasticity_application_design_does_not_advance_revision(self) -> None:
+        """Application design bounds a future update without applying it."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        mismatch = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        pressure = model.snn_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = model.snn_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = model.snn_language_plasticity_replay_evaluation(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        experiment = model.snn_language_plasticity_replay_experiment(
+            replay,
+            replay_sequences=[{"sequence_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_plasticity_application_design(
+            experiment,
+            application_policy={"learning_rate": 0.03, "max_weight_delta": 0.04, "locality_radius": 2},
+            device_evidence={"device": "cpu", "source": "test"},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_plasticity_application_design.v1")
+        self.assertFalse(report["applies_plasticity"])
+        self.assertEqual(report["device_evidence"]["tensor_device"], "cpu")
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_live_application"])
+
+    def test_snn_language_plasticity_shadow_application_does_not_advance_revision(self) -> None:
+        """Shadow application verifies bounded deltas without applying them."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        mismatch = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        pressure = model.snn_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = model.snn_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = model.snn_language_plasticity_replay_evaluation(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        experiment = model.snn_language_plasticity_replay_experiment(
+            replay,
+            replay_sequences=[{"sequence_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        design = model.snn_language_plasticity_application_design(
+            experiment,
+            application_policy={"learning_rate": 0.03, "max_weight_delta": 0.04, "locality_radius": 2},
+            device_evidence={"device": "cpu", "source": "test"},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_plasticity_shadow_application(
+            design,
+            shadow_delta={
+                "max_abs_weight_delta": 0.03,
+                "affected_synapse_count": 4,
+                "locality_radius": 2,
+                "pressure_before": 0.4,
+                "pressure_after": 0.35,
+            },
+            device_evidence={"device": "cpu", "source": "test"},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_plasticity_shadow_application.v1")
+        self.assertFalse(report["applies_plasticity"])
+        self.assertEqual(report["device_evidence"]["tensor_device"], "cpu")
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_live_application"])
+
     def test_structural_plasticity_isolated_evaluation_does_not_advance_revision(self) -> None:
         """Structural grow/prune evaluation compares snapshots without mutation."""
         model, _, _, runtime_state, _ = _build_read_model_with_living_loop()

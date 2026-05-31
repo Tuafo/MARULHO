@@ -263,6 +263,48 @@ class SNNLanguageSequenceMismatchRequest(BaseModel):
     device_evidence: dict[str, Any] | None = None
 
 
+class SNNLanguagePlasticityPressureRequest(BaseModel):
+    mismatch_report: dict[str, Any] = Field(..., min_length=1)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityTrialRequest(BaseModel):
+    pressure_report: dict[str, Any] = Field(..., min_length=1)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityReplayEvaluationRequest(BaseModel):
+    trial_report: dict[str, Any] = Field(..., min_length=1)
+    replay_window: list[dict[str, Any]] = Field(default_factory=list, max_length=32)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityReplayExperimentRequest(BaseModel):
+    replay_evaluation: dict[str, Any] = Field(..., min_length=1)
+    replay_sequences: list[dict[str, Any]] = Field(default_factory=list, max_length=32)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityApplicationDesignRequest(BaseModel):
+    replay_experiment: dict[str, Any] = Field(..., min_length=1)
+    application_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityShadowApplicationRequest(BaseModel):
+    application_design: dict[str, Any] = Field(..., min_length=1)
+    shadow_delta: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
 class StructuralPlasticityIsolatedEvaluationRequest(BaseModel):
     pre_snapshot: dict[str, Any] = Field(..., min_length=1)
     post_snapshot: dict[str, Any] = Field(..., min_length=1)

@@ -189,7 +189,7 @@ class TestHypercubeTopology:
                 assert len(ids) >= 1
 
     def test_large_column_count(self):
-        """2048 columns (11D) — the snn-llm sweet spot."""
+        """2048 columns (11D) large topology case."""
         topo = HypercubeTopology(n_columns=2048)
         assert topo.dim == 11
         assert topo.n_vertices == 2048

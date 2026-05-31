@@ -43,6 +43,12 @@ from .schemas import (
     RuntimeFeedbackResponse,
     RuntimeTraceExportResponse,
     SNNLanguageHeldoutEvaluationRequest,
+    SNNLanguagePlasticityApplicationDesignRequest,
+    SNNLanguagePlasticityPressureRequest,
+    SNNLanguagePlasticityReplayEvaluationRequest,
+    SNNLanguagePlasticityReplayExperimentRequest,
+    SNNLanguagePlasticityShadowApplicationRequest,
+    SNNLanguagePlasticityTrialRequest,
     SNNLanguageTrainingReadinessRequest,
     SNNLanguageSequenceMismatchRequest,
     SNNLanguageSequencePredictionRequest,
@@ -354,6 +360,72 @@ def create_app(
             prediction_report=request.prediction_report,
             observed_readout_slots=[_model_to_dict(slot) for slot in request.observed_readout_slots],
             device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-pressure")
+    def terminus_snn_language_plasticity_pressure(
+        request: SNNLanguagePlasticityPressureRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_plasticity_pressure(
+            mismatch_report=request.mismatch_report,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-trial")
+    def terminus_snn_language_plasticity_trial(
+        request: SNNLanguagePlasticityTrialRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_plasticity_trial(
+            pressure_report=request.pressure_report,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-replay-evaluation")
+    def terminus_snn_language_plasticity_replay_evaluation(
+        request: SNNLanguagePlasticityReplayEvaluationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_plasticity_replay_evaluation(
+            trial_report=request.trial_report,
+            replay_window=request.replay_window,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-replay-experiment")
+    def terminus_snn_language_plasticity_replay_experiment(
+        request: SNNLanguagePlasticityReplayExperimentRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_plasticity_replay_experiment(
+            replay_evaluation=request.replay_evaluation,
+            replay_sequences=request.replay_sequences,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-application-design")
+    def terminus_snn_language_plasticity_application_design(
+        request: SNNLanguagePlasticityApplicationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_plasticity_application_design(
+            replay_experiment=request.replay_experiment,
+            application_policy=request.application_policy,
+            device_evidence=request.device_evidence,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-shadow-application")
+    def terminus_snn_language_plasticity_shadow_application(
+        request: SNNLanguagePlasticityShadowApplicationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_plasticity_shadow_application(
+            application_design=request.application_design,
+            shadow_delta=request.shadow_delta,
+            device_evidence=request.device_evidence,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
         )
 
     @app.get("/terminus/subcortical-self-repair")

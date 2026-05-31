@@ -575,6 +575,605 @@ def evaluate_spike_language_sequence_mismatch(
     }
 
 
+def build_spike_language_plasticity_pressure(
+    mismatch_report: Mapping[str, Any],
+    *,
+    runtime_truth_delta: Mapping[str, Any] | None = None,
+    rollback_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Convert sparse prediction error into read-only local plasticity pressure."""
+
+    report = dict(mismatch_report)
+    error = report.get("prediction_error") if isinstance(report.get("prediction_error"), Mapping) else {}
+    delta = report.get("sparse_code_delta") if isinstance(report.get("sparse_code_delta"), Mapping) else {}
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    truth_delta = dict(runtime_truth_delta or {})
+    rollback = dict(rollback_policy or {})
+    mismatch_score = _float(error.get("mismatch_score"), 1.0)
+    observed_only = [int(value) for value in list(delta.get("observed_only_indices") or []) if isinstance(value, int)]
+    predicted_only = [int(value) for value in list(delta.get("predicted_only_indices") or []) if isinstance(value, int)]
+    matched = [int(value) for value in list(delta.get("matched_indices") or []) if isinstance(value, int)]
+    runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
+    rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
+    pressure_score = min(1.0, max(0.0, mismatch_score))
+    if pressure_score >= 0.66:
+        pressure_band = "high"
+        update_focus = "review_local_sequence_transition_growth"
+    elif pressure_score >= 0.25:
+        pressure_band = "medium"
+        update_focus = "review_local_sequence_weight_rebalance"
+    else:
+        pressure_band = "low"
+        update_focus = "monitor_sequence_prediction"
+    required = {
+        "mismatch_available": bool(report.get("available")),
+        "mismatch_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "external_dependency_absent": not bool(report.get("external_dependency")),
+        "generation_absent": not bool(report.get("generates_text")),
+        "runtime_training_absent": not bool(report.get("trains_runtime_model")),
+        "runtime_mutation_absent": not bool(report.get("mutates_runtime_state")),
+        "mismatch_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "prediction_error_measured": "mismatch_score" in error,
+        "runtime_truth_improved_or_stable": runtime_truth_ok,
+        "rollback_policy_available": rollback_available,
+    }
+    ready = all(required.values()) and pressure_band in {"medium", "high"}
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_pressure_gate",
+        "surface": "snn_language_plasticity_pressure.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_pressure",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "mismatch_surface": report.get("surface"),
+        "plasticity_pressure": {
+            "pressure_score": float(pressure_score),
+            "pressure_band": pressure_band,
+            "update_focus": update_focus,
+            "observed_only_index_count": len(observed_only),
+            "predicted_only_index_count": len(predicted_only),
+            "matched_index_count": len(matched),
+        },
+        "candidate_update": {
+            "target": "local_snn_language_sequence_transition_weights",
+            "rule_family": "error_modulated_local_hebbian_sequence_update",
+            "increase_support_for_indices": observed_only[:16],
+            "decrease_support_for_indices": predicted_only[:16],
+            "preserve_support_for_indices": matched[:16],
+            "requires_isolated_replay": True,
+            "requires_operator_approval": True,
+        },
+        "runtime_truth_delta": truth_delta,
+        "rollback_evidence": {
+            "available": rollback_available,
+            "snapshot_id": rollback.get("snapshot_id"),
+            "ledger_id": rollback.get("ledger_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "monitor_or_collect_more_mismatch_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_learning_signal": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_plasticity_design_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_isolated_language_plasticity_trial"
+            if ready
+            else "collect_prediction_error_window",
+            "required_evidence": required,
+        },
+        "success_evidence": [
+            "sequence_mismatch_report",
+            "prediction_error_window",
+            "local_plasticity_rule_design",
+            "runtime_truth_delta",
+            "rollback_policy",
+            "device_evidence_report",
+        ],
+    }
+
+
+def run_spike_language_plasticity_trial(
+    pressure_report: Mapping[str, Any],
+    *,
+    runtime_truth_delta: Mapping[str, Any] | None = None,
+    rollback_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Simulate a local plasticity update from pressure evidence without applying it."""
+
+    report = dict(pressure_report)
+    pressure = report.get("plasticity_pressure") if isinstance(report.get("plasticity_pressure"), Mapping) else {}
+    candidate = report.get("candidate_update") if isinstance(report.get("candidate_update"), Mapping) else {}
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    truth_delta = dict(runtime_truth_delta or {})
+    rollback = dict(rollback_policy or {})
+    pressure_score = _float(pressure.get("pressure_score"), 0.0)
+    increase_indices = [
+        int(value)
+        for value in list(candidate.get("increase_support_for_indices") or [])
+        if isinstance(value, int)
+    ]
+    decrease_indices = [
+        int(value)
+        for value in list(candidate.get("decrease_support_for_indices") or [])
+        if isinstance(value, int)
+    ]
+    preserve_indices = [
+        int(value)
+        for value in list(candidate.get("preserve_support_for_indices") or [])
+        if isinstance(value, int)
+    ]
+    touched_count = len(set(increase_indices + decrease_indices + preserve_indices))
+    correction_capacity = min(1.0, (len(increase_indices) + len(decrease_indices)) / max(1, touched_count or 1))
+    expected_reduction = min(pressure_score, pressure_score * 0.5 * correction_capacity)
+    post_pressure_score = max(0.0, pressure_score - expected_reduction)
+    rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
+    runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
+    required = {
+        "pressure_available": bool(report.get("available")),
+        "pressure_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "pressure_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "plasticity_application_absent": not bool(report.get("applies_plasticity")),
+        "runtime_mutation_absent": not bool(report.get("mutates_runtime_state")),
+        "candidate_indices_available": touched_count > 0,
+        "expected_reduction_positive": expected_reduction > 0.0,
+        "runtime_truth_improved_or_stable": runtime_truth_ok,
+        "rollback_policy_available": rollback_available,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_trial",
+        "surface": "snn_language_plasticity_trial.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_trial",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "returns_trained_weights": False,
+        "mutates_runtime_state": False,
+        "pressure_surface": report.get("surface"),
+        "trial_summary": {
+            "pre_pressure_score": float(pressure_score),
+            "expected_pressure_reduction": float(expected_reduction),
+            "post_pressure_score": float(post_pressure_score),
+            "pre_pressure_band": _mismatch_band(pressure_score),
+            "post_pressure_band": _mismatch_band(post_pressure_score),
+            "candidate_index_count": touched_count,
+        },
+        "ephemeral_update": {
+            "rule_family": "error_modulated_local_hebbian_sequence_update",
+            "increase_support_for_indices": increase_indices[:16],
+            "decrease_support_for_indices": decrease_indices[:16],
+            "preserve_support_for_indices": preserve_indices[:16],
+            "weights_persisted": False,
+            "runtime_update_applied": False,
+        },
+        "runtime_truth_delta": truth_delta,
+        "rollback_evidence": {
+            "available": rollback_available,
+            "snapshot_id": rollback.get("snapshot_id"),
+            "ledger_id": rollback.get("ledger_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_plasticity_trial_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_isolated_replay_evaluation": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_isolated_language_plasticity_replay"
+            if ready
+            else "collect_plasticity_trial_evidence",
+            "required_evidence": required,
+        },
+    }
+
+
+def evaluate_spike_language_plasticity_replay(
+    trial_report: Mapping[str, Any],
+    *,
+    replay_window: Sequence[Mapping[str, Any]] | None = None,
+    runtime_truth_delta: Mapping[str, Any] | None = None,
+    rollback_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Evaluate whether a plasticity trial is ready for isolated replay review."""
+
+    report = dict(trial_report)
+    summary = report.get("trial_summary") if isinstance(report.get("trial_summary"), Mapping) else {}
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    truth_delta = dict(runtime_truth_delta or {})
+    rollback = dict(rollback_policy or {})
+    replay_items = [dict(item) for item in list(replay_window or []) if isinstance(item, Mapping)]
+    pre_pressure = _float(summary.get("pre_pressure_score"), 1.0)
+    post_pressure = _float(summary.get("post_pressure_score"), pre_pressure)
+    reduction = _float(summary.get("expected_pressure_reduction"), 0.0)
+    replay_window_available = len(replay_items) > 0
+    rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
+    runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
+    non_worsening = post_pressure <= pre_pressure
+    required = {
+        "trial_available": bool(report.get("available")),
+        "trial_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "trial_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "plasticity_application_absent": not bool(report.get("applies_plasticity")),
+        "runtime_mutation_absent": not bool(report.get("mutates_runtime_state")),
+        "weights_absent": not bool(report.get("returns_trained_weights")),
+        "expected_reduction_positive": reduction > 0.0,
+        "pressure_non_worsening": non_worsening,
+        "replay_window_available": replay_window_available,
+        "runtime_truth_improved_or_stable": runtime_truth_ok,
+        "rollback_policy_available": rollback_available,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_replay_evaluation",
+        "surface": "snn_language_plasticity_replay_evaluation.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_replay_evaluation",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "trial_surface": report.get("surface"),
+        "replay_evidence": {
+            "replay_window_count": len(replay_items),
+            "pre_pressure_score": float(pre_pressure),
+            "post_pressure_score": float(post_pressure),
+            "expected_pressure_reduction": float(reduction),
+            "pressure_non_worsening": bool(non_worsening),
+        },
+        "runtime_truth_delta": truth_delta,
+        "rollback_evidence": {
+            "available": rollback_available,
+            "snapshot_id": rollback.get("snapshot_id"),
+            "ledger_id": rollback.get("ledger_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_replay_evaluation_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_replay_promotion": False,
+            "eligible_for_operator_replay_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_language_plasticity_replay_experiment"
+            if ready
+            else "collect_replay_evaluation_window",
+            "required_evidence": required,
+        },
+    }
+
+
+def run_spike_language_plasticity_replay_experiment(
+    replay_evaluation: Mapping[str, Any],
+    *,
+    replay_sequences: Sequence[Mapping[str, Any]] | None = None,
+    runtime_truth_delta: Mapping[str, Any] | None = None,
+    rollback_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run an isolated sparse-code replay experiment without applying plasticity."""
+
+    report = dict(replay_evaluation)
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    evidence = report.get("replay_evidence") if isinstance(report.get("replay_evidence"), Mapping) else {}
+    sequences = [dict(item) for item in list(replay_sequences or []) if isinstance(item, Mapping)]
+    truth_delta = dict(runtime_truth_delta or {})
+    rollback = dict(rollback_policy or {})
+    replay_count = len(sequences)
+    grounded_count = sum(1 for item in sequences if bool(item.get("grounded", True)))
+    coverage = grounded_count / replay_count if replay_count else 0.0
+    pre_pressure = _float(evidence.get("pre_pressure_score"), 1.0)
+    post_pressure = _float(evidence.get("post_pressure_score"), pre_pressure)
+    expected_reduction = _float(evidence.get("expected_pressure_reduction"), 0.0)
+    replay_gain = expected_reduction * coverage
+    simulated_post_pressure = max(0.0, post_pressure - replay_gain)
+    rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
+    runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
+    pressure_stable = simulated_post_pressure <= pre_pressure
+    trace = [
+        {
+            "sequence_id": _text(item.get("sequence_id") or item.get("case_id") or index),
+            "grounded": bool(item.get("grounded", True)),
+            "applied_to_runtime": False,
+            "weights_persisted": False,
+        }
+        for index, item in enumerate(sequences)
+    ]
+    required = {
+        "replay_evaluation_available": bool(report.get("available")),
+        "replay_evaluation_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "replay_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "plasticity_application_absent": not bool(report.get("applies_plasticity")),
+        "runtime_mutation_absent": not bool(report.get("mutates_runtime_state")),
+        "replay_sequences_available": replay_count > 0,
+        "grounded_replay_coverage_sufficient": coverage >= 0.5,
+        "pressure_stable_after_replay": pressure_stable,
+        "runtime_truth_improved_or_stable": runtime_truth_ok,
+        "rollback_policy_available": rollback_available,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_replay_experiment",
+        "surface": "snn_language_plasticity_replay_experiment.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_replay_experiment",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "returns_trained_weights": False,
+        "replay_evaluation_surface": report.get("surface"),
+        "replay_experiment": {
+            "replay_sequence_count": replay_count,
+            "grounded_replay_sequence_count": grounded_count,
+            "grounded_replay_coverage": float(coverage),
+            "pre_pressure_score": float(pre_pressure),
+            "post_evaluation_pressure_score": float(post_pressure),
+            "simulated_post_replay_pressure_score": float(simulated_post_pressure),
+            "expected_replay_pressure_gain": float(replay_gain),
+            "pressure_stable_after_replay": bool(pressure_stable),
+        },
+        "ephemeral_replay": {
+            "trace": trace,
+            "weights_persisted": False,
+            "runtime_update_applied": False,
+            "runtime_state_mutated": False,
+        },
+        "runtime_truth_delta": truth_delta,
+        "rollback_evidence": {
+            "available": rollback_available,
+            "snapshot_id": rollback.get("snapshot_id"),
+            "ledger_id": rollback.get("ledger_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_replay_experiment_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_replay_promotion": False,
+            "eligible_for_operator_application_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_language_plasticity_application_design"
+            if ready
+            else "collect_isolated_replay_experiment_evidence",
+            "required_evidence": required,
+        },
+    }
+
+
+def build_spike_language_plasticity_application_design(
+    replay_experiment: Mapping[str, Any],
+    *,
+    application_policy: Mapping[str, Any] | None = None,
+    device_evidence: Mapping[str, Any] | None = None,
+    runtime_truth_delta: Mapping[str, Any] | None = None,
+    rollback_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Design a bounded plasticity application plan without applying it."""
+
+    report = dict(replay_experiment)
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    experiment = report.get("replay_experiment") if isinstance(report.get("replay_experiment"), Mapping) else {}
+    policy = dict(application_policy or {})
+    device_report = dict(device_evidence or policy.get("device_evidence") or report.get("device_evidence") or {})
+    truth_delta = dict(runtime_truth_delta or {})
+    rollback = dict(rollback_policy or {})
+    learning_rate = min(max(_float(policy.get("learning_rate"), 0.02), 0.0), 0.25)
+    max_weight_delta = min(max(_float(policy.get("max_weight_delta"), 0.05), 0.0), 0.25)
+    locality_radius = max(int(_float(policy.get("locality_radius"), 1.0)), 1)
+    coverage = _float(experiment.get("grounded_replay_coverage"), 0.0)
+    pressure_stable = bool(experiment.get("pressure_stable_after_replay"))
+    rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
+    runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
+    normalization_enabled = bool(policy.get("normalization", True))
+    local_only = bool(policy.get("local_only", True))
+    selected_device = _text(device_report.get("device") or device_report.get("tensor_device") or "unknown")
+    device_report_available = bool(device_report) and bool(device_report.get("device_report_available", True))
+    required = {
+        "replay_experiment_available": bool(report.get("available")),
+        "replay_experiment_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "replay_experiment_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "plasticity_application_absent": not bool(report.get("applies_plasticity")),
+        "runtime_mutation_absent": not bool(report.get("mutates_runtime_state")),
+        "weights_absent": not bool(report.get("returns_trained_weights")),
+        "grounded_replay_coverage_sufficient": coverage >= 0.5,
+        "pressure_stable_after_replay": pressure_stable,
+        "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
+        "max_weight_delta_bounded": 0.0 < max_weight_delta <= 0.25,
+        "locality_radius_bounded": 1 <= locality_radius <= 8,
+        "normalization_enabled": normalization_enabled,
+        "local_update_only": local_only,
+        "device_evidence_available": device_report_available,
+        "runtime_truth_improved_or_stable": runtime_truth_ok,
+        "rollback_policy_available": rollback_available,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_application_design",
+        "surface": "snn_language_plasticity_application_design.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_application_design",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "returns_trained_weights": False,
+        "replay_experiment_surface": report.get("surface"),
+        "device_evidence": {
+            "requested_device": selected_device,
+            "tensor_device": selected_device,
+            "cuda_tensor": selected_device.startswith("cuda"),
+            "device_source": device_report.get("source") or device_report.get("device_source"),
+            "device_report_available": device_report_available,
+        },
+        "application_design": {
+            "learning_rate": float(learning_rate),
+            "max_weight_delta": float(max_weight_delta),
+            "locality_radius": locality_radius,
+            "normalization": normalization_enabled,
+            "local_only": local_only,
+            "grounded_replay_coverage": float(coverage),
+            "pressure_stable_after_replay": pressure_stable,
+            "runtime_update_applied": False,
+            "weights_persisted": False,
+        },
+        "runtime_truth_delta": truth_delta,
+        "rollback_evidence": {
+            "available": rollback_available,
+            "snapshot_id": rollback.get("snapshot_id"),
+            "ledger_id": rollback.get("ledger_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_application_design_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_live_application": False,
+            "eligible_for_operator_application_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_bounded_language_plasticity_application"
+            if ready
+            else "collect_application_design_evidence",
+            "required_evidence": required,
+        },
+    }
+
+
+def evaluate_spike_language_plasticity_shadow_application(
+    application_design: Mapping[str, Any],
+    *,
+    shadow_delta: Mapping[str, Any] | None = None,
+    device_evidence: Mapping[str, Any] | None = None,
+    runtime_truth_delta: Mapping[str, Any] | None = None,
+    rollback_policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Verify a shadow plasticity application without mutating runtime state."""
+
+    report = dict(application_design)
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    design = report.get("application_design") if isinstance(report.get("application_design"), Mapping) else {}
+    delta = dict(shadow_delta or {})
+    device_report = dict(device_evidence or delta.get("device_evidence") or report.get("device_evidence") or {})
+    truth_delta = dict(runtime_truth_delta or {})
+    rollback = dict(rollback_policy or {})
+    max_allowed_delta = _float(design.get("max_weight_delta"), 0.0)
+    observed_delta = abs(_float(delta.get("max_abs_weight_delta"), 0.0))
+    affected_synapses = max(int(_float(delta.get("affected_synapse_count"), 0.0)), 0)
+    locality_radius = max(int(_float(delta.get("locality_radius"), design.get("locality_radius"))), 0)
+    designed_radius = max(int(_float(design.get("locality_radius"), 0.0)), 0)
+    pressure_before = _float(delta.get("pressure_before"), 1.0)
+    pressure_after = _float(delta.get("pressure_after"), pressure_before)
+    selected_device = _text(device_report.get("device") or device_report.get("tensor_device") or "unknown")
+    device_report_available = bool(device_report) and bool(device_report.get("device_report_available", True))
+    rollback_available = bool(rollback.get("available") or rollback.get("reversible"))
+    runtime_truth_ok = bool(truth_delta.get("improved_or_stable") or not truth_delta)
+    non_worsening = pressure_after <= pressure_before
+    required = {
+        "application_design_available": bool(report.get("available")),
+        "application_design_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "application_design_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "design_did_not_apply_plasticity": not bool(report.get("applies_plasticity")),
+        "design_did_not_mutate_runtime": not bool(report.get("mutates_runtime_state")),
+        "shadow_delta_available": bool(delta),
+        "shadow_delta_within_weight_bound": 0.0 <= observed_delta <= max_allowed_delta,
+        "shadow_delta_has_local_support": affected_synapses > 0,
+        "shadow_delta_within_locality": designed_radius > 0 and locality_radius <= designed_radius,
+        "shadow_pressure_non_worsening": non_worsening,
+        "device_evidence_available": device_report_available,
+        "runtime_truth_improved_or_stable": runtime_truth_ok,
+        "rollback_policy_available": rollback_available,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_shadow_application",
+        "surface": "snn_language_plasticity_shadow_application.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_shadow_application",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "returns_trained_weights": False,
+        "application_design_surface": report.get("surface"),
+        "device_evidence": {
+            "requested_device": selected_device,
+            "tensor_device": selected_device,
+            "cuda_tensor": selected_device.startswith("cuda"),
+            "device_source": device_report.get("source") or device_report.get("device_source"),
+            "device_report_available": device_report_available,
+        },
+        "shadow_application": {
+            "max_allowed_weight_delta": float(max_allowed_delta),
+            "observed_max_abs_weight_delta": float(observed_delta),
+            "affected_synapse_count": affected_synapses,
+            "designed_locality_radius": designed_radius,
+            "observed_locality_radius": locality_radius,
+            "pressure_before": float(pressure_before),
+            "pressure_after": float(pressure_after),
+            "pressure_non_worsening": bool(non_worsening),
+            "runtime_update_applied": False,
+            "weights_persisted": False,
+        },
+        "runtime_truth_delta": truth_delta,
+        "rollback_evidence": {
+            "available": rollback_available,
+            "snapshot_id": rollback.get("snapshot_id"),
+            "ledger_id": rollback.get("ledger_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_shadow_application_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_live_application": False,
+            "eligible_for_operator_live_application_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_live_language_plasticity_application"
+            if ready
+            else "collect_shadow_application_evidence",
+            "required_evidence": required,
+        },
+    }
+
+
 def _language_training_patterns(
     readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
     device_report: Mapping[str, Any],
@@ -675,10 +1274,16 @@ def _mismatch_band(value: float) -> str:
 
 __all__ = [
     "SpikeLanguageNeuronAdapter",
+    "build_spike_language_plasticity_application_design",
     "build_spike_language_neuron_adapter",
     "evaluate_spike_language_adapter_heldout",
     "evaluate_spike_language_sequence_mismatch",
+    "evaluate_spike_language_plasticity_shadow_application",
     "evaluate_spike_language_trainer_dry_run",
+    "evaluate_spike_language_plasticity_replay",
+    "build_spike_language_plasticity_pressure",
+    "run_spike_language_plasticity_replay_experiment",
+    "run_spike_language_plasticity_trial",
     "predict_spike_language_sequence",
     "run_spike_language_trainer_dry_run",
 ]

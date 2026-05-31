@@ -72,6 +72,24 @@ _Avoid_: calling predicted sparse indices a sentence, fact, or thought; persisti
 **SNN Language Sequence Mismatch Probe** — the read-only prediction-error surface after SNN Language Sequence Prediction Probe, available through `/terminus/snn-language-sequence/mismatch`. It compares predicted sparse population-code indices with the next observed grounded sparse code and reports precision, recall, mismatch score, and sparse-code deltas without applying learning or generating text.
 _Avoid_: treating mismatch as an automatic learning signal, fact promotion, generated thought, or runtime model update
 
+**SNN Language Plasticity Pressure Gate** — the read-only gate after SNN Language Sequence Mismatch Probe, available through `/terminus/snn-language-sequence/plasticity-pressure`. It converts sparse prediction error into operator-reviewable local plasticity pressure and candidate update focus, but it cannot apply plasticity, train runtime weights, generate language, or promote facts.
+_Avoid_: treating pressure as permission to learn, mutating sequence weights from status reads, or using mismatch pressure as text generation evidence
+
+**SNN Language Plasticity Trial** — an isolated simulation after SNN Language Plasticity Pressure Gate, available through `/terminus/snn-language-sequence/plasticity-trial`. It estimates whether an error-modulated local sequence update would reduce sparse prediction pressure using ephemeral update evidence only; it cannot apply plasticity, persist weights, train runtime state, generate language, or promote facts.
+_Avoid_: treating simulated pressure reduction as a live weight update, storing trial weights, or bypassing isolated replay/operator approval
+
+**SNN Language Plasticity Replay Evaluation** — the read-only gate after SNN Language Plasticity Trial, available through `/terminus/snn-language-sequence/plasticity-replay-evaluation`. It checks replay-window evidence, expected pressure reduction, Runtime Truth delta, and rollback policy before a future isolated replay experiment can be reviewed; it cannot apply plasticity, persist weights, train runtime state, generate language, or promote facts.
+_Avoid_: treating replay evaluation as replay execution, applying trial updates, or using replay readiness as fact/action promotion
+
+**SNN Language Plasticity Replay Experiment** — the isolated sparse-code rehearsal after SNN Language Plasticity Replay Evaluation, available through `/terminus/snn-language-sequence/plasticity-replay-experiment`. It measures grounded replay coverage and simulated pressure stability from replay sequences while discarding replay traces and refusing runtime weight updates.
+_Avoid_: treating replay rehearsal as live learning, storing replay weights, promoting replay outputs as facts, or using it as text generation
+
+**SNN Language Plasticity Application Design** — the read-only design gate after SNN Language Plasticity Replay Experiment, available through `/terminus/snn-language-sequence/plasticity-application-design`. It bounds a possible future local update with learning-rate, weight-delta, locality, normalization, device evidence, Runtime Truth, and rollback constraints, but it still cannot apply plasticity or persist weights.
+_Avoid_: treating an application design as a live update, bypassing rollback evidence, widening updates beyond local sparse support, or promoting replay evidence as language/facts
+
+**SNN Language Plasticity Shadow Application** — the read-only verifier after SNN Language Plasticity Application Design, available through `/terminus/snn-language-sequence/plasticity-shadow-application`. It checks a proposed shadow update against weight-delta, locality, pressure-stability, device evidence, Runtime Truth, and rollback bounds before any future live application can be reviewed.
+_Avoid_: treating shadow deltas as applied weights, skipping rollback, using shadow verification as fact promotion, or calling it runtime learning
+
 **Developmental Plasticity** — the Subcortex mechanism family for growing, pruning, and stabilizing assemblies, synapses, routing prototypes, and replay policies under evidence gates.
 _Avoid_: self-replication as unchecked code mutation, permanent growth without pruning
 
@@ -240,6 +258,12 @@ _Avoid_: treating evaluation readiness as repair approval, hiding rollback/devic
 - SNN Language Trainer Isolated Evaluation is the gate after a dry run. It can mark evidence ready for operator review, but it keeps runtime training, trainer promotion, language generation, and cognition-substrate promotion false.
 - SNN Language Sequence Prediction Probe is the first local next-code prediction surface for the language path. It predicts sparse population-code indices from grounded spike readout sequences, but it does not decode those indices into text or promote them as thoughts.
 - SNN Language Sequence Mismatch Probe is the first prediction-error surface for the language path. It can report how predicted spike-code indices differ from observed next spike-code indices, but it cannot apply learning or promote the mismatch as a fact/action.
+- SNN Language Plasticity Pressure Gate turns prediction error into reviewable local learning pressure. It can identify observed-only and predicted-only sparse code targets for a future isolated plasticity trial, but it cannot apply plasticity by itself.
+- SNN Language Plasticity Trial simulates the candidate local update from pressure evidence and reports expected pressure reduction. It must discard all update state and keep runtime training disabled.
+- SNN Language Plasticity Replay Evaluation checks whether trial evidence is ready for operator replay review. It does not execute replay or apply the update.
+- SNN Language Plasticity Replay Experiment rehearses sparse replay sequences in isolation. It can report replay coverage and simulated pressure stability, but it cannot persist weights, mutate runtime state, or promote language/facts.
+- SNN Language Plasticity Application Design bounds a possible future live update. It can specify local update constraints and device evidence, but it remains read-only and cannot apply learning.
+- SNN Language Plasticity Shadow Application verifies a proposed bounded update against design constraints and device evidence. It can report whether the shadow delta is locally stable, but it still cannot apply weights or mutate runtime state.
 - Long-test reports use Subcortex Readout vocabulary. They must not publish ThoughtLoop-era `thoughts`, `thought_lifecycle`, `narrative_self`, `global_workspace`, or dream-verification report fields as active liveness evidence.
 - Cognitive Signal is the canonical runtime signal surface. Its state primitive must be importable without `ThoughtLoop`; `cortex_signal` aliases are deleted and must not be reintroduced.
 - Subcortex Deliberation candidates are advisory control candidates until replay, policy, or operator evidence promotes them; they must not be stored as facts, treated as generated thoughts, or queued as LLM prompts.

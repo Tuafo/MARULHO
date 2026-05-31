@@ -6,10 +6,16 @@ from hecsn.semantics import (
     build_snn_language_readiness_surface,
     build_snn_language_evaluation_surface,
     build_snn_language_training_readiness_surface,
+    build_spike_language_plasticity_application_design,
+    build_spike_language_plasticity_pressure,
     evaluate_spike_language_adapter_heldout,
+    evaluate_spike_language_plasticity_shadow_application,
+    evaluate_spike_language_plasticity_replay,
     evaluate_spike_language_sequence_mismatch,
     evaluate_spike_language_trainer_dry_run,
     predict_spike_language_sequence,
+    run_spike_language_plasticity_replay_experiment,
+    run_spike_language_plasticity_trial,
     run_spike_language_trainer_dry_run,
     build_spike_language_neuron_adapter,
     build_spike_language_decoder_probe,
@@ -607,6 +613,376 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertGreaterEqual(mismatch["prediction_error"]["mismatch_score"], 0.0)
         self.assertFalse(mismatch["promotion_gate"]["eligible_for_learning_signal"])
         self.assertFalse(mismatch["promotion_gate"]["eligible_for_language_generation"])
+
+    def test_spike_language_plasticity_pressure_gates_mismatch_without_learning(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_pressure_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_pressure_fixture"},
+        )
+        pressure = build_spike_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(pressure["artifact_kind"], "terminus_snn_language_plasticity_pressure_gate")
+        self.assertEqual(pressure["surface"], "snn_language_plasticity_pressure.v1")
+        self.assertTrue(pressure["owned_by_hecsn"])
+        self.assertFalse(pressure["generates_text"])
+        self.assertFalse(pressure["decodes_text"])
+        self.assertFalse(pressure["trains_runtime_model"])
+        self.assertFalse(pressure["applies_plasticity"])
+        self.assertFalse(pressure["mutates_runtime_state"])
+        self.assertIn(pressure["plasticity_pressure"]["pressure_band"], {"medium", "high"})
+        self.assertEqual(pressure["candidate_update"]["target"], "local_snn_language_sequence_transition_weights")
+        self.assertFalse(pressure["promotion_gate"]["eligible_for_learning_signal"])
+        self.assertFalse(pressure["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertTrue(pressure["promotion_gate"]["eligible_for_plasticity_design_review"])
+
+    def test_spike_language_plasticity_trial_simulates_update_without_applying_it(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_trial_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_trial_fixture"},
+        )
+        pressure = build_spike_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = run_spike_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(trial["artifact_kind"], "terminus_snn_language_plasticity_trial")
+        self.assertEqual(trial["surface"], "snn_language_plasticity_trial.v1")
+        self.assertFalse(trial["generates_text"])
+        self.assertFalse(trial["decodes_text"])
+        self.assertFalse(trial["trains_runtime_model"])
+        self.assertFalse(trial["applies_plasticity"])
+        self.assertFalse(trial["returns_trained_weights"])
+        self.assertFalse(trial["mutates_runtime_state"])
+        self.assertGreater(trial["trial_summary"]["expected_pressure_reduction"], 0.0)
+        self.assertLessEqual(
+            trial["trial_summary"]["post_pressure_score"],
+            trial["trial_summary"]["pre_pressure_score"],
+        )
+        self.assertFalse(trial["ephemeral_update"]["weights_persisted"])
+        self.assertFalse(trial["ephemeral_update"]["runtime_update_applied"])
+        self.assertFalse(trial["promotion_gate"]["eligible_for_plasticity_application"])
+
+    def test_spike_language_plasticity_replay_evaluation_gates_trial_without_promotion(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_replay_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_replay_fixture"},
+        )
+        pressure = build_spike_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = run_spike_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = evaluate_spike_language_plasticity_replay(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(replay["artifact_kind"], "terminus_snn_language_plasticity_replay_evaluation")
+        self.assertEqual(replay["surface"], "snn_language_plasticity_replay_evaluation.v1")
+        self.assertFalse(replay["generates_text"])
+        self.assertFalse(replay["decodes_text"])
+        self.assertFalse(replay["trains_runtime_model"])
+        self.assertFalse(replay["applies_plasticity"])
+        self.assertFalse(replay["mutates_runtime_state"])
+        self.assertGreater(replay["replay_evidence"]["expected_pressure_reduction"], 0.0)
+        self.assertTrue(replay["replay_evidence"]["pressure_non_worsening"])
+        self.assertFalse(replay["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(replay["promotion_gate"]["eligible_for_replay_promotion"])
+        self.assertTrue(replay["promotion_gate"]["eligible_for_operator_replay_review"])
+
+    def test_spike_language_plasticity_replay_experiment_stays_ephemeral(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_replay_experiment_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_replay_experiment_fixture"},
+        )
+        pressure = build_spike_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = run_spike_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = evaluate_spike_language_plasticity_replay(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        experiment = run_spike_language_plasticity_replay_experiment(
+            replay,
+            replay_sequences=[{"sequence_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(experiment["artifact_kind"], "terminus_snn_language_plasticity_replay_experiment")
+        self.assertEqual(experiment["surface"], "snn_language_plasticity_replay_experiment.v1")
+        self.assertFalse(experiment["generates_text"])
+        self.assertFalse(experiment["decodes_text"])
+        self.assertFalse(experiment["trains_runtime_model"])
+        self.assertFalse(experiment["applies_plasticity"])
+        self.assertFalse(experiment["mutates_runtime_state"])
+        self.assertFalse(experiment["returns_trained_weights"])
+        self.assertTrue(experiment["replay_experiment"]["pressure_stable_after_replay"])
+        self.assertEqual(experiment["replay_experiment"]["replay_sequence_count"], 1)
+        self.assertFalse(experiment["ephemeral_replay"]["weights_persisted"])
+        self.assertFalse(experiment["ephemeral_replay"]["runtime_update_applied"])
+        self.assertFalse(experiment["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(experiment["promotion_gate"]["eligible_for_replay_promotion"])
+        self.assertTrue(experiment["promotion_gate"]["eligible_for_operator_application_review"])
+
+    def test_spike_language_plasticity_application_design_does_not_apply_learning(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_application_design_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_application_design_fixture"},
+        )
+        pressure = build_spike_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = run_spike_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = evaluate_spike_language_plasticity_replay(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        experiment = run_spike_language_plasticity_replay_experiment(
+            replay,
+            replay_sequences=[{"sequence_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        design = build_spike_language_plasticity_application_design(
+            experiment,
+            application_policy={
+                "learning_rate": 0.03,
+                "max_weight_delta": 0.04,
+                "locality_radius": 2,
+                "normalization": True,
+                "local_only": True,
+            },
+            device_evidence={"device": "cpu", "source": "plasticity_application_design_fixture"},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        blocked_without_device = build_spike_language_plasticity_application_design(
+            experiment,
+            application_policy={
+                "learning_rate": 0.03,
+                "max_weight_delta": 0.04,
+                "locality_radius": 2,
+                "normalization": True,
+                "local_only": True,
+            },
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(design["artifact_kind"], "terminus_snn_language_plasticity_application_design")
+        self.assertEqual(design["surface"], "snn_language_plasticity_application_design.v1")
+        self.assertFalse(design["generates_text"])
+        self.assertFalse(design["decodes_text"])
+        self.assertFalse(design["trains_runtime_model"])
+        self.assertFalse(design["applies_plasticity"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["returns_trained_weights"])
+        self.assertEqual(design["device_evidence"]["tensor_device"], "cpu")
+        self.assertFalse(design["device_evidence"]["cuda_tensor"])
+        self.assertTrue(design["device_evidence"]["device_report_available"])
+        self.assertEqual(design["application_design"]["learning_rate"], 0.03)
+        self.assertEqual(design["application_design"]["locality_radius"], 2)
+        self.assertFalse(design["application_design"]["runtime_update_applied"])
+        self.assertFalse(design["application_design"]["weights_persisted"])
+        self.assertFalse(design["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(design["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(design["promotion_gate"]["eligible_for_operator_application_review"])
+        self.assertEqual(blocked_without_device["promotion_gate"]["status"], "blocked_missing_application_design_evidence")
+        self.assertFalse(
+            blocked_without_device["promotion_gate"]["required_evidence"]["device_evidence_available"]
+        )
+        self.assertFalse(blocked_without_device["promotion_gate"]["eligible_for_operator_application_review"])
+
+    def test_spike_language_plasticity_shadow_application_verifies_without_mutation(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_shadow_application_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "novel mismatch", "pressure_band": "high", "grounded": True}],
+            {"device": "cpu", "source": "plasticity_shadow_application_fixture"},
+        )
+        pressure = build_spike_language_plasticity_pressure(
+            mismatch,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        trial = run_spike_language_plasticity_trial(
+            pressure,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        replay = evaluate_spike_language_plasticity_replay(
+            trial,
+            replay_window=[{"case_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        experiment = run_spike_language_plasticity_replay_experiment(
+            replay,
+            replay_sequences=[{"sequence_id": "sequence-replay-1", "grounded": True}],
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        design = build_spike_language_plasticity_application_design(
+            experiment,
+            application_policy={"learning_rate": 0.03, "max_weight_delta": 0.04, "locality_radius": 2},
+            device_evidence={"device": "cpu", "source": "plasticity_shadow_application_fixture"},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        shadow = evaluate_spike_language_plasticity_shadow_application(
+            design,
+            shadow_delta={
+                "max_abs_weight_delta": 0.03,
+                "affected_synapse_count": 4,
+                "locality_radius": 2,
+                "pressure_before": 0.4,
+                "pressure_after": 0.35,
+            },
+            device_evidence={"device": "cpu", "source": "plasticity_shadow_application_fixture"},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        design_without_device = build_spike_language_plasticity_application_design(
+            experiment,
+            application_policy={"learning_rate": 0.03, "max_weight_delta": 0.04, "locality_radius": 2},
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        shadow_without_device = evaluate_spike_language_plasticity_shadow_application(
+            design_without_device,
+            shadow_delta={
+                "max_abs_weight_delta": 0.03,
+                "affected_synapse_count": 4,
+                "locality_radius": 2,
+                "pressure_before": 0.4,
+                "pressure_after": 0.35,
+            },
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+
+        self.assertEqual(shadow["artifact_kind"], "terminus_snn_language_plasticity_shadow_application")
+        self.assertEqual(shadow["surface"], "snn_language_plasticity_shadow_application.v1")
+        self.assertFalse(shadow["generates_text"])
+        self.assertFalse(shadow["decodes_text"])
+        self.assertFalse(shadow["trains_runtime_model"])
+        self.assertFalse(shadow["applies_plasticity"])
+        self.assertFalse(shadow["mutates_runtime_state"])
+        self.assertFalse(shadow["returns_trained_weights"])
+        self.assertEqual(shadow["device_evidence"]["tensor_device"], "cpu")
+        self.assertFalse(shadow["device_evidence"]["cuda_tensor"])
+        self.assertTrue(shadow["device_evidence"]["device_report_available"])
+        self.assertTrue(shadow["shadow_application"]["pressure_non_worsening"])
+        self.assertFalse(shadow["shadow_application"]["runtime_update_applied"])
+        self.assertFalse(shadow["shadow_application"]["weights_persisted"])
+        self.assertFalse(shadow["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(shadow["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(shadow["promotion_gate"]["eligible_for_operator_live_application_review"])
+        self.assertEqual(
+            shadow_without_device["promotion_gate"]["status"],
+            "blocked_missing_shadow_application_evidence",
+        )
+        self.assertFalse(shadow_without_device["promotion_gate"]["required_evidence"]["device_evidence_available"])
+        self.assertFalse(shadow_without_device["promotion_gate"]["eligible_for_operator_live_application_review"])
 
 
 class SubcorticalSelfRepairSurfaceTests(unittest.TestCase):
