@@ -12,7 +12,8 @@ from hecsn.semantics import ConceptStore
 from hecsn.training.meaning_grounding_runner import run_meaning_grounding_benchmark
 from hecsn.training.query_runner import build_memory_episodes, build_query_result
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 class MeaningGroundingTests(unittest.TestCase):

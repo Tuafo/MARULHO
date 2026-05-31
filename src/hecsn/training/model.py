@@ -19,7 +19,8 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.abstraction import AbstractionLayer
 from hecsn.core.columns import CompetitiveColumnLayer
-from hecsn.core.context import AdaptiveContextLayer, BindingLayer, create_context_layer
+from hecsn.core.binding import BindingLayer
+from hecsn.core.context import AdaptiveContextLayer, create_context_layer
 from hecsn.core.cross_modal import CrossModalGroundingLayer
 from hecsn.core.surprise import SurpriseMonitor
 from hecsn.consolidation.memory_store import DualMemoryStore

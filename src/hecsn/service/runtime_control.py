@@ -9,7 +9,8 @@ from typing import Any
 from hecsn.config.model_config import HECSNConfig
 from hecsn.service.runtime_prewarm import RuntimePrewarmer
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01

@@ -4,12 +4,21 @@ import unittest
 
 from hecsn.semantics import (
     build_snn_language_readiness_surface,
+    build_snn_language_evaluation_surface,
+    build_snn_language_training_readiness_surface,
+    evaluate_spike_language_adapter_heldout,
+    evaluate_spike_language_sequence_mismatch,
+    evaluate_spike_language_trainer_dry_run,
+    predict_spike_language_sequence,
+    run_spike_language_trainer_dry_run,
+    build_spike_language_neuron_adapter,
     build_spike_language_decoder_probe,
     build_subcortical_spike_readout_evidence,
     build_subcortical_deliberation_surface,
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
     build_subcortical_structural_plasticity_surface,
+    evaluate_subcortical_structural_plasticity_isolated,
 )
 
 
@@ -127,6 +136,78 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertEqual(probe["support_evidence"]["grounded_slot_count"], 1)
         self.assertEqual(probe["support_evidence"]["unsupported_slot_count"], 0)
         self.assertTrue(probe["support_evidence"]["supported"])
+
+    def test_decoder_probe_reports_sparse_recurrent_state_without_text_generation(self) -> None:
+        probe = build_spike_language_decoder_probe(
+            {
+                "readout_slots": [
+                    {
+                        "slot_id": "slot_a",
+                        "label": "prediction error",
+                        "pressure_band": "high",
+                        "grounded": True,
+                    },
+                    {
+                        "slot_id": "slot_b",
+                        "label": "concept focus",
+                        "pressure_band": "medium",
+                        "grounded": True,
+                    },
+                ],
+                "device_evidence": {"device": "cpu", "source": "observed_subcortex_tensor_devices"},
+            }
+        )
+
+        temporal = probe["temporal_state_evidence"]
+        sparse_code = probe["sparse_code_evidence"]
+        self.assertTrue(temporal["dynamic_state_available"])
+        self.assertEqual(temporal["timestep_count"], 2)
+        self.assertEqual(temporal["state_device"], "cpu")
+        self.assertGreaterEqual(temporal["active_transition_count"], 1)
+        self.assertTrue(temporal["has_temporal_order"])
+        self.assertGreater(sparse_code["active_index_count"], 0)
+        self.assertLessEqual(sparse_code["active_index_count"], probe["sparsity_evidence"]["code_dim"])
+        self.assertFalse(probe["generates_text"])
+        self.assertFalse(probe["promotion_constraints"]["eligible_for_language_generation"])
+
+    def test_language_neuron_adapter_consumes_probe_without_generating_text(self) -> None:
+        probe = build_spike_language_decoder_probe(
+            {
+                "readout_slots": [
+                    {
+                        "slot_id": "slot_a",
+                        "label": "prediction error",
+                        "pressure_band": "high",
+                        "grounded": True,
+                    },
+                    {
+                        "slot_id": "slot_b",
+                        "label": "concept focus",
+                        "pressure_band": "medium",
+                        "grounded": True,
+                    },
+                ],
+                "device_evidence": {"device": "cpu", "source": "observed_subcortex_tensor_devices"},
+            }
+        )
+
+        adapter = build_spike_language_neuron_adapter(probe)
+
+        self.assertEqual(adapter["artifact_kind"], "terminus_hecsn_spike_language_neuron_adapter")
+        self.assertEqual(adapter["surface"], "snn_language_neuron_adapter_evidence.v1")
+        self.assertTrue(adapter["owned_by_hecsn"])
+        self.assertFalse(adapter["external_dependency"])
+        self.assertFalse(adapter["loads_external_checkpoint"])
+        self.assertFalse(adapter["generates_text"])
+        self.assertFalse(adapter["decodes_text"])
+        self.assertFalse(adapter["trains"])
+        self.assertFalse(adapter["mutates_runtime_state"])
+        self.assertEqual(adapter["device_evidence"]["tensor_device"], "cpu")
+        self.assertGreater(adapter["neuron_dynamics"]["active_spike_count"], 0)
+        self.assertGreaterEqual(adapter["neuron_dynamics"]["timestep_count"], 2)
+        self.assertTrue(adapter["neuron_dynamics"]["adaptive_timesteps"])
+        self.assertTrue(adapter["sparsity_evidence"]["meets_sparse_activation_floor"])
+        self.assertFalse(adapter["promotion_constraints"]["eligible_for_language_generation"])
 
     def test_spike_readout_evidence_is_owned_cuda_aware_and_non_generative(self) -> None:
         evidence = build_subcortical_spike_readout_evidence(
@@ -262,7 +343,12 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_owned"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_non_generative"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_sparse"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_temporal_state"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_grounding_supported"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_available"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_owned"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_sparse"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_dynamic"])
         self.assertEqual(surface["current_spike_readout_evidence"]["surface"], "subcortical_spike_readout_evidence.v1")
         self.assertEqual(surface["current_spike_readout_evidence"]["device"], "cuda:0")
         self.assertTrue(surface["current_spike_readout_evidence"]["cuda_device_selected"])
@@ -274,6 +360,14 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertTrue(surface["current_decoder_probe_evidence"]["owned_by_hecsn"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["generates_text"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["executable"])
+        self.assertTrue(surface["current_decoder_probe_evidence"]["dynamic_state_available"])
+        self.assertEqual(
+            surface["current_language_neuron_adapter_evidence"]["surface"],
+            "snn_language_neuron_adapter_evidence.v1",
+        )
+        self.assertFalse(surface["current_language_neuron_adapter_evidence"]["generates_text"])
+        self.assertFalse(surface["current_language_neuron_adapter_evidence"]["executable"])
+        self.assertTrue(surface["current_language_neuron_adapter_evidence"]["adaptive_timesteps"])
         self.assertFalse(surface["readiness_checks"]["local_snn_language_generator_available"])
         self.assertIn("activation_sparsity_report", surface["success_evidence"])
 
@@ -301,6 +395,218 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_available"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["generates_text"])
         self.assertFalse(surface["safety_invariants"]["eligible_for_cognition_substrate"])
+
+    def test_language_evaluation_surface_gates_adapter_without_generation(self) -> None:
+        surface = build_snn_language_evaluation_surface(
+            {
+                "prediction_error_mean": 0.22,
+                "prediction_error_max": 0.48,
+                "predictive_confidence_mean": 0.62,
+                "predictive_confidence_min": 0.44,
+                "recent_concepts": ["spiking language"],
+                "concept_candidates": [{"label": "spiking language", "observations": 5}],
+            },
+            {
+                "cuda_first_runtime": {
+                    "tensor_device": "cuda:0",
+                    "subcortex_tensor_devices": {"competitive": {"prototypes_device": "cuda:0"}},
+                }
+            },
+        )
+
+        self.assertEqual(surface["artifact_kind"], "terminus_snn_language_adapter_evaluation_gate")
+        self.assertEqual(surface["surface"], "snn_language_adapter_evaluation.v1")
+        self.assertEqual(surface["endpoint"], "/terminus/snn-language-evaluation")
+        self.assertTrue(surface["advisory"])
+        self.assertFalse(surface["executable"])
+        self.assertFalse(surface["mutates_runtime_state"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(surface["promotion_gate"]["status"], "ready_for_isolated_adapter_evaluation")
+        self.assertTrue(surface["promotion_gate"]["requires_operator_approval"])
+        self.assertEqual(surface["evaluation_cases"][0]["target"], "spike_language_neuron_adapter")
+        self.assertTrue(surface["evaluation_cases"][0]["ready_for_evaluation"])
+        self.assertIn("post_evaluation_grounding_delta", surface["success_evidence"])
+        self.assertIn("adapter_activation_sparsity_delta", surface["success_evidence"])
+
+    def test_heldout_language_adapter_evaluator_reports_support_without_training(self) -> None:
+        report = evaluate_spike_language_adapter_heldout(
+            [
+                [
+                    {"label": "prediction error", "pressure_band": "high", "grounded": True},
+                    {"label": "concept focus", "pressure_band": "medium", "grounded": True},
+                ],
+                [
+                    {"label": "memory pressure", "pressure_band": "medium", "grounded": True},
+                    {"label": "unsupported drift", "pressure_band": "low", "grounded": False},
+                ],
+            ],
+            {"device": "cpu", "source": "heldout_readout_fixture"},
+        )
+
+        self.assertEqual(report["artifact_kind"], "terminus_snn_language_adapter_heldout_evaluation")
+        self.assertEqual(report["surface"], "snn_language_adapter_heldout_evaluation.v1")
+        self.assertTrue(report["owned_by_hecsn"])
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["trains"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertEqual(report["heldout_summary"]["case_count"], 2)
+        self.assertEqual(report["heldout_summary"]["supported_case_count"], 2)
+        self.assertGreaterEqual(report["heldout_summary"]["mean_grounded_fraction"], 0.5)
+        self.assertGreater(report["adapter_delta"]["mean_active_spike_count"], 0.0)
+        self.assertGreaterEqual(report["adapter_delta"]["min_activation_sparsity"], 0.85)
+        self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
+        self.assertFalse(report["promotion_gate"]["eligible_for_language_generation"])
+
+    def test_language_training_readiness_gate_requires_heldout_and_rollback_without_training(self) -> None:
+        heldout = evaluate_spike_language_adapter_heldout(
+            [
+                [
+                    {"label": "prediction error", "pressure_band": "high", "grounded": True},
+                    {"label": "concept focus", "pressure_band": "medium", "grounded": True},
+                ]
+            ],
+            {"device": "cpu", "source": "training_readiness_fixture"},
+        )
+        surface = build_snn_language_training_readiness_surface(
+            heldout,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-training"},
+        )
+
+        self.assertEqual(surface["artifact_kind"], "terminus_snn_language_training_readiness_gate")
+        self.assertEqual(surface["surface"], "snn_language_training_readiness.v1")
+        self.assertEqual(surface["endpoint"], "/terminus/snn-language-training/readiness")
+        self.assertTrue(surface["advisory"])
+        self.assertFalse(surface["executable"])
+        self.assertFalse(surface["mutates_runtime_state"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_training"])
+        self.assertTrue(surface["promotion_gate"]["eligible_for_training_loop_design"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(surface["promotion_gate"]["status"], "ready_for_training_loop_design_review")
+        self.assertEqual(surface["training_design_cases"][0]["target"], "hecsn_owned_snn_language_trainer")
+        self.assertIn("training_rule_design", surface["success_evidence"])
+
+    def test_spike_language_trainer_dry_run_learns_sequence_evidence_without_weights(self) -> None:
+        report = run_spike_language_trainer_dry_run(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            {"device": "cpu", "source": "trainer_dry_run_fixture"},
+            learning_rate=0.12,
+            epochs=3,
+        )
+
+        self.assertEqual(report["artifact_kind"], "terminus_snn_language_trainer_dry_run")
+        self.assertEqual(report["surface"], "snn_language_trainer_dry_run.v1")
+        self.assertTrue(report["owned_by_hecsn"])
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["decodes_text"])
+        self.assertFalse(report["trains_runtime_model"])
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertEqual(report["training_rule"]["rule"], "local_hebbian_outer_product_with_row_normalization")
+        self.assertGreater(report["training_rule"]["training_transition_count"], 0)
+        self.assertGreaterEqual(report["weight_evidence"]["weight_sparsity"], 0.85)
+        self.assertGreater(report["validation_summary"]["mean_transition_support"], 0.0)
+        self.assertFalse(report["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_runtime_training"])
+
+    def test_spike_language_trainer_evaluation_gates_dry_run_without_promotion(self) -> None:
+        dry_run = run_spike_language_trainer_dry_run(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            {"device": "cpu", "source": "trainer_evaluation_fixture"},
+        )
+        evaluation = evaluate_spike_language_trainer_dry_run(
+            dry_run,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-trainer-eval"},
+        )
+
+        self.assertEqual(evaluation["artifact_kind"], "terminus_snn_language_trainer_isolated_evaluation")
+        self.assertEqual(evaluation["surface"], "snn_language_trainer_isolated_evaluation.v1")
+        self.assertTrue(evaluation["owned_by_hecsn"])
+        self.assertFalse(evaluation["generates_text"])
+        self.assertFalse(evaluation["trains_runtime_model"])
+        self.assertFalse(evaluation["promotes_runtime_trainer"])
+        self.assertFalse(evaluation["mutates_runtime_state"])
+        self.assertGreater(evaluation["validation_summary"]["mean_transition_support"], 0.0)
+        self.assertGreaterEqual(evaluation["weight_evidence"]["weight_sparsity"], 0.85)
+        self.assertEqual(evaluation["promotion_gate"]["status"], "ready_for_operator_review")
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_runtime_training"])
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_trainer_promotion"])
+
+    def test_spike_language_sequence_prediction_probe_returns_sparse_code_not_text(self) -> None:
+        report = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "sequence_prediction_fixture"},
+            top_k=4,
+        )
+
+        self.assertEqual(report["artifact_kind"], "terminus_snn_language_sequence_prediction_probe")
+        self.assertEqual(report["surface"], "snn_language_sequence_prediction_probe.v1")
+        self.assertTrue(report["owned_by_hecsn"])
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["decodes_text"])
+        self.assertFalse(report["trains_runtime_model"])
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertEqual(report["prediction"]["top_k"], 4)
+        self.assertEqual(len(report["prediction"]["predicted_sparse_indices"]), 4)
+        self.assertGreater(report["prediction"]["support_strength"], 0.0)
+        self.assertGreaterEqual(report["training_evidence"]["weight_sparsity"], 0.85)
+        self.assertFalse(report["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_cognition_substrate"])
+
+    def test_spike_language_sequence_mismatch_probe_reports_prediction_error_without_learning(self) -> None:
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "mismatch_fixture"},
+            top_k=4,
+        )
+        mismatch = evaluate_spike_language_sequence_mismatch(
+            prediction,
+            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "mismatch_fixture"},
+        )
+
+        self.assertEqual(mismatch["artifact_kind"], "terminus_snn_language_sequence_mismatch_probe")
+        self.assertEqual(mismatch["surface"], "snn_language_sequence_mismatch_probe.v1")
+        self.assertTrue(mismatch["owned_by_hecsn"])
+        self.assertFalse(mismatch["generates_text"])
+        self.assertFalse(mismatch["decodes_text"])
+        self.assertFalse(mismatch["trains_runtime_model"])
+        self.assertFalse(mismatch["returns_trained_weights"])
+        self.assertFalse(mismatch["mutates_runtime_state"])
+        self.assertIn(mismatch["prediction_error"]["prediction_error_band"], {"low", "medium", "high"})
+        self.assertGreaterEqual(mismatch["prediction_error"]["mismatch_score"], 0.0)
+        self.assertFalse(mismatch["promotion_gate"]["eligible_for_learning_signal"])
+        self.assertFalse(mismatch["promotion_gate"]["eligible_for_language_generation"])
 
 
 class SubcorticalSelfRepairSurfaceTests(unittest.TestCase):
@@ -735,9 +1041,51 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
 
         binding_case = surface["structural_cases"][0]
         self.assertEqual(binding_case["intent"], "evaluate_binding_topology_stability")
-        self.assertFalse(binding_case["ready_for_evaluation"])
-        self.assertFalse(binding_case["baseline_metrics"]["binding_device_evidence_available"])
-        self.assertEqual(surface["promotion_gate"]["status"], "insufficient_device_evidence")
+
+    def test_structural_plasticity_isolated_evaluator_reports_deltas_without_mutation(self) -> None:
+        report = evaluate_subcortical_structural_plasticity_isolated(
+            {
+                "binding_topology": {
+                    "edges_added_total": 4,
+                    "edges_removed_total": 1,
+                    "growth_events": 1,
+                    "prune_events": 0,
+                },
+                "device_evidence": {
+                    "binding_devices": {"binding_state_device": "cuda:0"},
+                    "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+                },
+                "spike_health": {"silent_fraction": 0.20, "saturated_fraction": 0.05, "stale_fraction": 0.30},
+                "runtime_truth": {"verdict": "degraded"},
+            },
+            {
+                "binding_topology": {
+                    "edges_added_total": 5,
+                    "edges_removed_total": 2,
+                    "growth_events": 2,
+                    "prune_events": 1,
+                },
+                "device_evidence": {
+                    "binding_devices": {"binding_state_device": "cuda:0"},
+                    "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+                },
+                "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
+                "runtime_truth": {"verdict": "alive"},
+            },
+            rollback_policy={"available": True, "snapshot_id": "pre-structural-eval"},
+        )
+
+        self.assertEqual(report["artifact_kind"], "terminus_subcortical_structural_plasticity_isolated_evaluation")
+        self.assertEqual(report["surface"], "subcortical_structural_plasticity_isolated_evaluation.v1")
+        self.assertFalse(report["executable"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertEqual(report["structural_delta"]["edges_added_delta"], 1)
+        self.assertEqual(report["structural_delta"]["edges_removed_delta"], 1)
+        self.assertTrue(report["spike_health_delta"]["improved_or_stable"])
+        self.assertTrue(report["runtime_truth_delta"]["improved_or_stable"])
+        self.assertTrue(report["rollback_evidence"]["available"])
+        self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
 
 
 if __name__ == "__main__":

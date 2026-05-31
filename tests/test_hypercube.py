@@ -377,12 +377,13 @@ class TestHypercubeBindingLayer:
         restored.load_state_dict(layer_32.state_dict())
         assert restored.hub_stats()["structural_mutations"] == pruned
 
-    def test_state_dict_has_compatibility_keys(self, layer_32):
-        """state_dict includes BindingLayer-compatible keys."""
+    def test_state_dict_excludes_dense_binding_compatibility_keys(self, layer_32):
+        """state_dict stays native to hypercube sparse topology."""
         state = layer_32.state_dict()
-        assert "connectivity" in state
-        assert "output_weights" in state
-        assert "binding_outputs" in state
+        assert "connectivity" not in state
+        assert "output_weights" not in state
+        assert "binding_outputs" not in state
+        assert "topology_state" in state
 
     def test_weight_renormalization_after_bind(self, layer_32):
         """Learned weights stay normalized after binding updates."""
@@ -453,7 +454,7 @@ class TestConfigIntegration:
 
     def test_model_creates_hypercube_binding(self):
         from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.trainer import HECSNModel
+        from hecsn.training.model import HECSNModel
         cfg = HECSNConfig(
             n_columns=32,
             enable_binding_layer=True,
@@ -477,7 +478,7 @@ class TestBenchmark:
     @pytest.mark.parametrize("n_columns", [32, 64, 128, 256])
     def test_throughput_comparison(self, n_columns):
         """Measure bind() throughput for all three modes."""
-        from hecsn.core.context import BindingLayer
+        from hecsn.core.binding import BindingLayer
         from hecsn.core.topographic import SpatialBindingLayer
 
         device = torch.device("cpu")
@@ -519,7 +520,7 @@ class TestBenchmark:
 
     def test_memory_comparison(self):
         """Compare tensor memory footprint at 256 columns."""
-        from hecsn.core.context import BindingLayer
+        from hecsn.core.binding import BindingLayer
         from hecsn.core.topographic import SpatialBindingLayer
 
         n = 256

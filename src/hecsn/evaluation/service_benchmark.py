@@ -15,7 +15,8 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.reporting.readme_reports import write_json_report_with_readme
 from hecsn.service.api import create_app
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 SERVICE_BENCHMARK_SCHEMA_VERSION = 1

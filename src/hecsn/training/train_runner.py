@@ -23,7 +23,8 @@ import time
 from pathlib import Path
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.data.corpus_loader import StreamingCorpusLoader
 
@@ -73,7 +74,7 @@ def _enable_binding(trainer: HECSNTrainer, cfg: HECSNConfig) -> None:
             association_decay=cfg.binding_association_decay,
         )
     else:
-        from hecsn.core.context import BindingLayer
+        from hecsn.core.binding import BindingLayer
         trainer.model.binding_layer = BindingLayer(
             n_columns=cfg.n_columns,
             device=trainer.model.device,

@@ -10,7 +10,8 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core import AbstractionLayer, CompetitiveColumnLayer
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 class AbstractionLayerTests(unittest.TestCase):

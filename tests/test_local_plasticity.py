@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from hecsn.config.model_config import HECSNConfig
 from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 class LocalPlasticityConfigTests(unittest.TestCase):

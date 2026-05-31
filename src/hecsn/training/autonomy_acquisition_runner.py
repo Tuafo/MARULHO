@@ -36,7 +36,8 @@ from hecsn.training.autonomy_runner import (
     summarize_training_metrics,
 )
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 ACQUISITION_ABSOLUTE_IMPROVEMENT_TARGET = 0.01

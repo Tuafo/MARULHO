@@ -23,7 +23,8 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.status_read_model import StatusReadModel
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _build_config() -> HECSNConfig:
@@ -1192,6 +1193,16 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_non_generative"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_available"])
         self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_available"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_owned"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_sparse"])
+        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_dynamic"])
+        self.assertEqual(
+            surface["current_language_neuron_adapter_evidence"]["surface"],
+            "snn_language_neuron_adapter_evidence.v1",
+        )
+        self.assertFalse(surface["current_language_neuron_adapter_evidence"]["generates_text"])
+        self.assertFalse(surface["current_language_neuron_adapter_evidence"]["executable"])
         self.assertEqual(
             [candidate["integration_status"] for candidate in surface["research_candidates"]],
             ["reference_for_hecsn_owned_reimplementation", "reference_for_hecsn_owned_reimplementation"],
@@ -1209,6 +1220,195 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertIsNotNone(cached_result)
         self.assertEqual(cached_result["surface"], first["surface"])
         self.assertEqual(cached_result["promotion_gate"]["status"], first["promotion_gate"]["status"])
+
+    def test_snn_language_evaluation_surface_gates_adapter_without_generation(self) -> None:
+        """The language-adapter evaluation surface remains read-only and non-generative."""
+        model, _, _, _, _ = _build_read_model_with_living_loop()
+        surface = model.snn_language_evaluation_surface()
+
+        self.assertEqual(surface["surface"], "snn_language_adapter_evaluation.v1")
+        self.assertEqual(surface["artifact_kind"], "terminus_snn_language_adapter_evaluation_gate")
+        self.assertTrue(surface["advisory"])
+        self.assertFalse(surface["executable"])
+        self.assertFalse(surface["mutates_runtime_state"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(surface["evaluation_cases"][0]["target"], "spike_language_neuron_adapter")
+        self.assertIn("post_evaluation_grounding_delta", surface["success_evidence"])
+
+    def test_snn_language_heldout_evaluation_does_not_advance_revision(self) -> None:
+        """Heldout adapter evaluation is evidence-only."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_adapter_heldout_evaluation(
+            [
+                [
+                    {"label": "prediction error", "pressure_band": "high", "grounded": True},
+                    {"label": "concept focus", "pressure_band": "medium", "grounded": True},
+                ]
+            ],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_adapter_heldout_evaluation.v1")
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["trains"])
+        self.assertFalse(report["mutates_runtime_state"])
+
+    def test_snn_language_training_readiness_does_not_advance_revision(self) -> None:
+        """Training readiness is design evidence, not trainer execution."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        heldout = model.snn_language_adapter_heldout_evaluation(
+            [[{"label": "prediction error", "pressure_band": "high", "grounded": True}]],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_training_readiness(
+            heldout,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-language-training"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_training_readiness.v1")
+        self.assertFalse(report["executable"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_training"])
+        self.assertTrue(report["promotion_gate"]["eligible_for_training_loop_design"])
+
+    def test_snn_language_trainer_dry_run_does_not_advance_revision(self) -> None:
+        """Trainer dry-run is isolated tensor evidence, not runtime training."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_trainer_dry_run(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_trainer_dry_run.v1")
+        self.assertFalse(report["trains_runtime_model"])
+        self.assertFalse(report["returns_trained_weights"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_runtime_training"])
+
+    def test_snn_language_trainer_evaluation_does_not_advance_revision(self) -> None:
+        """Trainer evaluation gates dry-run evidence without promotion."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        dry_run = model.snn_language_trainer_dry_run(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_trainer_isolated_evaluation(
+            dry_run,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={"available": True, "snapshot_id": "pre-trainer-eval"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_trainer_isolated_evaluation.v1")
+        self.assertFalse(report["trains_runtime_model"])
+        self.assertFalse(report["promotes_runtime_trainer"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_runtime_training"])
+
+    def test_snn_language_sequence_prediction_probe_does_not_advance_revision(self) -> None:
+        """Sequence prediction returns sparse evidence without text generation."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_sequence_prediction_probe.v1")
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["decodes_text"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertEqual(len(report["prediction"]["predicted_sparse_indices"]), 4)
+
+    def test_snn_language_sequence_mismatch_probe_does_not_advance_revision(self) -> None:
+        """Mismatch probe reports prediction error without applying learning."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_sequence_mismatch_probe(
+            prediction,
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_sequence_mismatch_probe.v1")
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["decodes_text"])
+        self.assertFalse(report["trains_runtime_model"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertIn("mismatch_score", report["prediction_error"])
+
+    def test_structural_plasticity_isolated_evaluation_does_not_advance_revision(self) -> None:
+        """Structural grow/prune evaluation compares snapshots without mutation."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        report = model.subcortical_structural_plasticity_isolated_evaluation(
+            {
+                "binding_topology": {"edges_added_total": 1, "edges_removed_total": 0},
+                "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+                "spike_health": {"silent_fraction": 0.2, "saturated_fraction": 0.1},
+                "runtime_truth": {"verdict": "degraded"},
+            },
+            {
+                "binding_topology": {"edges_added_total": 2, "edges_removed_total": 1},
+                "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+                "spike_health": {"silent_fraction": 0.1, "saturated_fraction": 0.05},
+                "runtime_truth": {"verdict": "alive"},
+            },
+            rollback_policy={"available": True, "snapshot_id": "pre-grow-prune"},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "subcortical_structural_plasticity_isolated_evaluation.v1")
+        self.assertFalse(report["executable"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
 
     def test_cognitive_signal_state_returns_cached_on_lock_contention(self) -> None:
         """When the lock is held, cognitive_signal_state() returns cached data."""
@@ -1902,6 +2102,10 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("hecsn_spike_decoder_probe_sparse", language_gate)
         self.assertIn("hecsn_spike_decoder_probe_device_evidence_available", language_gate)
         self.assertIn("hecsn_spike_decoder_probe_grounding_supported", language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_available", language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_owned", language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_sparse", language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_dynamic", language_gate)
         for forbidden_key in (
             "endpoint",
             "research_candidates",
@@ -1909,6 +2113,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "current_deliberation_surface",
             "current_spike_readout_evidence",
             "current_decoder_probe_evidence",
+            "current_language_neuron_adapter_evidence",
             "readiness_checks",
             "success_evidence",
             "suggested_endpoint",

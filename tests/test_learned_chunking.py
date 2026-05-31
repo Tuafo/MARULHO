@@ -12,7 +12,8 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 from hecsn.training.query_runner import feed_text, text_pattern_stream
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _build_trainer() -> HECSNTrainer:

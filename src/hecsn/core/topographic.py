@@ -267,7 +267,6 @@ class SpatialBindingLayer:
         self.neighbor_weights = self.grid._neighbor_weights.to(device)
         self.learned_weights = self.neighbor_weights.clone()
 
-        # For compatibility: n_bindings (used by some diagnostics)
         self.n_bindings = n_columns
         self.fan_in = k_neighbors
 
@@ -465,10 +464,6 @@ class SpatialBindingLayer:
             "learned_weights": self.learned_weights.detach().clone().cpu(),
             "neighbor_ids": self.neighbor_ids.detach().clone().cpu(),
             "grid_state": self.grid.state_dict(),
-            # Compatibility keys for BindingLayer format
-            "connectivity": torch.eye(self.n_columns),
-            "output_weights": torch.eye(self.n_columns),
-            "binding_outputs": self.coincidence_trace.detach().clone().cpu(),
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:

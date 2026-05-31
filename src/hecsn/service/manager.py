@@ -27,7 +27,8 @@ from hecsn.interaction import EvidenceResponder
 from hecsn.semantics import ConceptStore, GeometricCuriosityController
 from hecsn.semantics.grounding_text import match_terms, salient_query_terms
 from hecsn.training.checkpointing import load_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 from hecsn.training.query_runner import build_query_result, feed_text
 
 DEFAULT_RUNTIME_FEEDBACK_MAX_TEXT_CHARS = 2000
@@ -319,7 +320,7 @@ class HECSNServiceManager:
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
                 return False
-            self._autonomy_planner_or_self()._apply_provider_response_outcome_calibration_locked(
+            self._autonomy_planner._apply_provider_response_outcome_calibration_locked(
                 autonomy=autonomy,
                 response=kwargs["response"],
                 outcome_score=kwargs["outcome_score"],
@@ -333,23 +334,33 @@ class HECSNServiceManager:
             build_query_result_fn=lambda **kwargs: OperatorInteractionRuntime._build_query_locked(self, **kwargs),
             observe_concepts_fn=lambda **kwargs: OperatorInteractionRuntime._observe_concepts_locked(self, **kwargs),
             plan_gaps_fn=lambda **kwargs: OperatorInteractionRuntime._plan_gaps_locked(self, **kwargs),
-            apply_delayed_query_consequence_fn=lambda **kwargs: self._apply_delayed_query_consequence_locked(**kwargs),
+            apply_delayed_query_consequence_fn=lambda **kwargs: self._delayed_consequence._apply_delayed_query_consequence_locked(**kwargs),
             observe_runtime_concepts_fn=lambda **kwargs: OperatorInteractionRuntime._observe_runtime_concepts_locked(
                 self, **kwargs
             ),
             runtime_state_mark_mutated_fn=lambda: self._runtime_state.mark_mutated(),
             runtime_state_mutation_summary_fn=lambda: self._runtime_state.mutation_summary(),
-            runtime_episode_payload_fn=lambda **kwargs: self._runtime_episode_payload_locked(**kwargs),
+            runtime_episode_payload_fn=lambda **kwargs: RuntimeEvidenceReporter._runtime_episode_payload_locked(
+                self, **kwargs
+            ),
             persist_trace_fn=lambda trace: self._runtime_persistence.persist_trace(trace),
             service_state_snapshot_fn=lambda **kwargs: self._service_state_snapshot(**kwargs),
             build_response_fn=lambda **kwargs: self._responder.build_response(**kwargs),
             maybe_auto_action_assist_fn=lambda **kwargs: self._action_executor.maybe_auto_action_assist(**kwargs),
-            response_grounded_outcome_score_fn=lambda **kwargs: self._response_grounded_outcome_score_locked(**kwargs),
-            apply_background_source_response_provenance_fn=lambda **kwargs: self._apply_background_source_response_provenance_locked(**kwargs),
-            apply_background_source_outcome_calibration_fn=lambda **kwargs: self._apply_background_source_outcome_calibration_locked(**kwargs),
+            response_grounded_outcome_score_fn=lambda **kwargs: self._source_focus._response_grounded_outcome_score_locked(
+                **kwargs
+            ),
+            apply_background_source_response_provenance_fn=lambda **kwargs: self._delayed_consequence._apply_background_source_response_provenance_locked(
+                **kwargs
+            ),
+            apply_background_source_outcome_calibration_fn=lambda **kwargs: self._delayed_consequence._apply_background_source_outcome_calibration_locked(
+                **kwargs
+            ),
             apply_provider_response_outcome_calibration_fn=apply_provider_response_outcome_calibration_fn,
             learn_from_turn_fn=lambda **kwargs: OperatorInteractionRuntime._learn_from_turn_locked(self, **kwargs),
-            record_response_consequence_candidate_fn=lambda **kwargs: self._record_response_consequence_candidate_locked(**kwargs),
+            record_response_consequence_candidate_fn=lambda **kwargs: self._delayed_consequence._record_response_consequence_candidate_locked(
+                **kwargs
+            ),
             recent_query_gaps=recent_query_gaps,
             runtime_episode_traces=runtime_episode_traces,
         )
@@ -359,7 +370,7 @@ class HECSNServiceManager:
             autonomy = cast(dict[str, Any] | None, self._brain_config.get("autonomy"))
             if autonomy is None:
                 return False
-            self._autonomy_planner_or_self()._apply_provider_outcome_calibration_locked(
+            self._autonomy_planner._apply_provider_outcome_calibration_locked(
                 autonomy=autonomy,
                 query_text=kwargs["query_text"],
                 outcome_score=kwargs["outcome_score"],
@@ -529,12 +540,6 @@ class HECSNServiceManager:
     # --- Internal dependency callbacks (ADR 0003) ---
     # These are transitional module-to-module callbacks for deep-module extraction.
     # Operator-facing runtime calls belong on RuntimeFacade, not on this root.
-    def persist_trace(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.persist_trace(*args, **kwargs)
-
-    def load_persisted_traces(self, *args: Any, **kwargs: Any) -> Any:
-        return self._runtime_persistence.load_persisted_traces(*args, **kwargs)
-
     def _service_state_snapshot(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_persistence._service_state_snapshot(*args, **kwargs)
 
@@ -586,35 +591,11 @@ class HECSNServiceManager:
     def _normalize_runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._normalize_runtime_episode_trace(*args, **kwargs)
 
-    def load_interaction_state(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.load_interaction_state(*args, **kwargs)
-
     def _replace_recent_query_gaps_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._replace_recent_query_gaps_locked(*args, **kwargs)
 
     def _replace_runtime_episode_traces_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._replace_runtime_episode_traces_locked(*args, **kwargs)
-
-    def recent_query_gaps(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.recent_query_gaps(*args, **kwargs)
-
-    def record_recent_query_gap(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.record_recent_query_gap(*args, **kwargs)
-
-    def consume_skip_next_autonomy_for_grounded_query(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.consume_skip_next_autonomy_for_grounded_query(*args, **kwargs)
-
-    def runtime_episode_traces(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.runtime_episode_traces(*args, **kwargs)
-
-    def runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.runtime_episode_trace(*args, **kwargs)
-
-    def append_runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.append_runtime_episode_trace(*args, **kwargs)
-
-    def replace_runtime_episode_trace(self, *args: Any, **kwargs: Any) -> Any:
-        return self._interaction_pipeline.replace_runtime_episode_trace(*args, **kwargs)
 
     def _query_runtime_actual_output(self, *args: Any, **kwargs: Any) -> Any:
         return self._interaction_pipeline._query_runtime_actual_output(*args, **kwargs)
@@ -729,9 +710,6 @@ class HECSNServiceManager:
 
     def _read_sensory_previews(self, *args: Any, **kwargs: Any) -> Any:
         return self._status_read_model._read_sensory_previews(*args, **kwargs)
-
-    def cognitive_signal_state(self, *args: Any, **kwargs: Any) -> Any:
-        return self._status_read_model.cognitive_signal_state(*args, **kwargs)
 
     def _sensory_queue_target_items_locked(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeStatusCore._sensory_queue_target_items_locked(self, *args, **kwargs)
@@ -1048,18 +1026,6 @@ class HECSNServiceManager:
     def _apply_provider_family_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._delayed_consequence._apply_provider_family_summary_locked(*args, **kwargs)
 
-    def _apply_delayed_query_consequence_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._delayed_consequence._apply_delayed_query_consequence_locked(*args, **kwargs)
-
-    def _record_response_consequence_candidate_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._delayed_consequence._record_response_consequence_candidate_locked(*args, **kwargs)
-
-    def _apply_background_source_response_provenance_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._delayed_consequence._apply_background_source_response_provenance_locked(*args, **kwargs)
-
-    def _apply_background_source_outcome_calibration_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._delayed_consequence._apply_background_source_outcome_calibration_locked(*args, **kwargs)
-
     def _delayed_consequence_summary_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._delayed_consequence._delayed_consequence_summary_locked(*args, **kwargs)
 
@@ -1080,9 +1046,6 @@ class HECSNServiceManager:
 
     def _background_focus_overlap_locked(self, *args: Any, **kwargs: Any) -> Any:
         return self._source_focus._background_focus_overlap_locked(*args, **kwargs)
-
-    def _response_grounded_outcome_score_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return self._source_focus._response_grounded_outcome_score_locked(*args, **kwargs)
 
     def _runtime_environment_summary(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeStatusCore._runtime_environment_summary(self, *args, **kwargs)
@@ -1318,9 +1281,6 @@ class HECSNServiceManager:
     def _runtime_feedback_summary_from_targets(self, *args: Any, **kwargs: Any) -> Any:
         return RuntimeEvidenceReporter._runtime_feedback_summary_from_targets(self, *args, **kwargs)
 
-    def _runtime_episode_payload_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return RuntimeEvidenceReporter._runtime_episode_payload_locked(self, *args, **kwargs)
-
     def _replay_dataset_bundle_fraction(self, *args: Any, **kwargs: Any) -> Any:
         return ReplayDatasetPackager._replay_dataset_bundle_fraction(*args, **kwargs)
 
@@ -1389,12 +1349,6 @@ class HECSNServiceManager:
 
     def _adaptive_autonomy_settings_locked(self, *args: Any, **kwargs: Any) -> Any:
         return TerminusAutonomyCore._adaptive_autonomy_settings_locked(self, *args, **kwargs)
-
-    def _apply_provider_response_outcome_calibration_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return TerminusAutonomyCore._apply_provider_response_outcome_calibration_locked(self, *args, **kwargs)
-
-    def _apply_provider_outcome_calibration_locked(self, *args: Any, **kwargs: Any) -> Any:
-        return TerminusAutonomyCore._apply_provider_outcome_calibration_locked(self, *args, **kwargs)
 
     def _apply_provider_curriculum_locked(self, *args: Any, **kwargs: Any) -> Any:
         return TerminusAutonomyCore._apply_provider_curriculum_locked(self, *args, **kwargs)

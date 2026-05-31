@@ -302,7 +302,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
 
     def test_model_subcortex_device_report_includes_adaptive_context(self) -> None:
         from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.trainer import HECSNModel
+        from hecsn.training.model import HECSNModel
 
         cfg = HECSNConfig(
             n_columns=8,

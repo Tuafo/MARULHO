@@ -7,7 +7,7 @@ import torch
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
-from hecsn.training.trainer import HECSNModel
+from hecsn.training.model import HECSNModel
 
 
 class RoutingIndexTests(unittest.TestCase):

@@ -37,7 +37,8 @@ from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.terminus_sensory import SensoryEpisode
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _free_port() -> int:
@@ -7873,17 +7874,16 @@ class CortexIntegrationTests(unittest.TestCase):
                 manager.close()
 
     def test_cognitive_signal_is_canonical_operator_signal_surface(self) -> None:
-        """Manager and facade expose Cognitive Signal while facade omits the retired name."""
+        """RuntimeFacade exposes Cognitive Signal while retired names stay absent."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="cognitive_signal_canonical_surface")
             try:
-                manager_signal = manager.cognitive_signal_state()
                 facade_signal = manager.runtime_facade.cognitive_signal_state()
-                self.assertEqual(manager_signal["schema_version"], "cognitive_signal.v1")
                 self.assertEqual(facade_signal["schema_version"], "cognitive_signal.v1")
                 self.assertIn("subcortical_language", facade_signal)
                 self.assertIn("subcortical_deliberation", facade_signal)
+                self.assertFalse(hasattr(manager, "cognitive_signal_state"))
                 self.assertFalse(hasattr(manager.runtime_facade, "cortex_signal_state"))
                 self.assertFalse(hasattr(manager.runtime_facade, "cortex_thoughts"))
             finally:

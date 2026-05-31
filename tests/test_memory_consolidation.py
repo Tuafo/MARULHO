@@ -10,7 +10,8 @@ from hecsn.core.columns import CompetitiveColumnLayer
 from hecsn.consolidation.memory_store import DualMemoryStore
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.memory_consolidation_runner import build_memory_consolidation_gate
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 class MemoryConsolidationTests(unittest.TestCase):

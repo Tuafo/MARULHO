@@ -61,7 +61,7 @@ class TestCrossModalInit(unittest.TestCase):
 
     def test_model_subcortex_report_includes_cross_modal_devices(self) -> None:
         from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.trainer import HECSNModel
+        from hecsn.training.model import HECSNModel
 
         cfg = HECSNConfig(
             n_columns=8,

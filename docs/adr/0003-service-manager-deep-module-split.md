@@ -85,6 +85,10 @@ Living-loop and policy-actuator status are active observability behavior, not a 
 
 Runtime source stream construction is owned by `RuntimeSources`. The Service Manager no longer exposes `_build_source_stream_from_spec`, `_build_brain_source_stream_locked`, `_build_sensory_stream_locked`, or `_build_sensory_stream_from_spec`; BrainRuntime receives RuntimeSources constructor callbacks directly, and RuntimePrewarmer/SensoryRuntimeCore rebuild detached streams through RuntimeSources static builders. Tests patch RuntimeSources or the owner runtime module constants, not manager compatibility names.
 
+Interaction and persistence stores are owned by `InteractionPipeline` and `RuntimePersistence`, not the Service Manager. The manager no longer exposes `persist_trace`, `load_persisted_traces`, `load_interaction_state`, query-gap store helpers, runtime-episode store helpers, or `cognitive_signal_state`; callers use the owner module or `RuntimeFacade` for the operator-facing signal surface.
+
+Owner callbacks are not compatibility wrappers. When the composition root already has the owner module, callbacks must point directly at that owner. Delayed-consequence, source-focus, runtime-evidence, and autonomy-calibration callbacks therefore do not survive as Service Manager private methods.
+
 ### Migration strategy
 
 This migration is implemented far enough that the Service Manager is no longer a legacy mixin inheritance surface and no longer has catch-all attribute routing. RuntimeController and AutonomyPlanner moved off manager-backed owner forwarders, the remaining owner-forwarded modules have been converted to explicit dependency objects or constructor callbacks, and broad manager facade delegates are now explicit named methods rather than import-time installed wrappers. Remaining compatibility work should continue by moving mixin-named implementation modules to domain-named modules where import compatibility allows.

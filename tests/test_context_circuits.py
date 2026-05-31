@@ -7,9 +7,11 @@ import unittest
 import torch
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.core.context import BindingLayer, ContextLayer
+from hecsn.core.binding import BindingLayer
+from hecsn.core.context import ContextLayer
 from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 class ContextCircuitTests(unittest.TestCase):

@@ -328,7 +328,7 @@ class TestSpatialBindingConfig:
 
     def test_model_creates_spatial_binding(self):
         from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.trainer import HECSNModel
+        from hecsn.training.model import HECSNModel
         cfg = HECSNConfig(
             n_columns=16, enable_binding_layer=True,
             enable_context_layer=True, binding_mode="spatial",
@@ -342,8 +342,8 @@ class TestSpatialBindingConfig:
 
     def test_model_creates_dense_binding(self):
         from hecsn.config.model_config import HECSNConfig
-        from hecsn.core.context import BindingLayer
-        from hecsn.training.trainer import HECSNModel
+        from hecsn.core.binding import BindingLayer
+        from hecsn.training.model import HECSNModel
         cfg = HECSNConfig(
             n_columns=16, enable_binding_layer=True,
             enable_context_layer=True, binding_mode="dense",
@@ -366,7 +366,8 @@ class TestWinnerHistoryPerToken:
             _build_concept_signatures,
             _train_multimodal_on_corpus,
         )
-        from hecsn.training.trainer import HECSNModel, HECSNTrainer
+        from hecsn.training.model import HECSNModel
+        from hecsn.training.trainer import HECSNTrainer
 
         cfg = HECSNConfig(n_columns=8, enable_cross_modal=True)
         model = HECSNModel(cfg)
@@ -389,7 +390,7 @@ class TestWinnerHistoryPerToken:
         assert len(winners) == tok
         assert all(0 <= w < cfg.n_columns for w in winners)
 
-    def test_winner_accumulator_none_backward_compat(self):
+    def test_winner_accumulator_none_uses_default_path(self):
         """Passing None for winner_accumulator still works."""
         from hecsn.config.model_config import HECSNConfig
         from hecsn.data.rtf_encoder import RTFEncoder
@@ -398,7 +399,8 @@ class TestWinnerHistoryPerToken:
             _build_concept_signatures,
             _train_multimodal_on_corpus,
         )
-        from hecsn.training.trainer import HECSNModel, HECSNTrainer
+        from hecsn.training.model import HECSNModel
+        from hecsn.training.trainer import HECSNTrainer
 
         cfg = HECSNConfig(n_columns=8, enable_cross_modal=True)
         model = HECSNModel(cfg)

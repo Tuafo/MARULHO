@@ -42,6 +42,13 @@ from .schemas import (
     RuntimeFeedbackRequest,
     RuntimeFeedbackResponse,
     RuntimeTraceExportResponse,
+    SNNLanguageHeldoutEvaluationRequest,
+    SNNLanguageTrainingReadinessRequest,
+    SNNLanguageSequenceMismatchRequest,
+    SNNLanguageSequencePredictionRequest,
+    SNNLanguageTrainerDryRunRequest,
+    SNNLanguageTrainerEvaluationRequest,
+    StructuralPlasticityIsolatedEvaluationRequest,
     StatusResponse,
     TerminusConfigureRequest,
     TerminusRuntimeResponse,
@@ -281,6 +288,74 @@ def create_app(
     def terminus_snn_language_readiness() -> dict[str, Any]:
         return runtime.snn_language_readiness_surface()
 
+    @app.get("/terminus/snn-language-evaluation")
+    def terminus_snn_language_evaluation() -> dict[str, Any]:
+        return runtime.snn_language_evaluation_surface()
+
+    @app.post("/terminus/snn-language-evaluation/heldout")
+    def terminus_snn_language_heldout_evaluation(request: SNNLanguageHeldoutEvaluationRequest) -> dict[str, Any]:
+        return runtime.snn_language_adapter_heldout_evaluation(
+            heldout_readout_slot_batches=[
+                [_model_to_dict(slot) for slot in batch]
+                for batch in request.heldout_readout_slot_batches
+            ],
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-training/readiness")
+    def terminus_snn_language_training_readiness(request: SNNLanguageTrainingReadinessRequest) -> dict[str, Any]:
+        return runtime.snn_language_training_readiness(
+            heldout_evaluation=request.heldout_evaluation,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-training/dry-run")
+    def terminus_snn_language_training_dry_run(request: SNNLanguageTrainerDryRunRequest) -> dict[str, Any]:
+        return runtime.snn_language_trainer_dry_run(
+            training_readout_slot_batches=[
+                [_model_to_dict(slot) for slot in batch]
+                for batch in request.training_readout_slot_batches
+            ],
+            validation_readout_slot_batches=[
+                [_model_to_dict(slot) for slot in batch]
+                for batch in request.validation_readout_slot_batches
+            ],
+            device_evidence=request.device_evidence,
+            learning_rate=request.learning_rate,
+            epochs=request.epochs,
+        )
+
+    @app.post("/terminus/snn-language-training/evaluate")
+    def terminus_snn_language_training_evaluation(request: SNNLanguageTrainerEvaluationRequest) -> dict[str, Any]:
+        return runtime.snn_language_trainer_isolated_evaluation(
+            dry_run_report=request.dry_run_report,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/predict")
+    def terminus_snn_language_sequence_prediction(request: SNNLanguageSequencePredictionRequest) -> dict[str, Any]:
+        return runtime.snn_language_sequence_prediction_probe(
+            training_readout_slot_batches=[
+                [_model_to_dict(slot) for slot in batch]
+                for batch in request.training_readout_slot_batches
+            ],
+            current_readout_slots=[_model_to_dict(slot) for slot in request.current_readout_slots],
+            device_evidence=request.device_evidence,
+            learning_rate=request.learning_rate,
+            epochs=request.epochs,
+            top_k=request.top_k,
+        )
+
+    @app.post("/terminus/snn-language-sequence/mismatch")
+    def terminus_snn_language_sequence_mismatch(request: SNNLanguageSequenceMismatchRequest) -> dict[str, Any]:
+        return runtime.snn_language_sequence_mismatch_probe(
+            prediction_report=request.prediction_report,
+            observed_readout_slots=[_model_to_dict(slot) for slot in request.observed_readout_slots],
+            device_evidence=request.device_evidence,
+        )
+
     @app.get("/terminus/subcortical-self-repair")
     def terminus_subcortical_self_repair() -> dict[str, Any]:
         return runtime.subcortical_self_repair_surface()
@@ -292,6 +367,16 @@ def create_app(
     @app.get("/terminus/subcortical-structural-plasticity")
     def terminus_subcortical_structural_plasticity() -> dict[str, Any]:
         return runtime.subcortical_structural_plasticity_surface()
+
+    @app.post("/terminus/subcortical-structural-plasticity/evaluate")
+    def terminus_subcortical_structural_plasticity_evaluation(
+        request: StructuralPlasticityIsolatedEvaluationRequest,
+    ) -> dict[str, Any]:
+        return runtime.subcortical_structural_plasticity_isolated_evaluation(
+            pre_snapshot=request.pre_snapshot,
+            post_snapshot=request.post_snapshot,
+            rollback_policy=request.rollback_policy,
+        )
 
     @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)
     def terminus_replay_plan(limit: int = Query(20, ge=1, le=50)) -> ReplayPlanResponse:

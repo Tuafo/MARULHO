@@ -14,7 +14,8 @@ from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.reporting.io import write_json_file
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def mean_reconstruction_error(trainer: HECSNTrainer, patterns: List[torch.Tensor]) -> float:

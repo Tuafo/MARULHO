@@ -27,7 +27,8 @@ from hecsn.service.living_loop_self_model import (
 )
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _build_checkpoint(root: Path) -> Path:

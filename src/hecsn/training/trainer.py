@@ -18,7 +18,7 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.core.context import AdaptiveContextLayer
 from hecsn.data.base_encoder import BaseEncoder
 from hecsn.data.encoder_factory import build_encoder
-from hecsn.training.model import HECSNModel  # noqa: F401 -- re-exported for backwards compat
+from hecsn.training.model import HECSNModel
 from hecsn.training.bootstrap import PredictiveBootstrap
 
 
@@ -95,8 +95,6 @@ class HECSNTrainer:
         self._stage2_bootstrap_budget: int = 50
         self._stage2_bootstrap_used_visual: int = 0
         self._stage2_bootstrap_used_audio: int = 0
-        # Legacy alias kept for checkpoint backward compat
-        self._stage2_bootstrap_used: int = 0
 
         # HNSW update buffer — flush every N steps to amortize add() overhead
         self._hnsw_buffer_ids: list[int] = []

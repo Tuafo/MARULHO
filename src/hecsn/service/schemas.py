@@ -200,6 +200,75 @@ class RuntimeFeedbackRequest(BaseModel):
     evaluator_id: str | None = Field(None, max_length=160)
 
 
+class SNNLanguageHeldoutReadoutSlot(BaseModel):
+    label: str = Field(..., min_length=1, max_length=200)
+    pressure_band: Literal["low", "medium", "high"] = "low"
+    grounded: bool = True
+    slot_id: str | None = Field(None, max_length=160)
+
+
+class SNNLanguageHeldoutEvaluationRequest(BaseModel):
+    heldout_readout_slot_batches: list[list[SNNLanguageHeldoutReadoutSlot]] = Field(
+        ...,
+        min_length=1,
+        max_length=16,
+    )
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageTrainingReadinessRequest(BaseModel):
+    heldout_evaluation: dict[str, Any] = Field(..., min_length=1)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageTrainerDryRunRequest(BaseModel):
+    training_readout_slot_batches: list[list[SNNLanguageHeldoutReadoutSlot]] = Field(
+        ...,
+        min_length=2,
+        max_length=32,
+    )
+    validation_readout_slot_batches: list[list[SNNLanguageHeldoutReadoutSlot]] = Field(
+        ...,
+        min_length=2,
+        max_length=32,
+    )
+    device_evidence: dict[str, Any] | None = None
+    learning_rate: float = Field(0.08, ge=0.0, le=1.0)
+    epochs: int = Field(2, ge=1, le=8)
+
+
+class SNNLanguageTrainerEvaluationRequest(BaseModel):
+    dry_run_report: dict[str, Any] = Field(..., min_length=1)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageSequencePredictionRequest(BaseModel):
+    training_readout_slot_batches: list[list[SNNLanguageHeldoutReadoutSlot]] = Field(
+        ...,
+        min_length=2,
+        max_length=32,
+    )
+    current_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=16)
+    device_evidence: dict[str, Any] | None = None
+    learning_rate: float = Field(0.08, ge=0.0, le=1.0)
+    epochs: int = Field(2, ge=1, le=8)
+    top_k: int = Field(8, ge=1, le=16)
+
+
+class SNNLanguageSequenceMismatchRequest(BaseModel):
+    prediction_report: dict[str, Any] = Field(..., min_length=1)
+    observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=16)
+    device_evidence: dict[str, Any] | None = None
+
+
+class StructuralPlasticityIsolatedEvaluationRequest(BaseModel):
+    pre_snapshot: dict[str, Any] = Field(..., min_length=1)
+    post_snapshot: dict[str, Any] = Field(..., min_length=1)
+    rollback_policy: dict[str, Any] | None = None
+
+
 class CheckpointSaveRequest(BaseModel):
     path: str | None = None
 

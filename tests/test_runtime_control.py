@@ -11,7 +11,8 @@ from hecsn.config.model_config import HECSNConfig
 from hecsn.service.manager import HECSNServiceManager
 from hecsn.service.runtime_control import RuntimeControl
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:

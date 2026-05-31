@@ -19,7 +19,8 @@ from hecsn.service.api import DEFAULT_WEB_DIST_DIR, create_app
 from hecsn.service.server import build_arg_parser
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _build_checkpoint(root: Path, *, test_case: str) -> Path:
@@ -173,6 +174,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("hecsn_spike_decoder_probe_sparse", status_language_gate)
         self.assertIn("hecsn_spike_decoder_probe_device_evidence_available", status_language_gate)
         self.assertIn("hecsn_spike_decoder_probe_grounding_supported", status_language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_available", status_language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_owned", status_language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_sparse", status_language_gate)
+        self.assertIn("hecsn_spike_language_neuron_adapter_dynamic", status_language_gate)
         self.assertEqual(
             terminus_language_gate["hecsn_spike_readout_evidence_available"],
             status_language_gate["hecsn_spike_readout_evidence_available"],
@@ -197,31 +202,186 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 language_response = client.get("/terminus/subcortical-language")
                 deliberation_response = client.get("/terminus/subcortical-deliberation")
                 readiness_response = client.get("/terminus/snn-language-readiness")
+                evaluation_response = client.get("/terminus/snn-language-evaluation")
+                heldout_response = client.post(
+                    "/terminus/snn-language-evaluation/heldout",
+                    json={
+                        "heldout_readout_slot_batches": [
+                            [
+                                {
+                                    "label": "prediction error",
+                                    "pressure_band": "high",
+                                    "grounded": True,
+                                },
+                                {
+                                    "label": "concept focus",
+                                    "pressure_band": "medium",
+                                    "grounded": True,
+                                },
+                            ]
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                    },
+                )
+                training_readiness_response = client.post(
+                    "/terminus/snn-language-training/readiness",
+                    json={
+                        "heldout_evaluation": heldout_response.json(),
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-language-training"},
+                    },
+                )
+                trainer_dry_run_response = client.post(
+                    "/terminus/snn-language-training/dry-run",
+                    json={
+                        "training_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "validation_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "learning_rate": 0.1,
+                        "epochs": 2,
+                    },
+                )
+                trainer_evaluation_response = client.post(
+                    "/terminus/snn-language-training/evaluate",
+                    json={
+                        "dry_run_report": trainer_dry_run_response.json(),
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-trainer-eval"},
+                    },
+                )
+                sequence_prediction_response = client.post(
+                    "/terminus/snn-language-sequence/predict",
+                    json={
+                        "training_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "current_readout_slots": [
+                            {"label": "concept focus", "pressure_band": "medium", "grounded": True}
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "top_k": 4,
+                    },
+                )
+                sequence_mismatch_response = client.post(
+                    "/terminus/snn-language-sequence/mismatch",
+                    json={
+                        "prediction_report": sequence_prediction_response.json(),
+                        "observed_readout_slots": [
+                            {"label": "memory pressure", "pressure_band": "medium", "grounded": True}
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(signal_response.status_code, 200)
         self.assertEqual(language_response.status_code, 200)
         self.assertEqual(deliberation_response.status_code, 200)
         self.assertEqual(readiness_response.status_code, 200)
+        self.assertEqual(evaluation_response.status_code, 200)
+        self.assertEqual(heldout_response.status_code, 200)
+        self.assertEqual(training_readiness_response.status_code, 200)
+        self.assertEqual(trainer_dry_run_response.status_code, 200)
+        self.assertEqual(trainer_evaluation_response.status_code, 200)
+        self.assertEqual(sequence_prediction_response.status_code, 200)
+        self.assertEqual(sequence_mismatch_response.status_code, 200)
         signal = signal_response.json()
         language = language_response.json()
         deliberation = deliberation_response.json()
         readiness = readiness_response.json()
+        evaluation = evaluation_response.json()
+        heldout = heldout_response.json()
+        training_readiness = training_readiness_response.json()
+        trainer_dry_run = trainer_dry_run_response.json()
+        trainer_evaluation = trainer_evaluation_response.json()
+        sequence_prediction = sequence_prediction_response.json()
+        sequence_mismatch = sequence_mismatch_response.json()
         self.assertEqual(signal["subcortical_language"]["surface"], "subcortical_language.v1")
         self.assertEqual(signal["subcortical_deliberation"]["surface"], "subcortical_control_candidates.v1")
         self.assertEqual(language["surface"], "subcortical_language.v1")
         self.assertEqual(deliberation["surface"], "subcortical_control_candidates.v1")
         self.assertEqual(readiness["surface"], "snn_native_language_readiness.v1")
         self.assertEqual(readiness["artifact_kind"], "terminus_snn_native_language_readiness_gate")
+        self.assertEqual(evaluation["surface"], "snn_language_adapter_evaluation.v1")
+        self.assertEqual(evaluation["artifact_kind"], "terminus_snn_language_adapter_evaluation_gate")
+        self.assertEqual(heldout["surface"], "snn_language_adapter_heldout_evaluation.v1")
+        self.assertEqual(heldout["artifact_kind"], "terminus_snn_language_adapter_heldout_evaluation")
+        self.assertEqual(training_readiness["surface"], "snn_language_training_readiness.v1")
+        self.assertEqual(
+            training_readiness["artifact_kind"],
+            "terminus_snn_language_training_readiness_gate",
+        )
+        self.assertEqual(trainer_dry_run["surface"], "snn_language_trainer_dry_run.v1")
+        self.assertEqual(trainer_dry_run["artifact_kind"], "terminus_snn_language_trainer_dry_run")
+        self.assertEqual(trainer_evaluation["surface"], "snn_language_trainer_isolated_evaluation.v1")
+        self.assertEqual(
+            trainer_evaluation["artifact_kind"],
+            "terminus_snn_language_trainer_isolated_evaluation",
+        )
+        self.assertEqual(sequence_prediction["surface"], "snn_language_sequence_prediction_probe.v1")
+        self.assertEqual(
+            sequence_prediction["artifact_kind"],
+            "terminus_snn_language_sequence_prediction_probe",
+        )
+        self.assertEqual(sequence_mismatch["surface"], "snn_language_sequence_mismatch_probe.v1")
+        self.assertEqual(
+            sequence_mismatch["artifact_kind"],
+            "terminus_snn_language_sequence_mismatch_probe",
+        )
         self.assertTrue(language["grounded"])
         self.assertTrue(deliberation["grounded"])
         self.assertTrue(readiness["grounded"])
+        self.assertTrue(evaluation["grounded"])
         self.assertNotIn("retired_runtime_dependency", language)
         self.assertNotIn("retired_runtime_dependency", deliberation)
         self.assertNotIn("retired_runtime_dependency", readiness)
+        self.assertNotIn("retired_runtime_dependency", evaluation)
+        self.assertNotIn("retired_runtime_dependency", heldout)
+        self.assertNotIn("retired_runtime_dependency", training_readiness)
+        self.assertNotIn("retired_runtime_dependency", trainer_dry_run)
+        self.assertNotIn("retired_runtime_dependency", trainer_evaluation)
+        self.assertNotIn("retired_runtime_dependency", sequence_prediction)
+        self.assertNotIn("retired_runtime_dependency", sequence_mismatch)
         self.assertFalse(readiness["executable"])
         self.assertFalse(readiness["mutates_runtime_state"])
         self.assertFalse(readiness["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertFalse(evaluation["executable"])
+        self.assertFalse(evaluation["mutates_runtime_state"])
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertFalse(heldout["generates_text"])
+        self.assertFalse(heldout["trains"])
+        self.assertFalse(heldout["mutates_runtime_state"])
+        self.assertFalse(training_readiness["executable"])
+        self.assertFalse(training_readiness["mutates_runtime_state"])
+        self.assertFalse(training_readiness["promotion_gate"]["eligible_for_training"])
+        self.assertTrue(training_readiness["promotion_gate"]["eligible_for_training_loop_design"])
+        self.assertFalse(trainer_dry_run["generates_text"])
+        self.assertFalse(trainer_dry_run["trains_runtime_model"])
+        self.assertFalse(trainer_dry_run["returns_trained_weights"])
+        self.assertFalse(trainer_dry_run["mutates_runtime_state"])
+        self.assertFalse(trainer_evaluation["generates_text"])
+        self.assertFalse(trainer_evaluation["trains_runtime_model"])
+        self.assertFalse(trainer_evaluation["promotes_runtime_trainer"])
+        self.assertFalse(trainer_evaluation["mutates_runtime_state"])
+        self.assertFalse(sequence_prediction["generates_text"])
+        self.assertFalse(sequence_prediction["decodes_text"])
+        self.assertFalse(sequence_prediction["trains_runtime_model"])
+        self.assertFalse(sequence_prediction["returns_trained_weights"])
+        self.assertFalse(sequence_prediction["mutates_runtime_state"])
+        self.assertFalse(sequence_mismatch["generates_text"])
+        self.assertFalse(sequence_mismatch["decodes_text"])
+        self.assertFalse(sequence_mismatch["trains_runtime_model"])
+        self.assertFalse(sequence_mismatch["mutates_runtime_state"])
         self.assertEqual(
             readiness["current_spike_readout_evidence"]["surface"],
             "subcortical_spike_readout_evidence.v1",
@@ -237,6 +397,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("mean_sparsity", readiness["current_decoder_probe_evidence"])
         self.assertIn("grounded_slot_count", readiness["current_decoder_probe_evidence"])
         self.assertEqual(
+            readiness["current_language_neuron_adapter_evidence"]["surface"],
+            "snn_language_neuron_adapter_evidence.v1",
+        )
+        self.assertFalse(readiness["current_language_neuron_adapter_evidence"]["generates_text"])
+        self.assertFalse(readiness["current_language_neuron_adapter_evidence"]["executable"])
+        self.assertIn("active_spike_count", readiness["current_language_neuron_adapter_evidence"])
+        self.assertIn("activation_sparsity", readiness["current_language_neuron_adapter_evidence"])
+        self.assertEqual(
             [candidate["name"] for candidate in readiness["research_candidates"]],
             ["NeuronSpark", "Nord-AI"],
         )
@@ -249,6 +417,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             readiness["research_candidates"][0]["required_local_evidence"],
         )
         self.assertIn("hecsn_native_snn_decoder", readiness["research_candidates"][0]["required_local_evidence"])
+        self.assertEqual(evaluation["evaluation_cases"][0]["target"], "spike_language_neuron_adapter")
+        self.assertIn("adapter_activation_sparsity_delta", evaluation["success_evidence"])
+        self.assertEqual(heldout["heldout_summary"]["case_count"], 1)
+        self.assertGreater(heldout["adapter_delta"]["mean_active_spike_count"], 0.0)
 
     def test_subcortical_self_repair_endpoint_is_gate_artifact_not_replay_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -338,12 +510,56 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
                 response = client.get("/terminus/subcortical-structural-plasticity")
+                evaluation_response = client.post(
+                    "/terminus/subcortical-structural-plasticity/evaluate",
+                    json={
+                        "pre_snapshot": {
+                            "binding_topology": {
+                                "edges_added_total": 1,
+                                "edges_removed_total": 0,
+                                "growth_events": 1,
+                                "prune_events": 0,
+                            },
+                            "device_evidence": {
+                                "binding_devices": {"binding_state_device": "cuda:0"},
+                                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+                            },
+                            "spike_health": {
+                                "silent_fraction": 0.20,
+                                "saturated_fraction": 0.05,
+                                "stale_fraction": 0.25,
+                            },
+                            "runtime_truth": {"verdict": "degraded"},
+                        },
+                        "post_snapshot": {
+                            "binding_topology": {
+                                "edges_added_total": 2,
+                                "edges_removed_total": 1,
+                                "growth_events": 2,
+                                "prune_events": 1,
+                            },
+                            "device_evidence": {
+                                "binding_devices": {"binding_state_device": "cuda:0"},
+                                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+                            },
+                            "spike_health": {
+                                "silent_fraction": 0.10,
+                                "saturated_fraction": 0.02,
+                                "stale_fraction": 0.20,
+                            },
+                            "runtime_truth": {"verdict": "alive"},
+                        },
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-structural-eval"},
+                    },
+                )
                 after_revision = runtime.status()["state_revision"]
                 after_history = runtime.action_history()["count"]
             app.state.hecsn_manager.close()
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(evaluation_response.status_code, 200)
         body = response.json()
+        evaluation = evaluation_response.json()
         self.assertEqual(body["schema_version"], 1)
         self.assertEqual(body["artifact_kind"], "terminus_subcortical_structural_plasticity_gate_plan")
         self.assertEqual(body["surface"], "subcortical_structural_plasticity.v1")
@@ -368,6 +584,16 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIn("local_plasticity_stability_delta", body["success_evidence"])
         self.assertNotIn("suggested_endpoint", body["structural_cases"][0])
         self.assertNotIn("suggested_input", body["structural_cases"][0])
+        self.assertEqual(
+            evaluation["artifact_kind"],
+            "terminus_subcortical_structural_plasticity_isolated_evaluation",
+        )
+        self.assertEqual(evaluation["surface"], "subcortical_structural_plasticity_isolated_evaluation.v1")
+        self.assertFalse(evaluation["executable"])
+        self.assertFalse(evaluation["mutates_runtime_state"])
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertEqual(evaluation["promotion_gate"]["status"], "ready_for_operator_review")
+        self.assertEqual(evaluation["structural_delta"]["edges_added_delta"], 1)
         self.assertEqual(before_revision, after_revision)
         self.assertEqual(before_history, after_history)
 

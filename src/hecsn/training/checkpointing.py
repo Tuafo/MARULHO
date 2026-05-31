@@ -10,7 +10,8 @@ import numpy as np
 import torch
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _clone_optional_tensor(value: Any) -> torch.Tensor | None:
@@ -131,7 +132,6 @@ def save_trainer_checkpoint(path: str | Path, trainer: HECSNTrainer, metadata: d
             "last_network_reset_token": int(trainer.last_network_reset_token),
             "developmental_stage": int(trainer.developmental_stage),
             "stage2_bootstrap_budget": int(trainer._stage2_bootstrap_budget),
-            "stage2_bootstrap_used": int(trainer._stage2_bootstrap_used_visual + trainer._stage2_bootstrap_used_audio),
             "stage2_bootstrap_used_visual": int(trainer._stage2_bootstrap_used_visual),
             "stage2_bootstrap_used_audio": int(trainer._stage2_bootstrap_used_audio),
             "column_anchors": {
@@ -197,7 +197,6 @@ def load_trainer_checkpoint(path: str | Path) -> tuple[HECSNTrainer, dict[str, A
     trainer._stage2_bootstrap_budget = int(trainer_snapshot.get("stage2_bootstrap_budget", 50))
     trainer._stage2_bootstrap_used_visual = int(trainer_snapshot.get("stage2_bootstrap_used_visual", 0))
     trainer._stage2_bootstrap_used_audio = int(trainer_snapshot.get("stage2_bootstrap_used_audio", 0))
-    trainer._stage2_bootstrap_used = trainer._stage2_bootstrap_used_visual + trainer._stage2_bootstrap_used_audio
     trainer.column_anchors = {
         int(key): {
             "prototype": value["prototype"].detach().clone().to(trainer.model.device),

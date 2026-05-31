@@ -52,6 +52,27 @@ class RuntimeFacade:
     def snn_language_readiness_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_readiness_surface()
 
+    def snn_language_evaluation_surface(self) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_evaluation_surface()
+
+    def snn_language_adapter_heldout_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_adapter_heldout_evaluation(**kwargs)
+
+    def snn_language_training_readiness(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_training_readiness(**kwargs)
+
+    def snn_language_trainer_dry_run(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_trainer_dry_run(**kwargs)
+
+    def snn_language_trainer_isolated_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_trainer_isolated_evaluation(**kwargs)
+
+    def snn_language_sequence_prediction_probe(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_sequence_prediction_probe(**kwargs)
+
+    def snn_language_sequence_mismatch_probe(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_sequence_mismatch_probe(**kwargs)
+
     def subcortical_self_repair_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_self_repair_surface()
 
@@ -60,6 +81,9 @@ class RuntimeFacade:
 
     def subcortical_structural_plasticity_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_structural_plasticity_surface()
+
+    def subcortical_structural_plasticity_isolated_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_structural_plasticity_isolated_evaluation(**kwargs)
 
     def checkpoint_list(self) -> list[dict[str, Any]]:
         return self._root._runtime_persistence.checkpoint_list()

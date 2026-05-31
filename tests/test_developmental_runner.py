@@ -387,7 +387,8 @@ class TestTextOnlyControl(unittest.TestCase):
         from hecsn.data.rtf_encoder import RTFEncoder
         from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
         from hecsn.training.runner_utils import set_seed
-        from hecsn.training.trainer import HECSNModel, HECSNTrainer
+        from hecsn.training.model import HECSNModel
+        from hecsn.training.trainer import HECSNTrainer
 
         set_seed(42)
         cfg = HECSNConfig()

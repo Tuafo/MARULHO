@@ -29,7 +29,8 @@ from hecsn.data.dataset_adapters import (
 from hecsn.data.event_camera_encoder import EventCameraEncoder
 from hecsn.data.rtf_encoder import RTFEncoder
 from hecsn.training.developmental_runner import _train_on_real_digits
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 # ---------------------------------------------------------------------------

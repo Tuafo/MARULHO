@@ -32,9 +32,12 @@ class SpikeLanguageDecoderProbe:
             if isinstance(slot, Mapping)
         ]
         code = torch.zeros(self.code_dim, device=target_device)
+        recurrent_state = torch.zeros(self.code_dim, device=target_device)
+        previous_active: set[int] = set()
         labels: list[str] = []
         grounded_count = 0
         pressure_indices: list[int] = []
+        transition_count = 0
         for index, slot in enumerate(readout_slots):
             label = _text(slot.get("label"))
             if label:
@@ -43,11 +46,24 @@ class SpikeLanguageDecoderProbe:
                 grounded_count += 1
             base_index = (index * 7 + len(label)) % self.code_dim
             pressure_index = (base_index + _pressure_offset(_text(slot.get("pressure_band")))) % self.code_dim
-            code[base_index] = 1.0
-            code[pressure_index] = 1.0
+            support_index = (base_index + _label_offset(label) + (0 if bool(slot.get("grounded")) else 5)) % self.code_dim
+            input_code = torch.zeros(self.code_dim, device=target_device)
+            input_code[base_index] = 1.0
+            input_code[pressure_index] = 1.0
+            input_code[support_index] = 1.0
+            recurrent_state = torch.clamp((recurrent_state * 0.5) + input_code, min=0.0, max=1.0)
+            active_now = {
+                int(item)
+                for item in torch.nonzero(recurrent_state >= 0.75, as_tuple=False).flatten().tolist()
+            }
+            if index > 0 and active_now != previous_active:
+                transition_count += 1
+            previous_active = active_now
+            code = torch.maximum(code, (recurrent_state >= 0.75).to(code.dtype))
             pressure_indices.append(int(pressure_index))
 
         active_count = int(torch.count_nonzero(code).item())
+        active_indices = [int(item) for item in torch.nonzero(code > 0, as_tuple=False).flatten().tolist()]
         sparsity = 1.0 - (active_count / max(1, int(code.numel())))
         grounded_fraction = grounded_count / max(1, len(readout_slots))
         supported = bool(readout_slots) and grounded_fraction >= 0.5 and active_count > 0
@@ -76,6 +92,23 @@ class SpikeLanguageDecoderProbe:
                 "mean_sparsity": float(sparsity),
                 "target_min_sparsity": 0.85,
                 "meets_sparse_readout_floor": bool(sparsity >= 0.85),
+            },
+            "sparse_code_evidence": {
+                "encoding": "bounded_population_code_with_leaky_recurrent_state",
+                "active_indices": active_indices[: self.max_slots * 3],
+                "active_index_count": len(active_indices),
+                "binary_spike_code": True,
+                "returns_tensor_values": False,
+            },
+            "temporal_state_evidence": {
+                "dynamic_state_available": bool(readout_slots),
+                "state_model": "leaky_integrate_readout_probe",
+                "timestep_count": len(readout_slots),
+                "recurrent_state_dim": int(recurrent_state.numel()),
+                "active_transition_count": transition_count,
+                "has_temporal_order": bool(len(readout_slots) > 1 and transition_count > 0),
+                "state_norm": float(torch.linalg.vector_norm(recurrent_state).item()),
+                "state_device": str(recurrent_state.device),
             },
             "support_evidence": {
                 "readout_slot_count": len(readout_slots),
@@ -109,6 +142,10 @@ def _pressure_offset(pressure_band: str) -> int:
     if pressure_band == "medium":
         return 2
     return 1
+
+
+def _label_offset(label: str) -> int:
+    return (sum(ord(char) for char in label[:32]) % 11) + 1
 
 
 def _safe_tensor_device(device: str) -> torch.device:

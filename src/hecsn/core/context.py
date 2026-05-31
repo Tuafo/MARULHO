@@ -265,8 +265,8 @@ class AdaptiveContextLayer:
     Based on DH-SNN (Li et al. 2023): heterogeneous learned tau outperforms
     fixed single-timescale on every temporal benchmark tested.
 
-    API-compatible with ContextLayer: same observe(), context_prediction(),
-    modulation_gain(), state_dict(), load_state_dict().
+    Exposes the active context contract: observe(), context_prediction(),
+    modulation_gain(), state_dict(), and load_state_dict().
     """
 
     def __init__(
@@ -299,7 +299,7 @@ class AdaptiveContextLayer:
         # Context state per neuron
         self.neuron_state = torch.zeros(self.n_neurons, device=device)
 
-        # Column-space state (for API compatibility with ContextLayer)
+        # Column-space state consumed by routing and modulation reports.
         self.state = torch.zeros(self.n_columns, device=device)
 
         # Projection: column assemblies → context neurons
@@ -572,7 +572,3 @@ def create_context_layer(
         return AdaptiveContextLayer(n_columns=n_columns, device=device, **kwargs)
     return ContextLayer(n_columns=n_columns, device=device, **kwargs)
 
-
-
-# Re-export BindingLayer for backwards compatibility
-from hecsn.core.binding import BindingLayer  # noqa: E402, F401

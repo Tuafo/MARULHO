@@ -459,7 +459,6 @@ class HypercubeBindingLayer:
         self.neighbor_weights = self._base_neighbor_weights.clone()
         self.learned_weights = self.neighbor_weights.clone()
 
-        # Compatibility attributes
         self.n_bindings = n_columns
         self.fan_in = self.topology.dim
 
@@ -956,10 +955,6 @@ class HypercubeBindingLayer:
             "structural_edges_removed_total": int(self._structural_edges_removed_total),
             "structural_mutation_events": [dict(item) for item in self._structural_mutation_events],
             "topology_state": self.topology.state_dict(),
-            # Compatibility keys for BindingLayer format
-            "connectivity": torch.eye(self.n_columns),
-            "output_weights": torch.eye(self.n_columns),
-            "binding_outputs": self.coincidence_trace.detach().clone().cpu(),
         }
 
     def load_state_dict(self, snapshot: dict[str, Any]) -> None:

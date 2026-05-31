@@ -32,7 +32,8 @@ from hecsn.evaluation.grounding_probe import evaluate_grounding_probe
 from hecsn.semantics.geometric_curiosity import GeometricCuriosityController
 from hecsn.training.runner_utils import set_seed
 from hecsn.training.query_runner import feed_text
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 @dataclass
@@ -934,7 +935,7 @@ def run_stage_2(
                     association_decay=cfg.binding_association_decay,
                 )
             else:
-                from hecsn.core.context import BindingLayer
+                from hecsn.core.binding import BindingLayer
                 trainer.model.binding_layer = BindingLayer(
                     n_columns=cfg.n_columns,
                     device=trainer.model.device,
@@ -963,7 +964,6 @@ def run_stage_2(
     if state is None:
         trainer._stage2_bootstrap_used_visual = 0
         trainer._stage2_bootstrap_used_audio = 0
-        trainer._stage2_bootstrap_used = 0
 
     corpus = _build_concept_corpus()
 

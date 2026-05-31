@@ -400,6 +400,7 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "telemetry_snapshot",
             "living_loop_status",
             "policy_actuator_status",
+            "cognitive_signal_state",
             "checkpoint_list",
             "recent_traces",
             "save_checkpoint",
@@ -461,6 +462,25 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes unowned wrappers: " + ", ".join(leaked))
 
+    def test_manager_does_not_expose_interaction_or_persistence_store_wrappers(self) -> None:
+        """Persistence and interaction stores are not manager convenience APIs."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_wrappers = (
+            "persist_trace",
+            "load_persisted_traces",
+            "load_interaction_state",
+            "recent_query_gaps",
+            "record_recent_query_gap",
+            "consume_skip_next_autonomy_for_grounded_query",
+            "runtime_episode_traces",
+            "runtime_episode_trace",
+            "append_runtime_episode_trace",
+            "replace_runtime_episode_trace",
+        )
+        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes store wrappers: " + ", ".join(leaked))
+
     def test_manager_does_not_expose_runtime_source_builder_wrappers(self) -> None:
         """Runtime source stream construction belongs to RuntimeSources."""
         from hecsn.service.manager import HECSNServiceManager
@@ -473,6 +493,23 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         )
         leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes RuntimeSources wrappers: " + ", ".join(leaked))
+
+    def test_manager_does_not_expose_owner_callback_wrappers(self) -> None:
+        """Callbacks must point at owner modules instead of manager compatibility wrappers."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_wrappers = (
+            "_apply_provider_response_outcome_calibration_locked",
+            "_apply_provider_outcome_calibration_locked",
+            "_apply_delayed_query_consequence_locked",
+            "_record_response_consequence_candidate_locked",
+            "_apply_background_source_response_provenance_locked",
+            "_apply_background_source_outcome_calibration_locked",
+            "_response_grounded_outcome_score_locked",
+            "_runtime_episode_payload_locked",
+        )
+        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes owner callback wrappers: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_action_executor_delegate_wrappers(self) -> None:
         """ActionExecutor callbacks must not survive as manager compatibility methods."""

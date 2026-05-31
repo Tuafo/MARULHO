@@ -141,7 +141,8 @@ def _build_checkpoint(
 ) -> Path:
     from hecsn.config.model_config import HECSNConfig
     from hecsn.training.checkpointing import save_trainer_checkpoint
-    from hecsn.training.trainer import HECSNModel, HECSNTrainer
+    from hecsn.training.model import HECSNModel
+    from hecsn.training.trainer import HECSNTrainer
 
     cfg = HECSNConfig(
         n_columns=n_columns,

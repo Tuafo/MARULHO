@@ -18,7 +18,7 @@ from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
 from threading import RLock
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 import base64
 import hashlib
 import json
@@ -29,9 +29,17 @@ import torch
 from hecsn.semantics import (
     attach_cognitive_signal_language_surface,
     build_snn_language_readiness_surface,
+    build_snn_language_evaluation_surface,
+    build_snn_language_training_readiness_surface,
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
     build_subcortical_structural_plasticity_surface,
+    evaluate_spike_language_adapter_heldout,
+    evaluate_spike_language_sequence_mismatch,
+    evaluate_spike_language_trainer_dry_run,
+    evaluate_subcortical_structural_plasticity_isolated,
+    predict_spike_language_sequence,
+    run_spike_language_trainer_dry_run,
 )
 from hecsn.service.runtime_state import RuntimeState
 
@@ -137,6 +145,7 @@ class StatusReadModel:
         self._cached_telemetry_rev: int = -1
         self._cached_cognitive_signal_state: dict[str, Any] | None = None
         self._cached_snn_language_readiness_surface: dict[str, Any] | None = None
+        self._cached_snn_language_evaluation_surface: dict[str, Any] | None = None
         self._cached_living_loop_status: dict[str, Any] | None = None
         self._cached_policy_actuator_status: dict[str, Any] | None = None
         self._cached_subcortical_self_repair_surface: dict[str, Any] | None = None
@@ -460,6 +469,21 @@ class StatusReadModel:
             ),
             "hecsn_spike_decoder_probe_grounding_supported": bool(
                 readiness_checks.get("hecsn_spike_decoder_probe_grounding_supported")
+            ),
+            "hecsn_spike_decoder_probe_temporal_state": bool(
+                readiness_checks.get("hecsn_spike_decoder_probe_temporal_state")
+            ),
+            "hecsn_spike_language_neuron_adapter_available": bool(
+                readiness_checks.get("hecsn_spike_language_neuron_adapter_available")
+            ),
+            "hecsn_spike_language_neuron_adapter_owned": bool(
+                readiness_checks.get("hecsn_spike_language_neuron_adapter_owned")
+            ),
+            "hecsn_spike_language_neuron_adapter_sparse": bool(
+                readiness_checks.get("hecsn_spike_language_neuron_adapter_sparse")
+            ),
+            "hecsn_spike_language_neuron_adapter_dynamic": bool(
+                readiness_checks.get("hecsn_spike_language_neuron_adapter_dynamic")
             ),
         }
         return {
@@ -1052,3 +1076,206 @@ class StatusReadModel:
         )
         self._cached_snn_language_readiness_surface = result
         return result
+
+    def _snn_language_evaluation_surface(self) -> dict[str, Any]:
+        """Build a read-only SNN language-adapter evaluation artifact."""
+        return build_snn_language_evaluation_surface(
+            self.cognitive_signal_state(),
+            self._runtime_scope_report_locked(),
+        )
+
+    def snn_language_evaluation_surface(self) -> dict[str, Any]:
+        """Return isolated evaluation evidence for the local SNN language adapter."""
+        result = self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=self._cached_snn_language_evaluation_surface,
+            snapshot_fn=self._snn_language_evaluation_surface,
+        )
+        self._cached_snn_language_evaluation_surface = result
+        return result
+
+    def snn_language_adapter_heldout_evaluation(
+        self,
+        heldout_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate heldout readout slots without mutating runtime state."""
+
+        def snapshot() -> dict[str, Any]:
+            runtime_scope = self._runtime_scope_report_locked()
+            cuda_runtime = (
+                runtime_scope.get("cuda_first_runtime")
+                if isinstance(runtime_scope.get("cuda_first_runtime"), Mapping)
+                else {}
+            )
+            readout_device = device_evidence
+            if readout_device is None:
+                readout_device = {
+                    "device": cuda_runtime.get("tensor_device", "cpu"),
+                    "source": "status_read_model.runtime_scope",
+                }
+            return evaluate_spike_language_adapter_heldout(
+                heldout_readout_slot_batches,
+                readout_device,
+            )
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=snapshot,
+        )
+
+    def subcortical_structural_plasticity_isolated_evaluation(
+        self,
+        pre_snapshot: Mapping[str, Any],
+        post_snapshot: Mapping[str, Any],
+        *,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate an isolated growth/prune trial without mutating runtime state."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_subcortical_structural_plasticity_isolated(
+                pre_snapshot,
+                post_snapshot,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_training_readiness(
+        self,
+        heldout_evaluation: Mapping[str, Any],
+        *,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review whether heldout adapter evidence is ready for trainer design."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_snn_language_training_readiness_surface(
+                heldout_evaluation,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_trainer_dry_run(
+        self,
+        training_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+        validation_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        learning_rate: float = 0.08,
+        epochs: int = 2,
+    ) -> dict[str, Any]:
+        """Run isolated local SNN language trainer evidence without runtime updates."""
+
+        def snapshot() -> dict[str, Any]:
+            runtime_scope = self._runtime_scope_report_locked()
+            cuda_runtime = (
+                runtime_scope.get("cuda_first_runtime")
+                if isinstance(runtime_scope.get("cuda_first_runtime"), Mapping)
+                else {}
+            )
+            device_report = device_evidence
+            if device_report is None:
+                device_report = {
+                    "device": cuda_runtime.get("tensor_device", "cpu"),
+                    "source": "status_read_model.runtime_scope",
+                }
+            return run_spike_language_trainer_dry_run(
+                training_readout_slot_batches,
+                validation_readout_slot_batches,
+                device_report,
+                learning_rate=learning_rate,
+                epochs=epochs,
+            )
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=snapshot,
+        )
+
+    def snn_language_trainer_isolated_evaluation(
+        self,
+        dry_run_report: Mapping[str, Any],
+        *,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate dry-run trainer evidence without promoting runtime training."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_spike_language_trainer_dry_run(
+                dry_run_report,
+                runtime_truth_delta=runtime_truth_delta,
+                rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_sequence_prediction_probe(
+        self,
+        training_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+        current_readout_slots: Sequence[Mapping[str, Any]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        learning_rate: float = 0.08,
+        epochs: int = 2,
+        top_k: int = 8,
+    ) -> dict[str, Any]:
+        """Predict sparse next-code evidence without decoding text."""
+
+        def snapshot() -> dict[str, Any]:
+            runtime_scope = self._runtime_scope_report_locked()
+            cuda_runtime = (
+                runtime_scope.get("cuda_first_runtime")
+                if isinstance(runtime_scope.get("cuda_first_runtime"), Mapping)
+                else {}
+            )
+            device_report = device_evidence
+            if device_report is None:
+                device_report = {
+                    "device": cuda_runtime.get("tensor_device", "cpu"),
+                    "source": "status_read_model.runtime_scope",
+                }
+            return predict_spike_language_sequence(
+                training_readout_slot_batches,
+                current_readout_slots,
+                device_report,
+                learning_rate=learning_rate,
+                epochs=epochs,
+                top_k=top_k,
+            )
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=snapshot,
+        )
+
+    def snn_language_sequence_mismatch_probe(
+        self,
+        prediction_report: Mapping[str, Any],
+        observed_readout_slots: Sequence[Mapping[str, Any]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compare predicted and observed sparse code without learning."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_spike_language_sequence_mismatch(
+                prediction_report,
+                observed_readout_slots,
+                device_evidence,
+            ),
+        )

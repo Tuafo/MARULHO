@@ -23,7 +23,8 @@ from hecsn.semantics.grounding_text import match_terms, salient_query_terms, spl
 from hecsn.semantics.frontier import bank_gap_plan
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 class ProbeDiagnostics(TypedDict):

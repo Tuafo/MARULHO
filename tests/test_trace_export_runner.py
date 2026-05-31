@@ -20,7 +20,8 @@ from hecsn.service.replay_dataset_bundle_runner import (
 )
 from hecsn.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
 from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.trainer import HECSNModel, HECSNTrainer
+from hecsn.training.model import HECSNModel
+from hecsn.training.trainer import HECSNTrainer
 
 
 def _build_checkpoint(root: Path, *, metadata: dict | None = None) -> Path:
