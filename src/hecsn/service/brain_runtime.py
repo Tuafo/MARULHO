@@ -14,16 +14,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Event
 import re
-import sys
 import time
 from typing import Any, Callable, Iterator, Mapping, Sequence, cast
 
 import torch
 
-from hecsn.data.corpus_loader import StreamingCorpusLoader
-from hecsn.data.pattern_loader import labeled_pattern_stream
 from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.service.runtime_sources import RuntimeSources, SourceType, _BrainSourceRuntime, _SensorySourceRuntime
+from hecsn.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.training.autonomy_acquisition_runner import run_live_acquisition
 
 DEFAULT_BRAIN_TICK_TOKENS = 512
@@ -127,23 +124,16 @@ class BrainRuntimeDependencies:
     build_sensory_stream_locked: Callable[[dict[str, Any]], Iterator[Any]]
 
 
-def _manager_symbol(name: str, fallback: Any) -> Any:
-    manager_module = sys.modules.get("hecsn.service.manager")
-    if manager_module is None:
-        return fallback
-    return getattr(manager_module, name, fallback)
-
-
 def _remote_active_fetch_wait_seconds() -> float:
-    return float(_manager_symbol("DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS))
+    return float(DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS)
 
 
 def _run_live_acquisition_func() -> Any:
-    return _manager_symbol("run_live_acquisition", run_live_acquisition)
+    return run_live_acquisition
 
 
 def _source_stream_builder(owner: Any) -> Any:
-    return type(owner)._build_source_stream_from_spec
+    return RuntimeSources._build_source_stream_from_spec
 
 
 class BrainRuntime:
@@ -599,29 +589,6 @@ class BrainRuntime:
             )
             return chunk, meta
         return None, last_meta
-
-    @staticmethod
-    def _build_source_stream_from_spec(
-        spec: dict[str, Any],
-        encoder: Any,
-        window_size: int,
-    ) -> Iterator[tuple[str, "torch.Tensor"]]:
-        """Build a pattern stream without needing self._lock."""
-        source_type = str(spec.get("source_type", "auto"))
-        source_type = cast(SourceType, source_type)
-        loader = StreamingCorpusLoader(
-            source=str(spec.get("source", "")),
-            source_type=source_type,
-            text_field=str(spec.get("text_field", "text")),
-            hf_config=spec.get("hf_config"),
-        )
-        stream = labeled_pattern_stream(
-            loader.char_stream(),
-            encoder,
-            window_size,
-            learn_chunking=True,
-        )
-        return cast(Iterator[tuple[str, torch.Tensor]], RuntimeSources._wrap_remote_stream(spec, stream, is_sensory=False))
 
     @staticmethod
     def _source_text_overlap(left: str, right: str) -> float:

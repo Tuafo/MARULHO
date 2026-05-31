@@ -34,10 +34,10 @@ _RUNTIME_TRACE_EXPORT_UNSAFE_KEYS = {
 }
 
 
-class ReplayDatasetBundleMixin:
+class ReplayDatasetPackager:
     """Operator-gated replay dataset packaging helpers.
 
-    This mixin keeps dataset packaging separate from the main runtime manager.
+    This module keeps dataset packaging separate from the composition root.
     It builds preview/export artifacts only; it does not train adapters, mutate
     memory, promote facts, execute actions, start sleep, or call tools.
     """

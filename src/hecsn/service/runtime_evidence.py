@@ -61,7 +61,7 @@ _RUNTIME_TRACE_EXPORT_UNSAFE_KEYS = {
 }
 
 
-class RuntimeEvidenceMixin:
+class RuntimeEvidenceReporter:
     """Runtime trace, feedback summary, and replay dataset preview helpers.
 
     This is the learning-evidence lane: it creates sanitized audit/export

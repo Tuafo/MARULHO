@@ -76,7 +76,6 @@ src/hecsn/semantics/language_result.py
 src/hecsn/semantics/language_surface.py
 src/hecsn/semantics/spike_language_decoder.py
 src/hecsn/service/__init__.py
-src/hecsn/service/action_assist.py
 src/hecsn/service/action_executor.py
 src/hecsn/service/action_loop.py
 src/hecsn/service/api.py
@@ -103,12 +102,10 @@ src/hecsn/service/reporting.py
 src/hecsn/service/runtime_config.py
 src/hecsn/service/runtime_control.py
 src/hecsn/service/runtime_evidence.py
-src/hecsn/service/runtime_feedback.py
 src/hecsn/service/runtime_prewarm.py
 src/hecsn/service/runtime_sources.py
 src/hecsn/service/runtime_state.py
 src/hecsn/service/schemas.py
-src/hecsn/service/sensory_preview.py
 src/hecsn/service/sensory_runtime.py
 src/hecsn/service/server.py
 src/hecsn/service/source_focus.py
@@ -204,7 +201,6 @@ tests/test_responder.py
 tests/test_routing_index.py
 tests/test_runtime_config.py
 tests/test_runtime_control.py
-tests/test_runtime_feedback.py
 tests/test_runtime_persistence.py
 tests/test_runtime_sources.py
 tests/test_runtime_state.py

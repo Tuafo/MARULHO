@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from hecsn.service.terminus_autonomy import TerminusAutonomyMixin as _TerminusAutonomyMixin
+from hecsn.service.terminus_autonomy import TerminusAutonomyCore as _TerminusAutonomyCore
 
 
-class AutonomyPlanner(_TerminusAutonomyMixin):
+class AutonomyPlanner(_TerminusAutonomyCore):
     """Autonomy planner with explicit dependency access."""
 
     def __init__(self, dependencies: Any | None = None) -> None:

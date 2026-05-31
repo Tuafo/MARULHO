@@ -227,6 +227,9 @@ class ActionExecutor:
     def normalize_action_record(self, item: Any) -> dict[str, Any] | None:
         return self._normalize_action_record(item)
 
+    def action_record_relevance_score(self, record: Mapping[str, Any], query_text: str) -> float:
+        return self._action_record_relevance_score_locked(record, query_text)
+
     def recent_relevant_action_records(
         self,
         query_text: str,

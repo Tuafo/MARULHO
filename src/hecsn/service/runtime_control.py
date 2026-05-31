@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from hecsn.config.model_config import HECSNConfig
-from hecsn.service.runtime_prewarm import RuntimePrewarmMixin
+from hecsn.service.runtime_prewarm import RuntimePrewarmer
 from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
 
@@ -15,7 +15,7 @@ DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_BRAIN_SLEEP_INTERVAL_SECONDS = 0.01
 DEFAULT_BRAIN_STOP_TIMEOUT_SECONDS = 15.0
 
-_retired_runtime_logger = _logging.getLogger(__name__ + ".retired_runtime")
+_terminus_runtime_logger = _logging.getLogger(__name__ + ".terminus_runtime")
 
 def _build_runtime_control_initial_state() -> dict[str, Any]:
     active_execution_idle_event = Event()
@@ -62,7 +62,7 @@ def _build_runtime_control_initial_state() -> dict[str, Any]:
 RUNTIME_CONTROL_STATE_FIELDS = frozenset(_build_runtime_control_initial_state())
 
 
-class RuntimeControl(RuntimePrewarmMixin):
+class RuntimeControl(RuntimePrewarmer):
     """Terminus configure/start/stop/tick runtime control helpers."""
 
     def __init__(self, dependencies: Any | None = None) -> None:
@@ -357,7 +357,7 @@ class RuntimeControl(RuntimePrewarmMixin):
             )
         if raise_on_timeout:
             raise RuntimeError(message)
-        _retired_runtime_logger.warning(message)
+        _terminus_runtime_logger.warning(message)
         return False
 
     def _request_brain_stop_locked(self, *, reason: str | None = None) -> Thread | None:
@@ -538,8 +538,6 @@ _install_dependency_forwarders(RuntimeControl, (
     "_brain_source_utility",
     "_brain_stream_epoch",
     "_brain_tick_idle_locked",
-    "_build_source_stream_from_spec",
-    "_build_sensory_stream_from_spec",
     "_collect_chunk_unlocked",
     "_commit_collected_runtime_locked",
     "_commit_prefetched_sensory_runtime_locked",

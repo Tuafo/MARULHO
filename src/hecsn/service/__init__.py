@@ -6,8 +6,7 @@ Module structure:
 - runtime_state.py: Shared dirty-state, revision, and brain event container
 - status_read_model.py: Read-only projection of runtime state for status/terminus/telemetry/living-loop/policy-actuator/cognitive-signal snapshots
 - runtime_evidence.py: Sanitized traces, replay dataset preview, and evidence exports
-- runtime_feedback.py: Operator feedback normalization and application
-- action_assist.py: Query action-assist and audited action evidence injection
+- feedback_applier.py: Operator feedback normalization and application
 - action_executor.py: Digital action execution, audit summaries, and action assist
 - brain_runtime.py: Brain source rebuild, tick, source utility, autonomy, and runtime snapshots
 - delayed_consequence.py: Long-horizon consequence record state machines
@@ -25,7 +24,6 @@ Module structure:
 - source_focus.py: Text-source focus and semantic scoring with explicit dependencies
 - autonomy_planner.py: AutonomyPlanner (focus planning, provider curriculum) with explicit dependency access
 - status_runtime.py: Status, telemetry, and runtime warm-state summaries
-- sensory_preview.py: Sensory preview payload helpers; status_read_model owns the active read path
 - replay_dataset_bundle.py: Operator-approved preview-only replay dataset packaging
 - terminus_presets.py: Quick-start preset configurations
 - terminus_hf_sources.py: Recommended Hugging Face runtime sources

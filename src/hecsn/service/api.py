@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .manager import HECSNServiceManager, MAX_RUNTIME_TRACE_EXPORT_LIMIT
+from .manager import HECSNServiceManager
+from .runtime_evidence import MAX_RUNTIME_TRACE_EXPORT_LIMIT
 from .runtime_control import RuntimeControl
 from .schemas import (
     ActionHistoryResponse,

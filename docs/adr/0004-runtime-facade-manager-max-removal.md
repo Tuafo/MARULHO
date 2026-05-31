@@ -7,7 +7,7 @@ Accepted
 ## Context
 
 ADR 0003 dissolved the Service Manager God class into deep modules, but the
-manager still exposed a broad compatibility surface. FastAPI routes, runners,
+manager still exposed a broad pass-through surface. FastAPI routes, runners,
 and tests could call `HECSNServiceManager` as though it still owned runtime
 behaviour. That made the manager interface shallow: many methods only forwarded
 to the module that actually owned the behaviour.
@@ -19,8 +19,8 @@ The remaining manager methods fall into two groups:
 2. **Internal dependency callbacks** used by existing deep modules while they
    are still being converted away from manager-shaped dependencies.
 
-Deleting both groups at once would conflate HTTP compatibility, runner
-compatibility, and deep-module dependency cleanup.
+Deleting both groups at once would conflate HTTP contract preservation,
+runner migration, and deep-module dependency cleanup.
 
 ## Decision
 
@@ -31,13 +31,15 @@ Introduce `RuntimeFacade` as the single operator-facing runtime interface.
 - FastAPI routes and export runners call `RuntimeFacade`, not manager runtime
   pass-through methods.
 - `RuntimeFacade` delegates to the owning deep module where one exists.
-- Legacy replay-dataset and trace-export behaviour remains behind explicit
-  calls to the remaining mixin-shaped modules until those modules are deepened.
-  Operator interaction and acquisition now route through `OperatorInteractionRuntime`,
-  not the former interaction mixin module.
+- Replay-dataset and trace-export behaviour route through domain-named helper
+  modules. Operator interaction and acquisition now route through
+  `OperatorInteractionRuntime`, not the former interaction mixin module.
 - Internal manager callback hooks may remain only when they are consumed by
-  explicit constructor dependencies or state-property compatibility inside the
-  current deep modules. They are not the operator-facing runtime interface.
+  explicit constructor dependencies or state-property bridges inside the current
+  deep modules. They are not the operator-facing runtime interface, and they are
+  removed once the consuming module can call its real owner directly. Runtime
+  stream construction is no longer one of those hooks; it belongs to
+  `RuntimeSources`.
 
 ## Consequences
 
@@ -51,8 +53,8 @@ Introduce `RuntimeFacade` as the single operator-facing runtime interface.
 
 ### Negative
 
-- `RuntimeFacade` temporarily knows about a few mixin-shaped implementation
-  modules for trace export and replay dataset packaging.
+- `RuntimeFacade` still knows about trace export and replay dataset packaging
+  helpers until those helpers receive narrower constructor dependencies.
 - Some internal manager callback hooks remain until RuntimeControl,
   BrainRuntime, the retired runtime path state holder, RuntimePersistence, and related modules move
   to narrower dependency objects.

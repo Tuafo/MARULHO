@@ -5,7 +5,7 @@ from typing import Any
 import torch
 
 
-class ServiceReportingMixin:
+class ServiceReporter:
     """Architecture and grounding-probe reporting helpers."""
 
     def architecture_summary(self) -> dict[str, Any]:

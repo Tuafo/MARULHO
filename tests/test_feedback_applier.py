@@ -52,6 +52,14 @@ class _FeedbackInteractionPipeline:
         return None
 
 
+class _FeedbackEventSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def record(self, event: Any) -> None:
+        self.events.append(deepcopy(dict(event)))
+
+
 def _build_action_store(root: Path, action_history: list[dict[str, Any]]) -> ActionExecutor:
     runtime_state = _FeedbackRuntimeState()
     return ActionExecutor(
@@ -72,40 +80,42 @@ class FeedbackApplierTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             runtime_state = _FeedbackRuntimeState()
+            event_sink = _FeedbackEventSink()
+            runtime_episode_store = _FeedbackInteractionPipeline(
+                [
+                    {
+                        "episode_id": "episode-1",
+                        "trace_id": "trace-1",
+                        "operation": "query",
+                        "status": "succeeded",
+                        "created_at": "2026-05-09T00:00:00+00:00",
+                        "request": {"query_text": "cats chase mice"},
+                        "prediction": {"predicted_output": "query"},
+                        "action": {"action_type": "query"},
+                        "actual_output": {"summary": "Retrieved memory evidence."},
+                        "verification": {
+                            "status": "verified",
+                            "success": True,
+                            "confidence": 0.61,
+                            "contradiction": False,
+                            "summary": "Original runtime episode verdict.",
+                            "provenance": "observed",
+                            "last_feedback_id": "",
+                            "last_feedback_at": "",
+                            "feedback_count": 0,
+                        },
+                        "feedback": [],
+                        "provenance": "observed",
+                    }
+                ]
+            )
             applier = FeedbackApplier(
                 lock=RLock(),
-                runtime_episode_store=_FeedbackInteractionPipeline(
-                    [
-                        {
-                            "episode_id": "episode-1",
-                            "trace_id": "trace-1",
-                            "operation": "query",
-                            "status": "succeeded",
-                            "created_at": "2026-05-09T00:00:00+00:00",
-                            "request": {"query_text": "cats chase mice"},
-                            "prediction": {"predicted_output": "query"},
-                            "action": {"action_type": "query"},
-                            "actual_output": {"summary": "Retrieved memory evidence."},
-                            "verification": {
-                                "status": "verified",
-                                "success": True,
-                                "confidence": 0.61,
-                                "contradiction": False,
-                                "summary": "Original runtime episode verdict.",
-                                "provenance": "observed",
-                                "last_feedback_id": "",
-                                "last_feedback_at": "",
-                                "feedback_count": 0,
-                            },
-                            "feedback": [],
-                            "provenance": "observed",
-                        }
-                    ]
-                ),
+                runtime_episode_store=runtime_episode_store,
                 action_store=_build_action_store(root, []),
                 runtime_state_mark_mutated_fn=runtime_state.mark_mutated,
                 runtime_state_mutation_summary_fn=runtime_state.mutation_summary,
-                record_brain_event_fn=lambda _event: None,
+                record_brain_event_fn=event_sink.record,
                 brain_runtime_snapshot_fn=lambda: {"runtime": "snapshot", "state_revision": runtime_state.state_revision},
                 runtime_trace_export_safe_value_fn=deepcopy,
             )
@@ -127,6 +137,9 @@ class FeedbackApplierTests(unittest.TestCase):
             self.assertTrue(feedback["accepted"])
             self.assertTrue(feedback["dirty_state"])
             self.assertEqual(feedback["state_revision"], 8)
+            self.assertEqual(runtime_state.mark_mutated_calls, 1)
+            self.assertEqual(runtime_episode_store.read_calls, ["episode-1"])
+            self.assertEqual(runtime_episode_store.replace_calls[0]["episode_id"], "episode-1")
             self.assertEqual(feedback["feedback"]["applied_status"], "contradicted")
             self.assertEqual(feedback["target"]["verification"]["status"], "contradicted")
             self.assertEqual(feedback["target"]["verification"]["provenance"], "contradicted")
@@ -139,6 +152,12 @@ class FeedbackApplierTests(unittest.TestCase):
                 feedback["target"]["corrected_output"]["summary"],
                 "The feed text mentioned cats and mice.",
             )
+            self.assertEqual(
+                runtime_episode_store.episodes[0]["feedback"][0]["summary"],
+                "Operator corrected the feed trace outcome.",
+            )
+            self.assertEqual(event_sink.events[0]["type"], "runtime_feedback_recorded")
+            self.assertEqual(feedback["terminus_runtime"]["runtime"], "snapshot")
 
     def test_action_feedback_with_corrected_output_forces_contradiction(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -176,13 +195,14 @@ class FeedbackApplierTests(unittest.TestCase):
                 ],
             )
             runtime_state = _FeedbackRuntimeState()
+            event_sink = _FeedbackEventSink()
             applier = FeedbackApplier(
                 lock=RLock(),
                 runtime_episode_store=_FeedbackInteractionPipeline([]),
                 action_store=action_store,
                 runtime_state_mark_mutated_fn=runtime_state.mark_mutated,
                 runtime_state_mutation_summary_fn=runtime_state.mutation_summary,
-                record_brain_event_fn=lambda _event: None,
+                record_brain_event_fn=event_sink.record,
                 brain_runtime_snapshot_fn=lambda: {"runtime": "snapshot", "state_revision": runtime_state.state_revision},
                 runtime_trace_export_safe_value_fn=deepcopy,
             )
@@ -210,4 +230,5 @@ class FeedbackApplierTests(unittest.TestCase):
             self.assertEqual(feedback["target"]["feedback_status"], "contradicted")
             self.assertEqual(feedback["target"]["provenance"], "contradicted")
             self.assertEqual(action_store.action_record("action-1")["verification"]["status"], "contradicted")
+            self.assertEqual(event_sink.events[0]["target_type"], "action")
 

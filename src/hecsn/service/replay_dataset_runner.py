@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
 
 from hecsn.reporting.readme_reports import write_json_report_with_readme
-from hecsn.service.manager import (
+from hecsn.service.manager import HECSNServiceManager
+from hecsn.service.runtime_evidence import (
     DEFAULT_REPLAY_DATASET_EXPORT_LIMIT,
-    HECSNServiceManager,
     MAX_REPLAY_DATASET_EXPORT_LIMIT,
 )
 

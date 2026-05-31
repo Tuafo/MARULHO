@@ -1,14 +1,13 @@
 """Terminus autonomy intelligence -- focus planning and provider curriculum.
 
-This mixin provides the methods for:
+This component provides the methods for:
 - Gap-based focus planning (which concepts need grounding)
 - Provider curriculum prioritization (which external sources to query)
 - Autonomy candidate selection and shortlist building
 - Query family scoring and topic matching
 
-These methods are mixed into HECSNServiceManager and operate on its
-internal state (self._brain_*, self._trainer, self._concept_store, etc.)
-via the manager's RLock.
+These methods are exposed through AutonomyPlanner and operate through its
+explicit dependency adapter.
 """
 
 from __future__ import annotations
@@ -71,10 +70,10 @@ def _canonical_provider_term(value: Any) -> str:
     return " ".join(_canonical_token(part) for part in normalized.split() if part).strip()
 
 
-class TerminusAutonomyMixin:
-    """Mixin providing autonomy focus-planning and provider curriculum methods.
+class TerminusAutonomyCore:
+    """Autonomy focus-planning and provider curriculum methods.
 
-    Mixed into HECSNServiceManager. All methods assume the caller holds
+    Called through AutonomyPlanner. Locked methods assume the caller holds
     self._lock (hence the _locked suffix convention).
     """
 

@@ -16,7 +16,7 @@ DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = 20
 
 
-class StatusRuntimeMixin:
+class RuntimeStatusCore:
     """Status, telemetry, and runtime warm-state summaries."""
 
     def _runtime_environment_summary(self) -> dict[str, Any]:

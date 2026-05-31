@@ -30,11 +30,8 @@ _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 
 # Legacy mixin classes that must not appear in HECSNServiceManager.__bases__
 _LEGACY_MIXIN_CLASSES = frozenset({
-    "ReplayDatasetBundleMixin",
-    "RuntimeEvidenceMixin",
     "DelayedConsequenceMixin",
     "DelayedConsequenceTracker",
-    "ServiceReportingMixin",
     "ReplayController",
     "InteractionRuntimeMixin",
     "LivingStatusMixin",
@@ -281,6 +278,51 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "Dynamic manager delegate installation remains: " + ", ".join(violations),
         )
 
+    def test_manager_is_not_a_compatibility_namespace(self) -> None:
+        """Manager must not preserve old constants or compatibility-surface wording."""
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        forbidden_markers = (
+            "backwards compatibility",
+            "class-level access compatibility",
+            "patch.object compatibility",
+            "Explicit compatibility facade methods",
+            "former broad delegate surface",
+            "DEFAULT_RUNTIME_TRACE_EXPORT_LIMIT",
+            "MAX_RUNTIME_TRACE_EXPORT_LIMIT",
+            "DEFAULT_REPLAY_DATASET_EXPORT_LIMIT",
+            "MAX_REPLAY_DATASET_EXPORT_LIMIT",
+            "REPLAY_DATASET_TRAINING_ROLE",
+            "DEFAULT_AUTONOMY_REMOTE_PROVIDERS",
+            "AUTO_REMOTE_QUERY_BUDGET_MAX",
+            "AUTO_FOCUS_SHORTLIST_MAX_SIZE",
+        )
+        violations = [marker for marker in forbidden_markers if marker in manager_text]
+        self.assertFalse(
+            violations,
+            "Manager still acts as an old compatibility namespace: " + ", ".join(violations),
+        )
+
+    def test_runners_import_constants_from_owner_modules(self) -> None:
+        """Runners must import export limits from their owner modules, not manager.py."""
+        runner_paths = (
+            _SERVICE_SRC_ROOT / "api.py",
+            _SERVICE_SRC_ROOT / "trace_export_runner.py",
+            _SERVICE_SRC_ROOT / "replay_dataset_runner.py",
+            _SERVICE_SRC_ROOT / "replay_dataset_bundle_runner.py",
+        )
+        violations: list[str] = []
+        for path in runner_paths:
+            text = path.read_text(encoding="utf-8")
+            if "from hecsn.service.manager import (" in text:
+                violations.append(f"{path.relative_to(_REPO_ROOT)} imports a manager constant block")
+            if "from .manager import HECSNServiceManager, MAX_RUNTIME_TRACE_EXPORT_LIMIT" in text:
+                violations.append(f"{path.relative_to(_REPO_ROOT)} imports trace limits from manager")
+        self.assertFalse(
+            violations,
+            "Runtime runners still use manager.py as a constants compatibility namespace:\n"
+            + "\n".join(violations),
+        )
+
     def test_no_module_level_mixin_aliases_remain(self) -> None:
         """Compatibility aliases like FooMixin = Foo must be retired."""
         violations: list[str] = []
@@ -404,6 +446,59 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         leaked = [name for name in removed_helpers if hasattr(HECSNServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes interaction wrappers: " + ", ".join(leaked))
 
+    def test_manager_does_not_expose_unowned_snapshot_and_restore_wrappers(self) -> None:
+        """State snapshot/restore helpers belong on their owner modules, not the manager."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_wrappers = (
+            "interaction_state_snapshot",
+            "restore_runtime_state",
+            "restore_state",
+            "_append_runtime_episode_trace_locked",
+            "_runtime_episode_trace_locked",
+            "_replace_runtime_episode_trace_locked",
+        )
+        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes unowned wrappers: " + ", ".join(leaked))
+
+    def test_manager_does_not_expose_runtime_source_builder_wrappers(self) -> None:
+        """Runtime source stream construction belongs to RuntimeSources."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_wrappers = (
+            "_build_source_stream_from_spec",
+            "_build_brain_source_stream_locked",
+            "_build_sensory_stream_locked",
+            "_build_sensory_stream_from_spec",
+        )
+        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes RuntimeSources wrappers: " + ", ".join(leaked))
+
+    def test_manager_does_not_expose_action_executor_delegate_wrappers(self) -> None:
+        """ActionExecutor callbacks must not survive as manager compatibility methods."""
+        from hecsn.service.manager import HECSNServiceManager
+
+        removed_helpers = (
+            "action_record",
+            "replace_action_record",
+            "_action_record_relevance_score_locked",
+            "_recent_relevant_action_records_locked",
+            "_action_record_to_response_episodes_locked",
+            "_augment_query_result_with_action_records_locked",
+            "_contradicted_action_note_locked",
+            "_should_auto_execute_action_locked",
+            "_maybe_auto_action_assist_locked",
+            "_action_history_memory_metadata",
+            "_action_loop_summary_locked",
+        )
+        leaked = [name for name in removed_helpers if hasattr(HECSNServiceManager, name)]
+        self.assertFalse(leaked, "Manager still exposes action wrappers: " + ", ".join(leaked))
+
+    def test_manager_has_no_generic_mixin_delegate_trampoline(self) -> None:
+        """Manager must not route private calls through a generic mixin trampoline."""
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        self.assertNotIn("_call_mixin_delegate", manager_text)
+
     def test_interaction_runtime_mixin_module_is_removed(self) -> None:
         """Operator interaction code must live in a domain-named runtime module."""
         old_path = _SERVICE_SRC_ROOT / "interaction_runtime.py"
@@ -417,6 +512,108 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         new_path = _SERVICE_SRC_ROOT / "action_executor.py"
         self.assertFalse(old_path.exists(), "action_runtime.py compatibility module must be removed")
         self.assertTrue(new_path.exists(), "action_executor.py must own action execution behavior")
+
+    def test_action_assist_mixin_module_is_removed(self) -> None:
+        """Audited action reuse must live in ActionExecutor, not a stale mixin module."""
+        old_path = _SERVICE_SRC_ROOT / "action_assist.py"
+        new_path = _SERVICE_SRC_ROOT / "action_executor.py"
+        self.assertFalse(old_path.exists(), "action_assist.py mixin module must be removed")
+        self.assertTrue(new_path.exists(), "action_executor.py must own action-assist behavior")
+
+    def test_runtime_feedback_mixin_module_is_removed(self) -> None:
+        """Operator feedback must live in FeedbackApplier, not a stale mixin module."""
+        old_path = _SERVICE_SRC_ROOT / "runtime_feedback.py"
+        new_path = _SERVICE_SRC_ROOT / "feedback_applier.py"
+        self.assertFalse(old_path.exists(), "runtime_feedback.py mixin module must be removed")
+        self.assertTrue(new_path.exists(), "feedback_applier.py must own runtime feedback behavior")
+
+    def test_replay_dataset_packager_is_not_mixin_framed(self) -> None:
+        """Replay dataset packaging is active helper behavior, not a mixin identity."""
+        packager_text = (_SERVICE_SRC_ROOT / "replay_dataset_bundle.py").read_text(encoding="utf-8")
+        self.assertIn("class ReplayDatasetPackager", packager_text)
+        self.assertNotIn("This mixin", packager_text)
+        self.assertNotIn("ReplayDatasetBundleMixin", packager_text)
+
+    def test_runtime_control_uses_active_logger_vocabulary(self) -> None:
+        """Runtime control must not name active Terminus stop handling as retired runtime."""
+        runtime_control_text = (_SERVICE_SRC_ROOT / "runtime_control.py").read_text(encoding="utf-8")
+        self.assertNotIn("_retired_runtime_logger", runtime_control_text)
+        self.assertNotIn(".retired_runtime", runtime_control_text)
+        self.assertIn("_terminus_runtime_logger", runtime_control_text)
+
+    def test_runtime_prewarm_is_not_mixin_named(self) -> None:
+        """Terminus queue warming is active runtime behavior, not a mixin identity."""
+        runtime_prewarm_text = (_SERVICE_SRC_ROOT / "runtime_prewarm.py").read_text(encoding="utf-8")
+        runtime_control_text = (_SERVICE_SRC_ROOT / "runtime_control.py").read_text(encoding="utf-8")
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        for source_text in (runtime_prewarm_text, runtime_control_text, manager_text):
+            self.assertNotIn("RuntimePrewarmMixin", source_text)
+        self.assertIn("class RuntimePrewarmer", runtime_prewarm_text)
+        self.assertIn("class RuntimeControl(RuntimePrewarmer)", runtime_control_text)
+
+    def test_autonomy_core_is_not_mixin_named(self) -> None:
+        """Autonomy planning is active control behavior, not a mixin identity."""
+        autonomy_text = (_SERVICE_SRC_ROOT / "terminus_autonomy.py").read_text(encoding="utf-8")
+        planner_text = (_SERVICE_SRC_ROOT / "autonomy_planner.py").read_text(encoding="utf-8")
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        for source_text in (autonomy_text, planner_text, manager_text):
+            self.assertNotIn("TerminusAutonomyMixin", source_text)
+        self.assertIn("class TerminusAutonomyCore", autonomy_text)
+        self.assertIn("class AutonomyPlanner(_TerminusAutonomyCore)", planner_text)
+
+    def test_sensory_preview_mixin_module_is_removed(self) -> None:
+        """Sensory preview projection must live in StatusReadModel, not a stale mixin module."""
+        old_path = _SERVICE_SRC_ROOT / "sensory_preview.py"
+        read_model_path = _SERVICE_SRC_ROOT / "status_read_model.py"
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        self.assertFalse(old_path.exists(), "sensory_preview.py mixin module must be removed")
+        self.assertTrue(read_model_path.exists(), "status_read_model.py must own sensory preview projection")
+        self.assertNotIn("SensoryPreviewMixin", manager_text)
+
+    def test_sensory_runtime_core_is_not_mixin_named(self) -> None:
+        """Sensory runtime execution is active multimodal behavior, not a mixin identity."""
+        sensory_runtime_text = (_SERVICE_SRC_ROOT / "sensory_runtime.py").read_text(encoding="utf-8")
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        self.assertNotIn("SensoryRuntimeMixin", sensory_runtime_text)
+        self.assertNotIn("SensoryRuntimeMixin", manager_text)
+        self.assertIn("class SensoryRuntimeCore", sensory_runtime_text)
+        self.assertIn("SensoryRuntimeCore", manager_text)
+
+    def test_runtime_status_core_is_not_mixin_named(self) -> None:
+        """Runtime status evidence is active observability behavior, not a mixin identity."""
+        status_runtime_text = (_SERVICE_SRC_ROOT / "status_runtime.py").read_text(encoding="utf-8")
+        read_model_text = (_SERVICE_SRC_ROOT / "status_read_model.py").read_text(encoding="utf-8")
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        self.assertNotIn("StatusRuntimeMixin", status_runtime_text)
+        self.assertNotIn("StatusRuntimeMixin", read_model_text)
+        self.assertNotIn("StatusRuntimeMixin", manager_text)
+        self.assertIn("class RuntimeStatusCore", status_runtime_text)
+        self.assertIn("RuntimeStatusCore", manager_text)
+
+    def test_living_status_core_is_not_mixin_named(self) -> None:
+        """Living-loop status is active observability behavior, not a mixin identity."""
+        living_status_text = (_SERVICE_SRC_ROOT / "living_status.py").read_text(encoding="utf-8")
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        self.assertNotIn("LivingStatusMixin", living_status_text)
+        self.assertNotIn("LivingStatusMixin", manager_text)
+        self.assertIn("class LivingStatusCore", living_status_text)
+        self.assertIn("LivingStatusCore", manager_text)
+
+    def test_manager_does_not_duplicate_runtime_feedback_logic(self) -> None:
+        """Runtime feedback normalization/application belongs to FeedbackApplier."""
+        manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
+        stale_logic_markers = (
+            "Runtime feedback must be an object.",
+            "Unsupported runtime feedback verdict",
+            "DEFAULT_RUNTIME_FEEDBACK_EVIDENCE_LIMIT",
+            "DEFAULT_RUNTIME_FEEDBACK_TAG_LIMIT",
+            'verification["last_feedback_id"]',
+        )
+        violations = [marker for marker in stale_logic_markers if marker in manager_text]
+        self.assertFalse(
+            violations,
+            "Manager still duplicates runtime feedback logic: " + ", ".join(violations),
+        )
 
     def test_fastapi_routes_use_runtime_facade(self) -> None:
         """FastAPI must call RuntimeFacade for runtime behaviour, not manager pass-through methods."""

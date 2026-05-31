@@ -144,7 +144,7 @@ class StatusReadModel:
         self._cached_subcortical_structural_plasticity_surface: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
-    # Static helpers reused from StatusRuntimeMixin
+    # Static helpers reused from RuntimeStatusCore
     # ------------------------------------------------------------------
 
     @staticmethod

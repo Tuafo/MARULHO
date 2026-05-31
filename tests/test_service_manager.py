@@ -24,13 +24,17 @@ import torch
 
 from hecsn.config.model_config import HECSNConfig
 from hecsn.data.corpus_loader import BackgroundPrefetchIterator
-from hecsn.service import manager as manager_module
+from hecsn.service import brain_runtime as brain_runtime_module
+from hecsn.service import delayed_consequence as delayed_consequence_module
+from hecsn.service import runtime_prewarm as runtime_prewarm_module
+from hecsn.service import sensory_runtime as sensory_runtime_module
 from hecsn.service import terminus_sensory as sensory_module
 from hecsn.service.operator_interaction import (
     DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
     REQUEST_FEED_ENCODING_MODE,
 )
 from hecsn.service.manager import HECSNServiceManager
+from hecsn.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.terminus_sensory import SensoryEpisode
 from hecsn.training.checkpointing import save_trainer_checkpoint
 from hecsn.training.trainer import HECSNModel, HECSNTrainer
@@ -641,7 +645,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 fake_pattern = manager._encoder.blended_feature_vector([97] * manager._trainer.config.window_size)
                 fake_stream = iter(("adaptive memory plasticity", fake_pattern) for _ in range(64))
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=fake_stream,
@@ -901,7 +905,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 query_text = "How do crust plates build mountain ranges?"
                 manager.runtime_facade.terminus_tick()
-                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                with patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     initial = manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -986,7 +990,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -1073,7 +1077,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -1185,7 +1189,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -1201,8 +1205,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(float(penalty_record["unresolved_penalty_balance"]), 0.0)
 
                 manager._trainer.token_count += (
-                    manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
-                    + manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
+                    delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
+                    + delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
                 )
                 cooled_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 cooled_tracking = cooled_runtime["background_source_routing"]["delayed_consequence_tracking"]
@@ -1215,7 +1219,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(int(cooled_record["cooling_events"]), 0)
                 self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
 
-                manager._trainer.token_count += manager_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
+                manager._trainer.token_count += delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
                 retired_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 retired_tracking = retired_runtime["background_source_routing"]["delayed_consequence_tracking"]
 
@@ -1273,7 +1277,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     first = manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges?",
                         max_evidence_items=3,
@@ -1355,7 +1359,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges?",
                         max_evidence_items=3,
@@ -1464,7 +1468,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges over the mantle?",
                         max_evidence_items=3,
@@ -1572,7 +1576,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How do crust plates build mountain ranges over the mantle?",
                         max_evidence_items=3,
@@ -1834,7 +1838,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             )
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=delayed_stream,
@@ -1905,12 +1909,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             )
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=active_stream,
                 ), patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_source_stream_from_spec",
                     autospec=True,
                     return_value=prewarm_stream,
@@ -1983,7 +1987,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             delayed_stream = _DelayedPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=delayed_stream,
@@ -2048,8 +2052,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 name="slow-remote-active-text",
             )
             try:
-                with patch.object(manager_module, "DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", 0.05), patch.object(
-                    HECSNServiceManager,
+                with patch.object(brain_runtime_module, "DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", 0.05), patch.object(
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
@@ -2115,12 +2119,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             )
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
                 ), patch.object(
-                    manager_module,
+                    runtime_prewarm_module,
                     "load_hf_first_rows",
                     return_value=[{"text": "Bootstrap cats rest indoors and chase mice at night."}],
                 ):
@@ -2197,13 +2201,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 return [{"text": "slow bootstrap row"}]
 
             try:
-                with patch.object(manager_module, "DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", 0.05), patch.object(
-                    HECSNServiceManager,
+                with patch.object(runtime_prewarm_module, "DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", 0.05), patch.object(
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
                 ), patch.object(
-                    manager_module,
+                    runtime_prewarm_module,
                     "load_hf_first_rows",
                     side_effect=_slow_first_rows,
                 ):
@@ -2275,7 +2279,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             )
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
@@ -2342,7 +2346,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             seed_stream = _FastPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=seed_stream,
@@ -2374,7 +2378,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             restored_stream = _UnusedPatternStream([(f"window-{idx}", fake_pattern) for idx in range(12)])
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=restored_stream,
@@ -2443,12 +2447,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             )
             try:
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=active_stream,
                 ), patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_source_stream_from_spec",
                     autospec=True,
                     return_value=prewarm_stream,
@@ -2540,13 +2544,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 delay_seconds=0.45,
             )
             try:
-                with patch.object(manager_module, "DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", 0.05), patch.object(
-                    HECSNServiceManager,
+                with patch.object(runtime_prewarm_module, "DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", 0.05), patch.object(
+                    RuntimeSources,
                     "_build_brain_source_stream_locked",
                     autospec=True,
                     return_value=active_stream,
                 ), patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_source_stream_from_spec",
                     autospec=True,
                     return_value=prewarm_stream,
@@ -2765,7 +2769,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "repeat_sources": True,
                 }
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=iter([episode]),
@@ -2882,12 +2886,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=active_stream,
                 ), patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_from_spec",
                     autospec=True,
                     return_value=prewarm_stream,
@@ -3014,8 +3018,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
             try:
                 manager._trainer.config.enable_cross_modal = True
-                with patch.object(manager_module, "DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", 0.05), patch.object(
-                    HECSNServiceManager,
+                with patch.object(sensory_runtime_module, "DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", 0.05), patch.object(
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
@@ -3127,7 +3131,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
@@ -3247,16 +3251,16 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
                 ), patch.object(
-                    manager_module,
+                    runtime_prewarm_module,
                     "load_hf_first_rows",
                     return_value=[{"caption": "Water pours while a woman talks nearby", "audio": [{"src": "https://example.com/audio.wav"}], "youtube_id": "abc123xyz99", "audiocap_id": 7, "start_time": 130}],
                 ), patch.object(
-                    manager_module,
+                    runtime_prewarm_module,
                     "bootstrap_sensory_episode_from_row",
                     return_value=episode,
                 ):
@@ -3374,13 +3378,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
             try:
                 manager._trainer.config.enable_cross_modal = True
-                with patch.object(manager_module, "DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", 0.05), patch.object(
-                    HECSNServiceManager,
+                with patch.object(runtime_prewarm_module, "DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", 0.05), patch.object(
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
                 ), patch.object(
-                    manager_module,
+                    runtime_prewarm_module,
                     "load_hf_first_rows",
                     side_effect=_slow_first_rows,
                 ):
@@ -3498,12 +3502,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=wrapped_stream,
                 ), patch.object(
-                    manager_module,
+                    runtime_prewarm_module,
                     "load_hf_first_rows",
                     return_value=[{"png": {"src": "https://example.com/image.jpg"}, "__key__": "0705/0501163.tar.gz/fig004"}],
                 ), patch(
@@ -3628,7 +3632,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=seed_stream,
@@ -3691,7 +3695,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=restored_stream,
@@ -3801,7 +3805,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=delayed_stream,
@@ -3927,12 +3931,12 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             try:
                 manager._trainer.config.enable_cross_modal = True
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=active_stream,
                 ), patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_from_spec",
                     autospec=True,
                     return_value=prewarm_stream,
@@ -4086,13 +4090,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
 
             try:
                 manager._trainer.config.enable_cross_modal = True
-                with patch.object(manager_module, "DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", 0.05), patch.object(
-                    HECSNServiceManager,
+                with patch.object(runtime_prewarm_module, "DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", 0.05), patch.object(
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=active_stream,
                 ), patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_from_spec",
                     autospec=True,
                     return_value=prewarm_stream,
@@ -4217,7 +4221,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "repeat_sources": True,
                 }
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     side_effect=_stream_for_spec,
@@ -4363,7 +4367,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "repeat_sources": True,
                 }
                 with patch.object(
-                    HECSNServiceManager,
+                    RuntimeSources,
                     "_build_sensory_stream_locked",
                     autospec=True,
                     return_value=iter(episodes),
@@ -4669,7 +4673,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                             "grounded_fraction": 1.0,
                         },
                     )
-                with patch("hecsn.service.manager.run_live_acquisition") as mocked_acquire:
+                with patch("hecsn.service.brain_runtime.run_live_acquisition") as mocked_acquire:
                     manager.runtime_facade.terminus_tick()
 
                 runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
@@ -4772,7 +4776,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 ]
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -4848,7 +4852,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
 
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -4992,7 +4996,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 selected_query = str(focus_plan["retrieval_queries"][0]).strip().lower()
 
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     side_effect=[
                         {
                             "policy": "active",
@@ -5165,7 +5169,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5240,7 +5244,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5318,7 +5322,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5378,7 +5382,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5437,7 +5441,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5526,7 +5530,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5591,7 +5595,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 ]
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     side_effect=[
                         {
                             "policy": "active",
@@ -5846,7 +5850,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 }
                 manager.runtime_facade.query(query_text="What opens jars and solves puzzles?", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5955,7 +5959,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 ]
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -6123,7 +6127,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 before_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 before_provider = before_runtime["autonomy"]["provider_curriculum"]["ranked_providers"][0]
 
-                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                with patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     response = manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy?",
                         max_evidence_items=3,
@@ -6192,7 +6196,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 query_text = "How does compressed air raise the submarine to the surface?"
                 manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
                 manager.runtime_facade.terminus_tick()
-                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                with patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     initial = manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -6323,7 +6327,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -6451,7 +6455,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -6578,7 +6582,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -6594,8 +6598,8 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(float(penalty_record["unresolved_penalty_balance"]), 0.0)
 
                 manager._trainer.token_count += (
-                    manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
-                    + manager_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
+                    delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
+                    + delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
                 )
                 cooled_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 cooled_tracking = cooled_runtime["autonomy"]["delayed_consequence_tracking"]
@@ -6608,7 +6612,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(int(cooled_record["cooling_events"]), 0)
                 self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
 
-                manager._trainer.token_count += manager_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
+                manager._trainer.token_count += delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
                 retired_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 retired_tracking = retired_runtime["autonomy"]["delayed_consequence_tracking"]
 
@@ -6677,7 +6681,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     first = manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy?",
                         max_evidence_items=3,
@@ -6778,7 +6782,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How does compressed air raise the submarine to the surface?",
                         max_evidence_items=3,
@@ -6924,7 +6928,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy underwater?",
                         max_evidence_items=3,
@@ -7071,7 +7075,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         "follow_up_questions": [],
                         "weak_concepts": [],
                     },
-                ), patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                ), patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How do submarine ballast tanks control buoyancy underwater?",
                         max_evidence_items=3,
@@ -7188,7 +7192,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 query_text = "How does compressed air raise the submarine to the surface?"
                 manager.runtime_facade.query(query_text=query_text, top_k_memories=8)
                 manager.runtime_facade.terminus_tick()
-                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                with patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text=query_text,
                         max_evidence_items=3,
@@ -7348,7 +7352,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 }
                 manager.runtime_facade.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -7477,7 +7481,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     )
                 )
                 with patch(
-                    "hecsn.service.manager.run_live_acquisition",
+                    "hecsn.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -7546,7 +7550,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="How does hebbian memory consolidation work?", top_k_memories=6)
                 before_runtime = manager.runtime_facade.terminus_tick()["terminus_runtime"]
-                with patch.object(manager, "_maybe_auto_action_assist_locked", return_value=None):
+                with patch.object(manager._interaction_pipeline, "_maybe_auto_action_assist_fn", return_value=None):
                     manager.runtime_facade.respond(
                         query_text="How does hebbian memory consolidation work?",
                         max_evidence_items=3,
@@ -7775,13 +7779,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             stuck_thread = _StuckThread()
 
             manager._brain_source_runtimes = [
-                manager_module._BrainSourceRuntime(
+                _BrainSourceRuntime(
                     spec={"name": "stuck_source", "source_type": "file"},
                     stream=brain_stream,
                 )
             ]
             manager._sensory_source_runtimes = [
-                manager_module._SensorySourceRuntime(
+                _SensorySourceRuntime(
                     spec={"name": "stuck_sensory", "adapter": "audiocaps"},
                     stream=sensory_stream,
                 )

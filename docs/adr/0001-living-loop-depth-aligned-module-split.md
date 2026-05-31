@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The Living Loop module (`living_loop.py`) was a 3195-line monolith containing all runtime record types, policy scoring, replay planning, and the Operational Self-Model. It had no internal seams — every consumer (LivingStatusMixin, ReplayRuntimeMixin, RuntimeEvidenceMixin, ServiceManager, and the test suite) imported from a single file. This forced any change to any layer to reparse and re-validate the entire monolith. The file was difficult to navigate, impossible to review in a single pass, and resisted isolated testing of individual layers.
+The Living Loop module (`living_loop.py`) was a 3195-line monolith containing all runtime record types, policy scoring, replay planning, and the Operational Self-Model. It had no internal seams — every consumer (LivingStatusCore, ReplayRuntimeMixin, the runtime evidence reporter, ServiceManager, and the test suite) imported from a single file. This forced any change to any layer to reparse and re-validate the entire monolith. The file was difficult to navigate, impossible to review in a single pass, and resisted isolated testing of individual layers.
 
 Analysis of the internal call graph revealed a naturally acyclic four-layer dependency stack within the monolith:
 

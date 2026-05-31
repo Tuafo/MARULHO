@@ -152,6 +152,20 @@ class AutonomyPlannerTests(unittest.TestCase):
         self.assertNotIn('"_manager"', source)
         self.assertNotIn("'_manager'", source)
 
+    def test_planner_has_no_mixin_base(self) -> None:
+        mro_names = {base.__name__ for base in AutonomyPlanner.__mro__}
+        self.assertFalse(
+            {name for name in mro_names if name.endswith("Mixin")},
+            "AutonomyPlanner must not inherit active mixin-named bases",
+        )
+
+    def test_terminus_autonomy_core_is_not_mixin_named(self) -> None:
+        source = Path("src/hecsn/service/terminus_autonomy.py").read_text(encoding="utf-8")
+        planner_source = Path("src/hecsn/service/autonomy_planner.py").read_text(encoding="utf-8")
+        self.assertNotIn("class TerminusAutonomyMixin", source)
+        self.assertNotIn("TerminusAutonomyMixin", planner_source)
+        self.assertIn("class TerminusAutonomyCore", source)
+
     def test_focus_plan_merges_interaction_concept_and_geometric_signals(self) -> None:
         manager = _PlannerManager()
         planner = AutonomyPlanner(manager)

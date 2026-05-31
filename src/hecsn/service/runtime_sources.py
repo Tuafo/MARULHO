@@ -203,6 +203,18 @@ class RuntimeSources:
         return next(stream)
 
     def _build_brain_source_stream_locked(self, spec: dict[str, Any]) -> Iterator[tuple[str, torch.Tensor]]:
+        return self._build_source_stream_from_spec(
+            spec,
+            self._encoder,
+            self._trainer.config.window_size,
+        )
+
+    @staticmethod
+    def _build_source_stream_from_spec(
+        spec: dict[str, Any],
+        encoder: Any,
+        window_size: int,
+    ) -> Iterator[tuple[str, torch.Tensor]]:
         source_type_raw = str(spec.get("source_type", "auto")).strip().lower() or "auto"
         if source_type_raw == "file":
             source_type: SourceType = "file"
@@ -220,11 +232,11 @@ class RuntimeSources:
         )
         stream = labeled_pattern_stream(
             loader.char_stream(),
-            self._encoder,
-            self._trainer.config.window_size,
+            encoder,
+            window_size,
             learn_chunking=True,
         )
-        return cast(Iterator[tuple[str, torch.Tensor]], self._wrap_remote_stream(spec, stream, is_sensory=False))
+        return cast(Iterator[tuple[str, torch.Tensor]], RuntimeSources._wrap_remote_stream(spec, stream, is_sensory=False))
 
     def _build_sensory_stream_locked(self, spec: dict[str, Any]) -> Iterator[SensoryEpisode]:
         return self._build_sensory_stream_from_spec(

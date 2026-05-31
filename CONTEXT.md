@@ -62,6 +62,9 @@ _Avoid_: calling concept observation, binding, grow/prune, or structural refresh
 
 **Path Retirement Gate** — the rule that a runtime path should be removed when it adds complexity without improving liveness, grounding, efficiency, or evidence quality. Legacy paths may exist only as short-lived migration scaffolding while replacement evidence is gathered; after the active Subcortex path exists, compatibility code is deleted rather than kept dormant. Negative regression tests and retirement notes may remain as boundary evidence, but runtime aliases, mocks, dormant compatibility APIs, and old extension points should not.
 
+**Compatibility Is Not Permanence** — migration adapters are acceptable only while callers are actively moving to the real owner. Once the owner module exists and tests can target it directly, the old import path, wrapper, alias, or mock is deleted and covered by absence guards.
+_Avoid_: preserving retired modules for historical users, keeping old names as convenience namespaces, or testing behavior through compatibility wrappers
+
 **Terminus** — the whole Subcortex-centered architecture: the predictive spiking substrate plus the service/runtime surfaces that keep it observable, gated, and auditable.
 
 **Living Brain** — an evidence-gated target state where the runtime continuously senses, learns, thinks, replays, acts, sleeps, and reports liveness without bypassing safety boundaries.
@@ -120,15 +123,17 @@ _Avoid_: GPU-only correctness, hidden CPU fallback in benchmark claims
 - **Operational Self-Model** (`living_loop_self_model.py`) — OperationalSelfModel, build_runtime_benchmark_telemetry, and telemetry helpers (Layer D). Maps to **Runtime Truth / Living Loop self-model** in domain vocabulary. Depends on Helpers, Records, Policy, and Replay.
 - The original `living_loop.py` compatibility shim is deleted. Active code imports directly from the owning Living Loop depth module instead of using an aggregator namespace.
 
-**Service Manager** — the composition root that wires the runtime (ADR 0003, ADR 0004). It constructs deep modules, owns lifecycle cleanup, and exposes the Runtime Facade. It owns no business logic or ADR-owned runtime state itself. It has no legacy inherited mixin stack, no manager-level catch-all attribute router, no manager-bound fallback path, no owner-forwarder helper module, no import-time dynamic delegate installer, no interaction-mixin delegate wrapper methods, and no module-level `*Mixin = ...` compatibility aliases; remaining manager methods are internal dependency callbacks, not the operator-facing runtime interface.
+**Service Manager** — the composition root that wires the runtime (ADR 0003, ADR 0004). It constructs deep modules, owns lifecycle cleanup, and exposes the Runtime Facade. It owns no business logic, ADR-owned runtime state, or owner-module constants itself. It has no legacy inherited mixin stack, no manager-level catch-all attribute router, no manager-bound fallback path, no owner-forwarder helper module, no import-time dynamic delegate installer, no generic mixin delegate trampoline, no interaction-mixin delegate wrapper methods, and no module-level `*Mixin = ...` compatibility aliases; remaining manager methods are internal dependency callbacks, not the operator-facing runtime interface.
 
 **Runtime Facade** — the operator-facing runtime interface introduced by ADR 0004. FastAPI routes and export runners call this facade instead of calling Service Manager runtime pass-through methods. It delegates to the owning deep modules and preserves the stable HTTP/runtime contract while the Service Manager stays a composition root.
+
+**Runtime Sources** — the owner of text/sensory stream construction, live-remote wrapping, runtime cache paths, stream readiness reads, and stream shutdown. Brain Runtime, Runtime Prewarmer, Sensory Runtime, and tests must patch or call Runtime Sources directly instead of using Service Manager stream-builder wrappers.
 
 **Operator Interaction Runtime** — the domain-named service module for operator acquisition and interaction callbacks that do not belong on the Service Manager. It supplies query/feed/respond collaborator functions to Interaction Pipeline and owns the public acquisition flow behind Runtime Facade.
 _Avoid_: resurrecting `InteractionRuntimeMixin`, manager-private interaction wrappers, or compatibility imports as active runtime surfaces
 
-**Action Executor** — the domain-named owner for digital action execution, action history, action feedback routing, and Subcortex Action Ledger summaries. Runtime Facade delegates action execution and history reads to this module; the old `action_runtime.py` mixin module is deleted.
-_Avoid_: action behavior in `ActionRuntimeMixin`, retired-loop mirroring, or manager-owned action history
+**Action Executor** — the domain-named owner for digital action execution, action history, action feedback routing, action-assist reuse, and Subcortex Action Ledger summaries. Runtime Facade delegates action execution and history reads to this module; delayed-consequence and interaction callbacks wire to it directly. The old `action_runtime.py` mixin module, standalone action-assist mixin module, and manager-private action delegate wrappers are deleted.
+_Avoid_: action behavior in `ActionRuntimeMixin`, standalone action-assist mixin modules, manager-private action wrappers, retired-loop mirroring, or manager-owned action history
 
 - **Runtime State** — owns the shared mutation flag (`dirty_state`), revision counter, brain event history, and the externally visible `last_event` / `recent_events` payloads. Every other deep module receives it as a dependency.
 - **Delayed Consequence Tracker** — long-horizon utility learning for sources and providers. Owns consequence records and the cooling/compaction/splitting/remerging state machines.

@@ -79,6 +79,13 @@ class RuntimeControlTests(unittest.TestCase):
     def test_manager_uses_explicit_runtime_control_seam(self) -> None:
         self.assertNotIn(RuntimeControl, HECSNServiceManager.__mro__)
 
+    def test_runtime_control_has_no_mixin_base(self) -> None:
+        mro_names = {base.__name__ for base in RuntimeControl.__mro__}
+        self.assertFalse(
+            {name for name in mro_names if name.endswith("Mixin")},
+            "RuntimeControl must not inherit active mixin-named bases",
+        )
+
     def test_manager_runtime_control_state_lives_on_controller(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = _build_manager(Path(tmpdir), test_case="runtime_control_state_ownership")

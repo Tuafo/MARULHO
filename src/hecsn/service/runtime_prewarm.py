@@ -1,6 +1,6 @@
 """Remote warmup and ingestion prewarm helpers for Terminus.
 
-This mixin owns background queue warming for live remote text/sensory sources.
+This component owns background queue warming for live remote text/sensory sources.
 It fills runtime buffers only; it does not approve replay datasets, train
 adapters, promote contradicted content, or execute digital actions.
 """
@@ -12,7 +12,6 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from queue import Empty, Queue
 from threading import Event, Thread
-import sys
 import time
 from typing import Any, Mapping, Sequence, cast
 
@@ -20,7 +19,7 @@ import torch
 
 from hecsn.data.corpus_loader import load_hf_first_rows
 from hecsn.data.pattern_loader import labeled_pattern_stream
-from hecsn.service.runtime_sources import _BrainSourceRuntime, _SensorySourceRuntime
+from hecsn.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.terminus_sensory import (
     SensoryEpisode,
     bootstrap_sensory_episode_from_row,
@@ -35,39 +34,24 @@ DEFAULT_REMOTE_BOOTSTRAP_ROWS = 2
 DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS = 3.0
 
 
-def _manager_symbol(name: str, fallback: Any) -> Any:
-    manager_module = sys.modules.get("hecsn.service.manager")
-    if manager_module is None:
-        return fallback
-    return getattr(manager_module, name, fallback)
-
-
 def _remote_bootstrap_budget_seconds() -> float:
-    return float(_manager_symbol("DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS", DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS))
+    return float(DEFAULT_REMOTE_BOOTSTRAP_BUDGET_SECONDS)
 
 
 def _remote_prewarm_grace_seconds() -> float:
-    return float(_manager_symbol("DEFAULT_REMOTE_PREWARM_GRACE_SECONDS", DEFAULT_REMOTE_PREWARM_GRACE_SECONDS))
+    return float(DEFAULT_REMOTE_PREWARM_GRACE_SECONDS)
 
 
 def _remote_prewarm_poll_seconds() -> float:
-    return float(_manager_symbol("DEFAULT_REMOTE_PREWARM_POLL_SECONDS", DEFAULT_REMOTE_PREWARM_POLL_SECONDS))
+    return float(DEFAULT_REMOTE_PREWARM_POLL_SECONDS)
 
 
 def _remote_promotion_bootstrap_grace_seconds() -> float:
-    return float(
-        _manager_symbol(
-            "DEFAULT_REMOTE_PROMOTION_BOOTSTRAP_GRACE_SECONDS",
-            DEFAULT_REMOTE_PROMOTION_BOOTSTRAP_GRACE_SECONDS,
-        )
-    )
+    return float(DEFAULT_REMOTE_PROMOTION_BOOTSTRAP_GRACE_SECONDS)
 
 
 def _source_stream_builder(owner: Any) -> Any:
-    builder = getattr(owner, "_build_source_stream_from_spec", None)
-    if builder is not None:
-        return builder
-    return type(owner)._build_source_stream_from_spec
+    return RuntimeSources._build_source_stream_from_spec
 
 
 class _TimedCallFailure:
@@ -75,7 +59,7 @@ class _TimedCallFailure:
         self.error = error
 
 
-class RuntimePrewarmMixin:
+class RuntimePrewarmer:
     def _request_active_execution_locked(self) -> None:
         self._active_execution_requests += 1
         if self._active_execution_requests > 0:
@@ -322,7 +306,7 @@ class RuntimePrewarmMixin:
         call_budget = float(_remote_bootstrap_budget_seconds() if remaining is None else min(_remote_bootstrap_budget_seconds(), remaining))
         try:
             completed, rows = self._run_budgeted_call(
-                cast(Any, _manager_symbol("load_hf_first_rows", load_hf_first_rows)),
+                load_hf_first_rows,
                 str(spec.get("source", "")),
                 wait_seconds=call_budget,
                 hf_config=cast(str | None, spec.get("hf_config")),
@@ -431,12 +415,12 @@ class RuntimePrewarmMixin:
         call_budget = float(_remote_bootstrap_budget_seconds() if remaining is None else min(_remote_bootstrap_budget_seconds(), remaining))
         try:
             completed, rows = self._run_budgeted_call(
-                cast(Any, _manager_symbol("load_hf_first_rows", load_hf_first_rows)),
+                load_hf_first_rows,
                 str(spec.get("source", "")),
                 wait_seconds=call_budget,
                 hf_config=cast(str | None, spec.get("hf_config")) or "default",
                 split=str(spec.get("split", "train") or "train"),
-                columns=cast(Any, _manager_symbol("sensory_bootstrap_columns", sensory_bootstrap_columns))(spec),
+                columns=sensory_bootstrap_columns(spec),
                 max_rows=DEFAULT_REMOTE_BOOTSTRAP_ROWS,
                 timeout_seconds=call_budget,
             )
@@ -454,7 +438,7 @@ class RuntimePrewarmMixin:
             build_budget = float(_remote_bootstrap_budget_seconds() if remaining is None else min(_remote_bootstrap_budget_seconds(), remaining))
             try:
                 completed, episode = self._run_budgeted_call(
-                    cast(Any, _manager_symbol("bootstrap_sensory_episode_from_row", bootstrap_sensory_episode_from_row)),
+                    bootstrap_sensory_episode_from_row,
                     spec,
                     row,
                     wait_seconds=build_budget,
@@ -610,7 +594,7 @@ class RuntimePrewarmMixin:
                 except StopIteration:
                     if repeat_sources:
                         cycles += 1
-                        rebuilt = self._build_sensory_stream_from_spec(
+                        rebuilt = RuntimeSources._build_sensory_stream_from_spec(
                             runtime.spec,
                             visual_dim=int(getattr(self._trainer.config, "cross_modal_dim_visual", 64)),
                             audio_dim=int(getattr(self._trainer.config, "cross_modal_dim_audio", 64)),
@@ -1051,7 +1035,7 @@ class RuntimePrewarmMixin:
         detached_sensory_runtimes = [
             _SensorySourceRuntime(
                 spec=spec,
-                stream=self._build_sensory_stream_from_spec(
+                stream=RuntimeSources._build_sensory_stream_from_spec(
                     spec,
                     visual_dim=visual_dim,
                     audio_dim=audio_dim,

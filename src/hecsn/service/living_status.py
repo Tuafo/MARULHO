@@ -1,6 +1,6 @@
 """Living-loop status helpers for Terminus.
 
-This mixin builds auditable status snapshots for the living-loop scaffold and
+This component builds auditable status snapshots for the living-loop scaffold and
 policy actuator. It is read-only: no replay, memory, action, or feedback
 mutation is performed here.
 """
@@ -27,7 +27,7 @@ from hecsn.service.living_loop_self_model import (
 DEFAULT_REPLAY_DATASET_EXPORT_LIMIT = 20
 
 
-class LivingStatusMixin:
+class LivingStatusCore:
     def _living_loop_snapshot_locked(
         self,
         *,
@@ -65,7 +65,7 @@ class LivingStatusMixin:
             actions=action_records,
             consolidations=consolidation_records,
             runtime_episodes=runtime_episodes,
-            action_loop=self._action_loop_summary_locked(),
+            action_loop=self._action_executor.action_loop_summary(),
             memory=dict(memory_snapshot) if isinstance(memory_snapshot, Mapping) else {},
             narrative={},
         )

@@ -1,6 +1,6 @@
 """Sensory runtime execution helpers for Terminus.
 
-This mixin owns multimodal sensory selection, prefetching, observation
+This component owns multimodal sensory selection, prefetching, observation
 injection, and sensory preview recording. It is live-runtime support only; it
 does not package replay datasets or train adapters.
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 from threading import Event
-import sys
 import time
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
@@ -19,24 +18,17 @@ import torch
 
 from hecsn.semantics.grounding_text import salient_query_terms
 from hecsn.service.operator_interaction import OperatorInteractionRuntime
-from hecsn.service.runtime_sources import _SensorySourceRuntime
+from hecsn.service.runtime_sources import RuntimeSources, _SensorySourceRuntime
 from hecsn.service.terminus_sensory import SensoryEpisode
 
 DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS = 0.25
 
 
-def _manager_symbol(name: str, fallback: Any) -> Any:
-    manager_module = sys.modules.get("hecsn.service.manager")
-    if manager_module is None:
-        return fallback
-    return getattr(manager_module, name, fallback)
-
-
 def _remote_active_fetch_wait_seconds() -> float:
-    return float(_manager_symbol("DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS", DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS))
+    return float(DEFAULT_REMOTE_ACTIVE_FETCH_WAIT_SECONDS)
 
 
-class SensoryRuntimeMixin:
+class SensoryRuntimeCore:
     def _cross_modal_confidence_means_locked(self) -> tuple[float, float]:
         cross_modal = getattr(self._trainer.model, "cross_modal", None)
         if cross_modal is None:
@@ -270,7 +262,7 @@ class SensoryRuntimeMixin:
                             runtime.exhausted = True
                             break
                         cycles += 1
-                        rebuilt = type(self)._build_sensory_stream_from_spec(
+                        rebuilt = RuntimeSources._build_sensory_stream_from_spec(
                             runtime.spec,
                             visual_dim=visual_dim,
                             audio_dim=audio_dim,

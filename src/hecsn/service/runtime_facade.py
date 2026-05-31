@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from hecsn.service.operator_interaction import OperatorInteractionRuntime
-from hecsn.service.reporting import ServiceReportingMixin
-from hecsn.service.replay_dataset_bundle import ReplayDatasetBundleMixin
-from hecsn.service.runtime_evidence import RuntimeEvidenceMixin
+from hecsn.service.reporting import ServiceReporter
+from hecsn.service.replay_dataset_bundle import ReplayDatasetPackager
+from hecsn.service.runtime_evidence import RuntimeEvidenceReporter
 
 
 class RuntimeFacade:
@@ -110,19 +110,19 @@ class RuntimeFacade:
         return self._root._replay_controller.replay_sample_history(limit=limit)
 
     def export_runtime_trace_examples(self, **kwargs: Any) -> dict[str, Any]:
-        return RuntimeEvidenceMixin.export_runtime_trace_examples(self._root, **kwargs)
+        return RuntimeEvidenceReporter.export_runtime_trace_examples(self._root, **kwargs)
 
     def replay_dataset_preview(self, **kwargs: Any) -> dict[str, Any]:
-        return RuntimeEvidenceMixin.replay_dataset_preview(self._root, **kwargs)
+        return RuntimeEvidenceReporter.replay_dataset_preview(self._root, **kwargs)
 
     def replay_dataset_candidates(self, **kwargs: Any) -> dict[str, Any]:
-        return RuntimeEvidenceMixin.replay_dataset_candidates(self._root, **kwargs)
+        return RuntimeEvidenceReporter.replay_dataset_candidates(self._root, **kwargs)
 
     def replay_dataset_history(self, **kwargs: Any) -> dict[str, Any]:
-        return RuntimeEvidenceMixin.replay_dataset_history(self._root, **kwargs)
+        return RuntimeEvidenceReporter.replay_dataset_history(self._root, **kwargs)
 
     def replay_dataset_bundle(self, **kwargs: Any) -> dict[str, Any]:
-        return ReplayDatasetBundleMixin.replay_dataset_bundle(self._root, **kwargs)
+        return ReplayDatasetPackager.replay_dataset_bundle(self._root, **kwargs)
 
     def action_history(self, limit: int = 20) -> dict[str, Any]:
         return self._root._action_executor.action_history(limit=limit)
@@ -134,4 +134,4 @@ class RuntimeFacade:
         return self._root._feedback_applier.record_runtime_feedback(feedback)
 
     def run_grounding_probe(self) -> dict[str, Any]:
-        return ServiceReportingMixin.run_grounding_probe(self._root)
+        return ServiceReporter.run_grounding_probe(self._root)
