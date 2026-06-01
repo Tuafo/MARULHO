@@ -4,6 +4,7 @@ from collections import deque
 from dataclasses import asdict
 import os
 from pathlib import Path
+from uuid import uuid4
 from typing import Any
 
 import numpy as np
@@ -146,8 +147,31 @@ def save_trainer_checkpoint(path: str | Path, trainer: HECSNTrainer, metadata: d
         },
         "metadata": dict(metadata or {}),
     }
-    torch.save(payload, output_path)
+    temporary_path = output_path.with_name(f".{output_path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary_path.open("wb") as handle:
+            torch.save(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
+        _sync_parent_directory(output_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
     return output_path
+
+
+def _sync_parent_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(str(path.parent), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        return
+    finally:
+        os.close(descriptor)
 
 
 def _checkpoint_load_device() -> torch.device:

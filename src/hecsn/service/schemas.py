@@ -255,12 +255,84 @@ class SNNLanguageSequencePredictionRequest(BaseModel):
     learning_rate: float = Field(0.08, ge=0.0, le=1.0)
     epochs: int = Field(2, ge=1, le=8)
     top_k: int = Field(8, ge=1, le=16)
+    persistent_transition_weights: dict[str, Any] | None = None
 
 
 class SNNLanguageSequenceMismatchRequest(BaseModel):
     prediction_report: dict[str, Any] = Field(..., min_length=1)
     observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=16)
     device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutDraftRequest(BaseModel):
+    prediction_report: dict[str, Any] = Field(..., min_length=1)
+    readout_vocabulary_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=32)
+    device_evidence: dict[str, Any] | None = None
+    transition_memory_evaluation: dict[str, Any] | None = None
+    max_draft_terms: int = Field(6, ge=1, le=12)
+
+
+class SNNLanguageReadoutLedgerRecordRequest(BaseModel):
+    readout_draft: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNLanguageReadoutRehearsalEvaluationRequest(BaseModel):
+    replay_priority_report: dict[str, Any] = Field(..., min_length=1)
+    candidate_limit: int = Field(8, ge=0, le=32)
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutRehearsalExperimentRequest(BaseModel):
+    rehearsal_evaluation: dict[str, Any] = Field(..., min_length=1)
+    replay_cycles: int = Field(3, ge=1, le=12)
+    stability_floor: float = Field(0.85, ge=0.0, le=1.0)
+
+
+class SNNLanguageReadoutReplayDesignRequest(BaseModel):
+    rehearsal_experiment: dict[str, Any] = Field(..., min_length=1)
+    replay_policy: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutReplayDryRunRequest(BaseModel):
+    replay_design: dict[str, Any] = Field(..., min_length=1)
+    operator_approval: bool = False
+    operator_id: str | None = Field(None, max_length=160)
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutPlasticityPreflightRequest(BaseModel):
+    readout_replay_dry_run: dict[str, Any] = Field(..., min_length=1)
+    plasticity_policy: dict[str, Any] | None = None
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutPlasticityReplayBridgeRequest(BaseModel):
+    readout_plasticity_preflight: dict[str, Any] = Field(..., min_length=1)
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageTransitionMemoryPredictionEvaluationRequest(BaseModel):
+    training_readout_slot_batches: list[list[SNNLanguageHeldoutReadoutSlot]] = Field(
+        ...,
+        min_length=2,
+        max_length=32,
+    )
+    evaluation_readout_slot_batches: list[list[SNNLanguageHeldoutReadoutSlot]] = Field(
+        ...,
+        min_length=2,
+        max_length=32,
+    )
+    transition_memory_state: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    learning_rate: float = Field(0.08, ge=0.0, le=1.0)
+    epochs: int = Field(2, ge=1, le=8)
+    top_k: int = Field(8, ge=1, le=16)
 
 
 class SNNLanguagePlasticityPressureRequest(BaseModel):
@@ -303,6 +375,75 @@ class SNNLanguagePlasticityShadowApplicationRequest(BaseModel):
     device_evidence: dict[str, Any] | None = None
     runtime_truth_delta: dict[str, Any] | None = None
     rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityShadowDeltaRequest(BaseModel):
+    application_design: dict[str, Any] = Field(..., min_length=1)
+    replay_sequences: list[dict[str, Any]] = Field(..., min_length=1, max_length=32)
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityLiveApplicationReadinessRequest(BaseModel):
+    shadow_application: dict[str, Any] = Field(..., min_length=1)
+    rollback_readiness: dict[str, Any] | None = None
+    operator_approval: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityLiveApplicationPreflightRequest(BaseModel):
+    live_application_readiness: dict[str, Any] = Field(..., min_length=1)
+    application_target: dict[str, Any] | None = None
+    checkpoint_transaction: dict[str, Any] | None = None
+
+
+class SNNLanguagePlasticityLiveApplicationRequest(BaseModel):
+    live_application_readiness: dict[str, Any] = Field(..., min_length=1)
+    shadow_delta: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+
+
+class SNNLanguageTransitionMemoryHomeostaticMaintenanceRequest(BaseModel):
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+    decay_factor: float = Field(0.98, gt=0.0, le=1.0)
+    prune_below: float = Field(0.005, ge=0.0, le=0.25)
+    max_outgoing_row_mass: float = Field(1.0, gt=0.0, le=4.0)
+
+
+class SNNLanguageTransitionMemorySleepPolicyRequest(BaseModel):
+    transition_memory_state: dict[str, Any] | None = None
+    subcortex_sleep_pressure: dict[str, Any] | None = None
+    replay_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageTransitionMemoryRegenerationProposalRequest(BaseModel):
+    mismatch_report: dict[str, Any] = Field(..., min_length=1)
+    transition_memory_state: dict[str, Any] | None = None
+    replay_evidence: dict[str, Any] | None = None
+    locality_radius: int = Field(2, ge=1, le=8)
+    initial_weight: float = Field(0.02, gt=0.0, le=0.25)
+    max_new_synapses: int = Field(8, ge=1, le=32)
+
+
+class SNNLanguageTransitionMemoryRegenerationPermitRequest(BaseModel):
+    mismatch_report: dict[str, Any] = Field(..., min_length=1)
+    pressure_report: dict[str, Any] = Field(..., min_length=1)
+    replay_window: list[dict[str, Any]] = Field(..., min_length=1, max_length=32)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNLanguageTransitionMemoryRegenerationRequest(BaseModel):
+    regeneration_proposal: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+    max_outgoing_row_mass: float = Field(1.0, gt=0.0, le=4.0)
 
 
 class StructuralPlasticityIsolatedEvaluationRequest(BaseModel):

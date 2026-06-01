@@ -15,6 +15,11 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 
 from hecsn.config.model_config import HECSNConfig
+from hecsn.semantics import (
+    build_snn_language_transition_memory_prediction_evaluation,
+    build_spike_language_decoder_probe,
+    predict_spike_language_sequence,
+)
 from hecsn.service.api import DEFAULT_WEB_DIST_DIR, create_app
 from hecsn.service.server import build_arg_parser
 from hecsn.training.runner_utils import set_seed
@@ -128,6 +133,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_gate["eligible_for_structural_mutation"])
         self.assertNotIn("candidates", status_gate)
         self.assertNotIn("endpoint", status_gate)
+
         self.assertNotIn("suggested_endpoint", status_gate)
         self.assertEqual(terminus_gate["artifact_kind"], status_gate["artifact_kind"])
         self.assertEqual(terminus_gate["surface"], status_gate["surface"])
@@ -192,6 +198,430 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("current_decoder_probe_evidence", status_language_gate)
         self.assertEqual(terminus_language_gate["artifact_kind"], status_language_gate["artifact_kind"])
         self.assertEqual(terminus_language_gate["surface"], status_language_gate["surface"])
+        status_plasticity_path = status_truth["evidence"]["snn_language_plasticity_path"]
+        terminus_plasticity_path = terminus_truth["evidence"]["snn_language_plasticity_path"]
+        self.assertEqual(
+            status_plasticity_path["artifact_kind"],
+            "terminus_snn_language_plasticity_path_evidence",
+        )
+        self.assertEqual(status_plasticity_path["surface"], "snn_language_plasticity_path_evidence.v1")
+        self.assertEqual(
+            status_plasticity_path["latest_gate"],
+            "snn_language_plasticity_live_application_preflight.v1",
+        )
+        self.assertFalse(status_plasticity_path["generates_text"])
+        self.assertFalse(status_plasticity_path["decodes_text"])
+        self.assertFalse(status_plasticity_path["trains_runtime_model"])
+        self.assertFalse(status_plasticity_path["applies_plasticity"])
+        self.assertFalse(status_plasticity_path["mutates_runtime_state"])
+        self.assertTrue(status_plasticity_path["requires_device_evidence"])
+        self.assertTrue(status_plasticity_path["requires_runtime_truth_delta"])
+        self.assertTrue(status_plasticity_path["requires_rollback_evidence"])
+        self.assertTrue(status_plasticity_path["rollback_readiness"]["rollback_policy_required"])
+        self.assertTrue(status_plasticity_path["rollback_readiness"]["restore_endpoint_available"])
+        self.assertTrue(status_plasticity_path["rollback_readiness"]["checkpoint_metadata_available"])
+        self.assertIn("checkpoint_path", status_plasticity_path["rollback_readiness"])
+        self.assertIn("snn_language_plasticity_shadow_application.v1", status_plasticity_path["gates"])
+        self.assertIn("snn_language_plasticity_live_application_readiness.v1", status_plasticity_path["gates"])
+        self.assertIn("snn_language_plasticity_live_application_preflight.v1", status_plasticity_path["gates"])
+        self.assertEqual(terminus_plasticity_path["artifact_kind"], status_plasticity_path["artifact_kind"])
+        self.assertEqual(terminus_plasticity_path["surface"], status_plasticity_path["surface"])
+        self.assertEqual(
+            terminus_plasticity_path["rollback_readiness"]["checkpoint_path"],
+            status_plasticity_path["rollback_readiness"]["checkpoint_path"],
+        )
+
+    def test_snn_language_readout_draft_endpoint_generates_bounded_grounded_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(_build_checkpoint(root, test_case="service_api_snn_readout_draft"), trace_dir=root / "traces")
+            vocabulary = [
+                {"label": "memory pressure", "pressure_band": "medium", "grounded": True},
+                {"label": "prediction error", "pressure_band": "high", "grounded": True},
+            ]
+            current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+            current_probe = build_spike_language_decoder_probe(
+                {
+                    "readout_slots": current,
+                    "device_evidence": {"device": "cpu", "source": "service_api_readout_draft"},
+                }
+            )
+            target_probe = build_spike_language_decoder_probe(
+                {
+                    "readout_slots": [vocabulary[0]],
+                    "device_evidence": {"device": "cpu", "source": "service_api_readout_draft"},
+                }
+            )
+            current_index = current_probe["sparse_code_evidence"]["active_indices"][0]
+            target_index = target_probe["sparse_code_evidence"]["active_indices"][0]
+            training_batches = [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ]
+            transition_weights = {f"{current_index}:{target_index}": 0.9}
+            prediction_report = predict_spike_language_sequence(
+                training_batches,
+                current,
+                {"device": "cpu", "source": "service_api_readout_draft"},
+                top_k=4,
+                persistent_transition_weights=transition_weights,
+            )
+            transition_memory_evaluation = build_snn_language_transition_memory_prediction_evaluation(
+                training_batches,
+                [current, [vocabulary[0]]],
+                {"sparse_transition_weights": transition_weights},
+                {"device": "cpu", "source": "service_api_readout_draft"},
+                top_k=4,
+            )
+            with TestClient(app) as client:
+                status_response = client.get("/status")
+                response = client.post(
+                    "/terminus/snn-language-sequence/readout-draft",
+                    json={
+                        "prediction_report": prediction_report,
+                        "readout_vocabulary_slots": vocabulary,
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_draft"},
+                        "transition_memory_evaluation": transition_memory_evaluation,
+                        "max_draft_terms": 4,
+                    },
+                )
+                pending_evaluation_response = client.post(
+                    "/terminus/snn-language-sequence/readout-draft",
+                    json={
+                        "prediction_report": prediction_report,
+                        "readout_vocabulary_slots": vocabulary,
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_draft"},
+                        "max_draft_terms": 4,
+                    },
+                )
+                blocked_record_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/record",
+                    json={
+                        "readout_draft": pending_evaluation_response.json(),
+                        "expected_state_revision": status_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                record_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/record",
+                    json={
+                        "readout_draft": response.json(),
+                        "expected_state_revision": status_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                ledger_response = client.get("/terminus/snn-language-sequence/readout-ledger")
+                replay_priority_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/replay-priority"
+                )
+                rehearsal_evaluation_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/rehearsal-evaluation",
+                    json={
+                        "replay_priority_report": replay_priority_response.json(),
+                        "candidate_limit": 4,
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_rehearsal"},
+                    },
+                )
+                rehearsal_experiment_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/rehearsal-experiment",
+                    json={
+                        "rehearsal_evaluation": rehearsal_evaluation_response.json(),
+                        "replay_cycles": 4,
+                        "stability_floor": 0.85,
+                    },
+                )
+                replay_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/replay-design",
+                    json={
+                        "rehearsal_experiment": rehearsal_experiment_response.json(),
+                        "replay_policy": {
+                            "max_candidates": 1,
+                            "max_replay_cycles": 3,
+                            "min_pressure_gain": 0.01,
+                        },
+                        "rollback_policy": {"available": True, "snapshot_id": "service-api-snapshot"},
+                    },
+                )
+                replay_dry_run_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/replay-dry-run",
+                    json={
+                        "replay_design": replay_design_response.json(),
+                        "operator_approval": True,
+                        "operator_id": "operator-test",
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_replay"},
+                    },
+                )
+                readout_plasticity_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/plasticity-preflight",
+                    json={
+                        "readout_replay_dry_run": replay_dry_run_response.json(),
+                        "plasticity_policy": {
+                            "learning_rate": 0.02,
+                            "max_weight_delta": 0.03,
+                            "locality_radius": 8,
+                            "normalization": True,
+                            "local_only": True,
+                        },
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "service-api-snapshot"},
+                    },
+                )
+                readout_plasticity_replay_bridge_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/plasticity-replay-bridge",
+                    json={
+                        "readout_plasticity_preflight": readout_plasticity_preflight_response.json(),
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "service-api-snapshot"},
+                    },
+                )
+                readout_application_design_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-application-design",
+                    json={
+                        "replay_experiment": readout_plasticity_replay_bridge_response.json(),
+                        "application_policy": {
+                            "learning_rate": 0.02,
+                            "max_weight_delta": 0.03,
+                            "locality_radius": 8,
+                            "normalization": True,
+                            "local_only": True,
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_bridge"},
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "service-api-snapshot"},
+                    },
+                )
+                readout_shadow_delta_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-shadow-delta",
+                    json={
+                        "application_design": readout_application_design_response.json(),
+                        "replay_sequences": readout_plasticity_replay_bridge_response.json()[
+                            "canonical_replay_sequences"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_shadow_delta"},
+                    },
+                )
+                readout_shadow_application_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-shadow-application",
+                    json={
+                        "application_design": readout_application_design_response.json(),
+                        "shadow_delta": readout_shadow_delta_response.json(),
+                        "device_evidence": {"device": "cpu", "source": "service_api_readout_shadow"},
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "service-api-snapshot"},
+                    },
+                )
+                checkpoint_save_response = client.post(
+                    "/checkpoint/save",
+                    json={"path": str(root / "readout_ledger.pt")},
+                )
+                checkpoint_restore_response = client.post(
+                    "/checkpoint/restore",
+                    json={"path": checkpoint_save_response.json()["path"]},
+                )
+                restored_ledger_response = client.get("/terminus/snn-language-sequence/readout-ledger")
+                restored_replay_priority_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/replay-priority"
+                )
+            app.state.hecsn_manager.close()
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(pending_evaluation_response.status_code, 200)
+        self.assertEqual(blocked_record_response.status_code, 200)
+        self.assertEqual(record_response.status_code, 200)
+        self.assertEqual(ledger_response.status_code, 200)
+        self.assertEqual(replay_priority_response.status_code, 200)
+        self.assertEqual(rehearsal_evaluation_response.status_code, 200)
+        self.assertEqual(rehearsal_experiment_response.status_code, 200)
+        self.assertEqual(replay_design_response.status_code, 200)
+        self.assertEqual(replay_dry_run_response.status_code, 200)
+        self.assertEqual(readout_plasticity_preflight_response.status_code, 200)
+        self.assertEqual(readout_plasticity_replay_bridge_response.status_code, 200)
+        self.assertEqual(readout_application_design_response.status_code, 200)
+        self.assertEqual(readout_shadow_delta_response.status_code, 200)
+        self.assertEqual(readout_shadow_application_response.status_code, 200)
+        self.assertEqual(checkpoint_save_response.status_code, 200)
+        self.assertEqual(checkpoint_restore_response.status_code, 200)
+        self.assertEqual(restored_ledger_response.status_code, 200)
+        self.assertEqual(restored_replay_priority_response.status_code, 200)
+        body = response.json()
+        pending_evaluation_body = pending_evaluation_response.json()
+        blocked_record = blocked_record_response.json()
+        record = record_response.json()
+        ledger = ledger_response.json()
+        replay_priority = replay_priority_response.json()
+        rehearsal_evaluation = rehearsal_evaluation_response.json()
+        rehearsal_experiment = rehearsal_experiment_response.json()
+        replay_design = replay_design_response.json()
+        replay_dry_run = replay_dry_run_response.json()
+        readout_plasticity_preflight = readout_plasticity_preflight_response.json()
+        readout_plasticity_replay_bridge = readout_plasticity_replay_bridge_response.json()
+        readout_application_design = readout_application_design_response.json()
+        readout_shadow_delta = readout_shadow_delta_response.json()
+        readout_shadow_application = readout_shadow_application_response.json()
+        restored_ledger = restored_ledger_response.json()
+        restored_replay_priority = restored_replay_priority_response.json()
+        self.assertEqual(body["surface"], "snn_language_readout_draft.v1")
+        self.assertTrue(body["generates_text"])
+        self.assertTrue(body["decodes_text"])
+        self.assertFalse(body["freeform_language_generation"])
+        self.assertFalse(body["mutates_runtime_state"])
+        self.assertIn("memory pressure", body["draft"]["text"])
+        self.assertTrue(body["transition_memory_evaluation_evidence"]["review_ready"])
+        self.assertTrue(body["promotion_gate"]["eligible_for_bounded_readout_generation"])
+        self.assertFalse(body["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertTrue(pending_evaluation_body["generates_text"])
+        self.assertFalse(
+            pending_evaluation_body["promotion_gate"]["eligible_for_bounded_readout_generation"]
+        )
+        self.assertEqual(
+            pending_evaluation_body["promotion_gate"]["status"],
+            "collect_transition_memory_prediction_evaluation",
+        )
+        self.assertFalse(blocked_record["accepted"])
+        self.assertFalse(
+            blocked_record["promotion_gate"]["required_evidence"]["bounded_readout_generation_ready"]
+        )
+        self.assertTrue(record["accepted"])
+        self.assertTrue(record["mutates_runtime_state"])
+        self.assertFalse(record["generates_text"])
+        self.assertFalse(record["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(ledger["surface"], "snn_language_readout_evidence_ledger.v1")
+        self.assertEqual(ledger["summary"]["event_count"], 1)
+        self.assertEqual(ledger["events"][0]["prediction_hash"], body["transition_memory_evaluation_evidence"]["prediction_hash"])
+        self.assertEqual(replay_priority["surface"], "snn_language_readout_replay_priority.v1")
+        self.assertTrue(replay_priority["advisory"])
+        self.assertFalse(replay_priority["executable"])
+        self.assertFalse(replay_priority["mutates_runtime_state"])
+        self.assertFalse(replay_priority["generates_text"])
+        self.assertEqual(replay_priority["candidate_count"], 1)
+        self.assertEqual(replay_priority["candidates"][0]["rank"], 1)
+        self.assertFalse(replay_priority["candidates"][0]["eligible_for_action"])
+        self.assertFalse(replay_priority["promotion_gate"]["eligible_for_live_replay"])
+        self.assertEqual(
+            rehearsal_evaluation["surface"],
+            "snn_language_readout_rehearsal_evaluation.v1",
+        )
+        self.assertFalse(rehearsal_evaluation["generates_text"])
+        self.assertFalse(rehearsal_evaluation["mutates_runtime_state"])
+        self.assertFalse(rehearsal_evaluation["applies_plasticity"])
+        self.assertEqual(rehearsal_evaluation["device_evidence"]["tensor_device"], "cpu")
+        self.assertTrue(
+            rehearsal_evaluation["promotion_gate"]["eligible_for_operator_rehearsal_review"]
+        )
+        self.assertFalse(rehearsal_evaluation["promotion_gate"]["eligible_for_live_replay"])
+        self.assertEqual(
+            rehearsal_experiment["surface"],
+            "snn_language_readout_rehearsal_experiment.v1",
+        )
+        self.assertFalse(rehearsal_experiment["generates_text"])
+        self.assertFalse(rehearsal_experiment["mutates_runtime_state"])
+        self.assertFalse(rehearsal_experiment["applies_plasticity"])
+        self.assertTrue(
+            rehearsal_experiment["promotion_gate"][
+                "eligible_for_operator_rehearsal_experiment_review"
+            ]
+        )
+        self.assertFalse(rehearsal_experiment["promotion_gate"]["eligible_for_live_replay"])
+        self.assertEqual(replay_design["surface"], "snn_language_readout_replay_design.v1")
+        self.assertFalse(replay_design["generates_text"])
+        self.assertFalse(replay_design["mutates_runtime_state"])
+        self.assertFalse(replay_design["applies_plasticity"])
+        self.assertEqual(replay_design["readout_replay_design"]["selected_candidate_count"], 1)
+        self.assertFalse(replay_design["readout_replay_design"]["execution_allowed"])
+        self.assertTrue(
+            replay_design["promotion_gate"]["eligible_for_operator_replay_design_review"]
+        )
+        self.assertFalse(replay_design["promotion_gate"]["eligible_for_live_replay"])
+        self.assertEqual(replay_dry_run["surface"], "snn_language_readout_replay_dry_run.v1")
+        self.assertFalse(replay_dry_run["generates_text"])
+        self.assertFalse(replay_dry_run["decodes_text"])
+        self.assertFalse(replay_dry_run["mutates_runtime_state"])
+        self.assertFalse(replay_dry_run["applies_plasticity"])
+        self.assertFalse(replay_dry_run["returns_trained_weights"])
+        self.assertEqual(replay_dry_run["device_evidence"]["tensor_device"], "cpu")
+        self.assertEqual(replay_dry_run["isolated_replay_summary"]["target_count"], 1)
+        self.assertFalse(replay_dry_run["ephemeral_replay"]["runtime_update_applied"])
+        self.assertFalse(replay_dry_run["ephemeral_replay"]["weights_persisted"])
+        self.assertFalse(replay_dry_run["ephemeral_replay"]["checkpoint_written"])
+        self.assertTrue(
+            replay_dry_run["promotion_gate"]["eligible_for_operator_replay_dry_run_review"]
+        )
+        self.assertFalse(replay_dry_run["promotion_gate"]["eligible_for_live_replay"])
+        self.assertEqual(
+            readout_plasticity_preflight["surface"],
+            "snn_language_readout_plasticity_preflight.v1",
+        )
+        self.assertFalse(readout_plasticity_preflight["generates_text"])
+        self.assertFalse(readout_plasticity_preflight["decodes_text"])
+        self.assertFalse(readout_plasticity_preflight["mutates_runtime_state"])
+        self.assertFalse(readout_plasticity_preflight["applies_plasticity"])
+        self.assertFalse(readout_plasticity_preflight["returns_trained_weights"])
+        self.assertGreater(
+            readout_plasticity_preflight["plasticity_preflight"]["candidate_synapse_count"],
+            0,
+        )
+        self.assertFalse(
+            readout_plasticity_preflight["plasticity_preflight"]["runtime_update_applied"]
+        )
+        self.assertTrue(
+            readout_plasticity_preflight["promotion_gate"][
+                "eligible_for_operator_readout_plasticity_review"
+            ]
+        )
+        self.assertFalse(
+            readout_plasticity_preflight["promotion_gate"]["eligible_for_plasticity_application"]
+        )
+        self.assertEqual(
+            readout_plasticity_replay_bridge["surface"],
+            "snn_language_plasticity_replay_experiment.v1",
+        )
+        self.assertEqual(
+            readout_plasticity_replay_bridge["artifact_kind"],
+            "terminus_snn_language_plasticity_replay_experiment",
+        )
+        self.assertFalse(readout_plasticity_replay_bridge["mutates_runtime_state"])
+        self.assertFalse(readout_plasticity_replay_bridge["applies_plasticity"])
+        self.assertGreater(
+            readout_plasticity_replay_bridge["replay_experiment"]["replay_sequence_count"],
+            0,
+        )
+        self.assertTrue(
+            readout_plasticity_replay_bridge["promotion_gate"][
+                "eligible_for_operator_application_review"
+            ]
+        )
+        self.assertEqual(
+            readout_application_design["surface"],
+            "snn_language_plasticity_application_design.v1",
+        )
+        self.assertFalse(readout_application_design["mutates_runtime_state"])
+        self.assertFalse(readout_application_design["applies_plasticity"])
+        self.assertTrue(
+            readout_application_design["promotion_gate"][
+                "eligible_for_operator_application_review"
+            ]
+        )
+        self.assertEqual(readout_shadow_delta["surface"], "snn_language_plasticity_shadow_delta.v1")
+        self.assertFalse(readout_shadow_delta["mutates_runtime_state"])
+        self.assertFalse(readout_shadow_delta["applies_plasticity"])
+        self.assertGreater(readout_shadow_delta["affected_synapse_count"], 0)
+        self.assertEqual(
+            readout_shadow_application["surface"],
+            "snn_language_plasticity_shadow_application.v1",
+        )
+        self.assertFalse(readout_shadow_application["mutates_runtime_state"])
+        self.assertFalse(readout_shadow_application["applies_plasticity"])
+        self.assertFalse(
+            readout_shadow_application["promotion_gate"]["eligible_for_plasticity_application"]
+        )
+        self.assertFalse(
+            readout_shadow_application["promotion_gate"]["eligible_for_live_application"]
+        )
+        self.assertEqual(restored_ledger["summary"]["event_count"], 1)
+        self.assertEqual(restored_replay_priority["candidate_count"], 1)
 
     def test_cognitive_signal_endpoint_exposes_subcortical_language_surface(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -329,21 +759,287 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
                     },
                 )
+                current_sparse_indices = sequence_prediction_response.json()["current_sparse_code"]["active_indices"]
+                persistent_target_index = (int(current_sparse_indices[0]) + 1) % 64
+                plasticity_shadow_delta_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-shadow-delta",
+                    json={
+                        "application_design": plasticity_application_design_response.json(),
+                        "replay_sequences": [
+                            {
+                                "pre_indices": [int(current_sparse_indices[0])],
+                                "post_indices": [persistent_target_index],
+                                "grounded": True,
+                            }
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                    },
+                )
                 plasticity_shadow_application_response = client.post(
                     "/terminus/snn-language-sequence/plasticity-shadow-application",
                     json={
                         "application_design": plasticity_application_design_response.json(),
-                        "shadow_delta": {
-                            "max_abs_weight_delta": 0.03,
-                            "affected_synapse_count": 4,
-                            "locality_radius": 2,
-                            "pressure_before": 0.4,
-                            "pressure_after": 0.35,
-                        },
+                        "shadow_delta": plasticity_shadow_delta_response.json(),
                         "device_evidence": {"device": "cpu", "source": "service_api_test"},
                         "runtime_truth_delta": {"improved_or_stable": True},
                         "rollback_policy": {"available": True, "snapshot_id": "pre-language-plasticity"},
                     },
+                )
+                plasticity_live_readiness_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application-readiness",
+                    json={
+                        "shadow_application": plasticity_shadow_application_response.json(),
+                        "rollback_readiness": {
+                            "checkpoint_available": True,
+                            "checkpoint_path": "checkpoint://pre-language-plasticity",
+                            "restore_endpoint_available": True,
+                        },
+                        "operator_approval": {
+                            "approved": True,
+                            "operator_id": "operator-test",
+                            "approval_id": "approval-1",
+                        },
+                    },
+                )
+                plasticity_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application-preflight",
+                    json={
+                        "live_application_readiness": plasticity_live_readiness_response.json(),
+                        "application_target": {
+                            "available": True,
+                            "target_id": "hecsn.snn_language.sparse_transition_weights",
+                            "owned_by_hecsn": True,
+                            "mutable": True,
+                            "sparse": True,
+                            "checkpointed": True,
+                        },
+                        "checkpoint_transaction": {
+                            "pre_update_checkpoint_saved": True,
+                            "checkpoint_path": str(root / "pre_language_plasticity.pt"),
+                            "restore_verified": True,
+                            "records_shadow_delta": True,
+                        },
+                    },
+                )
+                status_before_live_application_response = client.get("/status")
+                blocked_live_application_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application",
+                    json={
+                        "live_application_readiness": plasticity_live_readiness_response.json(),
+                        "shadow_delta": plasticity_shadow_delta_response.json(),
+                        "expected_state_revision": status_before_live_application_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": False,
+                    },
+                )
+                status_after_blocked_live_application_response = client.get("/status")
+                plasticity_live_application_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application",
+                    json={
+                        "live_application_readiness": plasticity_live_readiness_response.json(),
+                        "shadow_delta": plasticity_shadow_delta_response.json(),
+                        "expected_state_revision": status_before_live_application_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "pre_language_plasticity.pt"),
+                    },
+                )
+                plasticity_runtime_state_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                transition_memory_sleep_policy_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy",
+                    json={
+                        "subcortex_sleep_pressure": {
+                            "pressure": 0.8,
+                            "source": "living_loop.subcortex_sleep_pressure",
+                        },
+                        "replay_evidence": {
+                            "available": True,
+                            "ready": True,
+                            "source": "replay_controller",
+                        },
+                    },
+                )
+                persistent_sequence_prediction_response = client.post(
+                    "/terminus/snn-language-sequence/predict",
+                    json={
+                        "training_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "current_readout_slots": [
+                            {"label": "concept focus", "pressure_band": "medium", "grounded": True}
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "top_k": 4,
+                    },
+                )
+                transition_memory_prediction_evaluation_response = client.post(
+                    "/terminus/snn-language-sequence/transition-memory-prediction-evaluation",
+                    json={
+                        "training_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "evaluation_readout_slot_batches": [
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "top_k": 4,
+                    },
+                )
+                persistent_readout_draft_response = client.post(
+                    "/terminus/snn-language-sequence/readout-draft",
+                    json={
+                        "prediction_report": persistent_sequence_prediction_response.json(),
+                        "readout_vocabulary_slots": [
+                            {"label": "memory pressure", "pressure_band": "medium", "grounded": True},
+                            {"label": "prediction error", "pressure_band": "high", "grounded": True},
+                            {"label": "concept focus", "pressure_band": "medium", "grounded": True},
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "transition_memory_evaluation": transition_memory_prediction_evaluation_response.json(),
+                        "max_draft_terms": 4,
+                    },
+                )
+                checkpoint_save_response = client.post(
+                    "/checkpoint/save",
+                    json={"path": str(root / "post_language_plasticity.pt")},
+                )
+                checkpoint_restore_response = client.post(
+                    "/checkpoint/restore",
+                    json={"path": checkpoint_save_response.json()["path"]},
+                )
+                plasticity_runtime_state_after_restore_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                persistent_sequence_prediction_after_restore_response = client.post(
+                    "/terminus/snn-language-sequence/predict",
+                    json={
+                        "training_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "current_readout_slots": [
+                            {"label": "concept focus", "pressure_band": "medium", "grounded": True}
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "top_k": 4,
+                    },
+                )
+                transition_memory_prediction_evaluation_after_restore_response = client.post(
+                    "/terminus/snn-language-sequence/transition-memory-prediction-evaluation",
+                    json={
+                        "training_readout_slot_batches": [
+                            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "evaluation_readout_slot_batches": [
+                            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+                            [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}],
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api_test"},
+                        "top_k": 4,
+                    },
+                )
+                status_before_homeostatic_maintenance_response = client.get("/status")
+                blocked_homeostatic_maintenance_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+                    json={
+                        "expected_state_revision": status_before_homeostatic_maintenance_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": False,
+                    },
+                )
+                homeostatic_maintenance_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+                    json={
+                        "expected_state_revision": status_before_homeostatic_maintenance_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "pre_homeostatic_maintenance.pt"),
+                        "decay_factor": 0.5,
+                        "prune_below": 0.02,
+                        "max_outgoing_row_mass": 1.0,
+                    },
+                )
+                plasticity_runtime_state_after_maintenance_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                regeneration_mismatch = {
+                    "available": True,
+                    "surface": "snn_language_sequence_mismatch_probe.v1",
+                    "prediction_error": {"mismatch_score": 0.9},
+                    "sparse_code_delta": {
+                        "predicted_only_indices": [2],
+                        "observed_only_indices": [3],
+                    },
+                }
+                regeneration_permit_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration-permit",
+                    json={
+                        "mismatch_report": regeneration_mismatch,
+                        "pressure_report": {
+                            "available": True,
+                            "surface": "snn_language_plasticity_pressure.v1",
+                        },
+                        "replay_window": [{"case_id": "regeneration-api-1", "grounded": True}],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                regeneration_proposal_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration-proposal",
+                    json={
+                        "mismatch_report": regeneration_mismatch,
+                        "replay_evidence": regeneration_permit_response.json(),
+                    },
+                )
+                status_before_regeneration_response = client.get("/status")
+                blocked_regeneration_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration",
+                    json={
+                        "regeneration_proposal": regeneration_proposal_response.json(),
+                        "expected_state_revision": status_before_regeneration_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": False,
+                    },
+                )
+                regeneration_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration",
+                    json={
+                        "regeneration_proposal": regeneration_proposal_response.json(),
+                        "expected_state_revision": status_before_regeneration_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "pre_regeneration.pt"),
+                    },
+                )
+                plasticity_runtime_state_after_regeneration_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                status_after_regeneration_response = client.get("/status")
+                stale_regeneration_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration",
+                    json={
+                        "regeneration_proposal": regeneration_proposal_response.json(),
+                        "expected_state_revision": status_after_regeneration_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                committed_regeneration_restore_response = client.post(
+                    "/checkpoint/restore",
+                    json={"path": regeneration_response.json()["checkpoint_transaction"]["committed_checkpoint_path"]},
+                )
+                plasticity_runtime_state_after_committed_regeneration_restore_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
                 )
             app.state.hecsn_manager.close()
 
@@ -363,7 +1059,37 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(plasticity_replay_response.status_code, 200)
         self.assertEqual(plasticity_replay_experiment_response.status_code, 200)
         self.assertEqual(plasticity_application_design_response.status_code, 200)
+        self.assertEqual(plasticity_shadow_delta_response.status_code, 200)
         self.assertEqual(plasticity_shadow_application_response.status_code, 200)
+        self.assertEqual(plasticity_live_readiness_response.status_code, 200)
+        self.assertEqual(plasticity_preflight_response.status_code, 200)
+        self.assertEqual(status_before_live_application_response.status_code, 200)
+        self.assertEqual(blocked_live_application_response.status_code, 200)
+        self.assertEqual(status_after_blocked_live_application_response.status_code, 200)
+        self.assertEqual(plasticity_live_application_response.status_code, 200)
+        self.assertEqual(plasticity_runtime_state_response.status_code, 200)
+        self.assertEqual(transition_memory_sleep_policy_response.status_code, 200)
+        self.assertEqual(persistent_sequence_prediction_response.status_code, 200)
+        self.assertEqual(transition_memory_prediction_evaluation_response.status_code, 200)
+        self.assertEqual(persistent_readout_draft_response.status_code, 200)
+        self.assertEqual(checkpoint_save_response.status_code, 200)
+        self.assertEqual(checkpoint_restore_response.status_code, 200)
+        self.assertEqual(plasticity_runtime_state_after_restore_response.status_code, 200)
+        self.assertEqual(persistent_sequence_prediction_after_restore_response.status_code, 200)
+        self.assertEqual(transition_memory_prediction_evaluation_after_restore_response.status_code, 200)
+        self.assertEqual(status_before_homeostatic_maintenance_response.status_code, 200)
+        self.assertEqual(blocked_homeostatic_maintenance_response.status_code, 200)
+        self.assertEqual(homeostatic_maintenance_response.status_code, 200)
+        self.assertEqual(plasticity_runtime_state_after_maintenance_response.status_code, 200)
+        self.assertEqual(regeneration_proposal_response.status_code, 200)
+        self.assertEqual(regeneration_permit_response.status_code, 200)
+        self.assertEqual(status_before_regeneration_response.status_code, 200)
+        self.assertEqual(blocked_regeneration_response.status_code, 200)
+        self.assertEqual(regeneration_response.status_code, 200)
+        self.assertEqual(plasticity_runtime_state_after_regeneration_response.status_code, 200)
+        self.assertEqual(stale_regeneration_response.status_code, 200)
+        self.assertEqual(committed_regeneration_restore_response.status_code, 200)
+        self.assertEqual(plasticity_runtime_state_after_committed_regeneration_restore_response.status_code, 200)
         signal = signal_response.json()
         language = language_response.json()
         deliberation = deliberation_response.json()
@@ -380,7 +1106,37 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         plasticity_replay = plasticity_replay_response.json()
         plasticity_replay_experiment = plasticity_replay_experiment_response.json()
         plasticity_application_design = plasticity_application_design_response.json()
+        plasticity_shadow_delta = plasticity_shadow_delta_response.json()
         plasticity_shadow_application = plasticity_shadow_application_response.json()
+        plasticity_live_readiness = plasticity_live_readiness_response.json()
+        plasticity_preflight = plasticity_preflight_response.json()
+        status_before_live_application = status_before_live_application_response.json()
+        blocked_live_application = blocked_live_application_response.json()
+        status_after_blocked_live_application = status_after_blocked_live_application_response.json()
+        plasticity_live_application = plasticity_live_application_response.json()
+        plasticity_runtime_state = plasticity_runtime_state_response.json()
+        transition_memory_sleep_policy = transition_memory_sleep_policy_response.json()
+        persistent_sequence_prediction = persistent_sequence_prediction_response.json()
+        transition_memory_prediction_evaluation = transition_memory_prediction_evaluation_response.json()
+        persistent_readout_draft = persistent_readout_draft_response.json()
+        plasticity_runtime_state_after_restore = plasticity_runtime_state_after_restore_response.json()
+        persistent_sequence_prediction_after_restore = persistent_sequence_prediction_after_restore_response.json()
+        transition_memory_prediction_evaluation_after_restore = (
+            transition_memory_prediction_evaluation_after_restore_response.json()
+        )
+        status_before_homeostatic_maintenance = status_before_homeostatic_maintenance_response.json()
+        blocked_homeostatic_maintenance = blocked_homeostatic_maintenance_response.json()
+        homeostatic_maintenance = homeostatic_maintenance_response.json()
+        plasticity_runtime_state_after_maintenance = plasticity_runtime_state_after_maintenance_response.json()
+        regeneration_proposal = regeneration_proposal_response.json()
+        regeneration_permit = regeneration_permit_response.json()
+        blocked_regeneration = blocked_regeneration_response.json()
+        regeneration = regeneration_response.json()
+        plasticity_runtime_state_after_regeneration = plasticity_runtime_state_after_regeneration_response.json()
+        stale_regeneration = stale_regeneration_response.json()
+        plasticity_runtime_state_after_committed_regeneration_restore = (
+            plasticity_runtime_state_after_committed_regeneration_restore_response.json()
+        )
         self.assertEqual(signal["subcortical_language"]["surface"], "subcortical_language.v1")
         self.assertEqual(signal["subcortical_deliberation"]["surface"], "subcortical_control_candidates.v1")
         self.assertEqual(language["surface"], "subcortical_language.v1")
@@ -441,6 +1197,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             plasticity_application_design["artifact_kind"],
             "terminus_snn_language_plasticity_application_design",
         )
+        self.assertEqual(plasticity_shadow_delta["surface"], "snn_language_plasticity_shadow_delta.v1")
+        self.assertEqual(
+            plasticity_shadow_delta["artifact_kind"],
+            "terminus_snn_language_plasticity_shadow_delta",
+        )
         self.assertEqual(
             plasticity_shadow_application["surface"],
             "snn_language_plasticity_shadow_application.v1",
@@ -448,6 +1209,56 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(
             plasticity_shadow_application["artifact_kind"],
             "terminus_snn_language_plasticity_shadow_application",
+        )
+        self.assertEqual(
+            plasticity_live_readiness["surface"],
+            "snn_language_plasticity_live_application_readiness.v1",
+        )
+        self.assertEqual(
+            plasticity_live_readiness["artifact_kind"],
+            "terminus_snn_language_plasticity_live_application_readiness",
+        )
+        self.assertEqual(
+            plasticity_preflight["surface"],
+            "snn_language_plasticity_live_application_preflight.v1",
+        )
+        self.assertEqual(
+            plasticity_preflight["artifact_kind"],
+            "terminus_snn_language_plasticity_live_application_preflight",
+        )
+        self.assertEqual(plasticity_live_application["surface"], "snn_language_plasticity_live_application.v1")
+        self.assertEqual(
+            plasticity_live_application["artifact_kind"],
+            "terminus_snn_language_plasticity_live_application",
+        )
+        self.assertEqual(
+            plasticity_runtime_state["surface"],
+            "snn_language_plasticity_runtime_state.v1",
+        )
+        self.assertEqual(
+            regeneration_proposal["surface"],
+            "snn_language_transition_memory_regeneration_proposal.v1",
+        )
+        self.assertEqual(
+            regeneration_permit["surface"],
+            "snn_language_transition_memory_regeneration_permit.v1",
+        )
+        self.assertEqual(regeneration["surface"], "snn_language_transition_memory_regeneration.v1")
+        self.assertEqual(
+            regeneration["checkpoint_transaction"]["current_checkpoint_manifest"]["checkpoint_path"],
+            regeneration["checkpoint_transaction"]["committed_checkpoint_path"],
+        )
+        self.assertFalse(regeneration_proposal["mutates_runtime_state"])
+        self.assertFalse(blocked_regeneration["accepted"])
+        self.assertTrue(regeneration["accepted"])
+        self.assertEqual(plasticity_runtime_state_after_regeneration["regeneration_count"], 1)
+        self.assertEqual(plasticity_runtime_state_after_regeneration["regenerated_synapse_count_total"], 1)
+        self.assertFalse(stale_regeneration["accepted"])
+        self.assertFalse(stale_regeneration["promotion_gate"]["required_evidence"]["replay_permit_server_verified"])
+        self.assertEqual(plasticity_runtime_state_after_committed_regeneration_restore["regeneration_count"], 1)
+        self.assertEqual(
+            plasticity_runtime_state_after_committed_regeneration_restore["regenerated_synapse_count_total"],
+            1,
         )
         self.assertTrue(language["grounded"])
         self.assertTrue(deliberation["grounded"])
@@ -468,7 +1279,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("retired_runtime_dependency", plasticity_replay)
         self.assertNotIn("retired_runtime_dependency", plasticity_replay_experiment)
         self.assertNotIn("retired_runtime_dependency", plasticity_application_design)
+        self.assertNotIn("retired_runtime_dependency", plasticity_shadow_delta)
         self.assertNotIn("retired_runtime_dependency", plasticity_shadow_application)
+        self.assertNotIn("retired_runtime_dependency", plasticity_live_readiness)
+        self.assertNotIn("retired_runtime_dependency", plasticity_preflight)
+        self.assertNotIn("retired_runtime_dependency", plasticity_live_application)
         self.assertFalse(readiness["executable"])
         self.assertFalse(readiness["mutates_runtime_state"])
         self.assertFalse(readiness["promotion_gate"]["eligible_for_cognition_substrate"])
@@ -534,6 +1349,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(plasticity_application_design["device_evidence"]["device_report_available"])
         self.assertFalse(plasticity_application_design["promotion_gate"]["eligible_for_plasticity_application"])
         self.assertFalse(plasticity_application_design["promotion_gate"]["eligible_for_live_application"])
+        self.assertFalse(plasticity_shadow_delta["generates_text"])
+        self.assertFalse(plasticity_shadow_delta["decodes_text"])
+        self.assertFalse(plasticity_shadow_delta["trains_runtime_model"])
+        self.assertFalse(plasticity_shadow_delta["applies_plasticity"])
+        self.assertFalse(plasticity_shadow_delta["returns_trained_weights"])
+        self.assertFalse(plasticity_shadow_delta["mutates_runtime_state"])
+        self.assertEqual(plasticity_shadow_delta["device_evidence"]["tensor_device"], "cpu")
+        self.assertTrue(plasticity_shadow_delta["device_evidence"]["device_report_available"])
+        self.assertGreater(plasticity_shadow_delta["affected_synapse_count"], 0)
         self.assertFalse(plasticity_shadow_application["generates_text"])
         self.assertFalse(plasticity_shadow_application["decodes_text"])
         self.assertFalse(plasticity_shadow_application["trains_runtime_model"])
@@ -544,6 +1368,115 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(plasticity_shadow_application["device_evidence"]["device_report_available"])
         self.assertFalse(plasticity_shadow_application["promotion_gate"]["eligible_for_plasticity_application"])
         self.assertFalse(plasticity_shadow_application["promotion_gate"]["eligible_for_live_application"])
+        self.assertFalse(plasticity_live_readiness["generates_text"])
+        self.assertFalse(plasticity_live_readiness["decodes_text"])
+        self.assertFalse(plasticity_live_readiness["trains_runtime_model"])
+        self.assertFalse(plasticity_live_readiness["applies_plasticity"])
+        self.assertFalse(plasticity_live_readiness["returns_trained_weights"])
+        self.assertFalse(plasticity_live_readiness["mutates_runtime_state"])
+        self.assertFalse(plasticity_live_readiness["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(plasticity_live_readiness["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(
+            plasticity_live_readiness["promotion_gate"]["eligible_for_operator_live_application_review"]
+        )
+        self.assertFalse(plasticity_preflight["applies_plasticity"])
+        self.assertFalse(plasticity_preflight["mutates_runtime_state"])
+        self.assertFalse(plasticity_preflight["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(plasticity_preflight["promotion_gate"]["eligible_for_operator_execution_review"])
+        self.assertFalse(blocked_live_application["accepted"])
+        self.assertFalse(blocked_live_application["applies_plasticity"])
+        self.assertFalse(blocked_live_application["mutates_runtime_state"])
+        self.assertFalse(
+            blocked_live_application["promotion_gate"]["required_evidence"]["confirmation"]
+        )
+        self.assertEqual(
+            status_after_blocked_live_application["state_revision"],
+            status_before_live_application["state_revision"],
+        )
+        self.assertTrue(plasticity_live_application["accepted"])
+        self.assertTrue(plasticity_live_application["applies_plasticity"])
+        self.assertTrue(plasticity_live_application["mutates_runtime_state"])
+        self.assertFalse(plasticity_live_application["generates_text"])
+        self.assertFalse(plasticity_live_application["decodes_text"])
+        self.assertFalse(plasticity_live_application["loads_external_checkpoint"])
+        self.assertGreater(plasticity_live_application["application_target"]["applied_synapse_count"], 0)
+        self.assertEqual(
+            plasticity_live_application["after"]["state_revision"],
+            int(status_before_live_application["state_revision"]) + 1,
+        )
+        self.assertGreater(plasticity_runtime_state["sparse_transition_weight_count"], 0)
+        self.assertEqual(plasticity_runtime_state["applied_update_count"], 1)
+        self.assertEqual(
+            transition_memory_sleep_policy["surface"],
+            "snn_language_transition_memory_sleep_policy.v1",
+        )
+        self.assertTrue(transition_memory_sleep_policy["recommendation"]["recommended"])
+        self.assertFalse(transition_memory_sleep_policy["recommendation"]["executable"])
+        self.assertFalse(transition_memory_sleep_policy["mutates_runtime_state"])
+        self.assertFalse(transition_memory_sleep_policy["subcortex_sleep_pressure"]["retired_runtime_dependency"])
+        self.assertTrue(persistent_sequence_prediction["persistent_transition_evidence"]["influenced_prediction"])
+        self.assertGreater(persistent_sequence_prediction["persistent_transition_evidence"]["support_strength"], 0.0)
+        self.assertIn(persistent_target_index, persistent_sequence_prediction["prediction"]["predicted_sparse_indices"])
+        self.assertEqual(
+            transition_memory_prediction_evaluation["surface"],
+            "snn_language_transition_memory_prediction_evaluation.v1",
+        )
+        self.assertFalse(transition_memory_prediction_evaluation["generates_text"])
+        self.assertFalse(transition_memory_prediction_evaluation["decodes_text"])
+        self.assertFalse(transition_memory_prediction_evaluation["mutates_runtime_state"])
+        self.assertGreater(
+            transition_memory_prediction_evaluation["evaluation_summary"]["persistent_transition_weight_count"],
+            0,
+        )
+        self.assertTrue(persistent_readout_draft["generates_text"])
+        self.assertTrue(persistent_readout_draft["transition_memory_evaluation_evidence"]["review_ready"])
+        self.assertTrue(persistent_readout_draft["promotion_gate"]["eligible_for_bounded_readout_generation"])
+        self.assertFalse(persistent_readout_draft["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(
+            plasticity_runtime_state_after_restore["sparse_transition_weight_count"],
+            plasticity_runtime_state["sparse_transition_weight_count"],
+        )
+        self.assertEqual(
+            plasticity_runtime_state_after_restore["applied_update_count"],
+            plasticity_runtime_state["applied_update_count"],
+        )
+        self.assertTrue(
+            persistent_sequence_prediction_after_restore["persistent_transition_evidence"]["influenced_prediction"]
+        )
+        self.assertGreater(
+            persistent_sequence_prediction_after_restore["persistent_transition_evidence"]["support_strength"],
+            0.0,
+        )
+        self.assertIn(
+            persistent_target_index,
+            persistent_sequence_prediction_after_restore["prediction"]["predicted_sparse_indices"],
+        )
+        self.assertGreater(
+            transition_memory_prediction_evaluation_after_restore["evaluation_summary"][
+                "persistent_transition_weight_count"
+            ],
+            0,
+        )
+        self.assertFalse(transition_memory_prediction_evaluation_after_restore["mutates_runtime_state"])
+        self.assertFalse(blocked_homeostatic_maintenance["accepted"])
+        self.assertFalse(blocked_homeostatic_maintenance["mutates_runtime_state"])
+        self.assertFalse(
+            blocked_homeostatic_maintenance["promotion_gate"]["required_evidence"]["confirmation"]
+        )
+        self.assertTrue(homeostatic_maintenance["accepted"])
+        self.assertTrue(homeostatic_maintenance["mutates_runtime_state"])
+        self.assertTrue(homeostatic_maintenance["applies_plasticity"])
+        self.assertFalse(homeostatic_maintenance["generates_text"])
+        self.assertFalse(homeostatic_maintenance["decodes_text"])
+        self.assertFalse(homeostatic_maintenance["loads_external_checkpoint"])
+        self.assertGreater(homeostatic_maintenance["homeostatic_maintenance"]["pruned_synapse_count"], 0)
+        self.assertEqual(
+            homeostatic_maintenance["after"]["state_revision"],
+            int(status_before_homeostatic_maintenance["state_revision"]) + 1,
+        )
+        self.assertEqual(plasticity_runtime_state_after_maintenance["sparse_transition_weight_count"], 0)
+        self.assertEqual(plasticity_runtime_state_after_maintenance["homeostatic_maintenance_count"], 1)
+        self.assertGreater(plasticity_runtime_state_after_maintenance["pruned_synapse_count_total"], 0)
         self.assertEqual(
             readiness["current_spike_readout_evidence"]["surface"],
             "subcortical_spike_readout_evidence.v1",

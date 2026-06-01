@@ -52,6 +52,8 @@ from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.runtime_prewarm import RuntimePrewarmer
 from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime, _SensorySourceRuntime
 from hecsn.service.sensory_runtime import SensoryRuntimeCore
+from hecsn.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
+from hecsn.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
 from hecsn.service.autonomy_planner import AutonomyPlanner
 from hecsn.service.status_runtime import RuntimeStatusCore
 from hecsn.service.status_read_model import StatusReadModel
@@ -118,8 +120,8 @@ class HECSNServiceManager:
         self._lock = RLock()
         self._runtime_state: RuntimeState = RuntimeState(lock=self._lock)
         self._brain_execution_lock = Lock()
-        self._checkpoint_path = Path(checkpoint_path)
-        self._checkpoint_dir = self._checkpoint_path.parent if self._checkpoint_path.parent != Path("") else Path("checkpoints")
+        self._checkpoint_path = RuntimePersistence.resolve_current_checkpoint_path(checkpoint_path)
+        self._checkpoint_dir = RuntimePersistence.checkpoint_root_for_path(self._checkpoint_path)
         self._env_root = None if env_root is None else Path(env_root)
         self._runtime_env = load_runtime_env(anchor_paths=(self._env_root, self._checkpoint_dir))
         self._action_root = (self._env_root or self._checkpoint_dir).resolve()
@@ -164,6 +166,8 @@ class HECSNServiceManager:
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
         self._concept_store = ConceptStore.from_state_dict(concept_state)
+        self._snn_language_plasticity_state = dict(service_state.get("snn_language_plasticity") or {})
+        self._snn_language_readout_ledger_state = dict(service_state.get("snn_language_readout_ledger") or {})
         self._runtime_persistence = RuntimePersistence(
             RuntimePersistenceDependencies(
                 get_state=lambda name: object.__getattribute__(self, name),
@@ -175,6 +179,7 @@ class HECSNServiceManager:
                 normalize_background_source_utility_state=self._normalize_background_source_utility_state,
                 normalize_delayed_consequence_record=self._normalize_delayed_consequence_record,
                 rebuild_brain_sources=lambda: self._brain_runtime._rebuild_brain_sources_locked(),
+                refresh_root_captures=self._refresh_root_captures_locked,
                 request_brain_stop=lambda *args, **kwargs: self._runtime_control._request_brain_stop(*args, **kwargs),
             ),
             trace_history_limit=trace_history_limit,
@@ -205,6 +210,7 @@ class HECSNServiceManager:
                 trainer=lambda: self._trainer,
             ),
             replay_sample_history=list(terminus_state.get("replay_sample_history") or []),
+            regeneration_permits=list(terminus_state.get("replay_regeneration_permits") or []),
         )
         self._delayed_consequence = DelayedConsequenceTracker(
             DelayedConsequenceDependencies(
@@ -234,7 +240,7 @@ class HECSNServiceManager:
             last_event=terminus_state.get("last_event"),
             recent_events=terminus_state.get("recent_events"),
         )
-        self._runtime_state.restore_clean()
+        self._runtime_state.hydrate_persisted_revision(int(self._metadata.get("state_revision", 0) or 0))
         self._load_persisted_traces_locked()
 
         # --- Status Read Model (ADR 0003 deep module extraction) ---
@@ -245,11 +251,51 @@ class HECSNServiceManager:
             runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
         )
         self._feedback_applier = self._build_feedback_applier()
+        self._snn_language_plasticity_executor = SNNLanguagePlasticityApplicationExecutor(
+            lock=self._lock,
+            runtime_state=self._runtime_state,
+            language_plasticity_state=lambda: self._snn_language_plasticity_state,
+            save_checkpoint=lambda path: self._runtime_persistence.save_checkpoint(path, publish=False),
+            checkpoint_path=lambda: self._checkpoint_path,
+            verify_checkpoint=lambda path: bool(load_trainer_checkpoint(path)),
+            verify_regeneration_permit=lambda proposal: self._replay_controller.verify_regeneration_permit(proposal),
+            verify_checkpoint_snapshot=self._verify_snn_language_checkpoint_snapshot,
+            publish_committed_checkpoint=lambda path, operation: self._runtime_persistence.publish_current_checkpoint(
+                path,
+                operation=operation,
+            ),
+        )
+        self._snn_language_readout_ledger = SNNLanguageReadoutEvidenceLedger(
+            lock=self._lock,
+            runtime_state=self._runtime_state,
+            ledger_state=lambda: self._snn_language_readout_ledger_state,
+        )
         self._runtime_facade = RuntimeFacade(self)
 
     @property
     def runtime_facade(self) -> RuntimeFacade:
         return self._runtime_facade
+
+    @staticmethod
+    def _verify_snn_language_checkpoint_snapshot(
+        path: Path,
+        expected_language_state: Mapping[str, Any],
+        expected_revision: int,
+    ) -> bool:
+        try:
+            _trainer, metadata = load_trainer_checkpoint(path)
+        except Exception:
+            return False
+        service_state = metadata.get("service_state") if isinstance(metadata.get("service_state"), Mapping) else {}
+        saved_language_state = (
+            service_state.get("snn_language_plasticity")
+            if isinstance(service_state.get("snn_language_plasticity"), Mapping)
+            else {}
+        )
+        return (
+            dict(saved_language_state) == dict(expected_language_state)
+            and int(metadata.get("state_revision", -1)) == int(expected_revision)
+        )
 
     def _build_status_read_model(self) -> StatusReadModel:
         return StatusReadModel(
@@ -402,6 +448,16 @@ class HECSNServiceManager:
             runtime_trace_export_safe_value_fn=lambda value: self._runtime_trace_export_safe_value(value),
         )
 
+    def _refresh_root_captures_locked(self) -> None:
+        self._brain_runtime.rebind_runtime(self._trainer, self._encoder)
+        self._interaction_pipeline.rebind_runtime(self._trainer, self._encoder)
+        self._status_read_model.rebind_runtime(
+            trainer=self._trainer,
+            metadata=self._metadata,
+            checkpoint_path_str=str(self._checkpoint_path),
+        )
+        self._action_executor.rebind_action_root(self._action_root)
+
     @property
     def _action_history(self) -> deque[dict[str, Any]]:
         return self._action_executor.history
@@ -425,6 +481,14 @@ class HECSNServiceManager:
     @_replay_sample_history.setter
     def _replay_sample_history(self, value: Sequence[Mapping[str, Any]]) -> None:
         self._replay_controller.history = value
+
+    @property
+    def _replay_regeneration_permits(self) -> deque[dict[str, Any]]:
+        return self._replay_controller.regeneration_permits
+
+    @_replay_regeneration_permits.setter
+    def _replay_regeneration_permits(self, value: Sequence[Mapping[str, Any]]) -> None:
+        self._replay_controller.regeneration_permits = value
 
     @property
     def _brain_recent_query_gaps(self) -> deque[dict[str, Any]]:

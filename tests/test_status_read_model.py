@@ -1353,6 +1353,75 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(report["decodes_text"])
         self.assertFalse(report["mutates_runtime_state"])
         self.assertEqual(len(report["prediction"]["predicted_sparse_indices"]), 4)
+        self.assertFalse(report["persistent_transition_evidence"]["influenced_prediction"])
+
+    def test_snn_language_sequence_prediction_probe_accepts_persistent_transition_state(self) -> None:
+        """Persistent sparse transition state can influence prediction without mutation."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        baseline = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        current_index = int(baseline["current_sparse_code"]["active_indices"][0])
+        target_index = (current_index + 9) % 64
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+            persistent_transition_weights={f"{current_index}:{target_index}": 0.5},
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertTrue(report["persistent_transition_evidence"]["influenced_prediction"])
+        self.assertIn(target_index, report["prediction"]["predicted_sparse_indices"])
+        self.assertFalse(report["mutates_runtime_state"])
+
+    def test_snn_language_transition_memory_prediction_evaluation_does_not_advance_revision(self) -> None:
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        observed = [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}]
+        current_probe = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            current,
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        current_index = int(current_probe["current_sparse_code"]["active_indices"][0])
+        target_index = (current_index + 5) % 64
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_transition_memory_prediction_evaluation(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            [current, observed],
+            {"sparse_transition_weights": {f"{current_index}:{target_index}": 0.5}},
+            device_evidence={"device": "cpu", "source": "test"},
+            top_k=4,
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_transition_memory_prediction_evaluation.v1")
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["decodes_text"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["trains_runtime_model"])
+        self.assertEqual(report["evaluation_summary"]["persistent_transition_weight_count"], 1)
 
     def test_snn_language_sequence_mismatch_probe_does_not_advance_revision(self) -> None:
         """Mismatch probe reports prediction error without applying learning."""
@@ -1648,22 +1717,55 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
             rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
         )
         rev_before = runtime_state.state_revision
+        shadow_delta = model.snn_language_plasticity_shadow_delta(
+            design,
+            replay_sequences=[{"pre_indices": [2, 3], "post_indices": [3, 4], "grounded": True}],
+            device_evidence={"device": "cpu", "source": "test"},
+        )
         report = model.snn_language_plasticity_shadow_application(
             design,
-            shadow_delta={
-                "max_abs_weight_delta": 0.03,
-                "affected_synapse_count": 4,
-                "locality_radius": 2,
-                "pressure_before": 0.4,
-                "pressure_after": 0.35,
-            },
+            shadow_delta=shadow_delta,
             device_evidence={"device": "cpu", "source": "test"},
             runtime_truth_delta={"improved_or_stable": True},
             rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
         )
+        live_readiness = model.snn_language_plasticity_live_application_readiness(
+            report,
+            rollback_readiness={
+                "checkpoint_available": True,
+                "checkpoint_path": "checkpoint://pre-language-plasticity",
+                "restore_endpoint_available": True,
+            },
+            operator_approval={
+                "approved": True,
+                "operator_id": "operator-test",
+                "approval_id": "approval-1",
+            },
+        )
+        preflight = model.snn_language_plasticity_live_application_preflight(
+            live_readiness,
+            application_target={
+                "available": True,
+                "target_id": "hecsn.snn_language.sparse_transition_weights",
+                "owned_by_hecsn": True,
+                "mutable": True,
+                "sparse": True,
+                "checkpointed": True,
+            },
+            checkpoint_transaction={
+                "pre_update_checkpoint_saved": True,
+                "checkpoint_path": "checkpoint://pre-language-plasticity",
+                "restore_verified": True,
+                "records_shadow_delta": True,
+            },
+        )
         rev_after = runtime_state.state_revision
 
         self.assertEqual(rev_before, rev_after)
+        self.assertEqual(shadow_delta["surface"], "snn_language_plasticity_shadow_delta.v1")
+        self.assertFalse(shadow_delta["applies_plasticity"])
+        self.assertEqual(shadow_delta["device_evidence"]["tensor_device"], "cpu")
+        self.assertGreater(shadow_delta["affected_synapse_count"], 0)
         self.assertEqual(report["surface"], "snn_language_plasticity_shadow_application.v1")
         self.assertFalse(report["applies_plasticity"])
         self.assertEqual(report["device_evidence"]["tensor_device"], "cpu")
@@ -1671,6 +1773,17 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(report["mutates_runtime_state"])
         self.assertFalse(report["promotion_gate"]["eligible_for_plasticity_application"])
         self.assertFalse(report["promotion_gate"]["eligible_for_live_application"])
+        self.assertEqual(live_readiness["surface"], "snn_language_plasticity_live_application_readiness.v1")
+        self.assertFalse(live_readiness["applies_plasticity"])
+        self.assertFalse(live_readiness["mutates_runtime_state"])
+        self.assertFalse(live_readiness["returns_trained_weights"])
+        self.assertFalse(live_readiness["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(live_readiness["promotion_gate"]["eligible_for_operator_live_application_review"])
+        self.assertEqual(preflight["surface"], "snn_language_plasticity_live_application_preflight.v1")
+        self.assertFalse(preflight["applies_plasticity"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(preflight["promotion_gate"]["eligible_for_operator_execution_review"])
 
     def test_structural_plasticity_isolated_evaluation_does_not_advance_revision(self) -> None:
         """Structural grow/prune evaluation compares snapshots without mutation."""
@@ -2410,6 +2523,36 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "suggested_input",
         ):
             self.assertNotIn(forbidden_key, language_gate)
+        self.assertIn("snn_language_plasticity_path", truth["evidence"])
+        plasticity_path = truth["evidence"]["snn_language_plasticity_path"]
+        self.assertEqual(
+            plasticity_path["artifact_kind"],
+            "terminus_snn_language_plasticity_path_evidence",
+        )
+        self.assertEqual(plasticity_path["surface"], "snn_language_plasticity_path_evidence.v1")
+        self.assertEqual(plasticity_path["latest_gate"], "snn_language_plasticity_live_application_preflight.v1")
+        self.assertTrue(plasticity_path["owned_by_hecsn"])
+        self.assertFalse(plasticity_path["external_dependency"])
+        self.assertFalse(plasticity_path["generates_text"])
+        self.assertFalse(plasticity_path["decodes_text"])
+        self.assertFalse(plasticity_path["trains_runtime_model"])
+        self.assertFalse(plasticity_path["applies_plasticity"])
+        self.assertFalse(plasticity_path["mutates_runtime_state"])
+        self.assertTrue(plasticity_path["requires_device_evidence"])
+        self.assertTrue(plasticity_path["requires_runtime_truth_delta"])
+        self.assertTrue(plasticity_path["requires_rollback_evidence"])
+        self.assertIn("rollback_readiness", plasticity_path)
+        self.assertTrue(plasticity_path["rollback_readiness"]["rollback_policy_required"])
+        self.assertTrue(plasticity_path["rollback_readiness"]["restore_endpoint_available"])
+        self.assertIsInstance(
+            plasticity_path["rollback_readiness"]["checkpoint_metadata_available"],
+            bool,
+        )
+        self.assertIn("checkpoint_path", plasticity_path["rollback_readiness"])
+        self.assertIn("snn_language_plasticity_application_design.v1", plasticity_path["gates"])
+        self.assertIn("snn_language_plasticity_shadow_application.v1", plasticity_path["gates"])
+        self.assertIn("snn_language_plasticity_live_application_readiness.v1", plasticity_path["gates"])
+        self.assertIn("snn_language_plasticity_live_application_preflight.v1", plasticity_path["gates"])
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):

@@ -65,6 +65,25 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertFalse(state.dirty_state)
         self.assertEqual(state.state_revision, 1)
 
+    def test_commit_restored_revision_advances_beyond_live_and_persisted_histories(self) -> None:
+        state = RuntimeState()
+        state.state_revision = 4
+        state.mark_dirty_without_revision()
+
+        state.commit_restored_revision(9)
+
+        self.assertFalse(state.dirty_state)
+        self.assertEqual(state.state_revision, 10)
+
+    def test_hydrate_persisted_revision_restores_exact_clean_revision(self) -> None:
+        state = RuntimeState()
+        state.mark_mutated()
+
+        state.hydrate_persisted_revision(7)
+
+        self.assertFalse(state.dirty_state)
+        self.assertEqual(state.state_revision, 7)
+
     def test_record_event_normalizes_payload_and_keeps_defensive_copies(self) -> None:
         state = RuntimeState()
         payload = {

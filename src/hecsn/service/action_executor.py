@@ -66,6 +66,9 @@ class ActionExecutor:
         ]
         self._action_history = deque(normalized, maxlen=self._history_maxlen)
 
+    def rebind_action_root(self, action_root: str | Path) -> None:
+        self._action_root = Path(action_root).resolve()
+
     def action_history(self, limit: int = 20) -> dict[str, Any]:
         with self._lock:
             count = max(1, int(limit))

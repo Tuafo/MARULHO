@@ -4,8 +4,11 @@ from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
 from typing import Any, Callable, Mapping, Sequence, cast
 from uuid import uuid4
 
@@ -16,12 +19,14 @@ from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_c
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
+CURRENT_CHECKPOINT_MANIFEST = "hecsn_current_checkpoint.json"
 
 
 _FORWARDED_STATE_NAMES = frozenset({
     "_action_history",
     "_action_root",
     "_brain_config",
+    "_brain_runtime",
     "_brain_last_acquisition_summary",
     "_brain_last_acquisition_token_count",
     "_brain_last_error",
@@ -35,15 +40,19 @@ _FORWARDED_STATE_NAMES = frozenset({
     "_delayed_consequence_remerged_total",
     "_delayed_consequence_retired_total",
     "_delayed_consequence_split_total",
+    "_delayed_consequence",
     "_encoder",
     "_env_root",
     "_geometric_curiosity",
     "_interaction_pipeline",
     "_metadata",
     "_replay_sample_history",
+    "_replay_regeneration_permits",
     "_runtime_config",
     "_runtime_env",
     "_runtime_state",
+    "_snn_language_plasticity_state",
+    "_snn_language_readout_ledger_state",
     "_trace_dir",
     "_trainer",
 })
@@ -60,6 +69,7 @@ class RuntimePersistenceDependencies:
     normalize_background_source_utility_state: Callable[[Any], dict[str, Any]]
     normalize_delayed_consequence_record: Callable[[Any], dict[str, Any] | None]
     rebuild_brain_sources: Callable[[], None]
+    refresh_root_captures: Callable[[], None]
     request_brain_stop: Callable[..., Any]
 
 
@@ -74,6 +84,7 @@ class RuntimePersistence:
         trace_history: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         object.__setattr__(self, "_dependencies", dependencies)
+        object.__setattr__(self, "_checkpoint_root", Path(self._checkpoint_dir).resolve())
         self._trace_history: deque[dict[str, Any]] = deque(maxlen=max(1, int(trace_history_limit)))
         self.load_persisted_traces(trace_history or [])
 
@@ -83,7 +94,7 @@ class RuntimePersistence:
         raise AttributeError(name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name in {"_dependencies", "_trace_history"}:
+        if name in {"_dependencies", "_checkpoint_root", "_trace_history"}:
             object.__setattr__(self, name, value)
             return
         if name in _FORWARDED_STATE_NAMES:
@@ -159,13 +170,15 @@ class RuntimePersistence:
         self._trace_history.clear()
         self._trace_history.extend(normalized)
 
-    def save_checkpoint(self, path: str | None = None) -> dict[str, Any]:
+    def save_checkpoint(self, path: str | None = None, *, publish: bool = True) -> dict[str, Any]:
         with self._lock:
             target = self._resolve_save_path(path)
             metadata = deepcopy(self._metadata)
             service_state = dict(metadata.get("service_state", {}))
             service_state["concept_store"] = self._concept_store.state_dict()
             service_state["terminus_runtime"] = self._brain_persisted_state_locked()
+            service_state["snn_language_plasticity"] = deepcopy(self._snn_language_plasticity_state)
+            service_state["snn_language_readout_ledger"] = deepcopy(self._snn_language_readout_ledger_state)
             metadata.update(
                 {
                     "saved_by": "hecsn.service",
@@ -175,81 +188,290 @@ class RuntimePersistence:
                 }
             )
             saved_path = save_trainer_checkpoint(target, self._trainer, metadata=metadata)
-            self._checkpoint_path = saved_path
-            self._checkpoint_dir = saved_path.parent
-            self._metadata = metadata
-            self._runtime_state.mark_clean()
+            manifest = self.publish_current_checkpoint(saved_path, operation="manual_save") if publish else None
             return {
                 "path": str(saved_path),
+                "current_checkpoint_manifest": manifest,
                 **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
+
+    def publish_current_checkpoint(self, path: str | Path, *, operation: str) -> dict[str, Any]:
+        """Atomically publish the verified checkpoint selected for crash recovery."""
+
+        with self._lock:
+            source_path = Path(path).resolve()
+            if not source_path.is_file():
+                raise FileNotFoundError(f"Cannot publish missing checkpoint: {source_path}")
+            object_dir = self._checkpoint_root / "objects"
+            object_dir.mkdir(parents=True, exist_ok=True)
+            object_path = object_dir / (
+                f"revision-{int(self._runtime_state.state_revision)}-{str(operation)}-{uuid4().hex}.pt"
+            )
+            self._copy_atomic(source_path, object_path)
+            descriptor = self._checkpoint_descriptor(object_path, operation=operation)
+            _trainer, metadata = load_trainer_checkpoint(object_path)
+            if int(metadata.get("state_revision", -1)) != int(descriptor["state_revision"]):
+                raise ValueError("Published checkpoint revision does not match runtime revision.")
+            manifest_path = self.current_checkpoint_manifest_path(self._checkpoint_root)
+            previous = None
+            try:
+                existing = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if isinstance(existing.get("current"), Mapping):
+                    previous = dict(existing["current"])
+            except Exception:
+                previous = None
+            payload = {
+                "schema_version": 1,
+                "artifact_kind": "hecsn_current_checkpoint_manifest",
+                "current": descriptor,
+                "previous": previous,
+                "published_at": datetime.now(timezone.utc).isoformat(),
+            }
+            previous_checkpoint_path = self._checkpoint_path
+            previous_checkpoint_dir = self._checkpoint_dir
+            previous_metadata = deepcopy(self._metadata)
+            self._checkpoint_path = object_path
+            self._checkpoint_dir = self._checkpoint_root
+            self._metadata = dict(metadata)
+            try:
+                self._dependencies.refresh_root_captures()
+                self._write_atomic_json(manifest_path, payload)
+            except Exception:
+                self._checkpoint_path = previous_checkpoint_path
+                self._checkpoint_dir = previous_checkpoint_dir
+                self._metadata = previous_metadata
+                self._dependencies.refresh_root_captures()
+                raise
+            self._runtime_state.mark_clean()
+            return {"path": str(manifest_path), "checkpoint_path": str(object_path), **payload}
+
+    @staticmethod
+    def checkpoint_root_for_path(checkpoint_path: str | Path) -> Path:
+        path = Path(checkpoint_path)
+        parent = path.parent if path.parent != Path("") else Path("checkpoints")
+        if parent.name == "objects" and (parent.parent / CURRENT_CHECKPOINT_MANIFEST).is_file():
+            return parent.parent
+        return parent
+
+    @classmethod
+    def resolve_current_checkpoint_path(cls, fallback: str | Path) -> Path:
+        fallback_path = Path(fallback)
+        manifest_path = cls.current_checkpoint_manifest_path(fallback_path)
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return fallback_path
+        if payload.get("schema_version") != 1 or payload.get("artifact_kind") != "hecsn_current_checkpoint_manifest":
+            return fallback_path
+        root = manifest_path.parent.resolve()
+        for key in ("current", "previous"):
+            descriptor = payload.get(key)
+            if isinstance(descriptor, Mapping):
+                candidate = cls._validated_descriptor_path(root, descriptor)
+                if candidate is not None:
+                    return candidate
+        return fallback_path
+
+    @staticmethod
+    def current_checkpoint_manifest_path(checkpoint_path: str | Path) -> Path:
+        path = Path(checkpoint_path)
+        parent = path if path.is_dir() else (path.parent if path.parent != Path("") else Path("."))
+        return parent / CURRENT_CHECKPOINT_MANIFEST
+
+    def _checkpoint_descriptor(self, path: Path, *, operation: str) -> dict[str, Any]:
+        return {
+            "relative_path": path.resolve().relative_to(self._checkpoint_root).as_posix(),
+            "size_bytes": int(path.stat().st_size),
+            "sha256": self._sha256_file(path),
+            "state_revision": int(self._runtime_state.state_revision),
+            "operation": str(operation),
+        }
+
+    @classmethod
+    def _validated_descriptor_path(cls, root: Path, descriptor: Mapping[str, Any]) -> Path | None:
+        try:
+            candidate = (root / str(descriptor.get("relative_path") or "")).resolve()
+            candidate.relative_to(root)
+            if not candidate.is_file():
+                return None
+            if int(descriptor.get("size_bytes", -1)) != int(candidate.stat().st_size):
+                return None
+            if str(descriptor.get("sha256") or "") != cls._sha256_file(candidate):
+                return None
+            _trainer, metadata = load_trainer_checkpoint(candidate)
+            if int(metadata.get("state_revision", -1)) != int(descriptor.get("state_revision", -2)):
+                return None
+            return candidate
+        except Exception:
+            return None
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _copy_atomic(source: Path, target: Path) -> None:
+        temporary_path = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
+        try:
+            with source.open("rb") as read_handle, temporary_path.open("wb") as write_handle:
+                shutil.copyfileobj(read_handle, write_handle)
+                write_handle.flush()
+                os.fsync(write_handle.fileno())
+            os.replace(temporary_path, target)
+            RuntimePersistence._sync_parent_directory(target)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+
+    @staticmethod
+    def _write_atomic_json(path: Path, payload: Mapping[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        encoded = json.dumps(dict(payload), sort_keys=True, indent=2).encode("utf-8")
+        try:
+            with temporary_path.open("wb") as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+            RuntimePersistence._sync_parent_directory(path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
+
+    @staticmethod
+    def _sync_parent_directory(path: Path) -> None:
+        """Persist rename metadata when the host exposes fsync-able directories."""
+
+        try:
+            descriptor = os.open(str(path.parent), os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            return
+        finally:
+            os.close(descriptor)
 
     def restore_checkpoint(self, path: str | Path) -> dict[str, Any]:
         thread = self._request_brain_stop()
         self._join_brain_thread(thread)
         with self._lock:
-            checkpoint_path = Path(path)
-            trainer, metadata = load_trainer_checkpoint(checkpoint_path)
-            self._trainer = trainer
-            self._metadata = dict(metadata)
-            self._encoder = self._trainer.encoder
-            self._checkpoint_path = checkpoint_path
-            self._checkpoint_dir = checkpoint_path.parent if checkpoint_path.parent != Path("") else Path("checkpoints")
-            self._runtime_env = load_runtime_env(anchor_paths=(self._env_root, self._checkpoint_dir))
-            self._action_root = (self._env_root or self._checkpoint_dir).resolve()
-            service_state = dict(self._metadata.get("service_state", {}))
-            terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
-            concept_state = service_state.get("concept_store")
-            self._concept_store = ConceptStore.from_state_dict(concept_state)
-            geometric_curiosity_state = cast(
-                dict[str, Any] | None,
-                terminus_state.get("geometric_curiosity"),
-            )
-            self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
-                self._trainer.model.abstraction_layer,
-                geometric_curiosity_state,
-            )
-            self._brain_config = self._runtime_config._normalize_brain_config(terminus_state)
-            self._brain_source_utility = self._normalize_background_source_utility_state(
-                terminus_state.get("background_source_utility")
-            )
-            self._brain_last_error = None
-            self._action_history = list(terminus_state.get("action_history") or [])
-            self._replay_sample_history = list(terminus_state.get("replay_sample_history") or [])
-            self._delayed_consequence_records = deque(
-                (
-                    item
-                    for item in (
-                        self._normalize_delayed_consequence_record(raw_item)
-                        for raw_item in list(terminus_state.get("delayed_consequence_records") or [])
-                    )
-                    if item is not None
-                ),
-                maxlen=DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
-            )
-            self._delayed_consequence_cooled_total = max(0, int(terminus_state.get("delayed_consequence_cooled_total", 0) or 0))
-            self._delayed_consequence_retired_total = max(0, int(terminus_state.get("delayed_consequence_retired_total", 0) or 0))
-            self._delayed_consequence_compacted_total = max(0, int(terminus_state.get("delayed_consequence_compacted_total", 0) or 0))
-            self._delayed_consequence_split_total = max(0, int(terminus_state.get("delayed_consequence_split_total", 0) or 0))
-            self._delayed_consequence_remerged_total = max(0, int(terminus_state.get("delayed_consequence_remerged_total", 0) or 0))
-            self._brain_last_acquisition_summary = None
-            self._brain_last_acquisition_token_count = int(self._trainer.token_count)
-            self._rebuild_brain_sources_locked()
-            self._interaction_pipeline.load_interaction_state(
-                recent_query_gaps=list(terminus_state.get("recent_query_gaps") or []),
-                runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
-            )
-            self._runtime_state.restore_event_history(
-                last_event=terminus_state.get("last_event"),
-                recent_events=terminus_state.get("recent_events"),
-            )
-            self._runtime_state.restore_clean()
-            return {
-                "path": str(checkpoint_path),
-                **self._runtime_state.mutation_summary(),
-                "token_count": int(self._trainer.token_count),
-            }
+            selected_path = Path(path)
+            recovery_path = self._checkpoint_root / f".hecsn_operator_restore_recovery_{uuid4().hex}.pt"
+            staged_path = self._checkpoint_root / f".hecsn_operator_restore_committed_{uuid4().hex}.pt"
+            previous_checkpoint_path = self._checkpoint_path
+            previous_checkpoint_dir = self._checkpoint_dir
+            previous_metadata = deepcopy(self._metadata)
+            previous_runtime_env = self._runtime_env
+            previous_action_root = self._action_root
+            previous_runtime_state = self._runtime_state.snapshot()
+            self.save_checkpoint(str(recovery_path), publish=False)
+            try:
+                restored_metadata = self._hydrate_checkpoint_locked(selected_path)
+                self._runtime_state.commit_restored_revision(
+                    int(restored_metadata.get("state_revision", 0) or 0)
+                )
+                staged = self.save_checkpoint(str(staged_path), publish=False)
+                manifest = self.publish_current_checkpoint(
+                    Path(str(staged["path"])),
+                    operation="operator_restore",
+                )
+                return {
+                    "path": str(manifest["checkpoint_path"]),
+                    "restored_from_path": str(selected_path),
+                    "current_checkpoint_manifest": manifest,
+                    **self._runtime_state.mutation_summary(),
+                    "token_count": int(self._trainer.token_count),
+                }
+            except Exception:
+                self._hydrate_checkpoint_locked(recovery_path)
+                self._checkpoint_path = previous_checkpoint_path
+                self._checkpoint_dir = previous_checkpoint_dir
+                self._metadata = previous_metadata
+                self._runtime_env = previous_runtime_env
+                self._action_root = previous_action_root
+                self._runtime_state.state_revision = int(previous_runtime_state["state_revision"])
+                self._runtime_state.dirty_state = bool(previous_runtime_state["dirty_state"])
+                self._runtime_state.restore_event_history(
+                    last_event=previous_runtime_state.get("last_event"),
+                    recent_events=previous_runtime_state.get("recent_events"),
+                )
+                self._dependencies.refresh_root_captures()
+                raise
+            finally:
+                for temporary_path in (recovery_path, staged_path):
+                    if temporary_path.exists():
+                        temporary_path.unlink()
+
+    def _hydrate_checkpoint_locked(self, checkpoint_path: Path) -> dict[str, Any]:
+        trainer, metadata = load_trainer_checkpoint(checkpoint_path)
+        self._trainer = trainer
+        self._metadata = dict(metadata)
+        self._encoder = self._trainer.encoder
+        self._checkpoint_path = checkpoint_path
+        self._checkpoint_dir = self.checkpoint_root_for_path(checkpoint_path)
+        self._runtime_env = load_runtime_env(anchor_paths=(self._env_root, self._checkpoint_dir))
+        self._action_root = (self._env_root or self._checkpoint_dir).resolve()
+        service_state = dict(self._metadata.get("service_state", {}))
+        terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
+        concept_state = service_state.get("concept_store")
+        self._snn_language_plasticity_state = dict(service_state.get("snn_language_plasticity") or {})
+        self._snn_language_readout_ledger_state = dict(service_state.get("snn_language_readout_ledger") or {})
+        self._concept_store = ConceptStore.from_state_dict(concept_state)
+        geometric_curiosity_state = cast(
+            dict[str, Any] | None,
+            terminus_state.get("geometric_curiosity"),
+        )
+        self._geometric_curiosity = GeometricCuriosityController.from_state_dict(
+            self._trainer.model.abstraction_layer,
+            geometric_curiosity_state,
+        )
+        self._brain_config = self._runtime_config._normalize_brain_config(terminus_state)
+        self._brain_source_utility = self._normalize_background_source_utility_state(
+            terminus_state.get("background_source_utility")
+        )
+        self._brain_last_error = None
+        self._action_history = list(terminus_state.get("action_history") or [])
+        self._replay_sample_history = list(terminus_state.get("replay_sample_history") or [])
+        self._replay_regeneration_permits = list(terminus_state.get("replay_regeneration_permits") or [])
+        self._delayed_consequence_records = deque(
+            (
+                item
+                for item in (
+                    self._normalize_delayed_consequence_record(raw_item)
+                    for raw_item in list(terminus_state.get("delayed_consequence_records") or [])
+                )
+                if item is not None
+            ),
+            maxlen=DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
+        )
+        self._delayed_consequence_cooled_total = max(0, int(terminus_state.get("delayed_consequence_cooled_total", 0) or 0))
+        self._delayed_consequence_retired_total = max(0, int(terminus_state.get("delayed_consequence_retired_total", 0) or 0))
+        self._delayed_consequence_compacted_total = max(0, int(terminus_state.get("delayed_consequence_compacted_total", 0) or 0))
+        self._delayed_consequence_split_total = max(0, int(terminus_state.get("delayed_consequence_split_total", 0) or 0))
+        self._delayed_consequence_remerged_total = max(0, int(terminus_state.get("delayed_consequence_remerged_total", 0) or 0))
+        self._delayed_consequence.restore_state(terminus_state)
+        self._brain_last_acquisition_summary = None
+        self._brain_last_acquisition_token_count = int(self._trainer.token_count)
+        self._dependencies.refresh_root_captures()
+        self._brain_runtime.restore_runtime_state(terminus_state)
+        self._rebuild_brain_sources_locked()
+        self._interaction_pipeline.load_interaction_state(
+            recent_query_gaps=list(terminus_state.get("recent_query_gaps") or []),
+            runtime_episode_traces=list(terminus_state.get("runtime_episode_traces") or []),
+        )
+        self._runtime_state.restore_event_history(
+            last_event=terminus_state.get("last_event"),
+            recent_events=terminus_state.get("recent_events"),
+        )
+        return self._metadata
 
     def _service_state_snapshot(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None
@@ -270,7 +492,7 @@ class RuntimePersistence:
 
         self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        return self._checkpoint_dir / f"hecsn_service_{stamp}.pt"
+        return self._checkpoint_dir / f"hecsn_service_{stamp}_{uuid4().hex}.pt"
 
     def _persist_trace_locked(self, trace: dict[str, Any]) -> Path:
         payload = self._json_safe(trace)

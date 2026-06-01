@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -46,10 +47,22 @@ class _FakePersistenceManager:
         self._runtime_state = _FakeRuntimeState()
         self._trainer = _FakeTrainer()
         self._concept_store = _FakeConceptStore()
+        self._snn_language_plasticity_state = {
+            "sparse_transition_weights": {"1:2": 0.5},
+            "homeostatic_maintenance": {
+                "maintenance_count": 1,
+                "recent_events": [{"event_index": 1, "pruned_synapse_count": 0}],
+            },
+        }
+        self._snn_language_readout_ledger_state = {
+            "events": [{"readout_evidence_hash": "readout-hash-1", "prediction_hash": "prediction-hash-1"}],
+            "total_recorded_count": 1,
+        }
         self._runtime_env = {}
         self._env_root = None
         self._action_root = root
         self._replay_sample_history = deque(maxlen=256)
+        self._replay_regeneration_permits = deque(maxlen=64)
         self._delayed_consequence_records = deque(maxlen=24)
         self._delayed_consequence_cooled_total = 0
         self._delayed_consequence_retired_total = 0
@@ -62,6 +75,7 @@ class _FakePersistenceManager:
     def _brain_persisted_state_locked(self) -> dict[str, object]:
         return {
             "replay_sample_history": [dict(item) for item in list(self._replay_sample_history)],
+            "replay_regeneration_permits": [dict(item) for item in list(self._replay_regeneration_permits)],
             "last_event": {"type": "brain_event_recorded"},
             "recent_events": [{"type": "brain_event_recorded"}],
             "action_history": [],
@@ -110,7 +124,12 @@ class _FakePersistenceManager:
     _interaction_pipeline = _InteractionPipelineStub()
 
 
-def _runtime_persistence(manager: _FakePersistenceManager, *, trace_history_limit: int = 2) -> RuntimePersistence:
+def _runtime_persistence(
+    manager: _FakePersistenceManager,
+    *,
+    trace_history_limit: int = 2,
+    refresh_root_captures=lambda: None,
+) -> RuntimePersistence:
     return RuntimePersistence(
         RuntimePersistenceDependencies(
             get_state=lambda name: getattr(manager, name),
@@ -122,6 +141,7 @@ def _runtime_persistence(manager: _FakePersistenceManager, *, trace_history_limi
             normalize_background_source_utility_state=manager._normalize_background_source_utility_state,
             normalize_delayed_consequence_record=manager._normalize_delayed_consequence_record,
             rebuild_brain_sources=manager._rebuild_brain_sources_locked,
+            refresh_root_captures=refresh_root_captures,
             request_brain_stop=manager._request_brain_stop,
         ),
         trace_history_limit=trace_history_limit,
@@ -177,6 +197,9 @@ class RuntimePersistenceTests(unittest.TestCase):
                     "selected_candidate_ids": ["candidate-1"],
                 }
             )
+            manager._replay_regeneration_permits.appendleft(
+                {"permit_id": "permit-1", "evidence_hash": "hash-1"}
+            )
             persistence = _runtime_persistence(manager, trace_history_limit=2)
 
             captured: dict[str, object] = {}
@@ -185,10 +208,12 @@ class RuntimePersistenceTests(unittest.TestCase):
                 captured["path"] = path
                 captured["trainer"] = trainer
                 captured["metadata"] = metadata
+                path.write_bytes(b"checkpoint")
                 return path
 
             with patch("hecsn.service.persistence.save_trainer_checkpoint", side_effect=_fake_save_trainer_checkpoint):
-                result = persistence.save_checkpoint(str(root / "service.pt"))
+                with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+                    result = persistence.save_checkpoint(str(root / "service.pt"))
 
             self.assertTrue(manager._runtime_state.clean_calls >= 1)
             self.assertEqual(result["token_count"], 17)
@@ -199,7 +224,104 @@ class RuntimePersistenceTests(unittest.TestCase):
             assert isinstance(service_state, dict)
             self.assertEqual(service_state["concept_store"]["concept_mode"], "slow_feature_concept_memory")
             self.assertEqual(service_state["terminus_runtime"]["replay_sample_history"][0]["replay_sample_id"], "replay-1")
+            self.assertEqual(service_state["terminus_runtime"]["replay_regeneration_permits"][0]["permit_id"], "permit-1")
+            self.assertEqual(service_state["snn_language_plasticity"]["sparse_transition_weights"]["1:2"], 0.5)
+            self.assertEqual(
+                service_state["snn_language_plasticity"]["homeostatic_maintenance"]["recent_events"][0]["event_index"],
+                1,
+            )
+            self.assertEqual(
+                service_state["snn_language_readout_ledger"]["events"][0]["readout_evidence_hash"],
+                "readout-hash-1",
+            )
             self.assertEqual(captured["trainer"], manager._trainer)
+            manifest = result["current_checkpoint_manifest"]
+            self.assertTrue(Path(manifest["checkpoint_path"]).is_file())
+            self.assertIn("objects", Path(manifest["checkpoint_path"]).parts)
+
+    def test_failed_manifest_publication_preserves_previous_current_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            persistence = _runtime_persistence(manager)
+            previous = root / "previous.pt"
+            next_path = root / "next.pt"
+            previous.write_bytes(b"previous")
+            next_path.write_bytes(b"next")
+            with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+                persistence.publish_current_checkpoint(previous, operation="previous")
+
+                real_replace = __import__("os").replace
+
+                def _fail_manifest_replace(source: object, target: object) -> None:
+                    if Path(target).name == "hecsn_current_checkpoint.json":
+                        raise RuntimeError("interrupted")
+                    real_replace(source, target)
+
+                with patch("hecsn.service.persistence.os.replace", side_effect=_fail_manifest_replace):
+                    with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                        persistence.publish_current_checkpoint(next_path, operation="next")
+
+            manifest = json.loads((root / "checkpoints" / "hecsn_current_checkpoint.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["current"]["operation"], "previous")
+
+    def test_failed_refresh_does_not_publish_manifest_or_change_bookkeeping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            original_path = manager._checkpoint_path
+            original_metadata = dict(manager._metadata)
+            persistence = _runtime_persistence(
+                manager,
+                refresh_root_captures=lambda: (_ for _ in ()).throw(RuntimeError("refresh failed")),
+            )
+            next_path = root / "next.pt"
+            next_path.write_bytes(b"next")
+
+            with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+                with self.assertRaisesRegex(RuntimeError, "refresh failed"):
+                    persistence.publish_current_checkpoint(next_path, operation="next")
+
+            self.assertFalse((root / "checkpoints" / "hecsn_current_checkpoint.json").exists())
+            self.assertEqual(manager._checkpoint_path, original_path)
+            self.assertEqual(manager._metadata, original_metadata)
+
+    def test_resolver_falls_back_to_previous_descriptor_when_current_object_is_corrupt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            persistence = _runtime_persistence(manager)
+            previous = root / "previous.pt"
+            next_path = root / "next.pt"
+            previous.write_bytes(b"previous")
+            next_path.write_bytes(b"next")
+            with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+                first = persistence.publish_current_checkpoint(previous, operation="previous")
+                second = persistence.publish_current_checkpoint(next_path, operation="next")
+                Path(second["checkpoint_path"]).write_bytes(b"corrupt")
+                resolved = RuntimePersistence.resolve_current_checkpoint_path(root / "checkpoints" / "initial.pt")
+
+            self.assertEqual(resolved, Path(first["checkpoint_path"]).resolve())
+
+    def test_unpublished_snapshot_does_not_change_active_checkpoint_bookkeeping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            persistence = _runtime_persistence(manager)
+            original_path = manager._checkpoint_path
+            original_metadata = dict(manager._metadata)
+
+            def _fake_save(path: Path, trainer: object, *, metadata: dict[str, object]) -> Path:
+                path.write_bytes(b"checkpoint")
+                return path
+
+            with patch("hecsn.service.persistence.save_trainer_checkpoint", side_effect=_fake_save):
+                result = persistence.save_checkpoint(str(root / "rollback.pt"), publish=False)
+
+            self.assertEqual(Path(result["path"]), root / "rollback.pt")
+            self.assertEqual(manager._checkpoint_path, original_path)
+            self.assertEqual(manager._metadata, original_metadata)
+            self.assertEqual(manager._runtime_state.clean_calls, 0)
 
 
 if __name__ == "__main__":

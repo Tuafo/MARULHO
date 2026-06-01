@@ -68,10 +68,49 @@ class RuntimeFacade:
         return self._root._status_read_model.snn_language_trainer_isolated_evaluation(**kwargs)
 
     def snn_language_sequence_prediction_probe(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("persistent_transition_weights") is None:
+            state = getattr(self._root, "_snn_language_plasticity_state", {})
+            if isinstance(state, Mapping):
+                kwargs["persistent_transition_weights"] = dict(state.get("sparse_transition_weights") or {})
         return self._root._status_read_model.snn_language_sequence_prediction_probe(**kwargs)
 
     def snn_language_sequence_mismatch_probe(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_sequence_mismatch_probe(**kwargs)
+
+    def snn_language_readout_draft(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_readout_draft(**kwargs)
+
+    def snn_language_readout_evidence_ledger(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.snapshot(**kwargs)
+
+    def snn_language_readout_replay_priority(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.replay_priority(**kwargs)
+
+    def snn_language_readout_rehearsal_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rehearsal_evaluation(**kwargs)
+
+    def snn_language_readout_rehearsal_experiment(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rehearsal_experiment(**kwargs)
+
+    def snn_language_readout_replay_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.replay_design(**kwargs)
+
+    def snn_language_readout_replay_dry_run(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.replay_dry_run(**kwargs)
+
+    def snn_language_readout_plasticity_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.plasticity_preflight(**kwargs)
+
+    def snn_language_readout_plasticity_replay_bridge(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.plasticity_replay_bridge(**kwargs)
+
+    def snn_language_readout_evidence_ledger_record(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.record_readout_draft(**kwargs)
+
+    def snn_language_transition_memory_prediction_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("transition_memory_state") is None:
+            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._status_read_model.snn_language_transition_memory_prediction_evaluation(**kwargs)
 
     def snn_language_plasticity_pressure(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_plasticity_pressure(**kwargs)
@@ -90,6 +129,40 @@ class RuntimeFacade:
 
     def snn_language_plasticity_shadow_application(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_plasticity_shadow_application(**kwargs)
+
+    def snn_language_plasticity_shadow_delta(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_shadow_delta(**kwargs)
+
+    def snn_language_plasticity_live_application_readiness(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_live_application_readiness(**kwargs)
+
+    def snn_language_plasticity_live_application_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_plasticity_live_application_preflight(**kwargs)
+
+    def snn_language_plasticity_live_application(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_live_application(**kwargs)
+
+    def snn_language_plasticity_runtime_state(self) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.snapshot()
+
+    def snn_language_transition_memory_homeostatic_maintenance(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.maintain_transition_memory(**kwargs)
+
+    def snn_language_transition_memory_sleep_policy(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("transition_memory_state") is None:
+            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._status_read_model.snn_language_transition_memory_sleep_policy(**kwargs)
+
+    def snn_language_transition_memory_regeneration_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("transition_memory_state") is None:
+            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._status_read_model.snn_language_transition_memory_regeneration_proposal(**kwargs)
+
+    def snn_language_transition_memory_regeneration_permit(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.issue_regeneration_permit(**kwargs)
+
+    def snn_language_transition_memory_regeneration(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.regenerate_transition_memory(**kwargs)
 
     def subcortical_self_repair_surface(self) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_self_repair_surface()

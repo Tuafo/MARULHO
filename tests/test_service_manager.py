@@ -406,6 +406,150 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_restore_checkpoint_rebinds_concrete_runtime_collaborators(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_restore_rebind")
+            try:
+                external_root = root / "external"
+                external_root.mkdir()
+                saved = manager.runtime_facade.save_checkpoint(str(external_root / "service.pt"))
+                saved_token_count = int(saved["token_count"])
+                previous_trainer = manager._trainer
+                manager.runtime_facade.status()
+                self.assertIsNotNone(manager._status_read_model._cached_status)
+                manager.runtime_facade.feed(text="restored runtime collaborator evidence")
+                self.assertGreater(int(manager._trainer.token_count), saved_token_count)
+
+                with (
+                    patch.object(manager._brain_runtime, "restore_runtime_state", wraps=manager._brain_runtime.restore_runtime_state) as restore_brain,
+                    patch.object(manager._delayed_consequence, "restore_state", wraps=manager._delayed_consequence.restore_state) as restore_delayed,
+                ):
+                    restored = manager.runtime_facade.restore_checkpoint(saved["path"])
+
+                self.assertIsNot(manager._trainer, previous_trainer)
+                self.assertGreaterEqual(restore_brain.call_count, 1)
+                self.assertGreaterEqual(restore_delayed.call_count, 1)
+                self.assertIs(manager._brain_runtime._trainer, manager._trainer)
+                self.assertIs(manager._brain_runtime._encoder, manager._encoder)
+                self.assertIs(manager._interaction_pipeline._trainer, manager._trainer)
+                self.assertIs(manager._interaction_pipeline._encoder, manager._encoder)
+                self.assertIs(manager._status_read_model._trainer, manager._trainer)
+                self.assertIsNone(manager._status_read_model._cached_status)
+                self.assertEqual(manager.runtime_facade.status()["token_count"], saved_token_count)
+                self.assertEqual(manager.runtime_facade.status()["checkpoint_path"], restored["path"])
+                self.assertIn("objects", Path(restored["path"]).parts)
+                self.assertEqual(manager._action_executor.action_history()["root_path"], str(external_root.resolve()))
+
+                manager.runtime_facade.feed(text="post restore trainer evidence")
+                self.assertGreater(int(manager._trainer.token_count), saved_token_count)
+                self.assertEqual(int(manager._interaction_pipeline._trainer.token_count), int(manager._trainer.token_count))
+            finally:
+                manager.close()
+
+    def test_restart_after_operator_restore_resolves_new_published_brain_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            bootstrap_path = root / "initial.pt"
+            manager = _build_manager(root, test_case="service_manager_restore_restart")
+            try:
+                saved = manager.runtime_facade.save_checkpoint(str(root / "saved.pt"))
+                saved_token_count = int(saved["token_count"])
+                manager.runtime_facade.feed(text="discarded after operator restore")
+                restored = manager.runtime_facade.restore_checkpoint(saved["path"])
+                restored_revision = int(restored["state_revision"])
+            finally:
+                manager.close()
+
+            restarted = HECSNServiceManager(bootstrap_path, trace_dir=root / "restart_traces")
+            try:
+                status = restarted.runtime_facade.status()
+                self.assertEqual(status["checkpoint_path"], restored["path"])
+                self.assertEqual(int(status["token_count"]), saved_token_count)
+                self.assertEqual(int(status["state_revision"]), restored_revision)
+                saved_after_restart = restarted.runtime_facade.save_checkpoint()
+                saved_path = Path(saved_after_restart["current_checkpoint_manifest"]["checkpoint_path"])
+                saved_parts = saved_path.parts
+                self.assertIn("objects", saved_parts)
+                self.assertNotIn("objects\\objects", str(saved_path))
+            finally:
+                restarted.close()
+
+    def test_operator_restore_publication_failure_recovers_previous_live_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_restore_publish_failure")
+            try:
+                saved = manager.runtime_facade.save_checkpoint(str(root / "saved.pt"))
+                manager.runtime_facade.feed(text="runtime state retained when restore publication fails")
+                before = manager.runtime_facade.status()
+
+                with patch.object(
+                    manager._runtime_persistence,
+                    "_write_atomic_json",
+                    side_effect=RuntimeError("interrupted operator restore publication"),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "interrupted operator restore publication"):
+                        manager.runtime_facade.restore_checkpoint(saved["path"])
+
+                after = manager.runtime_facade.status()
+                self.assertEqual(after["checkpoint_path"], before["checkpoint_path"])
+                self.assertEqual(after["token_count"], before["token_count"])
+                self.assertEqual(after["state_revision"], before["state_revision"])
+                self.assertEqual(after["dirty_state"], before["dirty_state"])
+                self.assertIs(manager._brain_runtime._trainer, manager._trainer)
+                self.assertIs(manager._interaction_pipeline._trainer, manager._trainer)
+                self.assertIs(manager._status_read_model._trainer, manager._trainer)
+            finally:
+                manager.close()
+
+    def test_published_save_refreshes_status_checkpoint_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_publish_refresh")
+            try:
+                manager.runtime_facade.status()
+                saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
+                published_path = saved["current_checkpoint_manifest"]["checkpoint_path"]
+                status = manager.runtime_facade.status()
+
+                self.assertEqual(status["checkpoint_path"], published_path)
+                self.assertEqual(status["checkpoint_metadata"]["saved_by"], "hecsn.service")
+            finally:
+                manager.close()
+
+    def test_quick_start_rebuild_refreshes_runtime_collaborators(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_quick_start_refresh")
+            try:
+                rebuilt_encoder = object()
+
+                class _RebuiltTrainer:
+                    def __init__(self, _model: object, config: object) -> None:
+                        self.config = config
+                        self.encoder = rebuilt_encoder
+                        self.token_count = 0
+
+                with (
+                    patch("hecsn.service.runtime_control.HECSNModel", return_value=object()),
+                    patch("hecsn.service.runtime_control.HECSNTrainer", _RebuiltTrainer),
+                    patch.object(manager._runtime_control, "configure_terminus", return_value={}),
+                    patch.object(manager._runtime_control, "start_terminus", return_value={}),
+                    patch.object(manager, "_refresh_root_captures_locked", wraps=manager._refresh_root_captures_locked) as refresh,
+                ):
+                    result = manager._runtime_control.quick_start_terminus(preset="curriculum")
+
+                self.assertEqual(refresh.call_count, 1)
+                self.assertEqual(result["preset_applied"], "curriculum")
+                self.assertIs(manager._brain_runtime._trainer, manager._trainer)
+                self.assertIs(manager._brain_runtime._encoder, rebuilt_encoder)
+                self.assertIs(manager._interaction_pipeline._trainer, manager._trainer)
+                self.assertIs(manager._interaction_pipeline._encoder, rebuilt_encoder)
+                self.assertIs(manager._status_read_model._trainer, manager._trainer)
+            finally:
+                manager.close()
+
     def test_save_restore_round_trips_replay_history_and_trace_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -542,6 +686,24 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertEqual(feedback["terminus_runtime"]["recent_events"][0]["type"], "runtime_feedback_recorded")
             finally:
                 manager.close()
+
+    def test_startup_hydrates_saved_revision_without_extra_increment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(root, test_case="service_manager_startup_revision_hydration")
+            try:
+                manager.runtime_facade.feed(text="river bank water current\n")
+                saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
+                expected_revision = saved["state_revision"]
+            finally:
+                manager.close()
+
+            restored = HECSNServiceManager(root / "initial.pt", trace_dir=root / "restored_traces")
+            try:
+                self.assertFalse(restored.runtime_facade.status()["dirty_state"])
+                self.assertEqual(restored.runtime_facade.status()["state_revision"], expected_revision)
+            finally:
+                restored.close()
 
     def test_runtime_facade_acquire_uses_operator_interaction_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

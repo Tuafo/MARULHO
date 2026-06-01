@@ -248,6 +248,10 @@ class InteractionPipeline:
         self._replace_recent_query_gaps_locked(recent_query_gaps)
         self._replace_runtime_episode_traces_locked(runtime_episode_traces)
 
+    def rebind_runtime(self, trainer: Any, encoder: Any) -> None:
+        self._trainer = trainer
+        self._encoder = encoder
+
     @property
     def recent_query_gap_history(self) -> deque[dict[str, Any]]:
         return self._recent_query_gaps

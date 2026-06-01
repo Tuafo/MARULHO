@@ -4,6 +4,8 @@ from collections import Counter, deque
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import json
 import random
 from typing import Any, Callable, Mapping, Sequence, cast
 from uuid import uuid4
@@ -15,6 +17,7 @@ from hecsn.service.living_loop_replay import (
 )
 
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
+DEFAULT_REPLAY_REGENERATION_PERMITS = 64
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
 
@@ -41,12 +44,15 @@ class ReplayController:
         dependencies: ReplayControllerDependencies,
         *,
         replay_sample_history: Sequence[Mapping[str, Any]] | None = None,
+        regeneration_permits: Sequence[Mapping[str, Any]] | None = None,
         history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
     ) -> None:
         self._dependencies = dependencies
         self._history_maxlen = max(1, int(history_maxlen))
         self._replay_sample_history: deque[dict[str, Any]] = deque(maxlen=self._history_maxlen)
+        self._regeneration_permits: deque[dict[str, Any]] = deque(maxlen=DEFAULT_REPLAY_REGENERATION_PERMITS)
         self.load_replay_sample_history(replay_sample_history or [])
+        self.load_regeneration_permits(regeneration_permits or [])
 
     @property
     def _action_history(self) -> Sequence[Mapping[str, Any]]:
@@ -98,6 +104,104 @@ class ReplayController:
         ]
         self._replay_sample_history.clear()
         self._replay_sample_history.extend(normalized)
+
+    @property
+    def regeneration_permits(self) -> deque[dict[str, Any]]:
+        return self._regeneration_permits
+
+    @regeneration_permits.setter
+    def regeneration_permits(self, permits: Sequence[Mapping[str, Any]]) -> None:
+        self.load_regeneration_permits(permits)
+
+    def load_regeneration_permits(self, permits: Sequence[Mapping[str, Any]]) -> None:
+        normalized = [dict(item) for item in permits if isinstance(item, Mapping)]
+        self._regeneration_permits.clear()
+        self._regeneration_permits.extend(normalized[:DEFAULT_REPLAY_REGENERATION_PERMITS])
+
+    def issue_regeneration_permit(
+        self,
+        *,
+        mismatch_report: Mapping[str, Any],
+        pressure_report: Mapping[str, Any],
+        replay_window: Sequence[Mapping[str, Any]],
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Issue durable replay provenance for a later bounded structural write."""
+
+        normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
+        mismatch = dict(mismatch_report)
+        pressure = dict(pressure_report)
+        window = [dict(item) for item in replay_window if isinstance(item, Mapping)]
+        error = mismatch.get("prediction_error") if isinstance(mismatch.get("prediction_error"), Mapping) else {}
+        if not confirmation:
+            raise ValueError("Regeneration permit confirmation=true is required.")
+        if not normalized_operator_id:
+            raise ValueError("Regeneration permit operator_id is required.")
+        if not mismatch.get("available") or float(error.get("mismatch_score", 0.0) or 0.0) < 0.66:
+            raise ValueError("Regeneration permit requires high mismatch evidence.")
+        if not pressure.get("available"):
+            raise ValueError("Regeneration permit requires plasticity pressure evidence.")
+        if not window or not all(bool(item.get("grounded")) for item in window):
+            raise ValueError("Regeneration permit requires a grounded replay window.")
+        with self._lock:
+            issued_revision = int(self._runtime_state.state_revision)
+            material = {
+                "issued_state_revision": issued_revision,
+                "mismatch_hash": self._sha256_json(mismatch),
+                "pressure_hash": self._sha256_json(pressure),
+                "replay_window_hash": self._sha256_json(window),
+                "replay_window_size": len(window),
+            }
+            evidence_hash = self._sha256_json(material)
+            permit = {
+                "artifact_kind": "terminus_snn_language_transition_memory_regeneration_permit",
+                "surface": "snn_language_transition_memory_regeneration_permit.v1",
+                "available": True,
+                "ready": True,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.regeneration_permit",
+                "permit_id": f"replay-regeneration-{evidence_hash[:16]}-{uuid4()}",
+                "replay_window_id": f"replay-window-{material['replay_window_hash'][:16]}",
+                "evidence_hash": evidence_hash,
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+                "issued_state_revision": issued_revision,
+                "operator_id": normalized_operator_id,
+                **material,
+            }
+            self._regeneration_permits.appendleft(deepcopy(permit))
+            self._runtime_state.mark_dirty_without_revision()
+            return deepcopy(permit)
+
+    def verify_regeneration_permit(self, proposal: Mapping[str, Any]) -> bool:
+        replay = proposal.get("replay_evidence") if isinstance(proposal.get("replay_evidence"), Mapping) else {}
+        permit_id = str(replay.get("permit_id") or "")
+        with self._lock:
+            permit = next(
+                (dict(item) for item in self._regeneration_permits if str(item.get("permit_id") or "") == permit_id),
+                None,
+            )
+            if permit is None:
+                return False
+            material = {
+                "issued_state_revision": int(permit.get("issued_state_revision", -1)),
+                "mismatch_hash": permit.get("mismatch_hash"),
+                "pressure_hash": permit.get("pressure_hash"),
+                "replay_window_hash": permit.get("replay_window_hash"),
+                "replay_window_size": int(permit.get("replay_window_size", 0) or 0),
+            }
+            return bool(
+                permit.get("ready")
+                and permit.get("owned_by_hecsn")
+                and int(permit.get("issued_state_revision", -1)) == int(self._runtime_state.state_revision)
+                and str(permit.get("evidence_hash") or "") == self._sha256_json(material)
+                and dict(replay) == permit
+            )
+
+    @staticmethod
+    def _sha256_json(value: Any) -> str:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     def replay_plan_status(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:

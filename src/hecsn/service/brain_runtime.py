@@ -186,6 +186,10 @@ class BrainRuntime:
         self._sensory_stream_epoch = 0
         self._brain_skip_next_autonomy_for_grounded_query = False
 
+    def rebind_runtime(self, trainer: Any, encoder: Any) -> None:
+        self._trainer = trainer
+        self._encoder = encoder
+
     def restore_runtime_state(self, state: Mapping[str, Any]) -> None:
         self._brain_source_utility = self._normalize_background_source_utility_state(
             state.get("background_source_utility")
@@ -1388,6 +1392,7 @@ class BrainRuntime:
             "action_history": [deepcopy(item) for item in list(self._action_history)],
             "runtime_episode_traces": self._interaction_pipeline.runtime_episode_traces(),
             "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
+            "replay_regeneration_permits": [deepcopy(item) for item in list(self._replay_regeneration_permits)],
             "last_event": runtime_state_snapshot["last_event"],
             "recent_events": runtime_state_snapshot["recent_events"],
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
@@ -1508,6 +1513,7 @@ _install_dependency_object_property("_interaction_pipeline", "interaction_pipeli
 _install_dependency_alias_property("_action_history", "action_executor", "history")
 _install_dependency_property("_action_loop_summary_locked", "action_executor")
 _install_dependency_alias_property("_replay_sample_history", "replay_controller", "history")
+_install_dependency_alias_property("_replay_regeneration_permits", "replay_controller", "regeneration_permits")
 
 _install_dependency_object_property("_concept_store", "concept_store")
 _install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 
 from hecsn.semantics import (
@@ -8,11 +10,18 @@ from hecsn.semantics import (
     build_snn_language_training_readiness_surface,
     build_spike_language_plasticity_application_design,
     build_spike_language_plasticity_pressure,
+    build_spike_language_plasticity_shadow_delta,
+    build_snn_language_transition_memory_prediction_evaluation,
+    build_snn_language_transition_memory_sleep_policy,
+    build_snn_language_transition_memory_regeneration_proposal,
     evaluate_spike_language_adapter_heldout,
+    evaluate_spike_language_plasticity_live_application_preflight,
+    evaluate_spike_language_plasticity_live_application_readiness,
     evaluate_spike_language_plasticity_shadow_application,
     evaluate_spike_language_plasticity_replay,
     evaluate_spike_language_sequence_mismatch,
     evaluate_spike_language_trainer_dry_run,
+    generate_snn_language_readout_draft,
     predict_spike_language_sequence,
     run_spike_language_plasticity_replay_experiment,
     run_spike_language_plasticity_trial,
@@ -580,9 +589,313 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertEqual(report["prediction"]["top_k"], 4)
         self.assertEqual(len(report["prediction"]["predicted_sparse_indices"]), 4)
         self.assertGreater(report["prediction"]["support_strength"], 0.0)
+        self.assertFalse(report["persistent_transition_evidence"]["influenced_prediction"])
         self.assertGreaterEqual(report["training_evidence"]["weight_sparsity"], 0.85)
         self.assertFalse(report["promotion_gate"]["eligible_for_language_generation"])
         self.assertFalse(report["promotion_gate"]["eligible_for_cognition_substrate"])
+
+    def test_spike_language_sequence_prediction_uses_persistent_transition_weights(self) -> None:
+        baseline = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "persistent_transition_fixture"},
+            top_k=4,
+        )
+        current_indices = baseline["current_sparse_code"]["active_indices"]
+        self.assertGreater(len(current_indices), 0)
+        target_index = (int(current_indices[0]) + 7) % 64
+        influenced = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [{"label": "concept focus", "pressure_band": "medium", "grounded": True}],
+            {"device": "cpu", "source": "persistent_transition_fixture"},
+            top_k=4,
+            persistent_transition_weights={f"{int(current_indices[0])}:{target_index}": 0.5},
+        )
+
+        self.assertEqual(
+            influenced["persistent_transition_evidence"]["surface"],
+            "snn_language_persistent_transition_evidence.v1",
+        )
+        self.assertTrue(influenced["persistent_transition_evidence"]["available"])
+        self.assertTrue(influenced["persistent_transition_evidence"]["influenced_prediction"])
+        self.assertGreater(influenced["persistent_transition_evidence"]["support_strength"], 0.0)
+        self.assertIn(target_index, influenced["prediction"]["predicted_sparse_indices"])
+        self.assertFalse(influenced["generates_text"])
+        self.assertFalse(influenced["decodes_text"])
+        self.assertFalse(influenced["mutates_runtime_state"])
+
+    def test_snn_language_readout_draft_generates_bounded_grounded_text_from_sparse_prediction(self) -> None:
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        vocabulary = [
+            {"label": "memory pressure", "pressure_band": "medium", "grounded": True},
+            {"label": "prediction error", "pressure_band": "high", "grounded": True},
+        ]
+        baseline = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            current,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            top_k=4,
+        )
+        current_index = baseline["current_sparse_code"]["active_indices"][0]
+        target_probe = build_spike_language_decoder_probe(
+            {
+                "readout_slots": [vocabulary[0]],
+                "device_evidence": {"device": "cpu", "source": "readout_draft_fixture"},
+            }
+        )
+        target_index = target_probe["sparse_code_evidence"]["active_indices"][0]
+        prediction = predict_spike_language_sequence(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            current,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            top_k=4,
+            persistent_transition_weights={f"{current_index}:{target_index}": 0.9},
+        )
+        transition_memory_evaluation = build_snn_language_transition_memory_prediction_evaluation(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            [current, [vocabulary[0]]],
+            {"sparse_transition_weights": {f"{current_index}:{target_index}": 0.9}},
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            top_k=4,
+        )
+
+        draft = generate_snn_language_readout_draft(
+            prediction,
+            vocabulary,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            transition_memory_evaluation,
+        )
+        pending_evaluation_draft = generate_snn_language_readout_draft(
+            prediction,
+            vocabulary,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+        )
+        worsened_evaluation = dict(transition_memory_evaluation)
+        worsened_evaluation["evaluation_summary"] = dict(transition_memory_evaluation["evaluation_summary"])
+        worsened_evaluation["evaluation_summary"]["mean_mismatch_delta"] = -0.2
+        worsened_evaluation["evaluation_summary"]["worsened_sequence_count"] = 1
+        worsened_evaluation["promotion_gate"] = dict(transition_memory_evaluation["promotion_gate"])
+        worsened_evaluation["promotion_gate"]["eligible_for_bounded_readout_generation_review"] = False
+        blocked_worsened_draft = generate_snn_language_readout_draft(
+            prediction,
+            vocabulary,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            worsened_evaluation,
+        )
+        external_prediction = dict(prediction)
+        external_prediction["external_dependency"] = True
+        blocked_external_draft = generate_snn_language_readout_draft(
+            external_prediction,
+            vocabulary,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            transition_memory_evaluation,
+        )
+
+        self.assertEqual(draft["artifact_kind"], "terminus_snn_language_readout_draft")
+        self.assertEqual(draft["surface"], "snn_language_readout_draft.v1")
+        self.assertTrue(draft["owned_by_hecsn"])
+        self.assertFalse(draft["external_dependency"])
+        self.assertFalse(draft["loads_external_checkpoint"])
+        self.assertTrue(draft["generates_text"])
+        self.assertTrue(draft["decodes_text"])
+        self.assertEqual(draft["generation_scope"], "bounded_grounded_readout_label_draft")
+        self.assertFalse(draft["freeform_language_generation"])
+        self.assertFalse(draft["mutates_runtime_state"])
+        self.assertIn("memory pressure", draft["draft"]["text"])
+        self.assertTrue(draft["persistent_transition_evidence"]["influenced_prediction"])
+        self.assertTrue(draft["transition_memory_evaluation_evidence"]["review_ready"])
+        self.assertTrue(draft["transition_memory_evaluation_evidence"]["provenance_match"])
+        self.assertEqual(
+            draft["transition_memory_evaluation_evidence"]["prediction_hash"],
+            prediction["provenance_evidence"]["prediction_hash"],
+        )
+        self.assertEqual(
+            draft["transition_memory_evaluation_evidence"]["transition_memory_evaluation_hash"],
+            transition_memory_evaluation["provenance_evidence"]["evaluation_hash"],
+        )
+        self.assertTrue(draft["promotion_gate"]["eligible_for_bounded_readout_generation"])
+        self.assertTrue(
+            draft["promotion_gate"]["required_evidence"]["transition_memory_prediction_evaluation_ready"]
+        )
+        self.assertFalse(draft["promotion_gate"]["eligible_for_freeform_language_generation"])
+        self.assertFalse(draft["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertTrue(pending_evaluation_draft["generates_text"])
+        self.assertEqual(
+            pending_evaluation_draft["promotion_gate"]["status"],
+            "collect_transition_memory_prediction_evaluation",
+        )
+        self.assertFalse(
+            pending_evaluation_draft["promotion_gate"]["eligible_for_bounded_readout_generation"]
+        )
+        self.assertFalse(pending_evaluation_draft["transition_memory_evaluation_evidence"]["non_worsening"])
+        self.assertFalse(
+            blocked_worsened_draft["promotion_gate"]["eligible_for_bounded_readout_generation"]
+        )
+        self.assertEqual(
+            blocked_worsened_draft["promotion_gate"]["status"],
+            "blocked_transition_memory_prediction_evaluation",
+        )
+        self.assertFalse(
+            blocked_worsened_draft["promotion_gate"]["required_evidence"][
+                "transition_memory_prediction_non_worsening"
+            ]
+        )
+        self.assertFalse(
+            blocked_external_draft["promotion_gate"]["eligible_for_bounded_readout_generation"]
+        )
+        self.assertFalse(
+            blocked_external_draft["promotion_gate"]["required_evidence"]["external_dependency_absent"]
+        )
+        stale_evaluation = build_snn_language_transition_memory_prediction_evaluation(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                [{"label": "unrelated focus", "pressure_band": "medium", "grounded": True}],
+            ],
+            [
+                [{"label": "unrelated focus", "pressure_band": "medium", "grounded": True}],
+                [vocabulary[0]],
+            ],
+            {"sparse_transition_weights": {f"{current_index}:{target_index}": 0.9}},
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            top_k=4,
+        )
+        blocked_stale_evaluation_draft = generate_snn_language_readout_draft(
+            prediction,
+            vocabulary,
+            {"device": "cpu", "source": "readout_draft_fixture"},
+            stale_evaluation,
+        )
+        self.assertFalse(
+            blocked_stale_evaluation_draft["transition_memory_evaluation_evidence"]["provenance_match"]
+        )
+        self.assertFalse(
+            blocked_stale_evaluation_draft["promotion_gate"]["eligible_for_bounded_readout_generation"]
+        )
+
+    def test_transition_memory_prediction_evaluation_compares_memory_against_baseline_without_generation(self) -> None:
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        observed = [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}]
+        current_probe = build_spike_language_decoder_probe(
+            {"readout_slots": current, "device_evidence": {"device": "cpu", "source": "prediction_eval_fixture"}}
+        )
+        observed_probe = build_spike_language_decoder_probe(
+            {"readout_slots": observed, "device_evidence": {"device": "cpu", "source": "prediction_eval_fixture"}}
+        )
+        current_index = current_probe["sparse_code_evidence"]["active_indices"][0]
+        observed_index = observed_probe["sparse_code_evidence"]["active_indices"][0]
+
+        evaluation = build_snn_language_transition_memory_prediction_evaluation(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            [current, observed],
+            {"sparse_transition_weights": {f"{current_index}:{observed_index}": 0.9}},
+            {"device": "cpu", "source": "prediction_eval_fixture"},
+            top_k=4,
+        )
+
+        self.assertEqual(
+            evaluation["artifact_kind"],
+            "terminus_snn_language_transition_memory_prediction_evaluation",
+        )
+        self.assertEqual(evaluation["surface"], "snn_language_transition_memory_prediction_evaluation.v1")
+        self.assertTrue(evaluation["owned_by_hecsn"])
+        self.assertFalse(evaluation["generates_text"])
+        self.assertFalse(evaluation["decodes_text"])
+        self.assertFalse(evaluation["trains_runtime_model"])
+        self.assertFalse(evaluation["applies_plasticity"])
+        self.assertFalse(evaluation["mutates_runtime_state"])
+        summary = evaluation["evaluation_summary"]
+        self.assertEqual(summary["evaluation_pair_count"], 1)
+        self.assertEqual(summary["persistent_transition_weight_count"], 1)
+        self.assertGreaterEqual(summary["mean_mismatch_delta"], 0.0)
+        self.assertGreaterEqual(summary["influenced_prediction_count"], 1)
+        self.assertEqual(summary["worsened_sequence_count"], 0)
+        self.assertEqual(evaluation["promotion_gate"]["status"], "ready_for_operator_review")
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_language_generation"])
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_cognition_substrate"])
+
+    def test_transition_memory_sleep_policy_recommends_operator_review_without_mutation(self) -> None:
+        policy = build_snn_language_transition_memory_sleep_policy(
+            {
+                "sparse_transition_weight_count": 4,
+                "homeostatic_maintenance_count": 1,
+            },
+            subcortex_sleep_pressure={"pressure": 0.8, "source": "living_loop.subcortex_sleep_pressure"},
+            replay_evidence={
+                "available": True,
+                "ready": True,
+                "source": "replay_controller",
+                "replay_window_id": "replay-window-1",
+                "evidence_hash": "sha256:replay-window-1",
+            },
+        )
+
+        self.assertEqual(policy["surface"], "snn_language_transition_memory_sleep_policy.v1")
+        self.assertFalse(policy["generates_text"])
+        self.assertFalse(policy["decodes_text"])
+        self.assertFalse(policy["applies_plasticity"])
+        self.assertFalse(policy["mutates_runtime_state"])
+        self.assertTrue(policy["recommendation"]["recommended"])
+        self.assertFalse(policy["recommendation"]["executable"])
+        self.assertEqual(
+            policy["recommendation"]["suggested_endpoint"],
+            "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        )
+        self.assertFalse(policy["subcortex_sleep_pressure"]["retired_runtime_dependency"])
+
+    def test_transition_memory_regeneration_proposal_requires_replay_backed_local_mismatch(self) -> None:
+        mismatch = {
+            "available": True,
+            "surface": "snn_language_sequence_mismatch_probe.v1",
+            "prediction_error": {"mismatch_score": 0.9},
+            "sparse_code_delta": {
+                "predicted_only_indices": [3],
+                "observed_only_indices": [4, 12],
+            },
+        }
+        proposal = build_snn_language_transition_memory_regeneration_proposal(
+            mismatch,
+            {"surface": "snn_language_plasticity_runtime_state.v1"},
+            replay_evidence={
+                "available": True,
+                "ready": True,
+                "owned_by_hecsn": True,
+                "artifact_kind": "terminus_snn_language_transition_memory_regeneration_permit",
+                "source": "replay_controller.regeneration_permit",
+                "permit_id": "permit-1",
+                "replay_window_id": "replay-window-1",
+                "evidence_hash": "sha256:replay-window-1",
+                "mismatch_hash": hashlib.sha256(
+                    json.dumps(mismatch, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest(),
+            },
+            locality_radius=2,
+            initial_weight=0.02,
+        )
+
+        self.assertEqual(proposal["surface"], "snn_language_transition_memory_regeneration_proposal.v1")
+        self.assertFalse(proposal["applies_plasticity"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertEqual(proposal["promotion_gate"]["status"], "ready_for_operator_review")
+        self.assertEqual(proposal["regeneration_design"]["candidate_count"], 1)
+        self.assertEqual(proposal["regeneration_design"]["candidate_synapses"][0]["synapse"], "3:4")
 
     def test_spike_language_sequence_mismatch_probe_reports_prediction_error_without_learning(self) -> None:
         prediction = predict_spike_language_sequence(
@@ -928,18 +1241,64 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             runtime_truth_delta={"improved_or_stable": True},
             rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
         )
+        measured_delta = build_spike_language_plasticity_shadow_delta(
+            design,
+            [{"pre_indices": [2, 3], "post_indices": [3, 4], "grounded": True}],
+            device_evidence={"device": "cpu", "source": "plasticity_shadow_application_fixture"},
+        )
         shadow = evaluate_spike_language_plasticity_shadow_application(
             design,
-            shadow_delta={
-                "max_abs_weight_delta": 0.03,
-                "affected_synapse_count": 4,
-                "locality_radius": 2,
-                "pressure_before": 0.4,
-                "pressure_after": 0.35,
-            },
+            shadow_delta=measured_delta,
             device_evidence={"device": "cpu", "source": "plasticity_shadow_application_fixture"},
             runtime_truth_delta={"improved_or_stable": True},
             rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
+        )
+        live_readiness = evaluate_spike_language_plasticity_live_application_readiness(
+            shadow,
+            rollback_readiness={
+                "checkpoint_available": True,
+                "checkpoint_path": "checkpoint://pre-language-plasticity",
+                "restore_endpoint_available": True,
+            },
+            operator_approval={
+                "approved": True,
+                "operator_id": "operator-test",
+                "approval_id": "approval-1",
+            },
+        )
+        live_readiness_without_operator = evaluate_spike_language_plasticity_live_application_readiness(
+            shadow,
+            rollback_readiness={
+                "checkpoint_available": True,
+                "checkpoint_path": "checkpoint://pre-language-plasticity",
+                "restore_endpoint_available": True,
+            },
+        )
+        preflight = evaluate_spike_language_plasticity_live_application_preflight(
+            live_readiness,
+            application_target={
+                "available": True,
+                "target_id": "hecsn.snn_language.sparse_transition_weights",
+                "owned_by_hecsn": True,
+                "mutable": True,
+                "sparse": True,
+                "checkpointed": True,
+            },
+            checkpoint_transaction={
+                "pre_update_checkpoint_saved": True,
+                "checkpoint_path": "checkpoint://pre-language-plasticity",
+                "restore_verified": True,
+                "records_shadow_delta": True,
+            },
+        )
+        preflight_without_target = evaluate_spike_language_plasticity_live_application_preflight(
+            live_readiness,
+            checkpoint_transaction={
+                "pre_update_checkpoint_saved": True,
+                "checkpoint_path": "checkpoint://pre-language-plasticity",
+                "restore_verified": True,
+                "records_shadow_delta": True,
+            },
         )
         design_without_device = build_spike_language_plasticity_application_design(
             experiment,
@@ -960,6 +1319,14 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             rollback_policy={"available": True, "snapshot_id": "pre-language-plasticity"},
         )
 
+        self.assertEqual(measured_delta["artifact_kind"], "terminus_snn_language_plasticity_shadow_delta")
+        self.assertEqual(measured_delta["surface"], "snn_language_plasticity_shadow_delta.v1")
+        self.assertTrue(measured_delta["available"])
+        self.assertEqual(measured_delta["device_evidence"]["tensor_device"], "cpu")
+        self.assertFalse(measured_delta["applies_plasticity"])
+        self.assertFalse(measured_delta["mutates_runtime_state"])
+        self.assertGreater(measured_delta["affected_synapse_count"], 0)
+        self.assertLessEqual(measured_delta["max_abs_weight_delta"], 0.04)
         self.assertEqual(shadow["artifact_kind"], "terminus_snn_language_plasticity_shadow_application")
         self.assertEqual(shadow["surface"], "snn_language_plasticity_shadow_application.v1")
         self.assertFalse(shadow["generates_text"])
@@ -977,6 +1344,46 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertFalse(shadow["promotion_gate"]["eligible_for_plasticity_application"])
         self.assertFalse(shadow["promotion_gate"]["eligible_for_live_application"])
         self.assertTrue(shadow["promotion_gate"]["eligible_for_operator_live_application_review"])
+        self.assertEqual(
+            live_readiness["artifact_kind"],
+            "terminus_snn_language_plasticity_live_application_readiness",
+        )
+        self.assertEqual(live_readiness["surface"], "snn_language_plasticity_live_application_readiness.v1")
+        self.assertFalse(live_readiness["generates_text"])
+        self.assertFalse(live_readiness["decodes_text"])
+        self.assertFalse(live_readiness["trains_runtime_model"])
+        self.assertFalse(live_readiness["applies_plasticity"])
+        self.assertFalse(live_readiness["mutates_runtime_state"])
+        self.assertFalse(live_readiness["returns_trained_weights"])
+        self.assertTrue(live_readiness["rollback_readiness"]["checkpoint_available"])
+        self.assertTrue(live_readiness["rollback_readiness"]["restore_endpoint_available"])
+        self.assertTrue(live_readiness["operator_approval"]["approved"])
+        self.assertEqual(live_readiness["promotion_gate"]["status"], "ready_for_operator_review")
+        self.assertFalse(live_readiness["promotion_gate"]["eligible_for_plasticity_application"])
+        self.assertFalse(live_readiness["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(live_readiness["promotion_gate"]["eligible_for_operator_live_application_review"])
+        self.assertEqual(
+            live_readiness_without_operator["promotion_gate"]["status"],
+            "blocked_missing_live_application_readiness",
+        )
+        self.assertFalse(
+            live_readiness_without_operator["promotion_gate"]["required_evidence"]["operator_approval_available"]
+        )
+        self.assertEqual(preflight["artifact_kind"], "terminus_snn_language_plasticity_live_application_preflight")
+        self.assertEqual(preflight["surface"], "snn_language_plasticity_live_application_preflight.v1")
+        self.assertFalse(preflight["applies_plasticity"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["returns_trained_weights"])
+        self.assertEqual(preflight["promotion_gate"]["status"], "ready_for_operator_execution_review")
+        self.assertFalse(preflight["promotion_gate"]["eligible_for_live_application"])
+        self.assertTrue(preflight["promotion_gate"]["eligible_for_operator_execution_review"])
+        self.assertEqual(
+            preflight_without_target["promotion_gate"]["status"],
+            "blocked_missing_live_application_preflight",
+        )
+        self.assertFalse(
+            preflight_without_target["promotion_gate"]["required_evidence"]["application_target_available"]
+        )
         self.assertEqual(
             shadow_without_device["promotion_gate"]["status"],
             "blocked_missing_shadow_application_evidence",

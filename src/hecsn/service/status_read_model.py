@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Mapping, Sequence
 import base64
@@ -36,12 +37,19 @@ from hecsn.semantics import (
     build_subcortical_structural_plasticity_surface,
     build_spike_language_plasticity_application_design,
     build_spike_language_plasticity_pressure,
+    build_spike_language_plasticity_shadow_delta,
+    build_snn_language_transition_memory_sleep_policy,
+    build_snn_language_transition_memory_prediction_evaluation,
+    build_snn_language_transition_memory_regeneration_proposal,
     evaluate_spike_language_adapter_heldout,
+    evaluate_spike_language_plasticity_live_application_preflight,
+    evaluate_spike_language_plasticity_live_application_readiness,
     evaluate_spike_language_plasticity_shadow_application,
     evaluate_spike_language_plasticity_replay,
     evaluate_spike_language_sequence_mismatch,
     evaluate_spike_language_trainer_dry_run,
     evaluate_subcortical_structural_plasticity_isolated,
+    generate_snn_language_readout_draft,
     predict_spike_language_sequence,
     run_spike_language_plasticity_replay_experiment,
     run_spike_language_trainer_dry_run,
@@ -157,6 +165,29 @@ class StatusReadModel:
         self._cached_subcortical_self_repair_surface: dict[str, Any] | None = None
         self._cached_subcortical_self_repair_evaluation_surface: dict[str, Any] | None = None
         self._cached_subcortical_structural_plasticity_surface: dict[str, Any] | None = None
+
+    def rebind_runtime(
+        self,
+        *,
+        trainer: Any,
+        metadata: Mapping[str, Any],
+        checkpoint_path_str: str,
+    ) -> None:
+        self._trainer = trainer
+        self._metadata = dict(metadata)
+        self._checkpoint_path_str = checkpoint_path_str
+        self._cached_status = None
+        self._cached_terminus_status = None
+        self._cached_telemetry = None
+        self._cached_telemetry_rev = -1
+        self._cached_cognitive_signal_state = None
+        self._cached_snn_language_readiness_surface = None
+        self._cached_snn_language_evaluation_surface = None
+        self._cached_living_loop_status = None
+        self._cached_policy_actuator_status = None
+        self._cached_subcortical_self_repair_surface = None
+        self._cached_subcortical_self_repair_evaluation_surface = None
+        self._cached_subcortical_structural_plasticity_surface = None
 
     # ------------------------------------------------------------------
     # Static helpers reused from RuntimeStatusCore
@@ -492,6 +523,43 @@ class StatusReadModel:
                 readiness_checks.get("hecsn_spike_language_neuron_adapter_dynamic")
             ),
         }
+        checkpoint_path = Path(str(self._checkpoint_path_str))
+        rollback_readiness = {
+            "checkpoint_path": str(checkpoint_path),
+            "checkpoint_available": checkpoint_path.exists(),
+            "checkpoint_name": checkpoint_path.name,
+            "checkpoint_metadata_available": bool(self._metadata),
+            "restore_endpoint_available": True,
+            "rollback_policy_required": True,
+        }
+        snn_language_plasticity_path = {
+            "surface": "snn_language_plasticity_path_evidence.v1",
+            "artifact_kind": "terminus_snn_language_plasticity_path_evidence",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "requires_device_evidence": True,
+            "requires_runtime_truth_delta": True,
+            "requires_rollback_evidence": True,
+            "rollback_readiness": rollback_readiness,
+            "latest_gate": "snn_language_plasticity_live_application_preflight.v1",
+            "next_gate": "operator_confirmed_checkpoint_transaction_live_language_plasticity_executor",
+            "gates": [
+                "snn_language_plasticity_pressure.v1",
+                "snn_language_plasticity_trial.v1",
+                "snn_language_plasticity_replay_evaluation.v1",
+                "snn_language_plasticity_replay_experiment.v1",
+                "snn_language_plasticity_application_design.v1",
+                "snn_language_plasticity_shadow_application.v1",
+                "snn_language_plasticity_live_application_readiness.v1",
+                "snn_language_plasticity_live_application_preflight.v1",
+            ],
+        }
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -521,6 +589,7 @@ class StatusReadModel:
                 "self_repair_gate": self_repair_gate,
                 "structural_plasticity_gate": structural_plasticity_gate,
                 "snn_language_readiness_gate": snn_language_readiness_gate,
+                "snn_language_plasticity_path": snn_language_plasticity_path,
             },
         }
 
@@ -1236,6 +1305,7 @@ class StatusReadModel:
         learning_rate: float = 0.08,
         epochs: int = 2,
         top_k: int = 8,
+        persistent_transition_weights: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Predict sparse next-code evidence without decoding text."""
 
@@ -1259,6 +1329,7 @@ class StatusReadModel:
                 learning_rate=learning_rate,
                 epochs=epochs,
                 top_k=top_k,
+                persistent_transition_weights=persistent_transition_weights,
             )
 
         return self._read_snapshot(
@@ -1283,6 +1354,56 @@ class StatusReadModel:
                 prediction_report,
                 observed_readout_slots,
                 device_evidence,
+            ),
+        )
+
+    def snn_language_readout_draft(
+        self,
+        prediction_report: Mapping[str, Any],
+        readout_vocabulary_slots: Sequence[Mapping[str, Any]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        transition_memory_evaluation: Mapping[str, Any] | None = None,
+        max_draft_terms: int = 6,
+    ) -> dict[str, Any]:
+        """Generate a bounded grounded SNN readout draft without mutating runtime."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: generate_snn_language_readout_draft(
+                prediction_report,
+                readout_vocabulary_slots,
+                device_evidence,
+                transition_memory_evaluation,
+                max_draft_terms=max_draft_terms,
+            ),
+        )
+
+    def snn_language_transition_memory_prediction_evaluation(
+        self,
+        training_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+        evaluation_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+        transition_memory_state: Mapping[str, Any],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        learning_rate: float = 0.08,
+        epochs: int = 2,
+        top_k: int = 8,
+    ) -> dict[str, Any]:
+        """Evaluate persistent transition-memory utility without mutation."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_snn_language_transition_memory_prediction_evaluation(
+                training_readout_slot_batches,
+                evaluation_readout_slot_batches,
+                transition_memory_state,
+                device_evidence,
+                learning_rate=learning_rate,
+                epochs=epochs,
+                top_k=top_k,
             ),
         )
 
@@ -1409,5 +1530,106 @@ class StatusReadModel:
                 device_evidence=device_evidence,
                 runtime_truth_delta=runtime_truth_delta,
                 rollback_policy=rollback_policy,
+            ),
+        )
+
+    def snn_language_plasticity_shadow_delta(
+        self,
+        application_design: Mapping[str, Any],
+        replay_sequences: Sequence[Mapping[str, Any]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Measure a local language plasticity shadow delta without applying it."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_spike_language_plasticity_shadow_delta(
+                application_design,
+                replay_sequences,
+                device_evidence=device_evidence,
+            ),
+        )
+
+    def snn_language_plasticity_live_application_readiness(
+        self,
+        shadow_application: Mapping[str, Any],
+        *,
+        rollback_readiness: Mapping[str, Any] | None = None,
+        operator_approval: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Check live language plasticity readiness without applying learning."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_spike_language_plasticity_live_application_readiness(
+                shadow_application,
+                rollback_readiness=rollback_readiness,
+                operator_approval=operator_approval,
+            ),
+        )
+
+    def snn_language_plasticity_live_application_preflight(
+        self,
+        live_application_readiness: Mapping[str, Any],
+        *,
+        application_target: Mapping[str, Any] | None = None,
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review live language plasticity preflight without applying learning."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_spike_language_plasticity_live_application_preflight(
+                live_application_readiness,
+                application_target=application_target,
+                checkpoint_transaction=checkpoint_transaction,
+            ),
+        )
+
+    def snn_language_transition_memory_sleep_policy(
+        self,
+        transition_memory_state: Mapping[str, Any],
+        *,
+        subcortex_sleep_pressure: Mapping[str, Any] | None = None,
+        replay_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Recommend transition-memory maintenance without mutating runtime state."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_snn_language_transition_memory_sleep_policy(
+                transition_memory_state,
+                subcortex_sleep_pressure=subcortex_sleep_pressure,
+                replay_evidence=replay_evidence,
+            ),
+        )
+
+    def snn_language_transition_memory_regeneration_proposal(
+        self,
+        mismatch_report: Mapping[str, Any],
+        transition_memory_state: Mapping[str, Any],
+        *,
+        replay_evidence: Mapping[str, Any] | None = None,
+        locality_radius: int = 2,
+        initial_weight: float = 0.02,
+        max_new_synapses: int = 8,
+    ) -> dict[str, Any]:
+        """Propose replay-backed sparse transition regrowth without mutation."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_snn_language_transition_memory_regeneration_proposal(
+                mismatch_report,
+                transition_memory_state,
+                replay_evidence=replay_evidence,
+                locality_radius=locality_radius,
+                initial_weight=initial_weight,
+                max_new_synapses=max_new_synapses,
             ),
         )

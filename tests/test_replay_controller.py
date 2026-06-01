@@ -176,6 +176,38 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertEqual(record["before"]["state_revision"], record["after"]["state_revision"])
         self.assertEqual(controller.history[0]["replay_sample_id"], record["replay_sample_id"])
 
+    def test_regeneration_permit_is_controller_owned_and_revision_bound(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        permit = controller.issue_regeneration_permit(
+            mismatch_report={"available": True, "prediction_error": {"mismatch_score": 0.9}},
+            pressure_report={"available": True, "surface": "snn_language_plasticity_pressure.v1"},
+            replay_window=[{"case_id": "case-1", "grounded": True}],
+            operator_id="operator-1",
+            confirmation=True,
+        )
+        proposal = {"replay_evidence": permit}
+
+        self.assertTrue(controller.verify_regeneration_permit(proposal))
+        self.assertEqual(controller.regeneration_permits[0]["permit_id"], permit["permit_id"])
+        self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 1)
+        manager._runtime_state.state_revision += 1
+        self.assertFalse(controller.verify_regeneration_permit(proposal))
+
+    def test_regeneration_permit_rejects_tampered_payload(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        permit = controller.issue_regeneration_permit(
+            mismatch_report={"available": True, "prediction_error": {"mismatch_score": 0.9}},
+            pressure_report={"available": True},
+            replay_window=[{"case_id": "case-1", "grounded": True}],
+            operator_id="operator-1",
+            confirmation=True,
+        )
+        permit["evidence_hash"] = "fabricated"
+
+        self.assertFalse(controller.verify_regeneration_permit({"replay_evidence": permit}))
+
 
 if __name__ == "__main__":
     unittest.main()

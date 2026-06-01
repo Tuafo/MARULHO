@@ -6,6 +6,8 @@ bounded neuron-dynamics evidence. It is intentionally not a generator.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Mapping, Sequence
 
 import torch
@@ -392,6 +394,7 @@ def predict_spike_language_sequence(
     learning_rate: float = 0.08,
     epochs: int = 2,
     top_k: int = 8,
+    persistent_transition_weights: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Predict the next sparse spike-code indices without decoding text."""
 
@@ -422,8 +425,21 @@ def predict_spike_language_sequence(
         learning_rate=learning_rate,
         epochs=epochs,
     )
+    persistent_weights = _persistent_transition_weight_tensor(
+        persistent_transition_weights,
+        neuron_count,
+        device,
+    )
+    transition_memory_hash = _sha256_json(dict(persistent_transition_weights or {}))
+    training_sequence_hash = _sha256_json(
+        [[dict(slot) for slot in batch if isinstance(slot, Mapping)] for batch in training_readout_slot_batches]
+    )
+    persistent_nonzero_weight_count = int(torch.count_nonzero(persistent_weights).item())
+    if persistent_nonzero_weight_count > 0:
+        weights = weights + persistent_weights
     current_vector = _indices_to_vector(current_indices, neuron_count, device)
     logits = current_vector @ weights
+    persistent_logits = current_vector @ persistent_weights
     requested_k = max(1, min(int(top_k), 16, neuron_count))
     predicted = torch.topk(logits, k=requested_k)
     predicted_indices = [int(value) for value in predicted.indices.detach().cpu().tolist()]
@@ -432,7 +448,54 @@ def predict_spike_language_sequence(
     total_weight_count = int(weights.numel())
     weight_sparsity = 1.0 - (nonzero_weight_count / max(1, total_weight_count))
     support_strength = float(sum(max(0.0, value) for value in predicted_strengths))
+    persistent_support_strength = float(torch.clamp(persistent_logits, min=0.0).sum().item())
     available = bool(train_patterns and current_indices)
+    current_sparse_hash = _sha256_json(current_indices[:16])
+    current_readout_hash = _sha256_json([dict(slot) for slot in current_readout_slots if isinstance(slot, Mapping)])
+    current_sparse_payload = {
+        "active_index_count": len(current_indices),
+        "active_indices": current_indices[:16],
+        "active_indices_hash": current_sparse_hash,
+        "mean_sparsity": _float(current_sparse.get("mean_sparsity"), 1.0),
+    }
+    prediction_payload = {
+        "predicted_sparse_indices": predicted_indices,
+        "predicted_sparse_strengths": predicted_strengths,
+        "support_strength": support_strength,
+        "top_k": requested_k,
+    }
+    persistent_payload = {
+        "surface": "snn_language_persistent_transition_evidence.v1",
+        "available": persistent_nonzero_weight_count > 0,
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "weight_count": persistent_nonzero_weight_count,
+        "support_strength": persistent_support_strength,
+        "influenced_prediction": persistent_support_strength > 0.0,
+        "source": "service.snn_language_plasticity_state"
+        if persistent_nonzero_weight_count > 0
+        else "none",
+        "transition_memory_hash": transition_memory_hash,
+        "persistent_transition_weights_hash": transition_memory_hash,
+    }
+    training_payload = {
+        "rule": "local_hebbian_outer_product_with_row_normalization",
+        "training_transition_count": len(train_patterns),
+        "learning_rate": max(0.0, min(float(learning_rate), 1.0)),
+        "epochs": max(1, min(int(epochs), 8)),
+        "weight_sparsity": float(weight_sparsity),
+        "target_min_weight_sparsity": 0.85,
+    }
+    prediction_hash = _sha256_json(
+        {
+            "current_sparse_code": current_sparse_payload,
+            "prediction": prediction_payload,
+            "training_evidence": training_payload,
+            "training_window_hash": training_sequence_hash,
+            "current_readout_hash": current_readout_hash,
+            "persistent_transition_weights_hash": transition_memory_hash,
+        }
+    )
     ready = available and support_strength > 0.0 and weight_sparsity >= 0.85
     return {
         "artifact_kind": "terminus_snn_language_sequence_prediction_probe",
@@ -453,25 +516,21 @@ def predict_spike_language_sequence(
             "cuda_tensor": bool(weights.is_cuda),
             "device_source": device_report.get("source") or device_report.get("device_source"),
         },
-        "current_sparse_code": {
-            "active_index_count": len(current_indices),
-            "active_indices": current_indices[:16],
-            "mean_sparsity": _float(current_sparse.get("mean_sparsity"), 1.0),
+        "current_sparse_code": current_sparse_payload,
+        "prediction": prediction_payload,
+        "persistent_transition_evidence": persistent_payload,
+        "provenance_evidence": {
+            "prediction_hash": prediction_hash,
+            "prediction_id": f"snn-seq-pred:{prediction_hash[:16]}",
+            "training_sequence_hash": training_sequence_hash,
+            "training_window_hash": training_sequence_hash,
+            "current_readout_hash": current_readout_hash,
+            "current_sparse_code_hash": current_sparse_hash,
+            "transition_memory_hash": transition_memory_hash,
+            "persistent_transition_weights_hash": transition_memory_hash,
+            "hash_algorithm": "sha256_canonical_json",
         },
-        "prediction": {
-            "predicted_sparse_indices": predicted_indices,
-            "predicted_sparse_strengths": predicted_strengths,
-            "support_strength": support_strength,
-            "top_k": requested_k,
-        },
-        "training_evidence": {
-            "rule": "local_hebbian_outer_product_with_row_normalization",
-            "training_transition_count": len(train_patterns),
-            "learning_rate": max(0.0, min(float(learning_rate), 1.0)),
-            "epochs": max(1, min(int(epochs), 8)),
-            "weight_sparsity": float(weight_sparsity),
-            "target_min_weight_sparsity": 0.85,
-        },
+        "training_evidence": training_payload,
         "promotion_gate": {
             "status": "ready_for_operator_review" if ready else "collect_more_sequence_context",
             "eligible_for_language_generation": False,
@@ -482,6 +541,541 @@ def predict_spike_language_sequence(
             "next_gate": "operator_approved_snn_language_prediction_evaluation"
             if ready
             else "collect_grounded_sequence_context",
+        },
+    }
+
+
+def generate_snn_language_readout_draft(
+    prediction_report: Mapping[str, Any],
+    readout_vocabulary_slots: Sequence[Mapping[str, Any]],
+    device_evidence: Mapping[str, Any] | None = None,
+    transition_memory_evaluation: Mapping[str, Any] | None = None,
+    *,
+    max_draft_terms: int = 6,
+) -> dict[str, Any]:
+    """Generate a bounded grounded readout draft from sparse SNN prediction evidence."""
+
+    report = dict(prediction_report)
+    prediction = report.get("prediction") if isinstance(report.get("prediction"), Mapping) else {}
+    persistent = (
+        report.get("persistent_transition_evidence")
+        if isinstance(report.get("persistent_transition_evidence"), Mapping)
+        else {}
+    )
+    prediction_provenance = (
+        report.get("provenance_evidence")
+        if isinstance(report.get("provenance_evidence"), Mapping)
+        else {}
+    )
+    device_report = dict(device_evidence or report.get("device_evidence") or {})
+    predicted_indices = [
+        int(value)
+        for value in list(prediction.get("predicted_sparse_indices") or [])
+        if isinstance(value, int)
+    ]
+    predicted_strengths = [
+        float(value)
+        for value in list(prediction.get("predicted_sparse_strengths") or [])
+        if isinstance(value, (int, float))
+    ]
+    strength_by_index = {
+        int(index) % 32: float(predicted_strengths[position])
+        if position < len(predicted_strengths)
+        else 0.0
+        for position, index in enumerate(predicted_indices)
+    }
+    candidates: list[dict[str, Any]] = []
+    grounded_count = 0
+    for slot in [dict(item) for item in readout_vocabulary_slots if isinstance(item, Mapping)][:32]:
+        label = _text(slot.get("label"))
+        if not label:
+            continue
+        if bool(slot.get("grounded")):
+            grounded_count += 1
+        probe = build_spike_language_decoder_probe(
+            {
+                "readout_slots": [slot],
+                "device_evidence": device_report,
+            }
+        )
+        sparse = probe.get("sparse_code_evidence") if isinstance(probe.get("sparse_code_evidence"), Mapping) else {}
+        active = [
+            int(value) % 32
+            for value in list(sparse.get("active_indices") or [])
+            if isinstance(value, int)
+        ]
+        matched = [index for index in active if index in strength_by_index]
+        if not matched:
+            continue
+        score = sum(max(0.0, strength_by_index[index]) for index in matched)
+        candidates.append(
+            {
+                "label": label,
+                "grounded": bool(slot.get("grounded")),
+                "pressure_band": _text(slot.get("pressure_band")),
+                "matched_sparse_indices": matched[:8],
+                "support_strength": float(score),
+            }
+        )
+    candidates.sort(key=lambda item: (-float(item["support_strength"]), item["label"]))
+    requested_terms = max(1, min(int(max_draft_terms), 12))
+    selected = candidates[:requested_terms]
+    draft_text = " ".join(str(item["label"]) for item in selected)
+    vocabulary_count = len([slot for slot in readout_vocabulary_slots if isinstance(slot, Mapping)])
+    grounded_fraction = grounded_count / max(1, vocabulary_count)
+    persistent_ready = bool(persistent.get("available")) and bool(persistent.get("influenced_prediction"))
+    evaluation = (
+        dict(transition_memory_evaluation)
+        if isinstance(transition_memory_evaluation, Mapping)
+        else {}
+    )
+    evaluation_summary = (
+        evaluation.get("evaluation_summary")
+        if isinstance(evaluation.get("evaluation_summary"), Mapping)
+        else {}
+    )
+    evaluation_provenance = (
+        evaluation.get("provenance_evidence")
+        if isinstance(evaluation.get("provenance_evidence"), Mapping)
+        else {}
+    )
+    evaluation_gate = (
+        evaluation.get("promotion_gate")
+        if isinstance(evaluation.get("promotion_gate"), Mapping)
+        else {}
+    )
+    evaluation_available = bool(evaluation)
+    prediction_hash = str(prediction_provenance.get("prediction_hash") or "")
+    evaluation_hash = str(evaluation_provenance.get("evaluation_hash") or "")
+    prediction_training_hash = str(
+        prediction_provenance.get("training_window_hash")
+        or prediction_provenance.get("training_sequence_hash")
+        or ""
+    )
+    evaluation_training_hash = str(
+        evaluation_provenance.get("training_window_hash")
+        or evaluation_provenance.get("training_sequence_hash")
+        or ""
+    )
+    prediction_transition_hash = str(
+        prediction_provenance.get("persistent_transition_weights_hash")
+        or prediction_provenance.get("transition_memory_hash")
+        or persistent.get("persistent_transition_weights_hash")
+        or persistent.get("transition_memory_hash")
+        or ""
+    )
+    evaluation_transition_hash = str(
+        evaluation_provenance.get("persistent_transition_weights_hash")
+        or evaluation_provenance.get("transition_memory_hash")
+        or ""
+    )
+    prediction_current_readout_hash = str(prediction_provenance.get("current_readout_hash") or "")
+    evaluated_prediction_hashes = {
+        str(value)
+        for value in list(evaluation_provenance.get("evaluated_prediction_hashes") or [])
+        if str(value)
+    }
+    evaluated_current_readout_hashes = {
+        str(value)
+        for value in list(evaluation_provenance.get("evaluated_current_readout_hashes") or [])
+        if str(value)
+    }
+    provenance_match = (
+        bool(prediction_hash)
+        and bool(evaluation_hash)
+        and prediction_hash in evaluated_prediction_hashes
+        and bool(prediction_training_hash)
+        and prediction_training_hash == evaluation_training_hash
+        and bool(prediction_transition_hash)
+        and prediction_transition_hash == evaluation_transition_hash
+        and bool(prediction_current_readout_hash)
+        and prediction_current_readout_hash in evaluated_current_readout_hashes
+    )
+    evaluation_non_worsening = (
+        evaluation_available
+        and
+        _float(evaluation_summary.get("mean_mismatch_delta"), -1.0) >= -1e-9
+        and int(evaluation_summary.get("worsened_sequence_count") or 0) == 0
+    )
+    prediction_non_mutating = not bool(report.get("mutates_runtime_state"))
+    prediction_external_dependency_absent = not bool(report.get("external_dependency"))
+    evaluation_ready = (
+        evaluation.get("surface") == "snn_language_transition_memory_prediction_evaluation.v1"
+        and bool(evaluation.get("owned_by_hecsn"))
+        and not bool(evaluation.get("external_dependency"))
+        and not bool(evaluation.get("mutates_runtime_state"))
+        and bool(evaluation_gate.get("eligible_for_bounded_readout_generation_review"))
+        and int(evaluation_summary.get("persistent_transition_weight_count") or 0) > 0
+        and int(evaluation_summary.get("evaluation_pair_count") or 0) > 0
+        and int(evaluation_summary.get("influenced_prediction_count") or 0) > 0
+        and provenance_match
+        and evaluation_non_worsening
+    )
+    ready = (
+        bool(draft_text)
+        and grounded_fraction >= 0.5
+        and persistent_ready
+        and bool(report.get("owned_by_hecsn"))
+        and prediction_external_dependency_absent
+        and prediction_non_mutating
+        and evaluation_ready
+    )
+    blocked_status = (
+        "collect_persistent_grounded_sparse_support"
+        if not (
+            bool(draft_text)
+            and grounded_fraction >= 0.5
+            and persistent_ready
+            and bool(report.get("owned_by_hecsn"))
+            and prediction_external_dependency_absent
+            and prediction_non_mutating
+        )
+        else "collect_transition_memory_prediction_evaluation"
+        if not evaluation_available
+        else "blocked_transition_memory_prediction_evaluation"
+    )
+    blocked_next_gate = (
+        "collect_persistent_transition_and_grounded_vocabulary"
+        if blocked_status == "collect_persistent_grounded_sparse_support"
+        else "collect_grounded_transition_memory_evaluation_window"
+    )
+    return {
+        "artifact_kind": "terminus_snn_language_readout_draft",
+        "surface": "snn_language_readout_draft.v1",
+        "available": bool(draft_text),
+        "source": "semantics.spike_language_neurons.readout_draft",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": bool(draft_text),
+        "decodes_text": bool(draft_text),
+        "generation_scope": "bounded_grounded_readout_label_draft",
+        "freeform_language_generation": False,
+        "trains_runtime_model": False,
+        "returns_trained_weights": False,
+        "mutates_runtime_state": False,
+        "prediction_surface": report.get("surface"),
+        "draft": {
+            "text": draft_text,
+            "term_count": len(selected),
+            "max_terms": requested_terms,
+            "labels": [str(item["label"]) for item in selected],
+        },
+        "sparse_decode_evidence": {
+            "predicted_index_count": len(predicted_indices),
+            "matched_candidate_count": len(candidates),
+            "selected_candidate_count": len(selected),
+            "candidate_matches": selected,
+        },
+        "grounding_evidence": {
+            "vocabulary_slot_count": vocabulary_count,
+            "grounded_slot_count": grounded_count,
+            "grounded_fraction": float(grounded_fraction),
+            "requires_grounded_fraction": 0.5,
+        },
+        "persistent_transition_evidence": {
+            "available": bool(persistent.get("available")),
+            "influenced_prediction": bool(persistent.get("influenced_prediction")),
+            "support_strength": _float(persistent.get("support_strength"), 0.0),
+            "source": persistent.get("source"),
+        },
+        "transition_memory_evaluation_evidence": {
+            "available": evaluation_available,
+            "surface": evaluation.get("surface"),
+            "owned_by_hecsn": bool(evaluation.get("owned_by_hecsn")),
+            "non_worsening": evaluation_non_worsening,
+            "review_ready": evaluation_ready,
+            "provenance_match": provenance_match,
+            "prediction_hash": prediction_hash or None,
+            "transition_memory_evaluation_hash": evaluation_hash or None,
+            "persistent_transition_weights_hash": prediction_transition_hash or None,
+            "evaluation_pair_count": int(evaluation_summary.get("evaluation_pair_count") or 0),
+            "influenced_prediction_count": int(evaluation_summary.get("influenced_prediction_count") or 0),
+            "persistent_transition_weight_count": int(
+                evaluation_summary.get("persistent_transition_weight_count") or 0
+            ),
+            "mean_mismatch_delta": _float(evaluation_summary.get("mean_mismatch_delta"), 0.0),
+            "worsened_sequence_count": int(evaluation_summary.get("worsened_sequence_count") or 0),
+        },
+        "device_evidence": {
+            "requested_device": str(device_report.get("device") or device_report.get("tensor_device") or "unknown"),
+            "device_source": device_report.get("source") or device_report.get("device_source"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else blocked_status,
+            "eligible_for_bounded_readout_generation": ready,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "requires_operator_approval": ready,
+            "next_gate": "operator_review_snn_language_readout_draft"
+            if ready
+            else blocked_next_gate,
+            "required_evidence": {
+                "prediction_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+                "persistent_transition_influenced_prediction": persistent_ready,
+                "transition_memory_prediction_evaluation_ready": evaluation_ready,
+                "transition_memory_prediction_non_worsening": evaluation_non_worsening,
+                "transition_memory_prediction_influenced": int(
+                    evaluation_summary.get("influenced_prediction_count") or 0
+                )
+                > 0,
+                "transition_memory_prediction_provenance_match": provenance_match,
+                "grounded_vocabulary_available": grounded_fraction >= 0.5,
+                "draft_text_available": bool(draft_text),
+                "external_dependency_absent": prediction_external_dependency_absent,
+                "runtime_mutation_absent": prediction_non_mutating,
+            },
+        },
+    }
+
+
+def build_snn_language_transition_memory_prediction_evaluation(
+    training_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+    evaluation_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
+    transition_memory_state: Mapping[str, Any],
+    device_evidence: Mapping[str, Any] | None = None,
+    *,
+    learning_rate: float = 0.08,
+    epochs: int = 2,
+    top_k: int = 8,
+) -> dict[str, Any]:
+    """Compare baseline vs persistent-memory sparse next-code prediction."""
+
+    state = dict(transition_memory_state or {})
+    persistent_weights = (
+        state.get("sparse_transition_weights")
+        if isinstance(state.get("sparse_transition_weights"), Mapping)
+        else {}
+    )
+    transition_memory_hash = _sha256_json(dict(persistent_weights))
+    training_sequence_hash = _sha256_json(
+        [[dict(slot) for slot in batch if isinstance(slot, Mapping)] for batch in training_readout_slot_batches]
+    )
+    pairs: list[tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]] = []
+    normalized_eval = [
+        [dict(slot) for slot in batch if isinstance(slot, Mapping)]
+        for batch in evaluation_readout_slot_batches
+    ]
+    evaluation_window_hash = _sha256_json(normalized_eval)
+    for index in range(max(0, len(normalized_eval) - 1)):
+        current = normalized_eval[index]
+        observed = normalized_eval[index + 1]
+        if current and observed:
+            pairs.append((current, observed))
+    records: list[dict[str, Any]] = []
+    baseline_scores: list[float] = []
+    memory_scores: list[float] = []
+    influenced_count = 0
+    improved_count = 0
+    worsened_count = 0
+    for pair_index, (current_slots, observed_slots) in enumerate(pairs):
+        baseline_prediction = predict_spike_language_sequence(
+            training_readout_slot_batches,
+            current_slots,
+            device_evidence,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            top_k=top_k,
+            persistent_transition_weights={},
+        )
+        memory_prediction = predict_spike_language_sequence(
+            training_readout_slot_batches,
+            current_slots,
+            device_evidence,
+            learning_rate=learning_rate,
+            epochs=epochs,
+            top_k=top_k,
+            persistent_transition_weights=persistent_weights,
+        )
+        baseline_mismatch = evaluate_spike_language_sequence_mismatch(
+            baseline_prediction,
+            observed_slots,
+            device_evidence,
+        )
+        memory_mismatch = evaluate_spike_language_sequence_mismatch(
+            memory_prediction,
+            observed_slots,
+            device_evidence,
+        )
+        baseline_score = _float(
+            (baseline_mismatch.get("prediction_error") or {}).get("mismatch_score")
+            if isinstance(baseline_mismatch.get("prediction_error"), Mapping)
+            else None,
+            1.0,
+        )
+        memory_score = _float(
+            (memory_mismatch.get("prediction_error") or {}).get("mismatch_score")
+            if isinstance(memory_mismatch.get("prediction_error"), Mapping)
+            else None,
+            1.0,
+        )
+        delta = baseline_score - memory_score
+        baseline_scores.append(baseline_score)
+        memory_scores.append(memory_score)
+        persistent_evidence = (
+            memory_prediction.get("persistent_transition_evidence")
+            if isinstance(memory_prediction.get("persistent_transition_evidence"), Mapping)
+            else {}
+        )
+        baseline_provenance = (
+            baseline_prediction.get("provenance_evidence")
+            if isinstance(baseline_prediction.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        memory_provenance = (
+            memory_prediction.get("provenance_evidence")
+            if isinstance(memory_prediction.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        current_sparse = (
+            memory_prediction.get("current_sparse_code")
+            if isinstance(memory_prediction.get("current_sparse_code"), Mapping)
+            else {}
+        )
+        current_sparse_hash = str(current_sparse.get("active_indices_hash") or "")
+        observed_sparse = (
+            memory_mismatch.get("observed_sparse_code")
+            if isinstance(memory_mismatch.get("observed_sparse_code"), Mapping)
+            else {}
+        )
+        influenced = bool(persistent_evidence.get("influenced_prediction"))
+        influenced_count += int(influenced)
+        improved_count += int(delta > 1e-9)
+        worsened_count += int(delta < -1e-9)
+        records.append(
+            {
+                "pair_index": pair_index,
+                "baseline_mismatch_score": float(baseline_score),
+                "memory_mismatch_score": float(memory_score),
+                "mismatch_delta": float(delta),
+                "persistent_memory_influenced_prediction": influenced,
+                "current_sparse_code_hash": current_sparse_hash or None,
+                "current_readout_hash": memory_provenance.get("current_readout_hash"),
+                "baseline_prediction_hash": baseline_provenance.get("prediction_hash"),
+                "memory_prediction_hash": memory_provenance.get("prediction_hash"),
+                "observed_sparse_code_hash": _sha256_json(
+                    [
+                        int(value)
+                        for value in list(observed_sparse.get("active_indices") or [])
+                        if isinstance(value, int)
+                    ][:16]
+                ),
+                "observed_slot_count": len(observed_slots),
+            }
+        )
+    baseline_mean = sum(baseline_scores) / max(1, len(baseline_scores))
+    memory_mean = sum(memory_scores) / max(1, len(memory_scores))
+    mean_delta = baseline_mean - memory_mean
+    persistent_count = len(dict(persistent_weights))
+    non_worse = bool(records) and mean_delta >= -1e-9 and worsened_count == 0
+    ready = persistent_count > 0 and bool(records) and non_worse
+    evaluated_current_sparse_hashes = sorted(
+        {
+            str(record.get("current_sparse_code_hash") or "")
+            for record in records
+            if str(record.get("current_sparse_code_hash") or "")
+        }
+    )[:32]
+    evaluated_current_readout_hashes = sorted(
+        {
+            str(record.get("current_readout_hash") or "")
+            for record in records
+            if str(record.get("current_readout_hash") or "")
+        }
+    )[:32]
+    evaluated_prediction_hashes = sorted(
+        {
+            str(record.get("memory_prediction_hash") or "")
+            for record in records
+            if str(record.get("memory_prediction_hash") or "")
+        }
+    )[:32]
+    evaluation_hash = _sha256_json(
+        {
+            "training_window_hash": training_sequence_hash,
+            "evaluation_window_hash": evaluation_window_hash,
+            "persistent_transition_weights_hash": transition_memory_hash,
+            "evaluation_summary": {
+                "evaluation_pair_count": len(records),
+                "baseline_mean_mismatch_score": float(baseline_mean),
+                "memory_mean_mismatch_score": float(memory_mean),
+                "mean_mismatch_delta": float(mean_delta),
+                "influenced_prediction_count": int(influenced_count),
+                "improved_sequence_count": int(improved_count),
+                "worsened_sequence_count": int(worsened_count),
+                "persistent_transition_weight_count": int(persistent_count),
+            },
+            "evaluated_prediction_hashes": evaluated_prediction_hashes,
+            "sequence_records": records[:16],
+        }
+    )
+    return {
+        "artifact_kind": "terminus_snn_language_transition_memory_prediction_evaluation",
+        "surface": "snn_language_transition_memory_prediction_evaluation.v1",
+        "available": bool(records),
+        "source": "semantics.spike_language_neurons.transition_memory_prediction_evaluation",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "returns_trained_weights": False,
+        "mutates_runtime_state": False,
+        "evaluation_summary": {
+            "evaluation_pair_count": len(records),
+            "baseline_mean_mismatch_score": float(baseline_mean),
+            "memory_mean_mismatch_score": float(memory_mean),
+            "mean_mismatch_delta": float(mean_delta),
+            "influenced_prediction_count": int(influenced_count),
+            "improved_sequence_count": int(improved_count),
+            "worsened_sequence_count": int(worsened_count),
+            "persistent_transition_weight_count": int(persistent_count),
+            "evaluated_current_sparse_hashes": evaluated_current_sparse_hashes,
+            "evaluated_current_readout_hashes": evaluated_current_readout_hashes,
+            "evaluated_prediction_hashes": evaluated_prediction_hashes,
+        },
+        "provenance_evidence": {
+            "evaluation_hash": evaluation_hash,
+            "evaluation_id": f"snn-transition-eval:{evaluation_hash[:16]}",
+            "training_sequence_hash": training_sequence_hash,
+            "training_window_hash": training_sequence_hash,
+            "evaluation_window_hash": evaluation_window_hash,
+            "transition_memory_hash": transition_memory_hash,
+            "persistent_transition_weights_hash": transition_memory_hash,
+            "evaluated_current_sparse_hashes": evaluated_current_sparse_hashes,
+            "evaluated_current_readout_hashes": evaluated_current_readout_hashes,
+            "evaluated_prediction_hashes": evaluated_prediction_hashes,
+            "hash_algorithm": "sha256_canonical_json",
+        },
+        "sequence_records": records[:16],
+        "promotion_gate": {
+            "status": "ready_for_operator_review"
+            if ready
+            else "blocked_missing_transition_memory_evidence"
+            if persistent_count <= 0
+            else "collect_non_worsening_prediction_evidence",
+            "eligible_for_language_generation": False,
+            "eligible_for_bounded_readout_generation_review": ready,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "eligible_for_runtime_training": False,
+            "requires_operator_approval": ready,
+            "next_gate": "operator_review_snn_language_readout_draft"
+            if ready
+            else "collect_grounded_transition_memory_evaluation_window",
+            "required_evidence": {
+                "persistent_transition_memory_available": persistent_count > 0,
+                "evaluation_windows_available": bool(records),
+                "persistent_memory_non_worsening": non_worse,
+                "external_dependency_absent": True,
+                "runtime_mutation_absent": True,
+            },
         },
     }
 
@@ -1174,6 +1768,417 @@ def evaluate_spike_language_plasticity_shadow_application(
     }
 
 
+def build_spike_language_plasticity_shadow_delta(
+    application_design: Mapping[str, Any],
+    replay_sequences: Sequence[Mapping[str, Any]],
+    *,
+    device_evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Measure a bounded local shadow delta from sparse replay evidence."""
+
+    report = dict(application_design)
+    design = report.get("application_design") if isinstance(report.get("application_design"), Mapping) else {}
+    device_report = dict(device_evidence or report.get("device_evidence") or {})
+    selected_device = _text(device_report.get("device") or device_report.get("tensor_device") or "cpu")
+    device = _safe_tensor_device(selected_device)
+    max_weight_delta = _float(design.get("max_weight_delta"), 0.0)
+    learning_rate = _float(design.get("learning_rate"), 0.0)
+    locality_radius = max(int(_float(design.get("locality_radius"), 1.0)), 1)
+    rows: list[int] = []
+    cols: list[int] = []
+    for item in replay_sequences:
+        if not isinstance(item, Mapping):
+            continue
+        pre_indices = [int(value) for value in list(item.get("pre_indices") or []) if isinstance(value, int)]
+        post_indices = [int(value) for value in list(item.get("post_indices") or []) if isinstance(value, int)]
+        if not pre_indices:
+            pre_indices = [int(value) for value in list(item.get("active_indices") or []) if isinstance(value, int)]
+        if not post_indices:
+            post_indices = [int(value) for value in list(item.get("target_indices") or []) if isinstance(value, int)]
+        for pre in pre_indices:
+            for post in post_indices:
+                if abs(int(post) - int(pre)) <= locality_radius:
+                    rows.append(int(pre))
+                    cols.append(int(post))
+    affected = len(set(zip(rows, cols)))
+    bounded_synapses = [
+        {"pre_index": int(pre), "post_index": int(post)}
+        for pre, post in sorted(set(zip(rows, cols)))
+    ]
+    observed_delta = min(max_weight_delta, learning_rate) if affected > 0 else 0.0
+    pressure_before = _float(design.get("grounded_replay_coverage"), 0.0)
+    pressure_after = max(0.0, pressure_before - observed_delta)
+    delta_tensor = torch.tensor([observed_delta], device=device)
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_shadow_delta",
+        "surface": "snn_language_plasticity_shadow_delta.v1",
+        "available": affected > 0,
+        "source": "semantics.spike_language_neurons.plasticity_shadow_delta",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "returns_trained_weights": False,
+        "max_abs_weight_delta": float(delta_tensor.item()),
+        "affected_synapse_count": affected,
+        "bounded_synapses": bounded_synapses,
+        "locality_radius": locality_radius,
+        "pressure_before": float(pressure_before),
+        "pressure_after": float(pressure_after),
+        "device_evidence": {
+            "requested_device": selected_device,
+            "tensor_device": str(delta_tensor.device),
+            "cuda_tensor": bool(delta_tensor.is_cuda),
+            "device_source": device_report.get("source") or device_report.get("device_source"),
+            "device_report_available": bool(device_report) and bool(device_report.get("device_report_available", True)),
+        },
+    }
+
+
+def evaluate_spike_language_plasticity_live_application_readiness(
+    shadow_application: Mapping[str, Any],
+    *,
+    rollback_readiness: Mapping[str, Any] | None = None,
+    operator_approval: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Check whether live language plasticity could be reviewed without applying it."""
+
+    report = dict(shadow_application)
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    rollback = dict(rollback_readiness or {})
+    approval = dict(operator_approval or {})
+    checkpoint_available = bool(rollback.get("checkpoint_available") or rollback.get("available"))
+    restore_available = bool(rollback.get("restore_endpoint_available") or rollback.get("reversible"))
+    approval_available = bool(approval.get("approved") or approval.get("operator_approved"))
+    required = {
+        "shadow_application_available": bool(report.get("available")),
+        "shadow_application_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "shadow_application_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "shadow_did_not_apply_plasticity": not bool(report.get("applies_plasticity")),
+        "shadow_did_not_mutate_runtime": not bool(report.get("mutates_runtime_state")),
+        "checkpoint_available": checkpoint_available,
+        "restore_endpoint_available": restore_available,
+        "operator_approval_available": approval_available,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_live_application_readiness",
+        "surface": "snn_language_plasticity_live_application_readiness.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_live_application_readiness",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "returns_trained_weights": False,
+        "shadow_application_surface": report.get("surface"),
+        "rollback_readiness": {
+            "checkpoint_available": checkpoint_available,
+            "checkpoint_path": rollback.get("checkpoint_path"),
+            "restore_endpoint_available": restore_available,
+            "rollback_policy_required": True,
+        },
+        "operator_approval": {
+            "approved": approval_available,
+            "operator_id": approval.get("operator_id"),
+            "approval_id": approval.get("approval_id"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_live_application_readiness",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_live_application": False,
+            "eligible_for_operator_live_application_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_approved_checkpoint_backed_live_language_plasticity_application"
+            if ready
+            else "collect_checkpoint_rollback_and_operator_approval",
+            "required_evidence": required,
+        },
+    }
+
+
+def evaluate_spike_language_plasticity_live_application_preflight(
+    live_application_readiness: Mapping[str, Any],
+    *,
+    application_target: Mapping[str, Any] | None = None,
+    checkpoint_transaction: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Review final preflight evidence for a future live update without applying it."""
+
+    report = dict(live_application_readiness)
+    gate = report.get("promotion_gate") if isinstance(report.get("promotion_gate"), Mapping) else {}
+    target = dict(application_target or {})
+    transaction = dict(checkpoint_transaction or {})
+    rollback = report.get("rollback_readiness") if isinstance(report.get("rollback_readiness"), Mapping) else {}
+    approval = report.get("operator_approval") if isinstance(report.get("operator_approval"), Mapping) else {}
+    target_available = bool(target.get("target_available") or target.get("available"))
+    target_owned = bool(target.get("owned_by_hecsn", True)) if target else False
+    target_mutable = bool(target.get("mutable") or target.get("accepts_bounded_delta"))
+    target_sparse = bool(target.get("sparse") or target.get("sparse_transition_weights"))
+    target_checkpointed = bool(target.get("checkpointed") or target.get("checkpoint_backed"))
+    transaction_opened = bool(transaction.get("pre_update_checkpoint_saved") or transaction.get("opened"))
+    transaction_restorable = bool(transaction.get("restore_verified") or transaction.get("restorable"))
+    transaction_records_delta = bool(transaction.get("records_shadow_delta") or transaction.get("delta_recorded"))
+    required = {
+        "live_readiness_available": bool(report.get("available")),
+        "live_readiness_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+        "live_readiness_gate_ready": _text(gate.get("status")) == "ready_for_operator_review",
+        "readiness_did_not_apply_plasticity": not bool(report.get("applies_plasticity")),
+        "readiness_did_not_mutate_runtime": not bool(report.get("mutates_runtime_state")),
+        "checkpoint_available": bool(rollback.get("checkpoint_available")),
+        "restore_endpoint_available": bool(rollback.get("restore_endpoint_available")),
+        "operator_approval_available": bool(approval.get("approved")),
+        "application_target_available": target_available,
+        "application_target_owned_by_hecsn": target_owned,
+        "application_target_mutable": target_mutable,
+        "application_target_sparse": target_sparse,
+        "application_target_checkpointed": target_checkpointed,
+        "checkpoint_transaction_opened": transaction_opened,
+        "checkpoint_transaction_restorable": transaction_restorable,
+        "checkpoint_transaction_records_delta": transaction_records_delta,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_plasticity_live_application_preflight",
+        "surface": "snn_language_plasticity_live_application_preflight.v1",
+        "available": bool(report),
+        "source": "semantics.spike_language_neurons.plasticity_live_application_preflight",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "returns_trained_weights": False,
+        "live_application_readiness_surface": report.get("surface"),
+        "application_target": {
+            "available": target_available,
+            "surface": target.get("surface"),
+            "target_id": target.get("target_id"),
+            "owned_by_hecsn": target_owned,
+            "mutable": target_mutable,
+            "sparse": target_sparse,
+            "checkpointed": target_checkpointed,
+        },
+        "checkpoint_transaction": {
+            "pre_update_checkpoint_saved": transaction_opened,
+            "checkpoint_path": transaction.get("checkpoint_path") or rollback.get("checkpoint_path"),
+            "restore_verified": transaction_restorable,
+            "records_shadow_delta": transaction_records_delta,
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_execution_review" if ready else "blocked_missing_live_application_preflight",
+            "eligible_for_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_runtime_training": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_live_application": False,
+            "eligible_for_operator_execution_review": ready,
+            "requires_operator_approval": True,
+            "next_gate": "operator_confirmed_checkpoint_transaction_live_language_plasticity_executor"
+            if ready
+            else "collect_mutable_target_and_checkpoint_transaction",
+            "required_evidence": required,
+        },
+    }
+
+
+def build_snn_language_transition_memory_sleep_policy(
+    transition_memory_state: Mapping[str, Any],
+    *,
+    subcortex_sleep_pressure: Mapping[str, Any] | None = None,
+    replay_evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Recommend transition-memory homeostasis from active sleep/replay evidence."""
+
+    state = dict(transition_memory_state)
+    sleep = dict(subcortex_sleep_pressure or {})
+    replay = dict(replay_evidence or {})
+    transition_count = max(int(_float(state.get("sparse_transition_weight_count"), 0.0)), 0)
+    maintenance_count = max(int(_float(state.get("homeostatic_maintenance_count"), 0.0)), 0)
+    sleep_pressure = min(max(_float(sleep.get("pressure") or sleep.get("sleep_pressure"), 0.0), 0.0), 1.0)
+    replay_ready = bool(replay.get("ready") or replay.get("available") or replay.get("replay_ready"))
+    pressure_high = sleep_pressure >= 0.5
+    memory_present = transition_count > 0
+    recommend = memory_present and (pressure_high or replay_ready)
+    return {
+        "artifact_kind": "terminus_snn_language_transition_memory_sleep_policy",
+        "surface": "snn_language_transition_memory_sleep_policy.v1",
+        "available": True,
+        "source": "semantics.spike_language_neurons.transition_memory_sleep_policy",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "transition_memory": {
+            "sparse_transition_weight_count": transition_count,
+            "homeostatic_maintenance_count": maintenance_count,
+        },
+        "subcortex_sleep_pressure": {
+            "pressure": sleep_pressure,
+            "source": sleep.get("source") or "subcortex_sleep_pressure",
+            "retired_runtime_dependency": False,
+        },
+        "replay_evidence": {
+            "available": bool(replay),
+            "ready": replay_ready,
+            "source": replay.get("source"),
+        },
+        "recommendation": {
+            "action": "review_transition_memory_homeostatic_maintenance"
+            if recommend
+            else "continue_monitoring_transition_memory",
+            "recommended": recommend,
+            "suggested_endpoint": "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance"
+            if recommend
+            else None,
+            "requires_operator_confirmation": True,
+            "executable": False,
+            "reason_codes": [
+                code
+                for code, include in (
+                    ("transition_memory_present", memory_present),
+                    ("subcortex_sleep_pressure_high", pressure_high),
+                    ("replay_evidence_ready", replay_ready),
+                )
+                if include
+            ],
+        },
+    }
+
+
+def build_snn_language_transition_memory_regeneration_proposal(
+    mismatch_report: Mapping[str, Any],
+    transition_memory_state: Mapping[str, Any],
+    *,
+    replay_evidence: Mapping[str, Any] | None = None,
+    locality_radius: int = 2,
+    initial_weight: float = 0.02,
+    max_new_synapses: int = 8,
+) -> dict[str, Any]:
+    """Propose bounded local sparse transition regrowth from replay-backed mismatch."""
+
+    mismatch = dict(mismatch_report)
+    state = dict(transition_memory_state)
+    replay = dict(replay_evidence or {})
+    error = mismatch.get("prediction_error") if isinstance(mismatch.get("prediction_error"), Mapping) else {}
+    delta = mismatch.get("sparse_code_delta") if isinstance(mismatch.get("sparse_code_delta"), Mapping) else {}
+    radius = max(1, min(int(locality_radius), 8))
+    weight = min(max(float(initial_weight), 0.0), 0.25)
+    limit = max(1, min(int(max_new_synapses), 32))
+    mismatch_score = _float(error.get("mismatch_score"), 0.0)
+    replay_window_id = str(replay.get("replay_window_id") or "").strip()
+    evidence_hash = str(replay.get("evidence_hash") or "").strip()
+    mismatch_hash = hashlib.sha256(
+        json.dumps(mismatch, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    replay_ready = (
+        bool(replay.get("ready"))
+        and bool(replay.get("owned_by_hecsn"))
+        and replay.get("artifact_kind") == "terminus_snn_language_transition_memory_regeneration_permit"
+        and bool(replay.get("permit_id"))
+        and bool(replay_window_id)
+        and bool(evidence_hash)
+        and replay.get("mismatch_hash") == mismatch_hash
+    )
+    predicted_only = [
+        int(value)
+        for value in list(delta.get("predicted_only_indices") or [])
+        if isinstance(value, int) and 0 <= int(value) < 64
+    ]
+    observed_only = [
+        int(value)
+        for value in list(delta.get("observed_only_indices") or [])
+        if isinstance(value, int) and 0 <= int(value) < 64
+    ]
+    candidates = []
+    for pre_index in predicted_only:
+        for post_index in observed_only:
+            if abs(post_index - pre_index) <= radius:
+                candidates.append(
+                    {
+                        "pre_index": pre_index,
+                        "post_index": post_index,
+                        "synapse": f"{pre_index}:{post_index}",
+                        "initial_weight": weight,
+                        "locality_distance": abs(post_index - pre_index),
+                    }
+                )
+    candidates = candidates[:limit]
+    ready = bool(mismatch.get("available")) and mismatch_score >= 0.66 and replay_ready and bool(candidates)
+    return {
+        "artifact_kind": "terminus_snn_language_transition_memory_regeneration_proposal",
+        "surface": "snn_language_transition_memory_regeneration_proposal.v1",
+        "available": bool(mismatch),
+        "source": "semantics.spike_language_neurons.transition_memory_regeneration_proposal",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "transition_memory_surface": state.get("surface"),
+        "mismatch_surface": mismatch.get("surface"),
+        "replay_evidence": {
+            "available": bool(replay),
+            "ready": replay_ready,
+            "source": replay.get("source"),
+            "artifact_kind": replay.get("artifact_kind"),
+            "surface": replay.get("surface"),
+            "owned_by_hecsn": bool(replay.get("owned_by_hecsn")),
+            "permit_id": replay.get("permit_id"),
+            "replay_window_id": replay_window_id or None,
+            "evidence_hash": evidence_hash or None,
+            "issued_at": replay.get("issued_at"),
+            "issued_state_revision": replay.get("issued_state_revision"),
+            "operator_id": replay.get("operator_id"),
+            "mismatch_hash": replay.get("mismatch_hash"),
+            "pressure_hash": replay.get("pressure_hash"),
+            "replay_window_hash": replay.get("replay_window_hash"),
+            "replay_window_size": replay.get("replay_window_size"),
+        },
+        "regeneration_design": {
+            "locality_radius": radius,
+            "initial_weight": weight,
+            "max_new_synapses": limit,
+            "mismatch_score": mismatch_score,
+            "candidate_count": len(candidates),
+            "candidate_synapses": candidates,
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_regeneration_evidence",
+            "eligible_for_regeneration_application": False,
+            "eligible_for_language_generation": False,
+            "eligible_for_fact_promotion": False,
+            "requires_operator_approval": True,
+            "next_gate": "operator_confirmed_checkpoint_backed_transition_memory_regeneration"
+            if ready
+            else "collect_replay_backed_local_mismatch_evidence",
+        },
+    }
+
+
 def _language_training_patterns(
     readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
     device_report: Mapping[str, Any],
@@ -1236,6 +2241,23 @@ def _indices_to_vector(indices: Sequence[int], neuron_count: int, device: torch.
     return vector
 
 
+def _persistent_transition_weight_tensor(
+    persistent_transition_weights: Mapping[str, Any] | None,
+    neuron_count: int,
+    device: torch.device,
+) -> torch.Tensor:
+    weights = torch.zeros((neuron_count, neuron_count), device=device)
+    for key, value in dict(persistent_transition_weights or {}).items():
+        try:
+            raw_pre, raw_post = str(key).split(":", maxsplit=1)
+            pre_index = int(raw_pre) % neuron_count
+            post_index = int(raw_post) % neuron_count
+            weights[pre_index, post_index] += float(value)
+        except (TypeError, ValueError):
+            continue
+    return weights
+
+
 def _safe_tensor_device(device: str) -> torch.device:
     normalized = str(device or "cpu")
     if normalized.startswith("cuda") and not torch.cuda.is_available():
@@ -1244,6 +2266,11 @@ def _safe_tensor_device(device: str) -> torch.device:
         return torch.device(normalized)
     except (RuntimeError, TypeError):
         return torch.device("cpu")
+
+
+def _sha256_json(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _float(value: Any, default: float = 0.0) -> float:
@@ -1277,6 +2304,11 @@ __all__ = [
     "build_spike_language_plasticity_application_design",
     "build_spike_language_neuron_adapter",
     "evaluate_spike_language_adapter_heldout",
+    "build_spike_language_plasticity_shadow_delta",
+    "build_snn_language_transition_memory_sleep_policy",
+    "build_snn_language_transition_memory_regeneration_proposal",
+    "evaluate_spike_language_plasticity_live_application_readiness",
+    "evaluate_spike_language_plasticity_live_application_preflight",
     "evaluate_spike_language_sequence_mismatch",
     "evaluate_spike_language_plasticity_shadow_application",
     "evaluate_spike_language_trainer_dry_run",

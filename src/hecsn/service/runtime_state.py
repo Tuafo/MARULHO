@@ -94,6 +94,20 @@ class RuntimeState:
             self._dirty_state = False
             self._state_revision += 1
 
+    def commit_restored_revision(self, persisted_revision: int) -> None:
+        """Publish an operator restore as a new revision beyond both histories."""
+
+        with self._state_guard():
+            self._dirty_state = False
+            self._state_revision = max(self._state_revision, max(0, int(persisted_revision))) + 1
+
+    def hydrate_persisted_revision(self, value: int) -> None:
+        """Restore startup revision continuity without invalidating clients."""
+
+        with self._state_guard():
+            self._dirty_state = False
+            self._state_revision = max(0, int(value))
+
     def record_event(self, event: Mapping[str, Any]) -> dict[str, Any]:
         with self._state_guard():
             payload = self._json_safe_event(event)

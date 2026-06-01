@@ -219,6 +219,7 @@ class RuntimeControl(RuntimePrewarmer):
                 new_model = HECSNModel(new_cfg)
                 self._trainer = HECSNTrainer(new_model, new_cfg)
                 self._encoder = self._trainer.encoder
+                self._refresh_root_captures_locked()
         self.configure_terminus(
             source_bank=config["source_bank"],
             tick_tokens=config["tick_tokens"],
@@ -560,6 +561,7 @@ _install_dependency_forwarders(RuntimeControl, (
     "_real_sensory_last_error",
     "_rebuild_brain_sources_locked",
     "_record_brain_event_locked",
+    "_refresh_root_captures_locked",
     "_release_active_execution",
     "_request_active_execution",
     "_request_ingestion_prewarm_stop",
