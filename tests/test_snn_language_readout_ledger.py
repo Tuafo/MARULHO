@@ -22,6 +22,12 @@ def _ready_draft_for(
         "freeform_language_generation": False,
         "mutates_runtime_state": False,
         "draft": {"labels": labels, "text": " ".join(labels)},
+        "sparse_decode_evidence": {
+            "candidate_matches": [
+                {"label": label, "grounded": True}
+                for label in labels
+            ]
+        },
         "transition_memory_evaluation_evidence": {
             "provenance_match": True,
             "prediction_hash": prediction_hash,
@@ -158,6 +164,81 @@ def test_readout_ledger_replay_priority_is_deterministic_read_only_advisory() ->
     assert priority["candidates"][0]["eligible_for_action"] is False
     assert empty_limit["candidate_count"] == 0
     assert empty_limit["promotion_gate"]["status"] == "collect_readout_evidence"
+
+
+def test_transition_memory_replay_artifact_proposal_uses_internal_readout_evidence() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    record = ledger.record_readout_draft(
+        readout_draft=_ready_draft(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    proposal = ledger.transition_memory_replay_artifact_proposal(
+        mismatch_report={
+            "available": True,
+            "owned_by_hecsn": True,
+            "prediction_error": {"mismatch_score": 0.9},
+        },
+        pressure_report={
+            "available": True,
+            "owned_by_hecsn": True,
+            "promotion_gate": {"status": "ready_for_operator_review"},
+        },
+    )
+
+    assert proposal["surface"] == "snn_transition_memory_replay_artifact_proposal.v1"
+    assert proposal["ready"] is True
+    assert proposal["mutates_runtime_state"] is False
+    assert proposal["replay_window"][0]["readout_evidence_hash"] == record["recorded_event"][
+        "readout_evidence_hash"
+    ]
+    assert proposal["replay_window"][0]["grounded"] is True
+    assert proposal["promotion_gate"]["eligible_for_operator_recording_review"] is True
+
+
+def test_transition_memory_replay_artifact_proposal_rejects_partially_grounded_evidence() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    readout_draft = _ready_draft()
+    readout_draft["sparse_decode_evidence"]["candidate_matches"][0]["grounded"] = False
+    ledger.record_readout_draft(
+        readout_draft=readout_draft,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    proposal = ledger.transition_memory_replay_artifact_proposal(
+        mismatch_report={
+            "available": True,
+            "owned_by_hecsn": True,
+            "prediction_error": {"mismatch_score": 0.9},
+        },
+        pressure_report={
+            "available": True,
+            "owned_by_hecsn": True,
+            "promotion_gate": {"status": "ready_for_operator_review"},
+        },
+    )
+
+    assert proposal["ready"] is False
+    assert proposal["replay_window"] == []
+    assert proposal["promotion_gate"]["eligible_for_operator_recording_review"] is False
 
 
 def test_readout_ledger_rehearsal_evaluation_is_isolated_sparse_snn_review() -> None:
@@ -485,6 +566,7 @@ def test_readout_plasticity_preflight_reviews_dry_run_without_applying_weights()
     assert before == after
     assert preflight["surface"] == "snn_language_readout_plasticity_preflight.v1"
     assert preflight["readout_replay_dry_run_hash"] == dry_run["readout_replay_dry_run_hash"]
+    assert preflight["device_evidence"]["tensor_device"] == "cpu"
     assert preflight["readout_plasticity_preflight_hash"]
     assert preflight["owned_by_hecsn"] is True
     assert preflight["generates_text"] is False
@@ -589,6 +671,8 @@ def test_readout_plasticity_replay_bridge_emits_existing_replay_experiment_contr
     assert bridge["source"] == "service.snn_language_readout_ledger.plasticity_replay_bridge"
     assert bridge["readout_replay_dry_run_hash"] == dry_run["readout_replay_dry_run_hash"]
     assert bridge["readout_plasticity_replay_bridge_hash"]
+    assert bridge["device_evidence"]["tensor_device"] == "cpu"
+    assert bridge["device_evidence"]["device_report_available"] is True
     assert bridge["generates_text"] is False
     assert bridge["decodes_text"] is False
     assert bridge["trains_runtime_model"] is False
@@ -598,6 +682,16 @@ def test_readout_plasticity_replay_bridge_emits_existing_replay_experiment_contr
     assert bridge["replay_experiment"]["replay_sequence_count"] > 0
     assert bridge["replay_experiment"]["grounded_replay_coverage"] >= 0.5
     assert bridge["replay_experiment"]["pressure_stable_after_replay"] is True
+    assert bridge["application_design"]["learning_rate"] == preflight["plasticity_preflight"]["learning_rate"]
+    assert bridge["application_design"]["max_weight_delta"] == preflight["plasticity_preflight"]["max_weight_delta"]
+    assert bridge["application_design"]["locality_radius"] == preflight["plasticity_preflight"]["locality_radius"]
+    assert bridge["application_design"]["normalization"] is True
+    assert bridge["application_design"]["local_only"] is True
+    assert bridge["application_design"]["runtime_update_applied"] is False
+    assert bridge["application_design"]["weights_persisted"] is False
+    assert bridge["application_target_hint"]["target_id"] == "hecsn.snn_language.sparse_transition_weights"
+    assert bridge["application_target_hint"]["checkpointed"] is True
+    assert bridge["checkpoint_transaction_requirements"]["restore_verification_required"] is True
     assert bridge["canonical_replay_sequences"][0]["pre_indices"]
     assert bridge["canonical_replay_sequences"][0]["post_indices"]
     assert bridge["canonical_replay_sequences"][0]["runtime_update_applied"] is False
@@ -625,6 +719,158 @@ def test_readout_plasticity_replay_bridge_blocks_missing_preflight() -> None:
     assert bridge["promotion_gate"]["eligible_for_operator_application_review"] is False
     assert bridge["promotion_gate"]["required_evidence"]["preflight_gate_ready"] is False
     assert bridge["mutates_runtime_state"] is False
+
+
+def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    record = ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            "prediction-audit",
+            "evaluation-audit",
+            "weights-audit",
+            ["memory pressure"],
+        ),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    evidence_hash = record["recorded_event"]["readout_evidence_hash"]
+
+    audit = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:2": 0.03},
+            "synapse_provenance_by_key": {
+                "1:2": {
+                    "readout_evidence_hash": evidence_hash,
+                    "prediction_hash": "prediction-audit",
+                    "transition_memory_evaluation_hash": "evaluation-audit",
+                    "persistent_transition_weights_hash": "weights-audit",
+                    "source_pre_indices": [1],
+                    "source_post_indices": [2],
+                    "source_active_indices": [1, 2],
+                }
+            },
+        }
+    )
+    mismatched = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:2": 0.03},
+            "synapse_provenance_by_key": {
+                "1:2": {
+                    "readout_evidence_hash": evidence_hash,
+                    "prediction_hash": "wrong-prediction",
+                    "transition_memory_evaluation_hash": "evaluation-audit",
+                    "persistent_transition_weights_hash": "weights-audit",
+                    "source_pre_indices": [1],
+                    "source_post_indices": [2],
+                    "source_active_indices": [1, 2],
+                }
+            },
+        }
+    )
+    blocked = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:2": 0.03},
+            "synapse_provenance_by_key": {},
+        }
+    )
+    malformed = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"01:65": 1.5},
+            "synapse_provenance_by_key": {
+                "01:65": {
+                    "readout_evidence_hash": evidence_hash,
+                    "prediction_hash": "prediction-audit",
+                    "transition_memory_evaluation_hash": "evaluation-audit",
+                    "persistent_transition_weights_hash": "weights-audit",
+                    "source_pre_indices": [1],
+                    "source_post_indices": [65],
+                    "source_active_indices": [1, 65],
+                }
+            },
+        }
+    )
+    non_numeric = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:2": None},
+            "synapse_provenance_by_key": {
+                "1:2": {
+                    "readout_evidence_hash": evidence_hash,
+                    "prediction_hash": "prediction-audit",
+                    "transition_memory_evaluation_hash": "evaluation-audit",
+                    "persistent_transition_weights_hash": "weights-audit",
+                    "source_pre_indices": [1],
+                    "source_post_indices": [2],
+                    "source_active_indices": [1, 2],
+                }
+            },
+        }
+    )
+    ledger_state["events"][0]["labels"] = ["tampered material"]
+    tampered_ledger = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:2": 0.03},
+            "synapse_provenance_by_key": {
+                "1:2": {
+                    "readout_evidence_hash": evidence_hash,
+                    "prediction_hash": "prediction-audit",
+                    "transition_memory_evaluation_hash": "evaluation-audit",
+                    "persistent_transition_weights_hash": "weights-audit",
+                    "source_pre_indices": [1],
+                    "source_post_indices": [2],
+                    "source_active_indices": [1, 2],
+                }
+            },
+        }
+    )
+
+    assert audit["surface"] == "snn_language_readout_synapse_provenance_audit.v1"
+    assert audit["mutates_runtime_state"] is False
+    assert audit["applies_plasticity"] is False
+    assert audit["audit_summary"]["audited_synapse_count"] == 1
+    assert audit["audit_summary"]["unbounded_weight_count"] == 0
+    assert audit["audited_synapses"][0]["ledger_evidence_present"] is True
+    assert audit["audited_synapses"][0]["ledger_field_match"] is True
+    assert audit["audited_synapses"][0]["ledger_hash_valid"] is True
+    assert audit["audited_synapses"][0]["canonical_synapse_key"] is True
+    assert audit["audited_synapses"][0]["synapse_indices_in_range"] is True
+    assert audit["audited_synapses"][0]["weight_finite"] is True
+    assert audit["audited_synapses"][0]["weight_bounded"] is True
+    assert audit["audited_synapses"][0]["source_indices_match_synapse"] is True
+    assert audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is True
+    assert blocked["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+    assert blocked["promotion_gate"]["required_evidence"]["synapse_provenance_available"] is False
+    assert mismatched["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+    assert mismatched["promotion_gate"]["required_evidence"]["audited_synapses_match_ledger_fields"] is False
+    assert malformed["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+    assert malformed["promotion_gate"]["required_evidence"]["audited_synapses_have_bounded_weights"] is False
+    assert malformed["promotion_gate"]["required_evidence"]["audited_synapses_have_canonical_keys"] is False
+    assert malformed["promotion_gate"]["required_evidence"]["audited_synapse_indices_in_range"] is False
+    assert malformed["promotion_gate"]["required_evidence"]["audited_source_indices_in_range"] is False
+    assert non_numeric["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+    assert non_numeric["promotion_gate"]["required_evidence"]["audited_synapses_have_finite_weights"] is False
+    assert tampered_ledger["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
+    assert tampered_ledger["promotion_gate"]["required_evidence"]["audited_synapses_match_ledger_fields"] is True
+    assert tampered_ledger["promotion_gate"]["required_evidence"]["audited_ledger_hashes_valid"] is False
 
 
 def test_readout_rehearsal_evaluation_blocks_empty_priority_report() -> None:

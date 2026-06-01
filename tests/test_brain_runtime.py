@@ -131,6 +131,10 @@ class _BrainRuntimeFixtureBase:
         self._runtime_state = _FakeRuntimeState()
         self._action_history: deque[dict[str, object]] = deque()
         self._replay_sample_history: deque[dict[str, object]] = deque()
+        self._replay_regeneration_permits: deque[dict[str, object]] = deque()
+        self._snn_replay_evaluation_contexts: deque[dict[str, object]] = deque()
+        self._snn_replay_artifact_recording_review_tickets: deque[dict[str, object]] = deque()
+        self._snn_transition_memory_replay_artifacts: deque[dict[str, object]] = deque()
         self._brain_events: list[dict[str, object]] = []
 
     def _initialize_runtime_state(self) -> None:

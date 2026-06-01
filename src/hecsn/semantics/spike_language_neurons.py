@@ -1786,6 +1786,7 @@ def build_spike_language_plasticity_shadow_delta(
     locality_radius = max(int(_float(design.get("locality_radius"), 1.0)), 1)
     rows: list[int] = []
     cols: list[int] = []
+    provenance_by_synapse: dict[tuple[int, int], dict[str, Any]] = {}
     for item in replay_sequences:
         if not isinstance(item, Mapping):
             continue
@@ -1800,9 +1801,39 @@ def build_spike_language_plasticity_shadow_delta(
                 if abs(int(post) - int(pre)) <= locality_radius:
                     rows.append(int(pre))
                     cols.append(int(post))
+                    provenance_by_synapse.setdefault(
+                        (int(pre), int(post)),
+                        {
+                            "sequence_id": item.get("sequence_id"),
+                            "grounded": bool(item.get("grounded", True)),
+                            "readout_evidence_hash": item.get("readout_evidence_hash"),
+                            "prediction_hash": item.get("prediction_hash"),
+                            "transition_memory_evaluation_hash": item.get(
+                                "transition_memory_evaluation_hash"
+                            ),
+                            "persistent_transition_weights_hash": item.get(
+                                "persistent_transition_weights_hash"
+                            ),
+                            "source_pre_indices": pre_indices,
+                            "source_post_indices": post_indices,
+                            "source_active_indices": [
+                                int(value)
+                                for value in list(item.get("active_indices") or [])
+                                if isinstance(value, int)
+                            ],
+                        },
+                    )
     affected = len(set(zip(rows, cols)))
     bounded_synapses = [
-        {"pre_index": int(pre), "post_index": int(post)}
+        {
+            "pre_index": int(pre),
+            "post_index": int(post),
+            **{
+                key: value
+                for key, value in provenance_by_synapse.get((int(pre), int(post)), {}).items()
+                if value is not None
+            },
+        }
         for pre, post in sorted(set(zip(rows, cols)))
     ]
     observed_delta = min(max_weight_delta, learning_rate) if affected > 0 else 0.0
@@ -2088,6 +2119,11 @@ def build_snn_language_transition_memory_regeneration_proposal(
     mismatch_score = _float(error.get("mismatch_score"), 0.0)
     replay_window_id = str(replay.get("replay_window_id") or "").strip()
     evidence_hash = str(replay.get("evidence_hash") or "").strip()
+    readout_evidence_hashes = [
+        str(value)
+        for value in list(replay.get("readout_evidence_hashes") or [])
+        if str(value)
+    ][:64]
     mismatch_hash = hashlib.sha256(
         json.dumps(mismatch, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     ).hexdigest()
@@ -2153,10 +2189,18 @@ def build_snn_language_transition_memory_regeneration_proposal(
             "issued_at": replay.get("issued_at"),
             "issued_state_revision": replay.get("issued_state_revision"),
             "operator_id": replay.get("operator_id"),
+            "confirmation": replay.get("confirmation"),
             "mismatch_hash": replay.get("mismatch_hash"),
             "pressure_hash": replay.get("pressure_hash"),
             "replay_window_hash": replay.get("replay_window_hash"),
             "replay_window_size": replay.get("replay_window_size"),
+            "readout_evidence_hashes": readout_evidence_hashes,
+            "replay_artifact_id": replay.get("replay_artifact_id"),
+            "replay_artifact_hash": replay.get("replay_artifact_hash"),
+            "regeneration_design_hash": replay.get("regeneration_design_hash"),
+            "regeneration_design_candidate_count": replay.get(
+                "regeneration_design_candidate_count"
+            ),
         },
         "regeneration_design": {
             "locality_radius": radius,

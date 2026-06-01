@@ -63,6 +63,9 @@ class _FakePersistenceManager:
         self._action_root = root
         self._replay_sample_history = deque(maxlen=256)
         self._replay_regeneration_permits = deque(maxlen=64)
+        self._snn_replay_evaluation_contexts = deque(maxlen=64)
+        self._snn_replay_artifact_recording_review_tickets = deque(maxlen=64)
+        self._snn_transition_memory_replay_artifacts = deque(maxlen=64)
         self._delayed_consequence_records = deque(maxlen=24)
         self._delayed_consequence_cooled_total = 0
         self._delayed_consequence_retired_total = 0
@@ -76,6 +79,15 @@ class _FakePersistenceManager:
         return {
             "replay_sample_history": [dict(item) for item in list(self._replay_sample_history)],
             "replay_regeneration_permits": [dict(item) for item in list(self._replay_regeneration_permits)],
+            "snn_replay_evaluation_contexts": [
+                dict(item) for item in list(self._snn_replay_evaluation_contexts)
+            ],
+            "snn_replay_artifact_recording_review_tickets": [
+                dict(item) for item in list(self._snn_replay_artifact_recording_review_tickets)
+            ],
+            "snn_transition_memory_replay_artifacts": [
+                dict(item) for item in list(self._snn_transition_memory_replay_artifacts)
+            ],
             "last_event": {"type": "brain_event_recorded"},
             "recent_events": [{"type": "brain_event_recorded"}],
             "action_history": [],
@@ -200,6 +212,15 @@ class RuntimePersistenceTests(unittest.TestCase):
             manager._replay_regeneration_permits.appendleft(
                 {"permit_id": "permit-1", "evidence_hash": "hash-1"}
             )
+            manager._snn_replay_evaluation_contexts.appendleft(
+                {"replay_evaluation_context_id": "context-1", "evidence_hash": "context-hash-1"}
+            )
+            manager._snn_replay_artifact_recording_review_tickets.appendleft(
+                {"review_ticket_id": "ticket-1", "evidence_hash": "ticket-hash-1"}
+            )
+            manager._snn_transition_memory_replay_artifacts.appendleft(
+                {"replay_artifact_id": "artifact-1", "evidence_hash": "artifact-hash-1"}
+            )
             persistence = _runtime_persistence(manager, trace_history_limit=2)
 
             captured: dict[str, object] = {}
@@ -225,6 +246,24 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertEqual(service_state["concept_store"]["concept_mode"], "slow_feature_concept_memory")
             self.assertEqual(service_state["terminus_runtime"]["replay_sample_history"][0]["replay_sample_id"], "replay-1")
             self.assertEqual(service_state["terminus_runtime"]["replay_regeneration_permits"][0]["permit_id"], "permit-1")
+            self.assertEqual(
+                service_state["terminus_runtime"]["snn_replay_evaluation_contexts"][0][
+                    "replay_evaluation_context_id"
+                ],
+                "context-1",
+            )
+            self.assertEqual(
+                service_state["terminus_runtime"]["snn_replay_artifact_recording_review_tickets"][0][
+                    "review_ticket_id"
+                ],
+                "ticket-1",
+            )
+            self.assertEqual(
+                service_state["terminus_runtime"]["snn_transition_memory_replay_artifacts"][0][
+                    "replay_artifact_id"
+                ],
+                "artifact-1",
+            )
             self.assertEqual(service_state["snn_language_plasticity"]["sparse_transition_weights"]["1:2"], 0.5)
             self.assertEqual(
                 service_state["snn_language_plasticity"]["homeostatic_maintenance"]["recent_events"][0]["event_index"],

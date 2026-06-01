@@ -1393,6 +1393,15 @@ class BrainRuntime:
             "runtime_episode_traces": self._interaction_pipeline.runtime_episode_traces(),
             "replay_sample_history": [deepcopy(item) for item in list(self._replay_sample_history)],
             "replay_regeneration_permits": [deepcopy(item) for item in list(self._replay_regeneration_permits)],
+            "snn_replay_evaluation_contexts": [
+                deepcopy(item) for item in list(self._snn_replay_evaluation_contexts)
+            ],
+            "snn_replay_artifact_recording_review_tickets": [
+                deepcopy(item) for item in list(self._snn_replay_artifact_recording_review_tickets)
+            ],
+            "snn_transition_memory_replay_artifacts": [
+                deepcopy(item) for item in list(self._snn_transition_memory_replay_artifacts)
+            ],
             "last_event": runtime_state_snapshot["last_event"],
             "recent_events": runtime_state_snapshot["recent_events"],
             "geometric_curiosity": self._geometric_curiosity.state_dict(),
@@ -1514,6 +1523,21 @@ _install_dependency_alias_property("_action_history", "action_executor", "histor
 _install_dependency_property("_action_loop_summary_locked", "action_executor")
 _install_dependency_alias_property("_replay_sample_history", "replay_controller", "history")
 _install_dependency_alias_property("_replay_regeneration_permits", "replay_controller", "regeneration_permits")
+_install_dependency_alias_property(
+    "_snn_replay_evaluation_contexts",
+    "replay_controller",
+    "snn_replay_evaluation_contexts",
+)
+_install_dependency_alias_property(
+    "_snn_replay_artifact_recording_review_tickets",
+    "replay_controller",
+    "snn_replay_artifact_recording_review_tickets",
+)
+_install_dependency_alias_property(
+    "_snn_transition_memory_replay_artifacts",
+    "replay_controller",
+    "snn_transition_memory_replay_artifacts",
+)
 
 _install_dependency_object_property("_concept_store", "concept_store")
 _install_dependency_object_property("_geometric_curiosity", "geometric_curiosity")

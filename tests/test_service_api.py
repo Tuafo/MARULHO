@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from functools import partial
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -23,7 +24,7 @@ from hecsn.semantics import (
 from hecsn.service.api import DEFAULT_WEB_DIST_DIR, create_app
 from hecsn.service.server import build_arg_parser
 from hecsn.training.runner_utils import set_seed
-from hecsn.training.checkpointing import save_trainer_checkpoint
+from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
 from hecsn.training.model import HECSNModel
 from hecsn.training.trainer import HECSNTrainer
 
@@ -395,7 +396,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 readout_shadow_delta_response = client.post(
                     "/terminus/snn-language-sequence/plasticity-shadow-delta",
                     json={
-                        "application_design": readout_application_design_response.json(),
+                        "application_design": readout_plasticity_replay_bridge_response.json(),
                         "replay_sequences": readout_plasticity_replay_bridge_response.json()[
                             "canonical_replay_sequences"
                         ],
@@ -405,12 +406,75 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 readout_shadow_application_response = client.post(
                     "/terminus/snn-language-sequence/plasticity-shadow-application",
                     json={
-                        "application_design": readout_application_design_response.json(),
+                        "application_design": readout_plasticity_replay_bridge_response.json(),
                         "shadow_delta": readout_shadow_delta_response.json(),
                         "device_evidence": {"device": "cpu", "source": "service_api_readout_shadow"},
                         "runtime_truth_delta": {"improved_or_stable": True},
                         "rollback_policy": {"available": True, "snapshot_id": "service-api-snapshot"},
                     },
+                )
+                readout_live_readiness_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application-readiness",
+                    json={
+                        "shadow_application": readout_shadow_application_response.json(),
+                        "rollback_readiness": {
+                            "checkpoint_available": True,
+                            "checkpoint_path": "checkpoint://readout-shadow",
+                            "restore_endpoint_available": True,
+                        },
+                        "operator_approval": {
+                            "approved": True,
+                            "operator_id": "operator-test",
+                            "approval_id": "readout-approval-1",
+                        },
+                    },
+                )
+                readout_live_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application-preflight",
+                    json={
+                        "live_application_readiness": readout_live_readiness_response.json(),
+                        "application_target": readout_plasticity_replay_bridge_response.json()[
+                            "application_target_hint"
+                        ],
+                        "checkpoint_transaction": {
+                            "pre_update_checkpoint_saved": True,
+                            "checkpoint_path": str(root / "readout_pre_language_plasticity.pt"),
+                            "restore_verified": True,
+                            "records_shadow_delta": True,
+                        },
+                    },
+                )
+                status_before_readout_live_application_response = client.get("/status")
+                blocked_readout_live_application_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application",
+                    json={
+                        "live_application_readiness": readout_live_readiness_response.json(),
+                        "shadow_delta": readout_shadow_delta_response.json(),
+                        "expected_state_revision": status_before_readout_live_application_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "operator-test",
+                        "confirmation": False,
+                    },
+                )
+                readout_live_application_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-live-application",
+                    json={
+                        "live_application_readiness": readout_live_readiness_response.json(),
+                        "shadow_delta": readout_shadow_delta_response.json(),
+                        "expected_state_revision": status_before_readout_live_application_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "readout_pre_language_plasticity.pt"),
+                    },
+                )
+                readout_plasticity_runtime_state_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                readout_synapse_audit_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
                 )
                 checkpoint_save_response = client.post(
                     "/checkpoint/save",
@@ -419,6 +483,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 checkpoint_restore_response = client.post(
                     "/checkpoint/restore",
                     json={"path": checkpoint_save_response.json()["path"]},
+                )
+                restored_readout_plasticity_runtime_state_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                restored_readout_synapse_audit_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
                 )
                 restored_ledger_response = client.get("/terminus/snn-language-sequence/readout-ledger")
                 restored_replay_priority_response = client.get(
@@ -442,8 +512,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(readout_application_design_response.status_code, 200)
         self.assertEqual(readout_shadow_delta_response.status_code, 200)
         self.assertEqual(readout_shadow_application_response.status_code, 200)
+        self.assertEqual(readout_live_readiness_response.status_code, 200)
+        self.assertEqual(readout_live_preflight_response.status_code, 200)
+        self.assertEqual(status_before_readout_live_application_response.status_code, 200)
+        self.assertEqual(blocked_readout_live_application_response.status_code, 200)
+        self.assertEqual(readout_live_application_response.status_code, 200)
+        self.assertEqual(readout_plasticity_runtime_state_response.status_code, 200)
+        self.assertEqual(readout_synapse_audit_response.status_code, 200)
         self.assertEqual(checkpoint_save_response.status_code, 200)
         self.assertEqual(checkpoint_restore_response.status_code, 200)
+        self.assertEqual(restored_readout_plasticity_runtime_state_response.status_code, 200)
+        self.assertEqual(restored_readout_synapse_audit_response.status_code, 200)
         self.assertEqual(restored_ledger_response.status_code, 200)
         self.assertEqual(restored_replay_priority_response.status_code, 200)
         body = response.json()
@@ -461,6 +540,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         readout_application_design = readout_application_design_response.json()
         readout_shadow_delta = readout_shadow_delta_response.json()
         readout_shadow_application = readout_shadow_application_response.json()
+        readout_live_readiness = readout_live_readiness_response.json()
+        readout_live_preflight = readout_live_preflight_response.json()
+        status_before_readout_live_application = status_before_readout_live_application_response.json()
+        blocked_readout_live_application = blocked_readout_live_application_response.json()
+        readout_live_application = readout_live_application_response.json()
+        readout_plasticity_runtime_state = readout_plasticity_runtime_state_response.json()
+        readout_synapse_audit = readout_synapse_audit_response.json()
+        restored_readout_plasticity_runtime_state = (
+            restored_readout_plasticity_runtime_state_response.json()
+        )
+        restored_readout_synapse_audit = restored_readout_synapse_audit_response.json()
         restored_ledger = restored_ledger_response.json()
         restored_replay_priority = restored_replay_priority_response.json()
         self.assertEqual(body["surface"], "snn_language_readout_draft.v1")
@@ -588,6 +678,21 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             readout_plasticity_replay_bridge["replay_experiment"]["replay_sequence_count"],
             0,
         )
+        self.assertEqual(readout_plasticity_replay_bridge["device_evidence"]["tensor_device"], "cpu")
+        self.assertTrue(
+            readout_plasticity_replay_bridge["device_evidence"]["device_report_available"]
+        )
+        self.assertEqual(
+            readout_plasticity_replay_bridge["application_design"]["learning_rate"],
+            readout_plasticity_preflight["plasticity_preflight"]["learning_rate"],
+        )
+        self.assertEqual(
+            readout_plasticity_replay_bridge["application_design"]["max_weight_delta"],
+            readout_plasticity_preflight["plasticity_preflight"]["max_weight_delta"],
+        )
+        self.assertFalse(
+            readout_plasticity_replay_bridge["application_design"]["runtime_update_applied"]
+        )
         self.assertTrue(
             readout_plasticity_replay_bridge["promotion_gate"][
                 "eligible_for_operator_application_review"
@@ -609,6 +714,18 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(readout_shadow_delta["applies_plasticity"])
         self.assertGreater(readout_shadow_delta["affected_synapse_count"], 0)
         self.assertEqual(
+            readout_shadow_delta["bounded_synapses"][0]["readout_evidence_hash"],
+            readout_plasticity_replay_bridge["canonical_replay_sequences"][0][
+                "readout_evidence_hash"
+            ],
+        )
+        self.assertEqual(
+            readout_shadow_delta["bounded_synapses"][0]["transition_memory_evaluation_hash"],
+            readout_plasticity_replay_bridge["canonical_replay_sequences"][0][
+                "transition_memory_evaluation_hash"
+            ],
+        )
+        self.assertEqual(
             readout_shadow_application["surface"],
             "snn_language_plasticity_shadow_application.v1",
         )
@@ -620,8 +737,404 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(
             readout_shadow_application["promotion_gate"]["eligible_for_live_application"]
         )
+        self.assertEqual(
+            readout_live_readiness["surface"],
+            "snn_language_plasticity_live_application_readiness.v1",
+        )
+        self.assertFalse(readout_live_readiness["mutates_runtime_state"])
+        self.assertFalse(readout_live_readiness["applies_plasticity"])
+        self.assertTrue(
+            readout_live_readiness["promotion_gate"][
+                "eligible_for_operator_live_application_review"
+            ]
+        )
+        self.assertFalse(
+            readout_live_readiness["promotion_gate"]["eligible_for_live_application"]
+        )
+        self.assertEqual(
+            readout_live_preflight["surface"],
+            "snn_language_plasticity_live_application_preflight.v1",
+        )
+        self.assertFalse(readout_live_preflight["mutates_runtime_state"])
+        self.assertFalse(readout_live_preflight["applies_plasticity"])
+        self.assertEqual(
+            readout_live_preflight["application_target"]["target_id"],
+            "hecsn.snn_language.sparse_transition_weights",
+        )
+        self.assertTrue(
+            readout_live_preflight["promotion_gate"]["eligible_for_operator_execution_review"]
+        )
+        self.assertFalse(readout_live_preflight["promotion_gate"]["eligible_for_live_application"])
+        self.assertFalse(blocked_readout_live_application["accepted"])
+        self.assertFalse(
+            blocked_readout_live_application["promotion_gate"]["required_evidence"]["confirmation"]
+        )
+        self.assertTrue(readout_live_application["accepted"])
+        self.assertTrue(readout_live_application["applies_plasticity"])
+        self.assertTrue(readout_live_application["mutates_runtime_state"])
+        self.assertFalse(readout_live_application["generates_text"])
+        self.assertFalse(readout_live_application["decodes_text"])
+        self.assertFalse(readout_live_application["loads_external_checkpoint"])
+        self.assertEqual(
+            readout_live_application["before"]["state_revision"],
+            status_before_readout_live_application["state_revision"],
+        )
+        self.assertGreater(
+            readout_live_application["after"]["state_revision"],
+            status_before_readout_live_application["state_revision"],
+        )
+        self.assertGreater(
+            readout_live_application["application_target"]["applied_synapse_count"],
+            0,
+        )
+        self.assertEqual(
+            readout_live_application["applied_synapses"][0]["readout_evidence_hash"],
+            readout_shadow_delta["bounded_synapses"][0]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            readout_live_application["applied_synapses"][0]["prediction_hash"],
+            readout_shadow_delta["bounded_synapses"][0]["prediction_hash"],
+        )
+        self.assertGreater(
+            readout_plasticity_runtime_state["applied_update_count"],
+            0,
+        )
+        applied_key = (
+            f"{readout_live_application['applied_synapses'][0]['pre_index']}:"
+            f"{readout_live_application['applied_synapses'][0]['post_index']}"
+        )
+        self.assertEqual(
+            readout_plasticity_runtime_state["synapse_provenance_by_key"][applied_key][
+                "readout_evidence_hash"
+            ],
+            readout_live_application["applied_synapses"][0]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            readout_plasticity_runtime_state["recent_live_applications"][0]["applied_synapses"][0][
+                "transition_memory_evaluation_hash"
+            ],
+            readout_live_application["applied_synapses"][0]["transition_memory_evaluation_hash"],
+        )
+        self.assertEqual(
+            restored_readout_plasticity_runtime_state["synapse_provenance_by_key"][applied_key][
+                "readout_evidence_hash"
+            ],
+            readout_live_application["applied_synapses"][0]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            readout_synapse_audit["surface"],
+            "snn_language_readout_synapse_provenance_audit.v1",
+        )
+        self.assertTrue(
+            readout_synapse_audit["promotion_gate"][
+                "eligible_for_readout_synapse_audit_review"
+            ]
+        )
+        self.assertEqual(readout_synapse_audit["audit_summary"]["orphan_weight_count"], 0)
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["ledger_evidence_present"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["ledger_field_match"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["ledger_hash_valid"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["canonical_synapse_key"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["synapse_indices_in_range"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["weight_finite"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["weight_bounded"])
+        self.assertTrue(readout_synapse_audit["audited_synapses"][0]["source_indices_match_synapse"])
+        self.assertTrue(
+            restored_readout_synapse_audit["promotion_gate"][
+                "eligible_for_readout_synapse_audit_review"
+            ]
+        )
         self.assertEqual(restored_ledger["summary"]["event_count"], 1)
         self.assertEqual(restored_replay_priority["candidate_count"], 1)
+
+    def test_readout_synapse_audit_blocks_incomplete_checkpoint_restore_halves(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_readout_synapse_restore_halves"),
+                trace_dir=root / "traces",
+            )
+            runtime = app.state.hecsn_runtime
+            manager = app.state.hecsn_manager
+            with TestClient(app) as client:
+                record = runtime.snn_language_readout_evidence_ledger_record(
+                    readout_draft={
+                        "surface": "snn_language_readout_draft.v1",
+                        "generation_scope": "bounded_grounded_readout_label_draft",
+                        "freeform_language_generation": False,
+                        "mutates_runtime_state": False,
+                        "draft": {"labels": ["memory pressure"], "text": "memory pressure"},
+                        "sparse_decode_evidence": {
+                            "candidate_matches": [
+                                {"label": "memory pressure", "grounded": True}
+                            ]
+                        },
+                        "transition_memory_evaluation_evidence": {
+                            "provenance_match": True,
+                            "prediction_hash": "prediction-restore-audit",
+                            "transition_memory_evaluation_hash": "evaluation-restore-audit",
+                            "persistent_transition_weights_hash": "weights-restore-audit",
+                        },
+                        "promotion_gate": {
+                            "eligible_for_bounded_readout_generation": True,
+                            "eligible_for_cognition_substrate": False,
+                        },
+                    },
+                    expected_state_revision=manager._runtime_state.state_revision,
+                    operator_id="operator-restore-audit",
+                    confirmation=True,
+                )
+                evidence_hash = record["recorded_event"]["readout_evidence_hash"]
+                manager._snn_language_plasticity_state = {
+                    "sparse_transition_weights": {"1:2": 0.03},
+                    "synapse_provenance_by_key": {
+                        "1:2": {
+                            "readout_evidence_hash": evidence_hash,
+                            "prediction_hash": "prediction-restore-audit",
+                            "transition_memory_evaluation_hash": "evaluation-restore-audit",
+                            "persistent_transition_weights_hash": "weights-restore-audit",
+                            "source_pre_indices": [1],
+                            "source_post_indices": [2],
+                            "source_active_indices": [1, 2],
+                        }
+                    },
+                }
+                complete_checkpoint = runtime.save_checkpoint(str(root / "readout-complete.pt"))
+                complete_audit = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
+                ).json()
+
+                trainer, metadata = load_trainer_checkpoint(complete_checkpoint["path"])
+                missing_ledger_metadata = deepcopy(metadata)
+                missing_ledger_service_state = dict(missing_ledger_metadata.get("service_state") or {})
+                missing_ledger_service_state.pop("snn_language_readout_ledger", None)
+                missing_ledger_metadata["service_state"] = missing_ledger_service_state
+                missing_ledger_path = save_trainer_checkpoint(
+                    root / "readout-missing-ledger.pt",
+                    trainer,
+                    metadata=missing_ledger_metadata,
+                )
+                runtime.restore_checkpoint(str(missing_ledger_path))
+                missing_ledger_audit = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
+                ).json()
+
+                trainer, metadata = load_trainer_checkpoint(complete_checkpoint["path"])
+                missing_provenance_metadata = deepcopy(metadata)
+                missing_provenance_service_state = dict(
+                    missing_provenance_metadata.get("service_state") or {}
+                )
+                plasticity_state = dict(
+                    missing_provenance_service_state.get("snn_language_plasticity") or {}
+                )
+                plasticity_state.pop("synapse_provenance_by_key", None)
+                missing_provenance_service_state["snn_language_plasticity"] = plasticity_state
+                missing_provenance_metadata["service_state"] = missing_provenance_service_state
+                missing_provenance_path = save_trainer_checkpoint(
+                    root / "readout-missing-provenance.pt",
+                    trainer,
+                    metadata=missing_provenance_metadata,
+                )
+                runtime.restore_checkpoint(str(missing_provenance_path))
+                missing_provenance_audit = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
+                ).json()
+            manager.close()
+
+        self.assertTrue(
+            complete_audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"]
+        )
+        self.assertFalse(
+            missing_ledger_audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"]
+        )
+        self.assertFalse(
+            missing_ledger_audit["promotion_gate"]["required_evidence"][
+                "audited_synapses_present_in_ledger"
+            ]
+        )
+        self.assertFalse(
+            missing_provenance_audit["promotion_gate"]["eligible_for_readout_synapse_audit_review"]
+        )
+        self.assertFalse(
+            missing_provenance_audit["promotion_gate"]["required_evidence"][
+                "synapse_provenance_available"
+            ]
+        )
+        self.assertFalse(
+            missing_provenance_audit["promotion_gate"]["required_evidence"][
+                "no_unprovenanced_weights"
+            ]
+        )
+
+    def test_evaluated_transition_memory_replay_artifact_uses_internal_readout_ledger(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(root, test_case="service_api_evaluated_snn_replay_artifact"),
+                trace_dir=root / "traces",
+            )
+            manager = app.state.hecsn_manager
+            with TestClient(app) as client:
+                record_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/record",
+                    json={
+                        "readout_draft": {
+                            "surface": "snn_language_readout_draft.v1",
+                            "generation_scope": "bounded_grounded_readout_label_draft",
+                            "freeform_language_generation": False,
+                            "mutates_runtime_state": False,
+                            "draft": {"labels": ["memory pressure"], "text": "memory pressure"},
+                            "sparse_decode_evidence": {
+                                "candidate_matches": [
+                                    {"label": "memory pressure", "grounded": True}
+                                ]
+                            },
+                            "transition_memory_evaluation_evidence": {
+                                "provenance_match": True,
+                                "prediction_hash": "prediction-evaluated-artifact",
+                                "transition_memory_evaluation_hash": "evaluation-evaluated-artifact",
+                                "persistent_transition_weights_hash": "weights-evaluated-artifact",
+                            },
+                            "promotion_gate": {
+                                "eligible_for_bounded_readout_generation": True,
+                                "eligible_for_cognition_substrate": False,
+                            },
+                        },
+                        "expected_state_revision": manager._runtime_state.state_revision,
+                        "operator_id": "operator-evaluated-artifact",
+                        "confirmation": True,
+                    },
+                )
+                context_response = client.post(
+                    "/terminus/snn-language-sequence/replay-evaluation-context",
+                    json={
+                        "prediction_report": {
+                            "surface": "snn_language_sequence_prediction_probe.v1",
+                            "available": True,
+                            "prediction": {"predicted_sparse_indices": [14]},
+                        },
+                        "observed_readout_slots": [
+                            {"label": "memory pressure", "pressure_band": "medium", "grounded": True}
+                        ],
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-evaluated-context"},
+                    },
+                )
+                status_before_priority_response = client.get("/status")
+                consolidation_priority_response = client.get(
+                    "/terminus/snn-language-sequence/replay-consolidation-priority-queue",
+                    params={"limit": 4},
+                )
+                artifact_recording_policy_response = client.get(
+                    "/terminus/snn-language-sequence/replay-artifact-recording-policy",
+                    params={"limit": 4, "min_priority_score": 60.0},
+                )
+                review_ticket_response = client.post(
+                    "/terminus/snn-language-sequence/replay-artifact-recording-review-ticket",
+                    json={
+                        "limit": 4,
+                        "min_priority_score": 60.0,
+                        "operator_id": "operator-evaluated-artifact",
+                        "confirmation": True,
+                    },
+                )
+                status_after_priority_response = client.get("/status")
+                proposal_response = client.post(
+                    "/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal",
+                    json={
+                        "replay_evaluation_context_id": context_response.json()[
+                            "replay_evaluation_context_id"
+                        ],
+                    },
+                )
+                artifact_response = client.post(
+                    "/terminus/snn-language-sequence/transition-memory-replay-artifact/evaluated-record",
+                    json={
+                        "replay_evaluation_context_id": context_response.json()[
+                            "replay_evaluation_context_id"
+                        ],
+                        "review_ticket_id": review_ticket_response.json()["review_ticket_id"],
+                        "operator_id": "operator-evaluated-artifact",
+                        "confirmation": True,
+                    },
+                )
+                spoofed_response = client.post(
+                    "/terminus/snn-language-sequence/transition-memory-replay-artifact/evaluated-record",
+                    json={
+                        "replay_evaluation_context_id": "fabricated-context",
+                        "review_ticket_id": "fabricated-ticket",
+                        "operator_id": "operator-evaluated-artifact",
+                        "confirmation": True,
+                    },
+                )
+            manager.close()
+
+        self.assertEqual(record_response.status_code, 200)
+        self.assertEqual(context_response.status_code, 200)
+        self.assertEqual(consolidation_priority_response.status_code, 200)
+        self.assertEqual(artifact_recording_policy_response.status_code, 200)
+        self.assertEqual(review_ticket_response.status_code, 200)
+        self.assertEqual(proposal_response.status_code, 200)
+        self.assertEqual(artifact_response.status_code, 200)
+        self.assertEqual(spoofed_response.status_code, 400)
+        proposal = proposal_response.json()
+        artifact = artifact_response.json()
+        context = context_response.json()
+        consolidation_priority = consolidation_priority_response.json()
+        artifact_recording_policy = artifact_recording_policy_response.json()
+        review_ticket = review_ticket_response.json()
+        self.assertEqual(context["surface"], "snn_replay_evaluation_context.v1")
+        self.assertEqual(
+            status_before_priority_response.json()["state_revision"],
+            status_after_priority_response.json()["state_revision"],
+        )
+        self.assertEqual(consolidation_priority["surface"], "snn_replay_consolidation_priority_queue.v1")
+        self.assertTrue(consolidation_priority["advisory"])
+        self.assertFalse(consolidation_priority["mutates_runtime_state"])
+        self.assertFalse(consolidation_priority["eligible_for_live_replay"])
+        self.assertFalse(consolidation_priority["eligible_for_artifact_recording"])
+        self.assertFalse(
+            consolidation_priority["promotion_gate"]["eligible_for_artifact_recording"]
+        )
+        self.assertFalse(
+            consolidation_priority["promotion_gate"]["eligible_for_live_replay"]
+        )
+        self.assertEqual(consolidation_priority["candidate_count"], 1)
+        self.assertEqual(
+            consolidation_priority["candidates"][0]["replay_evaluation_context_id"],
+            context["replay_evaluation_context_id"],
+        )
+        self.assertEqual(
+            artifact_recording_policy["surface"],
+            "snn_replay_artifact_recording_policy_proposal.v1",
+        )
+        self.assertTrue(artifact_recording_policy["recommended"])
+        self.assertTrue(artifact_recording_policy["advisory"])
+        self.assertFalse(artifact_recording_policy["mutates_runtime_state"])
+        self.assertFalse(artifact_recording_policy["eligible_for_artifact_recording"])
+        self.assertFalse(
+            artifact_recording_policy["promotion_gate"]["eligible_for_artifact_recording"]
+        )
+        self.assertEqual(
+            artifact_recording_policy["recommended_review"]["replay_evaluation_context_id"],
+            context["replay_evaluation_context_id"],
+        )
+        self.assertEqual(review_ticket["surface"], "snn_replay_artifact_recording_review_ticket.v1")
+        self.assertEqual(
+            review_ticket["replay_evaluation_context_id"],
+            context["replay_evaluation_context_id"],
+        )
+        self.assertEqual(proposal["surface"], "snn_transition_memory_replay_artifact_proposal.v1")
+        self.assertEqual(proposal["replay_evaluation_context_id"], context["replay_evaluation_context_id"])
+        self.assertTrue(proposal["promotion_gate"]["eligible_for_operator_recording_review"])
+        self.assertEqual(artifact["surface"], "snn_transition_memory_replay_artifact.v1")
+        self.assertTrue(artifact["internal_ledger_backed"])
+        self.assertEqual(artifact["replay_evaluation_context_id"], context["replay_evaluation_context_id"])
+        self.assertEqual(artifact["review_ticket_id"], review_ticket["review_ticket_id"])
+        self.assertEqual(
+            artifact["artifact_proposal_surface"],
+            "snn_transition_memory_replay_artifact_proposal.v1",
+        )
 
     def test_cognitive_signal_endpoint_exposes_subcortical_language_surface(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -972,24 +1485,67 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 plasticity_runtime_state_after_maintenance_response = client.get(
                     "/terminus/snn-language-sequence/plasticity-runtime-state"
                 )
-                regeneration_mismatch = {
-                    "available": True,
-                    "surface": "snn_language_sequence_mismatch_probe.v1",
-                    "prediction_error": {"mismatch_score": 0.9},
-                    "sparse_code_delta": {
-                        "predicted_only_indices": [2],
-                        "observed_only_indices": [3],
+                regeneration_context_response = client.post(
+                    "/terminus/snn-language-sequence/replay-evaluation-context",
+                    json={
+                        "prediction_report": {
+                            "surface": "snn_language_sequence_prediction_probe.v1",
+                            "available": True,
+                            "prediction": {"predicted_sparse_indices": [14]},
+                        },
+                        "observed_readout_slots": [
+                            {"label": "memory pressure", "pressure_band": "medium", "grounded": True}
+                        ],
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {"available": True, "snapshot_id": "pre-regeneration-context"},
                     },
-                }
+                )
+                regeneration_mismatch = regeneration_context_response.json()["mismatch_report"]
+                regeneration_design_preview_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration-proposal",
+                    json={"mismatch_report": regeneration_mismatch},
+                )
+                status_before_regeneration_readout_record_response = client.get("/status")
+                regeneration_readout_record_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/record",
+                    json={
+                        "readout_draft": persistent_readout_draft_response.json(),
+                        "expected_state_revision": status_before_regeneration_readout_record_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                regeneration_review_ticket_response = client.post(
+                    "/terminus/snn-language-sequence/replay-artifact-recording-review-ticket",
+                    json={
+                        "limit": 4,
+                        "min_priority_score": 60.0,
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                regeneration_replay_artifact_response = client.post(
+                    "/terminus/snn-language-sequence/transition-memory-replay-artifact/evaluated-record",
+                    json={
+                        "replay_evaluation_context_id": regeneration_context_response.json()[
+                            "replay_evaluation_context_id"
+                        ],
+                        "review_ticket_id": regeneration_review_ticket_response.json()["review_ticket_id"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
                 regeneration_permit_response = client.post(
                     "/terminus/snn-language-sequence/plasticity-regeneration-permit",
                     json={
-                        "mismatch_report": regeneration_mismatch,
-                        "pressure_report": {
-                            "available": True,
-                            "surface": "snn_language_plasticity_pressure.v1",
-                        },
-                        "replay_window": [{"case_id": "regeneration-api-1", "grounded": True}],
+                        "replay_artifact_id": regeneration_replay_artifact_response.json()[
+                            "replay_artifact_id"
+                        ],
+                        "regeneration_design": regeneration_design_preview_response.json()[
+                            "regeneration_design"
+                        ],
                         "operator_id": "operator-test",
                         "confirmation": True,
                     },
@@ -1011,6 +1567,21 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "confirmation": False,
                     },
                 )
+                tampered_regeneration_proposal = deepcopy(regeneration_proposal_response.json())
+                tampered_regeneration_proposal["regeneration_design"]["candidate_synapses"][0][
+                    "post_index"
+                ] = 4
+                tampered_regeneration_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-regeneration",
+                    json={
+                        "regeneration_proposal": tampered_regeneration_proposal,
+                        "expected_state_revision": status_before_regeneration_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
                 regeneration_response = client.post(
                     "/terminus/snn-language-sequence/plasticity-regeneration",
                     json={
@@ -1023,6 +1594,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 plasticity_runtime_state_after_regeneration_response = client.get(
                     "/terminus/snn-language-sequence/plasticity-runtime-state"
+                )
+                regeneration_provenance_audit_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit",
+                    params={"limit": 8},
                 )
                 status_after_regeneration_response = client.get("/status")
                 stale_regeneration_response = client.post(
@@ -1081,12 +1656,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(blocked_homeostatic_maintenance_response.status_code, 200)
         self.assertEqual(homeostatic_maintenance_response.status_code, 200)
         self.assertEqual(plasticity_runtime_state_after_maintenance_response.status_code, 200)
+        self.assertEqual(regeneration_design_preview_response.status_code, 200)
+        self.assertEqual(regeneration_readout_record_response.status_code, 200)
+        self.assertEqual(regeneration_replay_artifact_response.status_code, 200)
         self.assertEqual(regeneration_proposal_response.status_code, 200)
         self.assertEqual(regeneration_permit_response.status_code, 200)
         self.assertEqual(status_before_regeneration_response.status_code, 200)
         self.assertEqual(blocked_regeneration_response.status_code, 200)
+        self.assertEqual(tampered_regeneration_response.status_code, 200)
         self.assertEqual(regeneration_response.status_code, 200)
         self.assertEqual(plasticity_runtime_state_after_regeneration_response.status_code, 200)
+        self.assertEqual(regeneration_provenance_audit_response.status_code, 200)
         self.assertEqual(stale_regeneration_response.status_code, 200)
         self.assertEqual(committed_regeneration_restore_response.status_code, 200)
         self.assertEqual(plasticity_runtime_state_after_committed_regeneration_restore_response.status_code, 200)
@@ -1129,10 +1709,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         homeostatic_maintenance = homeostatic_maintenance_response.json()
         plasticity_runtime_state_after_maintenance = plasticity_runtime_state_after_maintenance_response.json()
         regeneration_proposal = regeneration_proposal_response.json()
+        regeneration_design_preview = regeneration_design_preview_response.json()
+        regeneration_replay_artifact = regeneration_replay_artifact_response.json()
         regeneration_permit = regeneration_permit_response.json()
         blocked_regeneration = blocked_regeneration_response.json()
+        tampered_regeneration = tampered_regeneration_response.json()
         regeneration = regeneration_response.json()
         plasticity_runtime_state_after_regeneration = plasticity_runtime_state_after_regeneration_response.json()
+        regeneration_provenance_audit = regeneration_provenance_audit_response.json()
         stale_regeneration = stale_regeneration_response.json()
         plasticity_runtime_state_after_committed_regeneration_restore = (
             plasticity_runtime_state_after_committed_regeneration_restore_response.json()
@@ -1243,6 +1827,32 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             regeneration_permit["surface"],
             "snn_language_transition_memory_regeneration_permit.v1",
         )
+        self.assertEqual(
+            regeneration_replay_artifact["surface"],
+            "snn_transition_memory_replay_artifact.v1",
+        )
+        self.assertTrue(regeneration_replay_artifact["owned_by_hecsn"])
+        self.assertTrue(regeneration_replay_artifact["readout_evidence_hashes"])
+        self.assertEqual(
+            regeneration_permit["replay_artifact_id"],
+            regeneration_replay_artifact["replay_artifact_id"],
+        )
+        self.assertEqual(
+            regeneration_permit["readout_evidence_hashes"],
+            regeneration_replay_artifact["readout_evidence_hashes"],
+        )
+        self.assertEqual(
+            regeneration_proposal["replay_evidence"]["readout_evidence_hashes"],
+            regeneration_permit["readout_evidence_hashes"],
+        )
+        self.assertEqual(
+            regeneration_permit["regeneration_design_hash"],
+            regeneration_proposal["replay_evidence"]["regeneration_design_hash"],
+        )
+        self.assertEqual(
+            regeneration_permit["regeneration_design_candidate_count"],
+            regeneration_design_preview["regeneration_design"]["candidate_count"],
+        )
         self.assertEqual(regeneration["surface"], "snn_language_transition_memory_regeneration.v1")
         self.assertEqual(
             regeneration["checkpoint_transaction"]["current_checkpoint_manifest"]["checkpoint_path"],
@@ -1250,9 +1860,42 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertFalse(regeneration_proposal["mutates_runtime_state"])
         self.assertFalse(blocked_regeneration["accepted"])
+        self.assertFalse(tampered_regeneration["accepted"])
+        self.assertFalse(
+            tampered_regeneration["promotion_gate"]["required_evidence"][
+                "replay_permit_server_verified"
+            ]
+        )
         self.assertTrue(regeneration["accepted"])
         self.assertEqual(plasticity_runtime_state_after_regeneration["regeneration_count"], 1)
         self.assertEqual(plasticity_runtime_state_after_regeneration["regenerated_synapse_count_total"], 1)
+        regenerated_synapse_key = regeneration["regeneration"]["regenerated_synapses"][0]["synapse"]
+        regenerated_provenance = plasticity_runtime_state_after_regeneration[
+            "synapse_provenance_by_key"
+        ][regenerated_synapse_key]
+        self.assertEqual(regenerated_provenance["provenance_type"], "replay_regeneration")
+        self.assertEqual(regenerated_provenance["permit_id"], regeneration_permit["permit_id"])
+        self.assertEqual(
+            regenerated_provenance["replay_artifact_id"],
+            regeneration_replay_artifact["replay_artifact_id"],
+        )
+        self.assertEqual(
+            regenerated_provenance["readout_evidence_hashes"],
+            regeneration_permit["readout_evidence_hashes"],
+        )
+        self.assertEqual(
+            regeneration_provenance_audit["surface"],
+            "snn_language_readout_synapse_provenance_audit.v1",
+        )
+        regenerated_audit_row = next(
+            item
+            for item in regeneration_provenance_audit["audited_synapses"]
+            if item["synapse_key"] == regenerated_synapse_key
+        )
+        self.assertEqual(regenerated_audit_row["provenance_type"], "replay_regeneration")
+        self.assertTrue(regenerated_audit_row["provenance_complete"])
+        self.assertTrue(regenerated_audit_row["replay_ledger_evidence_present"])
+        self.assertTrue(regenerated_audit_row["ledger_hash_valid"])
         self.assertFalse(stale_regeneration["accepted"])
         self.assertFalse(stale_regeneration["promotion_gate"]["required_evidence"]["replay_permit_server_verified"])
         self.assertEqual(plasticity_runtime_state_after_committed_regeneration_restore["regeneration_count"], 1)

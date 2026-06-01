@@ -70,6 +70,10 @@ from .schemas import (
     SNNLanguageTransitionMemoryRegenerationPermitRequest,
     SNNLanguageTransitionMemoryRegenerationRequest,
     SNNLanguageTransitionMemorySleepPolicyRequest,
+    SNNEvaluatedTransitionMemoryReplayArtifactRequest,
+    SNNReplayArtifactRecordingReviewTicketRequest,
+    SNNReplayEvaluationContextRequest,
+    SNNTransitionMemoryReplayArtifactProposalRequest,
     SNNLanguageTrainerDryRunRequest,
     SNNLanguageTrainerEvaluationRequest,
     StructuralPlasticityIsolatedEvaluationRequest,
@@ -464,6 +468,12 @@ def create_app(
             rollback_policy=request.rollback_policy,
         )
 
+    @app.get("/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit")
+    def terminus_snn_language_readout_synapse_provenance_audit(
+        limit: int = Query(64, ge=0, le=512),
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_synapse_provenance_audit(limit=limit)
+
     @app.post("/terminus/snn-language-sequence/readout-ledger/record")
     def terminus_snn_language_readout_ledger_record(
         request: SNNLanguageReadoutLedgerRecordRequest,
@@ -649,13 +659,87 @@ def create_app(
     def terminus_snn_language_transition_memory_regeneration_permit(
         request: SNNLanguageTransitionMemoryRegenerationPermitRequest,
     ) -> dict[str, Any]:
-        return runtime.snn_language_transition_memory_regeneration_permit(
-            mismatch_report=request.mismatch_report,
-            pressure_report=request.pressure_report,
-            replay_window=request.replay_window,
-            operator_id=request.operator_id,
-            confirmation=request.confirmation,
+        try:
+            return runtime.snn_language_transition_memory_regeneration_permit(
+                replay_artifact_id=request.replay_artifact_id,
+                regeneration_design=request.regeneration_design,
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/terminus/snn-language-sequence/replay-evaluation-context")
+    def terminus_snn_replay_evaluation_context(
+        request: SNNReplayEvaluationContextRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_replay_evaluation_context(
+                prediction_report=request.prediction_report,
+                observed_readout_slots=request.observed_readout_slots,
+                device_evidence=request.device_evidence,
+                runtime_truth_delta=request.runtime_truth_delta,
+                rollback_policy=request.rollback_policy,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/terminus/snn-language-sequence/replay-consolidation-priority-queue")
+    def terminus_snn_replay_consolidation_priority_queue(
+        limit: int = Query(8, ge=0, le=32),
+    ) -> dict[str, Any]:
+        return runtime.snn_replay_consolidation_priority_queue(limit=limit)
+
+    @app.get("/terminus/snn-language-sequence/replay-artifact-recording-policy")
+    def terminus_snn_replay_artifact_recording_policy(
+        limit: int = Query(8, ge=0, le=32),
+        min_priority_score: float = Query(66.0, ge=0.0, le=100.0),
+    ) -> dict[str, Any]:
+        return runtime.snn_replay_artifact_recording_policy_proposal(
+            limit=limit,
+            policy={"min_priority_score": min_priority_score},
         )
+
+    @app.post("/terminus/snn-language-sequence/replay-artifact-recording-review-ticket")
+    def terminus_snn_replay_artifact_recording_review_ticket(
+        request: SNNReplayArtifactRecordingReviewTicketRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_replay_artifact_recording_review_ticket(
+                limit=request.limit,
+                policy={"min_priority_score": request.min_priority_score},
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal")
+    def terminus_snn_transition_memory_replay_artifact_proposal(
+        request: SNNTransitionMemoryReplayArtifactProposalRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_transition_memory_replay_artifact_proposal(
+                replay_evaluation_context_id=request.replay_evaluation_context_id,
+                limit=request.limit,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/terminus/snn-language-sequence/transition-memory-replay-artifact/evaluated-record")
+    def terminus_snn_transition_memory_evaluated_replay_artifact(
+        request: SNNEvaluatedTransitionMemoryReplayArtifactRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_transition_memory_evaluated_replay_artifact(
+                replay_evaluation_context_id=request.replay_evaluation_context_id,
+                review_ticket_id=request.review_ticket_id,
+                limit=request.limit,
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/terminus/snn-language-sequence/plasticity-regeneration")
     def terminus_snn_language_transition_memory_regeneration(

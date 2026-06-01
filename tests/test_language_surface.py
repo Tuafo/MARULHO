@@ -1243,7 +1243,17 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         )
         measured_delta = build_spike_language_plasticity_shadow_delta(
             design,
-            [{"pre_indices": [2, 3], "post_indices": [3, 4], "grounded": True}],
+            [
+                {
+                    "pre_indices": [2, 3],
+                    "post_indices": [3, 4],
+                    "grounded": True,
+                    "readout_evidence_hash": "readout-evidence-1",
+                    "prediction_hash": "prediction-1",
+                    "transition_memory_evaluation_hash": "evaluation-1",
+                    "persistent_transition_weights_hash": "weights-1",
+                }
+            ],
             device_evidence={"device": "cpu", "source": "plasticity_shadow_application_fixture"},
         )
         shadow = evaluate_spike_language_plasticity_shadow_application(
@@ -1326,6 +1336,8 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertFalse(measured_delta["applies_plasticity"])
         self.assertFalse(measured_delta["mutates_runtime_state"])
         self.assertGreater(measured_delta["affected_synapse_count"], 0)
+        self.assertEqual(measured_delta["bounded_synapses"][0]["readout_evidence_hash"], "readout-evidence-1")
+        self.assertEqual(measured_delta["bounded_synapses"][0]["source_pre_indices"], [2, 3])
         self.assertLessEqual(measured_delta["max_abs_weight_delta"], 0.04)
         self.assertEqual(shadow["artifact_kind"], "terminus_snn_language_plasticity_shadow_application")
         self.assertEqual(shadow["surface"], "snn_language_plasticity_shadow_application.v1")

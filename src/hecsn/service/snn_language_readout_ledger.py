@@ -4,6 +4,7 @@ from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import math
 import json
 from typing import Any, Callable, Mapping, Sequence
 
@@ -13,6 +14,8 @@ from hecsn.service.runtime_state import RuntimeState
 
 
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
+_LANGUAGE_NEURON_COUNT = 64
+_MAX_READOUT_SYNAPSE_ABS_WEIGHT = 1.0
 
 
 class SNNLanguageReadoutEvidenceLedger:
@@ -180,6 +183,7 @@ class SNNLanguageReadoutEvidenceLedger:
             total = max(1, len(events))
             for index, event in enumerate(events):
                 labels = [str(value) for value in list(event.get("labels") or [])]
+                label_grounding = [bool(value) for value in list(event.get("label_grounding") or [])]
                 label_key = "|".join(labels)
                 transition_key = str(event.get("persistent_transition_weights_hash") or "")
                 recency = 1.0 - min(1.0, index / max(1, total - 1)) if total > 1 else 1.0
@@ -202,6 +206,10 @@ class SNNLanguageReadoutEvidenceLedger:
                         "persistent_transition_weights_hash": event.get("persistent_transition_weights_hash"),
                         "state_revision": int(event.get("state_revision", 0) or 0),
                         "labels": labels,
+                        "label_grounding": label_grounding,
+                        "all_labels_grounded": bool(labels)
+                        and len(label_grounding) == len(labels)
+                        and all(label_grounding),
                         "priority_score": float(score),
                         "priority_components": {
                             "provenance": float(provenance),
@@ -294,6 +302,80 @@ class SNNLanguageReadoutEvidenceLedger:
                     },
                 },
             }
+
+    def transition_memory_replay_artifact_proposal(
+        self,
+        *,
+        mismatch_report: Mapping[str, Any],
+        pressure_report: Mapping[str, Any],
+        limit: int = 8,
+    ) -> dict[str, Any]:
+        """Build a read-only grounded replay window from internal readout evidence."""
+
+        mismatch = dict(mismatch_report)
+        pressure = dict(pressure_report)
+        error = mismatch.get("prediction_error") if isinstance(mismatch.get("prediction_error"), Mapping) else {}
+        pressure_gate = (
+            pressure.get("promotion_gate")
+            if isinstance(pressure.get("promotion_gate"), Mapping)
+            else {}
+        )
+        priority = self.replay_priority(limit=max(1, min(int(limit), 32)))
+        replay_window = [
+            {
+                "readout_evidence_hash": item.get("readout_evidence_hash"),
+                "source_readout_evidence_id": item.get("source_readout_evidence_id"),
+                "prediction_hash": item.get("prediction_hash"),
+                "transition_memory_evaluation_hash": item.get("transition_memory_evaluation_hash"),
+                "persistent_transition_weights_hash": item.get("persistent_transition_weights_hash"),
+                "labels": [str(value) for value in list(item.get("labels") or [])[:12]],
+                "priority_score": float(item.get("priority_score", 0.0) or 0.0),
+                "grounded": True,
+            }
+            for item in list(priority.get("candidates") or [])
+            if isinstance(item, Mapping)
+            and item.get("readout_evidence_hash")
+            and item.get("all_labels_grounded")
+        ]
+        required = {
+            "mismatch_available": bool(mismatch.get("available")),
+            "mismatch_owned_by_hecsn": bool(mismatch.get("owned_by_hecsn")),
+            "mismatch_score_high": float(error.get("mismatch_score", 0.0) or 0.0) >= 0.66,
+            "pressure_available": bool(pressure.get("available")),
+            "pressure_owned_by_hecsn": bool(pressure.get("owned_by_hecsn")),
+            "pressure_gate_ready": str(pressure_gate.get("status") or "") == "ready_for_operator_review",
+            "internal_readout_evidence_available": bool(replay_window),
+            "replay_window_grounded": bool(replay_window)
+            and all(bool(item.get("grounded")) for item in replay_window),
+        }
+        ready = all(required.values())
+        return {
+            "artifact_kind": "terminus_snn_transition_memory_replay_artifact_proposal",
+            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+            "available": ready,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "mismatch_report": mismatch,
+            "pressure_report": pressure,
+            "replay_window": replay_window,
+            "promotion_gate": {
+                "status": "ready_for_operator_recording_review"
+                if ready
+                else "blocked_missing_internal_snn_replay_evidence",
+                "eligible_for_operator_recording_review": ready,
+                "eligible_for_structural_write": False,
+                "requires_operator_approval": ready,
+                "required_evidence": required,
+            },
+        }
 
     def rehearsal_evaluation(
         self,
@@ -954,6 +1036,11 @@ class SNNLanguageReadoutEvidenceLedger:
             if isinstance(report.get("isolated_replay_summary"), Mapping)
             else {}
         )
+        device_report = (
+            report.get("device_evidence")
+            if isinstance(report.get("device_evidence"), Mapping)
+            else {}
+        )
         ephemeral = report.get("ephemeral_replay") if isinstance(report.get("ephemeral_replay"), Mapping) else {}
         dry_run_required = (
             gate.get("required_evidence")
@@ -1080,6 +1167,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "returns_trained_weights": False,
             "readout_replay_dry_run_surface": report.get("surface"),
             "readout_replay_dry_run_hash": report.get("readout_replay_dry_run_hash"),
+            "device_evidence": dict(device_report),
             "readout_plasticity_preflight_hash": candidate_hash,
             "plasticity_preflight": {
                 "candidate_synapse_count": len(candidate_pairs),
@@ -1150,6 +1238,11 @@ class SNNLanguageReadoutEvidenceLedger:
             if isinstance(report.get("plasticity_preflight"), Mapping)
             else {}
         )
+        device_report = (
+            report.get("device_evidence")
+            if isinstance(report.get("device_evidence"), Mapping)
+            else {}
+        )
         preflight_required = (
             gate.get("required_evidence")
             if isinstance(gate.get("required_evidence"), Mapping)
@@ -1195,6 +1288,11 @@ class SNNLanguageReadoutEvidenceLedger:
         grounded_count = sum(1 for item in sequences if bool(item.get("grounded", True)))
         coverage = grounded_count / replay_count if replay_count else 0.0
         expected_gain = float(preflight.get("expected_replay_pressure_gain", 0.0) or 0.0)
+        learning_rate = float(preflight.get("learning_rate", 0.0) or 0.0)
+        max_weight_delta = float(preflight.get("max_weight_delta", 0.0) or 0.0)
+        locality_radius = int(preflight.get("locality_radius", 0) or 0)
+        normalization = bool(preflight.get("normalization"))
+        local_only = bool(preflight.get("local_only"))
         pre_pressure = 1.0
         simulated_post_pressure = max(0.0, pre_pressure - min(0.5, expected_gain * coverage))
         pressure_stable = simulated_post_pressure <= pre_pressure
@@ -1206,6 +1304,16 @@ class SNNLanguageReadoutEvidenceLedger:
                 "preflight_hash": report.get("readout_plasticity_preflight_hash"),
                 "dry_run_hash": report.get("readout_replay_dry_run_hash"),
                 "canonical_replay_sequences": canonical_sequences,
+                "application_design": {
+                    "learning_rate": learning_rate,
+                    "max_weight_delta": max_weight_delta,
+                    "locality_radius": locality_radius,
+                    "normalization": normalization,
+                    "local_only": local_only,
+                    "grounded_replay_coverage": coverage,
+                    "pressure_stable_after_replay": pressure_stable,
+                },
+                "device_evidence": dict(device_report),
                 "runtime_truth_delta": truth_delta,
                 "rollback_evidence": rollback,
                 "coverage": coverage,
@@ -1247,6 +1355,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 for item in sequences
             ) if sequences else False,
             "pressure_stable_after_replay": pressure_stable,
+            "learning_rate_bounded": 0.0 < learning_rate <= 0.1,
+            "max_weight_delta_bounded": 0.0 < max_weight_delta <= 0.1,
+            "locality_radius_bounded": 1 <= locality_radius <= 8,
+            "normalization_enabled": normalization,
+            "local_update_only": local_only,
+            "device_evidence_available": bool(device_report)
+            and bool(device_report.get("device_report_available", True)),
             "runtime_truth_improved_or_stable": runtime_truth_ok,
             "rollback_policy_available": rollback_available,
         }
@@ -1268,6 +1383,19 @@ class SNNLanguageReadoutEvidenceLedger:
             "readout_plasticity_preflight_surface": report.get("surface"),
             "readout_replay_dry_run_hash": report.get("readout_replay_dry_run_hash"),
             "readout_plasticity_replay_bridge_hash": bridge_hash,
+            "device_evidence": {
+                "requested_device": device_report.get("requested_device")
+                or device_report.get("device")
+                or device_report.get("tensor_device")
+                or "unknown",
+                "tensor_device": device_report.get("tensor_device")
+                or device_report.get("device")
+                or "unknown",
+                "cuda_tensor": bool(device_report.get("cuda_tensor")),
+                "device_source": device_report.get("source") or device_report.get("device_source"),
+                "device_report_available": bool(device_report)
+                and bool(device_report.get("device_report_available", True)),
+            },
             "readout_bridge": {
                 "preflight_hash": report.get("readout_plasticity_preflight_hash"),
                 "dry_run_hash": report.get("readout_replay_dry_run_hash"),
@@ -1286,6 +1414,32 @@ class SNNLanguageReadoutEvidenceLedger:
                 "simulated_post_replay_pressure_score": float(simulated_post_pressure),
                 "expected_replay_pressure_gain": float(min(0.5, expected_gain * coverage)),
                 "pressure_stable_after_replay": bool(pressure_stable),
+            },
+            "application_design": {
+                "learning_rate": float(learning_rate),
+                "max_weight_delta": float(max_weight_delta),
+                "locality_radius": locality_radius,
+                "normalization": normalization,
+                "local_only": local_only,
+                "grounded_replay_coverage": float(coverage),
+                "pressure_stable_after_replay": bool(pressure_stable),
+                "runtime_update_applied": False,
+                "weights_persisted": False,
+            },
+            "application_target_hint": {
+                "available": True,
+                "target_id": "hecsn.snn_language.sparse_transition_weights",
+                "owned_by_hecsn": True,
+                "mutable": True,
+                "sparse": True,
+                "checkpointed": True,
+                "runtime_update_applied": False,
+            },
+            "checkpoint_transaction_requirements": {
+                "pre_update_checkpoint_required": True,
+                "restore_verification_required": True,
+                "records_shadow_delta_required": True,
+                "runtime_update_applied": False,
             },
             "canonical_replay_sequences": canonical_sequences,
             "ephemeral_replay": {
@@ -1329,6 +1483,280 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
+    def synapse_provenance_audit(
+        self,
+        *,
+        plasticity_runtime_state: Mapping[str, Any],
+        limit: int = 64,
+    ) -> dict[str, Any]:
+        """Audit readout-derived sparse transition provenance without mutation."""
+
+        runtime = dict(plasticity_runtime_state)
+        raw_weights = dict(runtime.get("sparse_transition_weights") or {})
+        weights: dict[str, float] = {}
+        finite_weight_keys: set[str] = set()
+        bounded_weight_keys: set[str] = set()
+        canonical_weight_keys: set[str] = set()
+        in_range_weight_keys: set[str] = set()
+        for key, value in raw_weights.items():
+            key_text = str(key)
+            try:
+                if value is None or isinstance(value, bool):
+                    raise TypeError("non_numeric_weight")
+                weight = float(value)
+            except (TypeError, ValueError):
+                weight = float("nan")
+            weights[key_text] = weight
+            if math.isfinite(weight):
+                finite_weight_keys.add(key_text)
+                if abs(weight) <= _MAX_READOUT_SYNAPSE_ABS_WEIGHT:
+                    bounded_weight_keys.add(key_text)
+            if self._canonical_synapse_key(key_text):
+                canonical_weight_keys.add(key_text)
+            pre_index, post_index = self._split_synapse_key(key_text)
+            if self._valid_language_index(pre_index) and self._valid_language_index(post_index):
+                in_range_weight_keys.add(key_text)
+        provenance_by_key = {
+            str(key): dict(value)
+            for key, value in dict(runtime.get("synapse_provenance_by_key") or {}).items()
+            if isinstance(value, Mapping)
+        }
+        normalized = self._normalized_state()
+        ledger_events = {
+            str(item.get("readout_evidence_hash") or ""): dict(item)
+            for item in list(normalized.get("events") or [])
+            if isinstance(item, Mapping) and item.get("readout_evidence_hash")
+        }
+        all_rows: list[dict[str, Any]] = []
+        for key in sorted(provenance_by_key.keys()):
+            provenance = provenance_by_key.get(key, {})
+            provenance_type = str(provenance.get("provenance_type") or "readout_plasticity")
+            readout_hash = str(provenance.get("readout_evidence_hash") or "")
+            replay_readout_hashes = [
+                str(value)
+                for value in list(provenance.get("readout_evidence_hashes") or [])
+                if str(value)
+            ][:64]
+            ledger_event = ledger_events.get(readout_hash, {})
+            replay_ledger_events = [ledger_events.get(value, {}) for value in replay_readout_hashes]
+            replay_hashes_present_in_ledger = bool(replay_readout_hashes) and all(
+                bool(item) for item in replay_ledger_events
+            )
+            replay_hashes_valid = bool(replay_readout_hashes) and all(
+                bool(item) and hash_value == self._ledger_event_material_hash(item)
+                for hash_value, item in zip(replay_readout_hashes, replay_ledger_events, strict=False)
+            )
+            replay_provenance_complete = bool(
+                provenance_type == "replay_regeneration"
+                and provenance.get("permit_id")
+                and provenance.get("replay_artifact_id")
+                and provenance.get("replay_artifact_hash")
+                and provenance.get("replay_window_hash")
+                and replay_readout_hashes
+            )
+            ledger_field_match = bool(
+                replay_hashes_present_in_ledger
+                if provenance_type == "replay_regeneration"
+                else (
+                    ledger_event
+                    and provenance.get("prediction_hash") == ledger_event.get("prediction_hash")
+                    and provenance.get("transition_memory_evaluation_hash")
+                    == ledger_event.get("transition_memory_evaluation_hash")
+                    and provenance.get("persistent_transition_weights_hash")
+                    == ledger_event.get("persistent_transition_weights_hash")
+                )
+            )
+            ledger_hash_valid = bool(
+                replay_hashes_valid
+                if provenance_type == "replay_regeneration"
+                else (
+                    ledger_event
+                    and readout_hash
+                    and readout_hash == self._ledger_event_material_hash(ledger_event)
+                )
+            )
+            canonical_key = self._canonical_synapse_key(key)
+            source_pre_indices = [
+                int(value)
+                for value in list(provenance.get("source_pre_indices") or [])
+                if isinstance(value, int)
+            ]
+            source_post_indices = [
+                int(value)
+                for value in list(provenance.get("source_post_indices") or [])
+                if isinstance(value, int)
+            ]
+            source_active_indices = [
+                int(value)
+                for value in list(provenance.get("source_active_indices") or [])
+                if isinstance(value, int)
+            ]
+            pre_index, post_index = self._split_synapse_key(key)
+            weight = weights.get(key)
+            weight_finite = bool(weight is not None and math.isfinite(float(weight)))
+            source_indices_in_range = all(
+                self._valid_language_index(value)
+                for value in source_pre_indices + source_post_indices + source_active_indices
+            )
+            source_indices_match_synapse = (
+                True
+                if provenance_type == "replay_regeneration"
+                else (
+                    bool(
+                        pre_index in source_pre_indices
+                        and post_index in source_post_indices
+                        and pre_index in source_active_indices
+                        and post_index in source_active_indices
+                    )
+                    if pre_index is not None and post_index is not None
+                    else False
+                )
+            )
+            row = {
+                "synapse_key": key,
+                "provenance_type": provenance_type,
+                "weight_available": key in weights,
+                "weight": weight,
+                "weight_finite": weight_finite,
+                "weight_bounded": bool(
+                    weight_finite and abs(float(weight)) <= _MAX_READOUT_SYNAPSE_ABS_WEIGHT
+                ),
+                "canonical_synapse_key": canonical_key,
+                "synapse_indices_in_range": bool(
+                    self._valid_language_index(pre_index)
+                    and self._valid_language_index(post_index)
+                ),
+                "pre_index": pre_index,
+                "post_index": post_index,
+                "readout_evidence_hash": readout_hash,
+                "prediction_hash": provenance.get("prediction_hash"),
+                "transition_memory_evaluation_hash": provenance.get(
+                    "transition_memory_evaluation_hash"
+                ),
+                "persistent_transition_weights_hash": provenance.get(
+                    "persistent_transition_weights_hash"
+                ),
+                "permit_id": provenance.get("permit_id"),
+                "replay_artifact_id": provenance.get("replay_artifact_id"),
+                "replay_artifact_hash": provenance.get("replay_artifact_hash"),
+                "replay_window_hash": provenance.get("replay_window_hash"),
+                "readout_evidence_hashes": replay_readout_hashes,
+                "ledger_evidence_present": bool(ledger_event),
+                "replay_ledger_evidence_present": replay_hashes_present_in_ledger,
+                "ledger_field_match": ledger_field_match,
+                "ledger_hash_valid": ledger_hash_valid,
+                "provenance_complete": bool(
+                    replay_provenance_complete
+                    if provenance_type == "replay_regeneration"
+                    else (
+                        readout_hash
+                        and provenance.get("prediction_hash")
+                        and provenance.get("transition_memory_evaluation_hash")
+                        and provenance.get("persistent_transition_weights_hash")
+                    )
+                ),
+                "source_sequence_id": provenance.get("sequence_id"),
+                "source_pre_indices": source_pre_indices,
+                "source_post_indices": source_post_indices,
+                "source_active_indices": source_active_indices,
+                "source_indices_in_range": source_indices_in_range,
+                "source_indices_match_synapse": source_indices_match_synapse,
+            }
+            all_rows.append(row)
+        row_limit = max(0, min(int(limit), 512))
+        rows = all_rows[:row_limit]
+        orphan_weight_keys = sorted(set(weights.keys()) - set(provenance_by_key.keys()))
+        dangling_provenance_keys = sorted(set(provenance_by_key.keys()) - set(weights.keys()))
+        required = {
+            "runtime_state_surface_available": runtime.get("surface")
+            == "snn_language_plasticity_runtime_state.v1",
+            "runtime_state_owned_by_hecsn": bool(runtime.get("owned_by_hecsn")),
+            "synapse_provenance_available": bool(provenance_by_key),
+            "audited_synapses_have_weights": all(
+                bool(row["weight_available"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_have_finite_weights": all(
+                bool(row["weight_finite"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_have_bounded_weights": all(
+                bool(row["weight_bounded"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_have_canonical_keys": all(
+                bool(row["canonical_synapse_key"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapse_indices_in_range": all(
+                bool(row["synapse_indices_in_range"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_have_complete_provenance": all(
+                bool(row["provenance_complete"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_present_in_ledger": all(
+                bool(row["ledger_evidence_present"] or row["replay_ledger_evidence_present"])
+                for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_match_ledger_fields": all(
+                bool(row["ledger_field_match"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_ledger_hashes_valid": all(
+                bool(row["ledger_hash_valid"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_synapses_match_source_indices": all(
+                bool(row["source_indices_match_synapse"]) for row in all_rows
+            ) if all_rows else False,
+            "audited_source_indices_in_range": all(
+                bool(row["source_indices_in_range"]) for row in all_rows
+            ) if all_rows else False,
+            "no_unprovenanced_weights": not bool(orphan_weight_keys),
+            "no_dangling_provenance": not bool(dangling_provenance_keys),
+            "all_weights_finite": len(finite_weight_keys) == len(weights),
+            "all_weights_bounded": len(bounded_weight_keys) == len(weights),
+            "all_weight_keys_canonical": len(canonical_weight_keys) == len(weights),
+            "all_weight_indices_in_range": len(in_range_weight_keys) == len(weights),
+        }
+        ready = all(required.values())
+        return {
+            "artifact_kind": "terminus_snn_language_readout_synapse_provenance_audit",
+            "surface": "snn_language_readout_synapse_provenance_audit.v1",
+            "available": bool(runtime),
+            "source": "service.snn_language_readout_ledger.synapse_provenance_audit",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "returns_trained_weights": False,
+            "audit_summary": {
+                "audited_synapse_count": len(all_rows),
+                "returned_synapse_count": len(rows),
+                "provenanced_synapse_count": len(provenance_by_key),
+                "sparse_transition_weight_count": len(weights),
+                "orphan_weight_count": len(orphan_weight_keys),
+                "dangling_provenance_count": len(dangling_provenance_keys),
+                "nonfinite_weight_count": len(weights) - len(finite_weight_keys),
+                "unbounded_weight_count": len(weights) - len(bounded_weight_keys),
+                "noncanonical_weight_key_count": len(weights) - len(canonical_weight_keys),
+                "out_of_range_weight_key_count": len(weights) - len(in_range_weight_keys),
+                "ledger_event_count": len(ledger_events),
+            },
+            "audited_synapses": rows,
+            "orphan_weight_keys": orphan_weight_keys[: max(0, min(int(limit), 512))],
+            "dangling_provenance_keys": dangling_provenance_keys[:row_limit],
+            "promotion_gate": {
+                "status": "ready_for_operator_review"
+                if ready
+                else "blocked_missing_readout_synapse_provenance_evidence",
+                "eligible_for_readout_synapse_audit_review": ready,
+                "eligible_for_live_application": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": required,
+            },
+        }
+
     def _blocked(self, before_revision: int, required_evidence: Mapping[str, bool]) -> dict[str, Any]:
         return {
             "artifact_kind": "terminus_snn_language_readout_evidence_ledger_record",
@@ -1367,11 +1795,28 @@ class SNNLanguageReadoutEvidenceLedger:
             else {}
         )
         labels = [str(value) for value in list(draft_payload.get("labels") or [])][:12]
+        sparse_decode = (
+            draft.get("sparse_decode_evidence")
+            if isinstance(draft.get("sparse_decode_evidence"), Mapping)
+            else {}
+        )
+        candidate_matches = [
+            dict(item)
+            for item in list(sparse_decode.get("candidate_matches") or [])
+            if isinstance(item, Mapping)
+        ]
+        grounding_by_label = {
+            str(item.get("label") or ""): bool(item.get("grounded"))
+            for item in candidate_matches
+            if str(item.get("label") or "")
+        }
+        label_grounding = [bool(grounding_by_label.get(label, False)) for label in labels]
         material = {
             "prediction_hash": evaluation.get("prediction_hash"),
             "transition_memory_evaluation_hash": evaluation.get("transition_memory_evaluation_hash"),
             "persistent_transition_weights_hash": evaluation.get("persistent_transition_weights_hash"),
             "labels": labels,
+            "label_grounding": label_grounding,
             "state_revision": int(state_revision),
         }
         evidence_hash = self._sha256_json(material)
@@ -1385,12 +1830,26 @@ class SNNLanguageReadoutEvidenceLedger:
             "transition_memory_evaluation_hash": material["transition_memory_evaluation_hash"],
             "persistent_transition_weights_hash": material["persistent_transition_weights_hash"],
             "labels": labels,
+            "label_grounding": label_grounding,
             "term_count": len(labels),
             "generation_scope": draft.get("generation_scope"),
             "freeform_language_generation": False,
             "eligible_for_cognition_substrate": False,
             "material_hash_algorithm": "sha256_canonical_json",
         }
+
+    def _ledger_event_material_hash(self, event: Mapping[str, Any]) -> str:
+        material = {
+            "prediction_hash": event.get("prediction_hash"),
+            "transition_memory_evaluation_hash": event.get("transition_memory_evaluation_hash"),
+            "persistent_transition_weights_hash": event.get("persistent_transition_weights_hash"),
+            "labels": [str(value) for value in list(event.get("labels") or [])][:12],
+            "label_grounding": [
+                bool(value) for value in list(event.get("label_grounding") or [])[:12]
+            ],
+            "state_revision": int(event.get("state_revision", 0) or 0),
+        }
+        return self._sha256_json(material)
 
     def _normalized_state(self) -> dict[str, Any]:
         state = self._ledger_state()
@@ -1412,6 +1871,12 @@ class SNNLanguageReadoutEvidenceLedger:
             for item in list(normalized.get("events") or [])
             if isinstance(item, Mapping) and item.get("readout_evidence_hash")
         }
+
+    def known_readout_evidence_hashes(self) -> set[str]:
+        """Expose current internal ledger identities for controller verification."""
+
+        with self._lock:
+            return set(self._known_readout_evidence_hashes())
 
     def _store_state(self, normalized: Mapping[str, Any]) -> None:
         state = self._ledger_state()
@@ -1454,6 +1919,26 @@ class SNNLanguageReadoutEvidenceLedger:
             return torch.device(normalized)
         except (RuntimeError, TypeError):
             return torch.device("cpu")
+
+    @staticmethod
+    def _split_synapse_key(key: str) -> tuple[int | None, int | None]:
+        parts = str(key).split(":", maxsplit=1)
+        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            return None, None
+        return int(parts[0]), int(parts[1])
+
+    @classmethod
+    def _canonical_synapse_key(cls, key: str) -> bool:
+        pre_index, post_index = cls._split_synapse_key(key)
+        return (
+            cls._valid_language_index(pre_index)
+            and cls._valid_language_index(post_index)
+            and str(key) == f"{pre_index}:{post_index}"
+        )
+
+    @staticmethod
+    def _valid_language_index(value: int | None) -> bool:
+        return isinstance(value, int) and 0 <= int(value) < _LANGUAGE_NEURON_COUNT
 
 
 __all__ = ["SNNLanguageReadoutEvidenceLedger"]

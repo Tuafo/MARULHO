@@ -104,6 +104,11 @@ class RuntimeFacade:
     def snn_language_readout_plasticity_replay_bridge(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.plasticity_replay_bridge(**kwargs)
 
+    def snn_language_readout_synapse_provenance_audit(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("plasticity_runtime_state") is None:
+            kwargs["plasticity_runtime_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._snn_language_readout_ledger.synapse_provenance_audit(**kwargs)
+
     def snn_language_readout_evidence_ledger_record(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.record_readout_draft(**kwargs)
 
@@ -160,6 +165,82 @@ class RuntimeFacade:
 
     def snn_language_transition_memory_regeneration_permit(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._replay_controller.issue_regeneration_permit(**kwargs)
+
+    def snn_replay_evaluation_context(self, **kwargs: Any) -> dict[str, Any]:
+        observed_slots = [
+            item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            for item in list(kwargs.pop("observed_readout_slots"))
+        ]
+        mismatch = self._root._status_read_model.snn_language_sequence_mismatch_probe(
+            prediction_report=kwargs.pop("prediction_report"),
+            observed_readout_slots=observed_slots,
+            device_evidence=kwargs.pop("device_evidence", None),
+        )
+        pressure = self._root._status_read_model.snn_language_plasticity_pressure(
+            mismatch_report=mismatch,
+            runtime_truth_delta=kwargs.pop("runtime_truth_delta", None),
+            rollback_policy=kwargs.pop("rollback_policy", None),
+        )
+        return self._root._replay_controller.record_snn_replay_evaluation_context(
+            mismatch_report=mismatch,
+            pressure_report=pressure,
+        )
+
+    def snn_replay_consolidation_priority_queue(self, **kwargs: Any) -> dict[str, Any]:
+        limit = kwargs.pop("limit", 8)
+        readout_priority = self._root._snn_language_readout_ledger.replay_priority(limit=limit)
+        return self._root._replay_controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report=readout_priority,
+            limit=limit,
+        )
+
+    def snn_replay_artifact_recording_policy_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        limit = kwargs.pop("limit", 8)
+        queue = self.snn_replay_consolidation_priority_queue(limit=limit)
+        return self._root._replay_controller.snn_replay_artifact_recording_policy_proposal(
+            consolidation_priority_queue=queue,
+            policy=kwargs.pop("policy", None),
+        )
+
+    def snn_replay_artifact_recording_review_ticket(self, **kwargs: Any) -> dict[str, Any]:
+        proposal = self.snn_replay_artifact_recording_policy_proposal(
+            limit=kwargs.pop("limit", 8),
+            policy=kwargs.pop("policy", None),
+        )
+        return self._root._replay_controller.record_snn_replay_artifact_recording_review_ticket(
+            policy_proposal=proposal,
+            **kwargs,
+        )
+
+    def snn_transition_memory_replay_artifact_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        context = self._root._replay_controller.verified_snn_replay_evaluation_context(
+            kwargs.pop("replay_evaluation_context_id")
+        )
+        if context is None:
+            raise ValueError("SNN replay artifact proposal requires a verified server-held evaluation context.")
+        proposal = self._root._snn_language_readout_ledger.transition_memory_replay_artifact_proposal(
+            mismatch_report=context["mismatch_report"],
+            pressure_report=context["pressure_report"],
+            **kwargs,
+        )
+        proposal["replay_evaluation_context_id"] = context["replay_evaluation_context_id"]
+        proposal["replay_evaluation_context_hash"] = context["evidence_hash"]
+        return proposal
+
+    def snn_transition_memory_evaluated_replay_artifact(self, **kwargs: Any) -> dict[str, Any]:
+        replay_evaluation_context_id = kwargs.pop("replay_evaluation_context_id")
+        proposal = self.snn_transition_memory_replay_artifact_proposal(
+            replay_evaluation_context_id=replay_evaluation_context_id,
+            limit=kwargs.pop("limit", 8),
+        )
+        kwargs["artifact_proposal"] = proposal
+        kwargs["replay_evaluation_context_id"] = replay_evaluation_context_id
+        kwargs["known_readout_evidence_hashes"] = (
+            self._root._snn_language_readout_ledger.known_readout_evidence_hashes()
+        )
+        return self._root._replay_controller.record_evaluated_snn_transition_memory_replay_artifact(
+            **kwargs
+        )
 
     def snn_language_transition_memory_regeneration(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_plasticity_executor.regenerate_transition_memory(**kwargs)

@@ -430,9 +430,36 @@ class SNNLanguageTransitionMemoryRegenerationProposalRequest(BaseModel):
 
 
 class SNNLanguageTransitionMemoryRegenerationPermitRequest(BaseModel):
-    mismatch_report: dict[str, Any] = Field(..., min_length=1)
-    pressure_report: dict[str, Any] = Field(..., min_length=1)
-    replay_window: list[dict[str, Any]] = Field(..., min_length=1, max_length=32)
+    replay_artifact_id: str = Field(..., min_length=1, max_length=240)
+    regeneration_design: dict[str, Any] = Field(..., min_length=1)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNReplayEvaluationContextRequest(BaseModel):
+    prediction_report: dict[str, Any] = Field(..., min_length=1)
+    observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=16)
+    device_evidence: dict[str, Any] | None = None
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNTransitionMemoryReplayArtifactProposalRequest(BaseModel):
+    replay_evaluation_context_id: str = Field(..., min_length=1, max_length=240)
+    limit: int = Field(8, ge=1, le=32)
+
+
+class SNNEvaluatedTransitionMemoryReplayArtifactRequest(BaseModel):
+    replay_evaluation_context_id: str = Field(..., min_length=1, max_length=240)
+    review_ticket_id: str = Field(..., min_length=1, max_length=240)
+    limit: int = Field(8, ge=1, le=32)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNReplayArtifactRecordingReviewTicketRequest(BaseModel):
+    limit: int = Field(8, ge=1, le=32)
+    min_priority_score: float = Field(66.0, ge=0.0, le=100.0)
     operator_id: str = Field(..., min_length=1, max_length=160)
     confirmation: bool = False
 

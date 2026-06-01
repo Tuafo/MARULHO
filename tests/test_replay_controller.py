@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from dataclasses import dataclass
 from threading import RLock
 import unittest
@@ -101,6 +102,85 @@ def _replay_controller(manager: _FakeReplayManager) -> ReplayController:
 
 
 class ReplayControllerTests(unittest.TestCase):
+    @staticmethod
+    def _mismatch_report() -> dict[str, object]:
+        return {
+            "surface": "snn_language_sequence_mismatch_probe.v1",
+            "available": True,
+            "owned_by_hecsn": True,
+            "prediction_error": {"mismatch_score": 0.9},
+            "promotion_gate": {"status": "ready_for_operator_review"},
+        }
+
+    @staticmethod
+    def _pressure_report() -> dict[str, object]:
+        return {
+            "surface": "snn_language_plasticity_pressure.v1",
+            "available": True,
+            "owned_by_hecsn": True,
+            "promotion_gate": {"status": "ready_for_operator_review"},
+        }
+
+    @classmethod
+    def _record_replay_evaluation_context(cls, controller: ReplayController) -> dict[str, object]:
+        return controller.record_snn_replay_evaluation_context(
+            mismatch_report=cls._mismatch_report(),
+            pressure_report=cls._pressure_report(),
+        )
+
+    @staticmethod
+    def _record_review_ticket(
+        controller: ReplayController,
+        *,
+        operator_id: str = "operator-1",
+    ) -> dict[str, object]:
+        queue = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [{"priority_score": 90.0, "all_labels_grounded": True}],
+            },
+            limit=4,
+        )
+        proposal = controller.snn_replay_artifact_recording_policy_proposal(
+            consolidation_priority_queue=queue,
+            policy={"min_priority_score": 60.0},
+        )
+        return controller.record_snn_replay_artifact_recording_review_ticket(
+            policy_proposal=proposal,
+            operator_id=operator_id,
+            confirmation=True,
+        )
+
+    @staticmethod
+    def _record_regeneration_replay_artifact(
+        controller: ReplayController,
+        *,
+        operator_id: str = "operator-1",
+    ) -> dict[str, object]:
+        context = ReplayControllerTests._record_replay_evaluation_context(controller)
+        ticket = ReplayControllerTests._record_review_ticket(controller, operator_id=operator_id)
+        return controller.record_evaluated_snn_transition_memory_replay_artifact(
+            artifact_proposal={
+                "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                "ready": True,
+                "owned_by_hecsn": True,
+                "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                "mismatch_report": context["mismatch_report"],
+                "pressure_report": context["pressure_report"],
+                "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                "replay_evaluation_context_hash": context["evidence_hash"],
+                "replay_window": [
+                    {"readout_evidence_hash": "readout-hash-1", "grounded": True}
+                ],
+                "promotion_gate": {"status": "ready_for_operator_recording_review"},
+            },
+            known_readout_evidence_hashes={"readout-hash-1"},
+            replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+            review_ticket_id=str(ticket["review_ticket_id"]),
+            operator_id=operator_id,
+            confirmation=True,
+        )
+
     def test_replay_sample_history_is_controller_owned(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -142,6 +222,224 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertIs(controller.history, history)
         self.assertEqual(history[0]["replay_sample_id"], "replay-sample-1")
 
+    def test_snn_transition_memory_replay_artifact_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        artifacts = controller.snn_transition_memory_replay_artifacts
+
+        controller.snn_transition_memory_replay_artifacts = [
+            {"replay_artifact_id": "artifact-1", "evidence_hash": "hash-1"}
+        ]
+
+        self.assertIs(controller.snn_transition_memory_replay_artifacts, artifacts)
+        self.assertEqual(artifacts[0]["replay_artifact_id"], "artifact-1")
+
+    def test_snn_replay_evaluation_context_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        contexts = controller.snn_replay_evaluation_contexts
+
+        controller.snn_replay_evaluation_contexts = [
+            {"replay_evaluation_context_id": "context-1", "evidence_hash": "hash-1"}
+        ]
+
+        self.assertIs(controller.snn_replay_evaluation_contexts, contexts)
+        self.assertEqual(contexts[0]["replay_evaluation_context_id"], "context-1")
+
+    def test_snn_replay_artifact_recording_review_ticket_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        tickets = controller.snn_replay_artifact_recording_review_tickets
+
+        controller.snn_replay_artifact_recording_review_tickets = [
+            {"review_ticket_id": "ticket-1", "evidence_hash": "hash-1"}
+        ]
+
+        self.assertIs(controller.snn_replay_artifact_recording_review_tickets, tickets)
+        self.assertEqual(tickets[0]["review_ticket_id"], "ticket-1")
+
+    def test_snn_replay_evaluation_context_verification_fails_closed(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        context_id = str(context["replay_evaluation_context_id"])
+
+        self.assertIsNotNone(controller.verified_snn_replay_evaluation_context(context_id))
+        controller.snn_replay_evaluation_contexts[0]["mismatch_hash"] = "tampered"
+        self.assertIsNone(controller.verified_snn_replay_evaluation_context(context_id))
+        controller.snn_replay_evaluation_contexts[0] = context
+        manager._runtime_state.state_revision += 1
+        self.assertIsNone(controller.verified_snn_replay_evaluation_context(context_id))
+
+    def test_evaluated_replay_artifact_rejects_stale_context(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        manager._runtime_state.state_revision += 1
+
+        with self.assertRaisesRegex(ValueError, "verified server-held evaluation context"):
+            controller.record_evaluated_snn_transition_memory_replay_artifact(
+                artifact_proposal={
+                    "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+                    "ready": True,
+                    "owned_by_hecsn": True,
+                    "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+                    "mismatch_report": context["mismatch_report"],
+                    "pressure_report": context["pressure_report"],
+                    "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+                    "replay_evaluation_context_hash": context["evidence_hash"],
+                    "replay_window": [{"readout_evidence_hash": "readout-hash-1", "grounded": True}],
+                    "promotion_gate": {"status": "ready_for_operator_recording_review"},
+                },
+                known_readout_evidence_hashes={"readout-hash-1"},
+                replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+                review_ticket_id="stale-context-ticket",
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_snn_replay_consolidation_priority_queue_is_advisory_and_current_revision_only(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        stale_context = self._record_replay_evaluation_context(controller)
+        manager._runtime_state.state_revision += 1
+        current_context = self._record_replay_evaluation_context(controller)
+
+        priority = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [
+                    {
+                        "priority_score": 88.0,
+                        "all_labels_grounded": True,
+                    }
+                ],
+            },
+            limit=4,
+        )
+
+        self.assertEqual(priority["surface"], "snn_replay_consolidation_priority_queue.v1")
+        self.assertTrue(priority["advisory"])
+        self.assertFalse(priority["executable"])
+        self.assertFalse(priority["mutates_runtime_state"])
+        self.assertFalse(priority["eligible_for_live_replay"])
+        self.assertFalse(priority["eligible_for_artifact_recording"])
+        self.assertFalse(priority["promotion_gate"]["eligible_for_artifact_recording"])
+        self.assertFalse(priority["promotion_gate"]["eligible_for_live_replay"])
+        self.assertEqual(priority["candidate_count"], 1)
+        self.assertEqual(
+            priority["candidates"][0]["replay_evaluation_context_id"],
+            current_context["replay_evaluation_context_id"],
+        )
+        self.assertNotEqual(
+            priority["candidates"][0]["replay_evaluation_context_id"],
+            stale_context["replay_evaluation_context_id"],
+        )
+        self.assertFalse(priority["candidates"][0]["eligible_for_live_replay"])
+        self.assertFalse(priority["candidates"][0]["eligible_for_artifact_recording"])
+        self.assertGreater(priority["candidates"][0]["priority_score"], 0.0)
+
+    def test_snn_replay_artifact_recording_policy_proposal_is_advisory(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        queue = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [
+                    {
+                        "priority_score": 90.0,
+                        "all_labels_grounded": True,
+                    }
+                ],
+            },
+            limit=4,
+        )
+
+        proposal = controller.snn_replay_artifact_recording_policy_proposal(
+            consolidation_priority_queue=queue,
+            policy={"min_priority_score": 60.0},
+        )
+
+        self.assertEqual(
+            proposal["surface"],
+            "snn_replay_artifact_recording_policy_proposal.v1",
+        )
+        self.assertTrue(proposal["recommended"])
+        self.assertTrue(proposal["advisory"])
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertFalse(proposal["eligible_for_artifact_recording"])
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_artifact_recording"])
+        self.assertEqual(
+            proposal["recommended_review"]["replay_evaluation_context_id"],
+            context["replay_evaluation_context_id"],
+        )
+        self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 1)
+
+    def test_snn_replay_artifact_recording_review_ticket_verification_fails_closed(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        self._record_replay_evaluation_context(controller)
+        ticket = self._record_review_ticket(controller)
+        ticket_id = str(ticket["review_ticket_id"])
+
+        self.assertIsNotNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                ticket_id,
+                operator_id="operator-1",
+            )
+        )
+        self.assertIsNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                ticket_id,
+                operator_id="operator-2",
+            )
+        )
+        controller.snn_replay_artifact_recording_review_tickets[0]["policy_proposal_hash"] = "tampered"
+        self.assertIsNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                ticket_id,
+                operator_id="operator-1",
+            )
+        )
+        controller.snn_replay_artifact_recording_review_tickets[0] = ticket
+        manager._runtime_state.state_revision += 1
+        self.assertIsNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                ticket_id,
+                operator_id="operator-1",
+            )
+        )
+
+    def test_snn_replay_artifact_recording_policy_proposal_blocks_below_threshold(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        self._record_replay_evaluation_context(controller)
+        queue = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [
+                    {
+                        "priority_score": 10.0,
+                        "all_labels_grounded": True,
+                    }
+                ],
+            },
+            limit=4,
+        )
+
+        proposal = controller.snn_replay_artifact_recording_policy_proposal(
+            consolidation_priority_queue=queue,
+            policy={"min_priority_score": 99.0},
+        )
+
+        self.assertFalse(proposal["recommended"])
+        self.assertEqual(proposal["candidate_count"], 0)
+        self.assertFalse(
+            proposal["promotion_gate"]["required_evidence"]["candidate_above_policy_threshold"]
+        )
+
     def test_replay_sample_marks_dirty_without_revision(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -179,34 +477,202 @@ class ReplayControllerTests(unittest.TestCase):
     def test_regeneration_permit_is_controller_owned_and_revision_bound(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
+        artifact = self._record_regeneration_replay_artifact(controller)
         permit = controller.issue_regeneration_permit(
-            mismatch_report={"available": True, "prediction_error": {"mismatch_score": 0.9}},
-            pressure_report={"available": True, "surface": "snn_language_plasticity_pressure.v1"},
-            replay_window=[{"case_id": "case-1", "grounded": True}],
+            replay_artifact_id=str(artifact["replay_artifact_id"]),
+            regeneration_design={
+                "locality_radius": 2,
+                "initial_weight": 0.02,
+                "max_new_synapses": 8,
+                "mismatch_score": 0.9,
+                "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+            },
             operator_id="operator-1",
             confirmation=True,
         )
-        proposal = {"replay_evidence": permit}
+        proposal = {
+            "replay_evidence": permit,
+            "regeneration_design": {
+                "locality_radius": 2,
+                "initial_weight": 0.02,
+                "max_new_synapses": 8,
+                "mismatch_score": 0.9,
+                "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+            },
+        }
 
         self.assertTrue(controller.verify_regeneration_permit(proposal))
+        self.assertEqual(artifact["readout_evidence_hashes"], ["readout-hash-1"])
+        self.assertEqual(permit["readout_evidence_hashes"], ["readout-hash-1"])
+        self.assertTrue(permit["confirmation"])
+        self.assertEqual(permit["operator_id"], "operator-1")
+        self.assertTrue(permit["regeneration_design_hash"])
         self.assertEqual(controller.regeneration_permits[0]["permit_id"], permit["permit_id"])
-        self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 1)
+        self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 4)
         manager._runtime_state.state_revision += 1
         self.assertFalse(controller.verify_regeneration_permit(proposal))
 
     def test_regeneration_permit_rejects_tampered_payload(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
+        artifact = self._record_regeneration_replay_artifact(controller)
         permit = controller.issue_regeneration_permit(
-            mismatch_report={"available": True, "prediction_error": {"mismatch_score": 0.9}},
-            pressure_report={"available": True},
-            replay_window=[{"case_id": "case-1", "grounded": True}],
+            replay_artifact_id=str(artifact["replay_artifact_id"]),
+            regeneration_design={
+                "locality_radius": 2,
+                "initial_weight": 0.02,
+                "max_new_synapses": 8,
+                "mismatch_score": 0.9,
+                "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+            },
             operator_id="operator-1",
             confirmation=True,
         )
         permit["evidence_hash"] = "fabricated"
 
-        self.assertFalse(controller.verify_regeneration_permit({"replay_evidence": permit}))
+        self.assertFalse(
+            controller.verify_regeneration_permit(
+                {
+                    "replay_evidence": permit,
+                    "regeneration_design": {
+                        "locality_radius": 2,
+                        "initial_weight": 0.02,
+                        "max_new_synapses": 8,
+                        "mismatch_score": 0.9,
+                        "candidate_synapses": [
+                            {"pre_index": 1, "post_index": 2, "initial_weight": 0.02}
+                        ],
+                    },
+                }
+            )
+        )
+
+    def test_regeneration_permit_rejects_candidate_design_drift(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        artifact = self._record_regeneration_replay_artifact(controller)
+        design = {
+            "locality_radius": 2,
+            "initial_weight": 0.02,
+            "max_new_synapses": 8,
+            "mismatch_score": 0.9,
+            "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+        }
+        permit = controller.issue_regeneration_permit(
+            replay_artifact_id=str(artifact["replay_artifact_id"]),
+            regeneration_design=design,
+            operator_id="operator-1",
+            confirmation=True,
+        )
+        tampered_design = deepcopy(design)
+        tampered_design["candidate_synapses"][0]["post_index"] = 3
+
+        self.assertFalse(
+            controller.verify_regeneration_permit(
+                {"replay_evidence": permit, "regeneration_design": tampered_design}
+            )
+        )
+
+    def test_regeneration_permit_rejects_replay_window_provenance_drift(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        artifact = self._record_regeneration_replay_artifact(controller)
+        design = {
+            "locality_radius": 2,
+            "initial_weight": 0.02,
+            "max_new_synapses": 8,
+            "mismatch_score": 0.9,
+            "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+        }
+        permit = controller.issue_regeneration_permit(
+            replay_artifact_id=str(artifact["replay_artifact_id"]),
+            regeneration_design=design,
+            operator_id="operator-1",
+            confirmation=True,
+        )
+        controller.snn_transition_memory_replay_artifacts[0]["readout_evidence_hashes"] = []
+
+        self.assertFalse(
+            controller.verify_regeneration_permit(
+                {"replay_evidence": permit, "regeneration_design": design}
+            )
+        )
+
+    def test_regeneration_permit_rejects_missing_server_owned_replay_artifact(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+
+        with self.assertRaisesRegex(ValueError, "verified server-owned SNN replay artifact"):
+            controller.issue_regeneration_permit(
+                replay_artifact_id="fabricated-replay-artifact",
+                regeneration_design={
+                    "locality_radius": 2,
+                    "initial_weight": 0.02,
+                    "max_new_synapses": 8,
+                    "mismatch_score": 0.9,
+                    "candidate_synapses": [
+                        {"pre_index": 1, "post_index": 2, "initial_weight": 0.02}
+                    ],
+                },
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_evaluated_replay_artifact_rejects_spoofed_internal_ledger_hash(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = self._record_replay_evaluation_context(controller)
+        proposal = {
+            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+            "ready": True,
+            "owned_by_hecsn": True,
+            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+            "mismatch_report": context["mismatch_report"],
+            "pressure_report": context["pressure_report"],
+            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+            "replay_evaluation_context_hash": context["evidence_hash"],
+            "replay_window": [
+                {"readout_evidence_hash": "fabricated-hash", "grounded": True}
+            ],
+            "promotion_gate": {"status": "ready_for_operator_recording_review"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "current internal-ledger evidence"):
+            controller.record_evaluated_snn_transition_memory_replay_artifact(
+                artifact_proposal=proposal,
+                known_readout_evidence_hashes={"real-hash"},
+                replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+                review_ticket_id=str(self._record_review_ticket(controller)["review_ticket_id"]),
+                operator_id="operator-1",
+                confirmation=True,
+            )
+
+    def test_regeneration_permit_rejects_raw_caller_window_artifact(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        raw_artifact = controller.record_snn_transition_memory_replay_artifact(
+            mismatch_report={"available": True, "prediction_error": {"mismatch_score": 0.9}},
+            pressure_report={"available": True},
+            replay_window=[{"case_id": "caller-window", "grounded": True}],
+            operator_id="operator-1",
+            confirmation=True,
+        )
+
+        with self.assertRaisesRegex(ValueError, "verified server-owned SNN replay artifact"):
+            controller.issue_regeneration_permit(
+                replay_artifact_id=str(raw_artifact["replay_artifact_id"]),
+                regeneration_design={
+                    "locality_radius": 2,
+                    "initial_weight": 0.02,
+                    "max_new_synapses": 8,
+                    "mismatch_score": 0.9,
+                    "candidate_synapses": [
+                        {"pre_index": 1, "post_index": 2, "initial_weight": 0.02}
+                    ],
+                },
+                operator_id="operator-1",
+                confirmation=True,
+            )
 
 
 if __name__ == "__main__":

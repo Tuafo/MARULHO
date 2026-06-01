@@ -96,10 +96,30 @@ class SNNLanguagePlasticityApplicationExecutor:
                 previous = float(weights.get(key, 0.0) or 0.0)
                 updated = previous + delta_value
                 weights[key] = updated
+                provenance = {
+                    "sequence_id": synapse.get("sequence_id"),
+                    "grounded": bool(synapse.get("grounded", True)),
+                    "readout_evidence_hash": synapse.get("readout_evidence_hash"),
+                    "prediction_hash": synapse.get("prediction_hash"),
+                    "transition_memory_evaluation_hash": synapse.get(
+                        "transition_memory_evaluation_hash"
+                    ),
+                    "persistent_transition_weights_hash": synapse.get(
+                        "persistent_transition_weights_hash"
+                    ),
+                    "source_pre_indices": deepcopy(synapse.get("source_pre_indices")),
+                    "source_post_indices": deepcopy(synapse.get("source_post_indices")),
+                    "source_active_indices": deepcopy(synapse.get("source_active_indices")),
+                }
                 applied_synapses.append(
                     {
                         "pre_index": pre_index,
                         "post_index": post_index,
+                        **{
+                            field: value
+                            for field, value in provenance.items()
+                            if value is not None
+                        },
                         "previous_weight": previous,
                         "updated_weight": updated,
                         "delta": delta_value,
@@ -111,6 +131,37 @@ class SNNLanguagePlasticityApplicationExecutor:
             state["last_operator_id"] = operator_id
             committed_checkpoint_file = self._committed_checkpoint_path(checkpoint_file, "live_application")
             state["last_checkpoint_path"] = str(committed_checkpoint_file)
+            provenance_by_key = state.setdefault("synapse_provenance_by_key", {})
+            for applied in applied_synapses:
+                key = f"{int(applied['pre_index'])}:{int(applied['post_index'])}"
+                provenance_by_key[key] = {
+                    field: deepcopy(applied.get(field))
+                    for field in (
+                        "sequence_id",
+                        "grounded",
+                        "readout_evidence_hash",
+                        "prediction_hash",
+                        "transition_memory_evaluation_hash",
+                        "persistent_transition_weights_hash",
+                        "source_pre_indices",
+                        "source_post_indices",
+                        "source_active_indices",
+                    )
+                    if applied.get(field) is not None
+                }
+            live_application = state.setdefault("live_application", {})
+            recent_events = list(live_application.get("recent_events") or [])
+            event = {
+                "operator_id": operator_id,
+                "applied_at": state["last_applied_at"],
+                "before_state_revision": before_revision,
+                "after_state_revision": before_revision + 1,
+                "checkpoint_path": str(checkpoint_file),
+                "staged_committed_checkpoint_path": str(committed_checkpoint_file),
+                "applied_synapses": deepcopy(applied_synapses),
+            }
+            live_application["last_application"] = deepcopy(event)
+            live_application["recent_events"] = [*recent_events, deepcopy(event)][-8:]
             self._runtime_state.mark_mutated()
             after_revision = int(self._runtime_state.state_revision)
             commit = self._commit_mutation(
@@ -161,6 +212,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "applied_synapse_count": len(applied_synapses),
                     "total_synapse_count": len(weights),
                 },
+                "live_application_event": deepcopy(event),
                 "applied_synapses": applied_synapses,
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": after_revision, **self._runtime_state.mutation_summary()},
@@ -172,6 +224,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             weights = dict(state.get("sparse_transition_weights") or {})
             maintenance = dict(state.get("homeostatic_maintenance") or {})
             regeneration = dict(state.get("synapse_regeneration") or {})
+            live_application = dict(state.get("live_application") or {})
             return {
                 "surface": "snn_language_plasticity_runtime_state.v1",
                 "owned_by_hecsn": True,
@@ -187,6 +240,9 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "regenerated_synapse_count_total": int(regeneration.get("regenerated_synapse_count_total", 0) or 0),
                 "last_synapse_regeneration": deepcopy(regeneration.get("last_regeneration")),
                 "recent_synapse_regeneration": deepcopy(list(regeneration.get("recent_events") or [])),
+                "synapse_provenance_by_key": deepcopy(dict(state.get("synapse_provenance_by_key") or {})),
+                "last_live_application": deepcopy(live_application.get("last_application")),
+                "recent_live_applications": deepcopy(list(live_application.get("recent_events") or [])),
                 "last_applied_at": state.get("last_applied_at"),
                 "last_operator_id": state.get("last_operator_id"),
                 "last_checkpoint_path": state.get("last_checkpoint_path"),
@@ -412,6 +468,11 @@ class SNNLanguagePlasticityApplicationExecutor:
                     },
                 )
             regenerated = []
+            readout_evidence_hashes = [
+                str(value)
+                for value in list(replay.get("readout_evidence_hashes") or [])
+                if str(value)
+            ][:64]
             for candidate in candidates:
                 pre_index = int(candidate.get("pre_index", 0) or 0)
                 post_index = int(candidate.get("post_index", 0) or 0)
@@ -423,7 +484,20 @@ class SNNLanguagePlasticityApplicationExecutor:
                 if weight <= 0.0:
                     continue
                 weights[key] = weight
-                regenerated.append({"synapse": key, "initial_weight": weight, "locality_distance": candidate.get("locality_distance")})
+                regenerated.append(
+                    {
+                        "synapse": key,
+                        "initial_weight": weight,
+                        "locality_distance": candidate.get("locality_distance"),
+                        "replay_provenance": {
+                            "permit_id": replay.get("permit_id"),
+                            "replay_artifact_id": replay.get("replay_artifact_id"),
+                            "replay_artifact_hash": replay.get("replay_artifact_hash"),
+                            "replay_window_hash": replay.get("replay_window_hash"),
+                            "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
+                        },
+                    }
+                )
             if not regenerated:
                 return self._blocked_regeneration(
                     reason="blocked_no_regenerable_synapses",
@@ -433,6 +507,17 @@ class SNNLanguagePlasticityApplicationExecutor:
             ledger = state.setdefault("synapse_regeneration", {})
             ledger["regeneration_count"] = int(ledger.get("regeneration_count", 0) or 0) + 1
             ledger["regenerated_synapse_count_total"] = int(ledger.get("regenerated_synapse_count_total", 0) or 0) + len(regenerated)
+            provenance_by_key = state.setdefault("synapse_provenance_by_key", {})
+            for regenerated_synapse in regenerated:
+                key = str(regenerated_synapse.get("synapse") or "")
+                provenance_by_key[key] = {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": replay.get("permit_id"),
+                    "replay_artifact_id": replay.get("replay_artifact_id"),
+                    "replay_artifact_hash": replay.get("replay_artifact_hash"),
+                    "replay_window_hash": replay.get("replay_window_hash"),
+                    "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
+                }
             event = {
                 "event_index": int(ledger["regeneration_count"]),
                 "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -445,6 +530,13 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "mismatch_hash": replay.get("mismatch_hash"),
                     "pressure_hash": replay.get("pressure_hash"),
                     "replay_window_hash": replay.get("replay_window_hash"),
+                    "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
+                    "replay_artifact_id": replay.get("replay_artifact_id"),
+                    "replay_artifact_hash": replay.get("replay_artifact_hash"),
+                    "regeneration_design_hash": replay.get("regeneration_design_hash"),
+                    "regeneration_design_candidate_count": replay.get(
+                        "regeneration_design_candidate_count"
+                    ),
                 },
                 "regenerated_synapse_count": len(regenerated),
                 "regenerated_synapses": deepcopy(regenerated),

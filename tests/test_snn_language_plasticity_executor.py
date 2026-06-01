@@ -20,6 +20,10 @@ def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
             "source": "replay_controller.regeneration_permit",
             "permit_id": "permit-1",
             "replay_window_id": "replay-window-1",
+            "replay_artifact_id": "artifact-1",
+            "replay_artifact_hash": "artifact-hash-1",
+            "replay_window_hash": "window-hash-1",
+            "readout_evidence_hashes": ["readout-hash-1", "readout-hash-2"],
             "evidence_hash": "sha256:replay-window-1",
         },
         "promotion_gate": {"status": "ready_for_operator_review"},
@@ -155,7 +159,19 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
     assert sum(value for key, value in language_state["sparse_transition_weights"].items() if key.startswith("1:")) <= 1.0
     assert language_state["synapse_regeneration"]["last_regeneration"]["regenerated_synapse_count"] == 2
     assert language_state["synapse_regeneration"]["last_regeneration"]["replay_regeneration_permit"]["permit_id"] == "permit-1"
+    assert (
+        language_state["synapse_regeneration"]["last_regeneration"]["replay_regeneration_permit"][
+            "readout_evidence_hashes"
+        ]
+        == ["readout-hash-1", "readout-hash-2"]
+    )
     assert language_state["synapse_regeneration"]["recent_events"][0]["regenerated_synapses"][0]["synapse"] == "1:3"
+    provenance = language_state["synapse_provenance_by_key"]["1:3"]
+    assert provenance["provenance_type"] == "replay_regeneration"
+    assert provenance["permit_id"] == "permit-1"
+    assert provenance["replay_artifact_id"] == "artifact-1"
+    assert provenance["replay_window_hash"] == "window-hash-1"
+    assert provenance["readout_evidence_hashes"] == ["readout-hash-1", "readout-hash-2"]
     assert language_state["synapse_regeneration"]["recent_events"][0]["committed_checkpoint_path"].endswith(
         ".regeneration.committed.pt"
     )

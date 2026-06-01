@@ -48,6 +48,9 @@ _FORWARDED_STATE_NAMES = frozenset({
     "_metadata",
     "_replay_sample_history",
     "_replay_regeneration_permits",
+    "_snn_replay_evaluation_contexts",
+    "_snn_replay_artifact_recording_review_tickets",
+    "_snn_transition_memory_replay_artifacts",
     "_runtime_config",
     "_runtime_env",
     "_runtime_state",
@@ -441,6 +444,15 @@ class RuntimePersistence:
         self._action_history = list(terminus_state.get("action_history") or [])
         self._replay_sample_history = list(terminus_state.get("replay_sample_history") or [])
         self._replay_regeneration_permits = list(terminus_state.get("replay_regeneration_permits") or [])
+        self._snn_replay_evaluation_contexts = list(
+            terminus_state.get("snn_replay_evaluation_contexts") or []
+        )
+        self._snn_replay_artifact_recording_review_tickets = list(
+            terminus_state.get("snn_replay_artifact_recording_review_tickets") or []
+        )
+        self._snn_transition_memory_replay_artifacts = list(
+            terminus_state.get("snn_transition_memory_replay_artifacts") or []
+        )
         self._delayed_consequence_records = deque(
             (
                 item

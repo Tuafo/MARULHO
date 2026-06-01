@@ -564,8 +564,63 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertEqual(replay_record["status"], "recorded")
                 self.assertEqual(manager.runtime_facade.replay_sample_history(limit=10)["count"], 1)
                 self.assertGreaterEqual(len(manager.runtime_facade.recent_traces(limit=10)), 1)
+                replay_context = manager._replay_controller.record_snn_replay_evaluation_context(
+                    mismatch_report={
+                        "surface": "snn_language_sequence_mismatch_probe.v1",
+                        "available": True,
+                        "owned_by_hecsn": True,
+                        "prediction_error": {"mismatch_score": 0.9},
+                    },
+                    pressure_report={
+                        "surface": "snn_language_plasticity_pressure.v1",
+                        "available": True,
+                        "owned_by_hecsn": True,
+                        "promotion_gate": {"status": "ready_for_operator_review"},
+                    },
+                )
+                replay_artifact = manager._replay_controller.record_snn_transition_memory_replay_artifact(
+                    mismatch_report=replay_context["mismatch_report"],
+                    pressure_report=replay_context["pressure_report"],
+                    replay_window=[{"case_id": "manager-roundtrip-1", "grounded": True}],
+                    operator_id="operator-1",
+                    confirmation=True,
+                )
+                replay_ticket = {
+                    "surface": "snn_replay_artifact_recording_review_ticket.v1",
+                    "review_ticket_id": "manager-ticket-1",
+                    "evidence_hash": "ticket-hash-1",
+                }
+                manager._replay_controller.snn_replay_artifact_recording_review_tickets.appendleft(replay_ticket)
 
                 saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
+                context_history = manager._replay_controller.snn_replay_evaluation_contexts
+                artifact_history = manager._replay_controller.snn_transition_memory_replay_artifacts
+                ticket_history = manager._replay_controller.snn_replay_artifact_recording_review_tickets
+                context_history.clear()
+                artifact_history.clear()
+                ticket_history.clear()
+                manager.runtime_facade.restore_checkpoint(saved["path"])
+                self.assertIs(
+                    manager._replay_controller.snn_replay_evaluation_contexts,
+                    context_history,
+                )
+                self.assertIs(
+                    manager._replay_controller.snn_transition_memory_replay_artifacts,
+                    artifact_history,
+                )
+                self.assertIs(
+                    manager._replay_controller.snn_replay_artifact_recording_review_tickets,
+                    ticket_history,
+                )
+                self.assertEqual(
+                    context_history[0]["replay_evaluation_context_id"],
+                    replay_context["replay_evaluation_context_id"],
+                )
+                self.assertEqual(
+                    artifact_history[0]["replay_artifact_id"],
+                    replay_artifact["replay_artifact_id"],
+                )
+                self.assertEqual(ticket_history[0]["review_ticket_id"], replay_ticket["review_ticket_id"])
                 restored = HECSNServiceManager(saved["path"], trace_dir=root / "traces")
                 try:
                     replay_history = restored.runtime_facade.replay_sample_history(limit=10)
@@ -573,6 +628,24 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
 
                     self.assertEqual(replay_history["count"], 1)
                     self.assertEqual(replay_history["history"][0]["replay_sample_id"], replay_record["replay_sample_id"])
+                    self.assertEqual(
+                        restored._replay_controller.snn_replay_evaluation_contexts[0][
+                            "replay_evaluation_context_id"
+                        ],
+                        replay_context["replay_evaluation_context_id"],
+                    )
+                    self.assertEqual(
+                        restored._replay_controller.snn_transition_memory_replay_artifacts[0][
+                            "replay_artifact_id"
+                        ],
+                        replay_artifact["replay_artifact_id"],
+                    )
+                    self.assertEqual(
+                        restored._replay_controller.snn_replay_artifact_recording_review_tickets[0][
+                            "review_ticket_id"
+                        ],
+                        replay_ticket["review_ticket_id"],
+                    )
                     self.assertGreaterEqual(len(traces), 1)
                     self.assertTrue(any(trace.get("operation") == "feed" for trace in traces))
                 finally:
