@@ -21,8 +21,10 @@ from hecsn.semantics import (
     evaluate_spike_language_plasticity_replay,
     evaluate_spike_language_sequence_mismatch,
     evaluate_spike_language_trainer_dry_run,
+    evaluate_snn_language_readout_rollout_replay,
     generate_snn_language_readout_draft,
     predict_spike_language_sequence,
+    rollout_snn_language_readout_candidate,
     run_spike_language_plasticity_replay_experiment,
     run_spike_language_plasticity_trial,
     run_spike_language_trainer_dry_run,
@@ -787,6 +789,190 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             blocked_stale_evaluation_draft["promotion_gate"]["eligible_for_bounded_readout_generation"]
         )
 
+    def test_snn_language_readout_rollout_candidate_uses_persistent_sparse_memory_without_mutation(self) -> None:
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        vocabulary = [
+            {"label": "memory pressure", "pressure_band": "medium", "grounded": True},
+            {"label": "prediction error", "pressure_band": "high", "grounded": True},
+            {"label": "ungrounded lure", "pressure_band": "high", "grounded": False},
+        ]
+        device = {"device": "cpu", "source": "readout_rollout_fixture"}
+        current_probe = build_spike_language_decoder_probe({"readout_slots": current, "device_evidence": device})
+        memory_probe = build_spike_language_decoder_probe({"readout_slots": [vocabulary[0]], "device_evidence": device})
+        error_probe = build_spike_language_decoder_probe({"readout_slots": [vocabulary[1]], "device_evidence": device})
+        current_index = current_probe["sparse_code_evidence"]["active_indices"][0]
+        memory_index = memory_probe["sparse_code_evidence"]["active_indices"][0]
+        error_index = error_probe["sparse_code_evidence"]["active_indices"][0]
+        transition_weights = {
+            f"{current_index}:{memory_index}": 0.9,
+            f"{memory_index}:{error_index}": 0.8,
+        }
+        training_batches = [
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            current,
+        ]
+        prediction = predict_spike_language_sequence(
+            training_batches,
+            current,
+            device,
+            top_k=4,
+            persistent_transition_weights=transition_weights,
+        )
+        transition_memory_evaluation = build_snn_language_transition_memory_prediction_evaluation(
+            training_batches,
+            [current, [vocabulary[0]], [vocabulary[1]]],
+            {"sparse_transition_weights": transition_weights},
+            device,
+            top_k=4,
+        )
+
+        rollout = rollout_snn_language_readout_candidate(
+            prediction,
+            vocabulary,
+            {"sparse_transition_weights": transition_weights},
+            device,
+            transition_memory_evaluation,
+            rollout_steps=3,
+            top_k=4,
+        )
+        blocked_without_memory = rollout_snn_language_readout_candidate(
+            prediction,
+            vocabulary,
+            {"sparse_transition_weights": {}},
+            device,
+            transition_memory_evaluation,
+            rollout_steps=3,
+            top_k=4,
+        )
+
+        self.assertEqual(rollout["artifact_kind"], "terminus_snn_language_readout_rollout_candidate")
+        self.assertEqual(rollout["surface"], "snn_language_readout_rollout_candidate.v1")
+        self.assertTrue(rollout["owned_by_hecsn"])
+        self.assertFalse(rollout["external_dependency"])
+        self.assertFalse(rollout["loads_external_checkpoint"])
+        self.assertTrue(rollout["generates_text"])
+        self.assertFalse(rollout["freeform_language_generation"])
+        self.assertFalse(rollout["decodes_text"])
+        self.assertFalse(rollout["trains_runtime_model"])
+        self.assertFalse(rollout["returns_trained_weights"])
+        self.assertFalse(rollout["applies_plasticity"])
+        self.assertFalse(rollout["mutates_runtime_state"])
+        self.assertIn("memory pressure", rollout["rollout"]["labels"])
+        self.assertIn("prediction error", rollout["rollout"]["labels"])
+        self.assertNotIn("ungrounded lure", rollout["rollout"]["labels"])
+        self.assertEqual(rollout["readout_rollout_evidence"]["persistent_transition_weight_count"], 2)
+        self.assertTrue(rollout["promotion_gate"]["eligible_for_bounded_readout_rollout"])
+        self.assertFalse(rollout["promotion_gate"]["eligible_for_freeform_language_generation"])
+        self.assertFalse(rollout["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertFalse(rollout["promotion_gate"]["eligible_for_fact_promotion"])
+        self.assertFalse(rollout["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(blocked_without_memory["available"])
+        self.assertFalse(
+            blocked_without_memory["promotion_gate"]["required_evidence"][
+                "persistent_transition_memory_available"
+            ]
+        )
+
+    def test_snn_language_readout_rollout_replay_evaluation_builds_review_targets_without_mutation(self) -> None:
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        vocabulary = [
+            {"label": "memory pressure", "pressure_band": "medium", "grounded": True},
+            {"label": "prediction error", "pressure_band": "high", "grounded": True},
+            {"label": "ungrounded lure", "pressure_band": "high", "grounded": False},
+        ]
+        device = {"device": "cpu", "source": "readout_rollout_replay_fixture"}
+        current_probe = build_spike_language_decoder_probe({"readout_slots": current, "device_evidence": device})
+        memory_probe = build_spike_language_decoder_probe({"readout_slots": [vocabulary[0]], "device_evidence": device})
+        error_probe = build_spike_language_decoder_probe({"readout_slots": [vocabulary[1]], "device_evidence": device})
+        current_index = current_probe["sparse_code_evidence"]["active_indices"][0]
+        memory_index = memory_probe["sparse_code_evidence"]["active_indices"][0]
+        error_index = error_probe["sparse_code_evidence"]["active_indices"][0]
+        transition_weights = {
+            f"{current_index}:{memory_index}": 0.9,
+            f"{memory_index}:{error_index}": 0.8,
+        }
+        training_batches = [
+            [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+            current,
+        ]
+        prediction = predict_spike_language_sequence(
+            training_batches,
+            current,
+            device,
+            top_k=4,
+            persistent_transition_weights=transition_weights,
+        )
+        transition_memory_evaluation = build_snn_language_transition_memory_prediction_evaluation(
+            training_batches,
+            [current, [vocabulary[0]], [vocabulary[1]]],
+            {"sparse_transition_weights": transition_weights},
+            device,
+            top_k=4,
+        )
+        rollout = rollout_snn_language_readout_candidate(
+            prediction,
+            vocabulary,
+            {"sparse_transition_weights": transition_weights},
+            device,
+            transition_memory_evaluation,
+            rollout_steps=3,
+            top_k=4,
+        )
+
+        evaluation = evaluate_snn_language_readout_rollout_replay(
+            rollout,
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        repeat = evaluate_snn_language_readout_rollout_replay(
+            rollout,
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_external = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "external_dependency": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+
+        self.assertEqual(
+            evaluation["artifact_kind"],
+            "terminus_snn_language_readout_rollout_replay_evaluation",
+        )
+        self.assertEqual(evaluation["surface"], "snn_language_readout_rollout_replay_evaluation.v1")
+        self.assertTrue(evaluation["owned_by_hecsn"])
+        self.assertFalse(evaluation["external_dependency"])
+        self.assertFalse(evaluation["loads_external_checkpoint"])
+        self.assertFalse(evaluation["generates_text"])
+        self.assertFalse(evaluation["freeform_language_generation"])
+        self.assertFalse(evaluation["decodes_text"])
+        self.assertFalse(evaluation["trains_runtime_model"])
+        self.assertFalse(evaluation["applies_plasticity"])
+        self.assertFalse(evaluation["mutates_runtime_state"])
+        self.assertFalse(evaluation["recorded_in_ledger"])
+        self.assertFalse(evaluation["eligible_for_replay_priority"])
+        self.assertTrue(evaluation["promotion_gate"]["eligible_for_readout_rollout_ledger_recording_review"])
+        self.assertFalse(evaluation["promotion_gate"]["eligible_for_replay_priority"])
+        self.assertEqual(
+            evaluation["promotion_gate"]["next_gate"],
+            "operator_review_record_snn_language_readout_rollout_evidence",
+        )
+        targets = evaluation["replay_evaluation"]["replay_targets"]
+        self.assertGreaterEqual(len(targets), 1)
+        self.assertTrue(all(target["grounded"] for target in targets))
+        self.assertTrue(all(target["active_indices_hash_valid"] for target in targets))
+        self.assertIn("memory pressure", [target["selected_label"] for target in targets])
+        self.assertEqual(
+            evaluation["provenance_evidence"]["rollout_replay_evaluation_hash"],
+            repeat["provenance_evidence"]["rollout_replay_evaluation_hash"],
+        )
+        self.assertFalse(
+            blocked_external["promotion_gate"]["required_evidence"]["external_dependency_absent"]
+        )
+        self.assertFalse(
+            blocked_external["promotion_gate"]["eligible_for_readout_rollout_ledger_recording_review"]
+        )
+
     def test_transition_memory_prediction_evaluation_compares_memory_against_baseline_without_generation(self) -> None:
         current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
         observed = [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}]
@@ -859,6 +1045,75 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
         )
         self.assertFalse(policy["subcortex_sleep_pressure"]["retired_runtime_dependency"])
+
+    def test_transition_memory_sleep_policy_routes_replay_bound_rollout_growth(self) -> None:
+        permit_policy = build_snn_language_transition_memory_sleep_policy(
+            {"sparse_transition_weight_count": 2, "homeostatic_maintenance_count": 0},
+            subcortex_sleep_pressure={"pressure": 0.2},
+            rollout_regeneration_evidence={
+                "surface": "snn_language_readout_rollout_regeneration_replay_artifact_review.v1",
+                "promotion_gate": {"eligible_for_regeneration_permit_request": True},
+            },
+            readout_ledger_evidence={"summary": {"event_count": 1, "rollout_event_count": 1}},
+        )
+        application_policy = build_snn_language_transition_memory_sleep_policy(
+            {"sparse_transition_weight_count": 2, "homeostatic_maintenance_count": 0},
+            rollout_regeneration_evidence={
+                "surface": "snn_language_readout_rollout_regeneration_application_preflight.v1",
+                "ready": True,
+                "promotion_gate": {
+                    "eligible_for_checkpoint_backed_regeneration_executor": True,
+                },
+            },
+        )
+        maintenance_policy = build_snn_language_transition_memory_sleep_policy(
+            {
+                "sparse_transition_weight_count": 3,
+                "homeostatic_maintenance_count": 0,
+                "regeneration_count": 1,
+                "regenerated_synapse_count_total": 1,
+            },
+            subcortex_sleep_pressure={"pressure": 0.7},
+            rollout_regeneration_evidence={
+                "surface": "snn_language_readout_rollout_regeneration_application.v1",
+                "accepted": True,
+                "mutates_runtime_state": True,
+            },
+        )
+
+        self.assertEqual(
+            permit_policy["recommendation"]["action"],
+            "review_rollout_regeneration_permit_request",
+        )
+        self.assertEqual(
+            permit_policy["recommendation"]["suggested_endpoint"],
+            "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-permit-request",
+        )
+        self.assertTrue(
+            permit_policy["rollout_regeneration_evidence"]["replay_artifact_review_ready"]
+        )
+        self.assertFalse(permit_policy["mutates_runtime_state"])
+        self.assertEqual(
+            application_policy["recommendation"]["action"],
+            "review_rollout_regeneration_application",
+        )
+        self.assertEqual(
+            application_policy["recommendation"]["suggested_endpoint"],
+            "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application",
+        )
+        self.assertTrue(
+            application_policy["rollout_regeneration_evidence"]["application_preflight_ready"]
+        )
+        self.assertEqual(
+            maintenance_policy["recommendation"]["action"],
+            "review_transition_memory_homeostatic_maintenance",
+        )
+        self.assertIn(
+            "post_growth_homeostatic_maintenance_due",
+            maintenance_policy["recommendation"]["reason_codes"],
+        )
+        self.assertFalse(maintenance_policy["applies_plasticity"])
+        self.assertFalse(maintenance_policy["mutates_runtime_state"])
 
     def test_transition_memory_regeneration_proposal_requires_replay_backed_local_mismatch(self) -> None:
         mismatch = {

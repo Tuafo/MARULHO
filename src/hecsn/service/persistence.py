@@ -50,6 +50,8 @@ _FORWARDED_STATE_NAMES = frozenset({
     "_replay_regeneration_permits",
     "_snn_replay_evaluation_contexts",
     "_snn_replay_artifact_recording_review_tickets",
+    "_snn_sleep_plasticity_review_tickets",
+    "_snn_sleep_plasticity_scheduler_design_review_tickets",
     "_snn_transition_memory_replay_artifacts",
     "_runtime_config",
     "_runtime_env",
@@ -449,6 +451,12 @@ class RuntimePersistence:
         )
         self._snn_replay_artifact_recording_review_tickets = list(
             terminus_state.get("snn_replay_artifact_recording_review_tickets") or []
+        )
+        self._snn_sleep_plasticity_review_tickets = list(
+            terminus_state.get("snn_sleep_plasticity_review_tickets") or []
+        )
+        self._snn_sleep_plasticity_scheduler_design_review_tickets = list(
+            terminus_state.get("snn_sleep_plasticity_scheduler_design_review_tickets") or []
         )
         self._snn_transition_memory_replay_artifacts = list(
             terminus_state.get("snn_transition_memory_replay_artifacts") or []

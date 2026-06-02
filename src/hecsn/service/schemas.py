@@ -272,11 +272,96 @@ class SNNLanguageReadoutDraftRequest(BaseModel):
     max_draft_terms: int = Field(6, ge=1, le=12)
 
 
+class SNNLanguageReadoutRolloutCandidateRequest(BaseModel):
+    prediction_report: dict[str, Any] = Field(..., min_length=1)
+    readout_vocabulary_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=32)
+    transition_memory_state: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    transition_memory_evaluation: dict[str, Any] | None = None
+    rollout_steps: int = Field(4, ge=1, le=12)
+    top_k: int = Field(4, ge=1, le=8)
+
+
+class SNNLanguageReadoutRolloutReplayEvaluationRequest(BaseModel):
+    readout_rollout_candidate: dict[str, Any] = Field(..., min_length=1)
+    candidate_limit: int = Field(8, ge=1, le=32)
+    device_evidence: dict[str, Any] | None = None
+
+
 class SNNLanguageReadoutLedgerRecordRequest(BaseModel):
     readout_draft: dict[str, Any] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)
     operator_id: str = Field(..., min_length=1, max_length=160)
     confirmation: bool = False
+
+
+class SNNLanguageReadoutRolloutLedgerRecordRequest(BaseModel):
+    readout_rollout_replay_evaluation: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNLanguageReadoutRolloutRehearsalEvaluationRequest(BaseModel):
+    rollout_rehearsal_promotion_policy: dict[str, Any] = Field(..., min_length=1)
+    candidate_limit: int = Field(8, ge=0, le=32)
+
+
+class SNNLanguageReadoutRolloutRehearsalExperimentRequest(BaseModel):
+    rollout_rehearsal_evaluation: dict[str, Any] = Field(..., min_length=1)
+    replay_cycles: int = Field(3, ge=1, le=12)
+    stability_floor: float = Field(0.95, ge=0.0, le=1.0)
+
+
+class SNNLanguageReadoutRolloutConsolidationDesignRequest(BaseModel):
+    rollout_rehearsal_experiment: dict[str, Any] = Field(..., min_length=1)
+    consolidation_policy: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutRolloutConsolidationShadowDeltaRequest(BaseModel):
+    rollout_consolidation_design: dict[str, Any] = Field(..., min_length=1)
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutRolloutConsolidationShadowApplicationPreflightRequest(BaseModel):
+    rollout_consolidation_design: dict[str, Any] = Field(..., min_length=1)
+    rollout_consolidation_shadow_delta: dict[str, Any] = Field(..., min_length=1)
+
+
+class SNNLanguageReadoutRolloutDevelopmentalPlasticityReviewRequest(BaseModel):
+    rollout_consolidation_design: dict[str, Any] = Field(..., min_length=1)
+    rollout_consolidation_shadow_application_preflight: dict[str, Any] = Field(..., min_length=1)
+
+
+class SNNLanguageReadoutRolloutRegenerationProposalAdapterRequest(BaseModel):
+    rollout_developmental_plasticity_review: dict[str, Any] = Field(..., min_length=1)
+
+
+class SNNLanguageReadoutRolloutRegenerationReplayArtifactReviewRequest(BaseModel):
+    rollout_regeneration_proposal_adapter: dict[str, Any] = Field(..., min_length=1)
+    snn_transition_memory_replay_artifact: dict[str, Any] = Field(..., min_length=1)
+
+
+class SNNLanguageReadoutRolloutRegenerationPermitRequestRequest(BaseModel):
+    rollout_regeneration_replay_artifact_review: dict[str, Any] = Field(..., min_length=1)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNLanguageReadoutRolloutRegenerationApplicationPreflightRequest(BaseModel):
+    rollout_regeneration_permit_request: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1)
+
+
+class SNNLanguageReadoutRolloutRegenerationApplicationRequest(BaseModel):
+    rollout_regeneration_application_preflight: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+    max_outgoing_row_mass: float = Field(1.0, gt=0.0, le=4.0)
 
 
 class SNNLanguageReadoutRehearsalEvaluationRequest(BaseModel):
@@ -418,6 +503,25 @@ class SNNLanguageTransitionMemorySleepPolicyRequest(BaseModel):
     transition_memory_state: dict[str, Any] | None = None
     subcortex_sleep_pressure: dict[str, Any] | None = None
     replay_evidence: dict[str, Any] | None = None
+    rollout_regeneration_evidence: dict[str, Any] | None = None
+    readout_ledger_evidence: dict[str, Any] | None = None
+
+
+class SNNSleepPlasticityReviewTicketRequest(BaseModel):
+    sleep_policy: dict[str, Any] = Field(..., min_length=1)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNSleepPlasticitySchedulerDesignReviewTicketRequest(BaseModel):
+    limit: int = Field(20, ge=1, le=64)
+    cycles: int = Field(4, ge=3, le=16)
+    min_stable_cycles: int = Field(3, ge=3, le=16)
+    max_review_interval_seconds: float = Field(300.0, ge=60.0, le=3600.0)
+    expected_state_revision: int = Field(..., ge=0)
+    scheduler_design_hash: str = Field(..., min_length=64, max_length=64)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
 
 
 class SNNLanguageTransitionMemoryRegenerationProposalRequest(BaseModel):
@@ -538,6 +642,8 @@ class StatusResponse(BaseModel):
     concept_store: dict[str, Any]
     terminus_runtime: dict[str, Any]
     replay_dataset_summary: dict[str, Any] | None = None
+    snn_sleep_plasticity_autonomy_proposal: dict[str, Any] | None = None
+    snn_sleep_plasticity_scheduler_installation_autonomy_proposal: dict[str, Any] | None = None
     runtime_truth: dict[str, Any] | None = None
 
 
@@ -551,6 +657,8 @@ class TerminusRuntimeResponse(BaseModel):
     runtime_scope: dict[str, Any] | None = None
     memory_store: dict[str, Any] | None = None
     replay_dataset_summary: dict[str, Any] | None = None
+    snn_sleep_plasticity_autonomy_proposal: dict[str, Any] | None = None
+    snn_sleep_plasticity_scheduler_installation_autonomy_proposal: dict[str, Any] | None = None
     runtime_truth: dict[str, Any] | None = None
 
 
@@ -609,6 +717,8 @@ class PolicyActuatorResponse(BaseModel):
     created_at: str
     subcortical_control_candidates: dict[str, Any] | None = None
     subcortical_self_repair_candidates: dict[str, Any] | None = None
+    snn_sleep_plasticity_autonomy_proposal: dict[str, Any] | None = None
+    snn_sleep_plasticity_scheduler_installation_autonomy_proposal: dict[str, Any] | None = None
 
 
 class ReplayCandidateResponse(BaseModel):

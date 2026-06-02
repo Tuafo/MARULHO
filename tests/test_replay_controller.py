@@ -121,6 +121,32 @@ class ReplayControllerTests(unittest.TestCase):
             "promotion_gate": {"status": "ready_for_operator_review"},
         }
 
+    @staticmethod
+    def _sleep_policy() -> dict[str, object]:
+        return {
+            "surface": "snn_language_transition_memory_sleep_policy.v1",
+            "available": True,
+            "owned_by_hecsn": True,
+            "mutates_runtime_state": False,
+            "transition_memory": {
+                "sparse_transition_weight_count": 4,
+                "homeostatic_maintenance_count": 0,
+                "regeneration_count": 1,
+                "regenerated_synapse_count_total": 1,
+            },
+            "replay_evidence": {"available": True, "ready": True},
+            "rollout_regeneration_evidence": {"available": True, "application_applied": True},
+            "readout_ledger_evidence": {"available": True, "rollout_event_count": 1},
+            "recommendation": {
+                "action": "review_transition_memory_homeostatic_maintenance",
+                "recommended": True,
+                "suggested_endpoint": "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+                "requires_operator_confirmation": True,
+                "executable": False,
+                "reason_codes": ["post_growth_homeostatic_maintenance_due"],
+            },
+        }
+
     @classmethod
     def _record_replay_evaluation_context(cls, controller: ReplayController) -> dict[str, object]:
         return controller.record_snn_replay_evaluation_context(
@@ -257,6 +283,30 @@ class ReplayControllerTests(unittest.TestCase):
 
         self.assertIs(controller.snn_replay_artifact_recording_review_tickets, tickets)
         self.assertEqual(tickets[0]["review_ticket_id"], "ticket-1")
+
+    def test_snn_sleep_plasticity_review_ticket_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        tickets = controller.snn_sleep_plasticity_review_tickets
+
+        controller.snn_sleep_plasticity_review_tickets = [
+            {"review_ticket_id": "sleep-ticket-1", "evidence_hash": "hash-1"}
+        ]
+
+        self.assertIs(controller.snn_sleep_plasticity_review_tickets, tickets)
+        self.assertEqual(tickets[0]["review_ticket_id"], "sleep-ticket-1")
+
+    def test_snn_sleep_plasticity_scheduler_design_review_ticket_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        tickets = controller.snn_sleep_plasticity_scheduler_design_review_tickets
+
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets = [
+            {"scheduler_design_review_ticket_id": "design-ticket-1", "evidence_hash": "hash-1"}
+        ]
+
+        self.assertIs(controller.snn_sleep_plasticity_scheduler_design_review_tickets, tickets)
+        self.assertEqual(tickets[0]["scheduler_design_review_ticket_id"], "design-ticket-1")
 
     def test_snn_replay_evaluation_context_verification_fails_closed(self) -> None:
         manager = _FakeReplayManager()
@@ -411,6 +461,504 @@ class ReplayControllerTests(unittest.TestCase):
                 operator_id="operator-1",
             )
         )
+
+    def test_snn_sleep_plasticity_review_ticket_is_controller_owned_and_revision_bound(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+
+        ticket = controller.record_snn_sleep_plasticity_review_ticket(
+            sleep_policy=self._sleep_policy(),
+            operator_id="operator-sleep",
+            confirmation=True,
+        )
+        ticket_id = str(ticket["review_ticket_id"])
+
+        self.assertEqual(ticket["surface"], "snn_sleep_plasticity_review_ticket.v1")
+        self.assertEqual(ticket["recommended_action"], "review_transition_memory_homeostatic_maintenance")
+        self.assertEqual(ticket["review_gate_key"], "transition_memory_homeostatic_maintenance_review")
+        self.assertEqual(ticket["operator_id"], "operator-sleep")
+        self.assertFalse(ticket["executable"])
+        self.assertFalse(ticket["mutates_runtime_state"])
+        self.assertFalse(ticket["applies_plasticity"])
+        self.assertFalse(ticket["writes_checkpoint"])
+        self.assertFalse(ticket["records_replay_artifact"])
+        self.assertFalse(ticket["issues_regeneration_permit"])
+        self.assertIsNotNone(
+            controller.verified_snn_sleep_plasticity_review_ticket(
+                ticket_id,
+                operator_id="operator-sleep",
+            )
+        )
+        self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 1)
+        queue = controller.snn_sleep_plasticity_review_ticket_queue(limit=4)
+        self.assertEqual(queue["surface"], "snn_sleep_plasticity_review_ticket_queue.v1")
+        self.assertTrue(queue["ready"])
+        self.assertEqual(queue["verified_count"], 1)
+        self.assertEqual(queue["stale_count"], 0)
+        self.assertEqual(
+            queue["next_gate"],
+            "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        )
+        self.assertEqual(
+            queue["pending_action_counts"]["review_transition_memory_homeostatic_maintenance"],
+            1,
+        )
+        self.assertFalse(queue["executable"])
+        self.assertFalse(queue["mutates_runtime_state"])
+        self.assertFalse(queue["applies_plasticity"])
+        proposal = controller.snn_sleep_plasticity_autonomy_proposal(limit=4)
+        self.assertEqual(proposal["surface"], "snn_sleep_plasticity_autonomy_proposal.v1")
+        self.assertTrue(proposal["ready"])
+        self.assertEqual(proposal["candidate"]["action"], "review_sleep_plasticity_next_gate")
+        self.assertEqual(proposal["candidate"]["review_ticket_id"], ticket_id)
+        self.assertEqual(
+            proposal["promotion_gate"]["next_gate"],
+            "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        )
+        self.assertTrue(proposal["promotion_gate"]["eligible_for_autonomy_planning"])
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_structural_write"])
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertFalse(proposal["applies_plasticity"])
+        revision_before_experiment = manager._runtime_state.state_revision
+        dirty_calls_before_experiment = manager._runtime_state.dirty_without_revision_calls
+        ticket_count_before_experiment = len(controller.snn_sleep_plasticity_review_tickets)
+        experiment = controller.snn_sleep_plasticity_scheduler_experiment(
+            limit=4,
+            cycles=3,
+        )
+        repeated_experiment = controller.snn_sleep_plasticity_scheduler_experiment(
+            limit=4,
+            cycles=3,
+        )
+        self.assertEqual(experiment["surface"], "snn_sleep_plasticity_scheduler_experiment.v1")
+        self.assertTrue(experiment["ready"])
+        self.assertTrue(experiment["isolated"])
+        self.assertEqual(experiment["experiment_summary"]["cycle_count"], 3)
+        self.assertEqual(experiment["experiment_summary"]["stable_cycle_count"], 3)
+        self.assertTrue(experiment["experiment_summary"]["proposal_stable"])
+        self.assertEqual(experiment["experiment_summary"]["review_ticket_id"], ticket_id)
+        self.assertFalse(experiment["device_evidence"]["tensor_execution_required"])
+        self.assertFalse(experiment["device_evidence"]["cuda_applicable"])
+        self.assertFalse(experiment["external_dependency"])
+        self.assertFalse(experiment["loads_external_checkpoint"])
+        self.assertFalse(experiment["returns_trained_weights"])
+        self.assertFalse(experiment["eligible_for_plasticity"])
+        self.assertEqual(
+            repeated_experiment["provenance_evidence"]["scheduler_experiment_hash"],
+            experiment["provenance_evidence"]["scheduler_experiment_hash"],
+        )
+        self.assertEqual(
+            repeated_experiment["provenance_evidence"]["scheduler_experiment_id"],
+            experiment["provenance_evidence"]["scheduler_experiment_id"],
+        )
+        self.assertFalse(experiment["executes_suggested_endpoint"])
+        self.assertFalse(experiment["ephemeral_experiment"]["scheduler_installed"])
+        self.assertFalse(experiment["ephemeral_experiment"]["suggested_endpoint_called"])
+        self.assertTrue(
+            experiment["promotion_gate"]["eligible_for_operator_scheduler_design_review"]
+        )
+        self.assertFalse(experiment["promotion_gate"]["eligible_for_scheduler_installation"])
+        self.assertFalse(experiment["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(experiment["promotion_gate"]["eligible_for_structural_write"])
+        design = controller.snn_sleep_plasticity_scheduler_design(
+            limit=4,
+            cycles=3,
+            min_stable_cycles=3,
+            max_review_interval_seconds=120.0,
+        )
+        repeated_design = controller.snn_sleep_plasticity_scheduler_design(
+            limit=4,
+            cycles=3,
+            min_stable_cycles=3,
+            max_review_interval_seconds=120.0,
+        )
+        self.assertEqual(design["surface"], "snn_sleep_plasticity_scheduler_design.v1")
+        self.assertTrue(design["ready"])
+        self.assertTrue(design["isolated"])
+        self.assertEqual(design["scheduler_design"]["scheduler_mode"], "operator_review_only")
+        self.assertEqual(design["scheduler_design"]["review_ticket_id"], ticket_id)
+        self.assertEqual(
+            design["scheduler_design"]["bound_state_revision"],
+            manager._runtime_state.state_revision,
+        )
+        self.assertEqual(design["scheduler_design"]["min_stable_cycles"], 3)
+        self.assertEqual(design["scheduler_design"]["observed_stable_cycles"], 3)
+        self.assertEqual(design["scheduler_design"]["max_review_interval_seconds"], 120.0)
+        self.assertEqual(
+            design["scheduler_design"]["source_scheduler_experiment_hash"],
+            experiment["provenance_evidence"]["scheduler_experiment_hash"],
+        )
+        self.assertFalse(design["scheduler_design"]["automatic_endpoint_execution"])
+        self.assertFalse(design["scheduler_design"]["automatic_plasticity"])
+        self.assertFalse(design["installs_scheduler"])
+        self.assertFalse(design["executes_suggested_endpoint"])
+        self.assertFalse(design["writes_checkpoint"])
+        self.assertFalse(design["applies_plasticity"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["eligible_for_plasticity"])
+        self.assertFalse(design["safety_contract"]["scheduler_installation_allowed"])
+        self.assertFalse(design["safety_contract"]["suggested_endpoint_execution_allowed"])
+        self.assertFalse(design["safety_contract"]["runtime_mutation_allowed"])
+        self.assertFalse(design["device_evidence"]["tensor_execution_required"])
+        self.assertFalse(design["device_evidence"]["cuda_applicable"])
+        self.assertEqual(
+            repeated_design["provenance_evidence"]["scheduler_design_hash"],
+            design["provenance_evidence"]["scheduler_design_hash"],
+        )
+        self.assertFalse(design["promotion_gate"]["eligible_for_scheduler_installation"])
+        self.assertTrue(
+            design["promotion_gate"]["eligible_for_operator_scheduler_design_review"]
+        )
+        design_ticket = controller.record_snn_sleep_plasticity_scheduler_design_review_ticket(
+            limit=4,
+            cycles=3,
+            min_stable_cycles=3,
+            max_review_interval_seconds=120.0,
+            expected_state_revision=manager._runtime_state.state_revision,
+            scheduler_design_hash=design["provenance_evidence"]["scheduler_design_hash"],
+            operator_id="operator-scheduler-design",
+            confirmation=True,
+        )
+        design_ticket_id = str(design_ticket["scheduler_design_review_ticket_id"])
+        self.assertEqual(
+            design_ticket["surface"],
+            "snn_sleep_plasticity_scheduler_design_review_ticket.v1",
+        )
+        self.assertEqual(
+            design_ticket["scheduler_design_hash"],
+            design["provenance_evidence"]["scheduler_design_hash"],
+        )
+        self.assertEqual(
+            design_ticket["recorded_state_revision"],
+            manager._runtime_state.state_revision,
+        )
+        self.assertFalse(design_ticket["installs_scheduler"])
+        self.assertFalse(design_ticket["executes_suggested_endpoint"])
+        self.assertFalse(design_ticket["records_replay_artifact"])
+        self.assertFalse(design_ticket["issues_regeneration_permit"])
+        self.assertFalse(design_ticket["writes_checkpoint"])
+        self.assertFalse(design_ticket["applies_plasticity"])
+        self.assertFalse(design_ticket["mutates_transition_memory"])
+        self.assertFalse(design_ticket["mutates_runtime_state"])
+        self.assertIsNotNone(
+            controller.verified_snn_sleep_plasticity_scheduler_design_review_ticket(
+                design_ticket_id,
+                operator_id="operator-scheduler-design",
+            )
+        )
+        design_ticket_queue = (
+            controller.snn_sleep_plasticity_scheduler_design_review_ticket_queue(limit=4)
+        )
+        self.assertEqual(
+            design_ticket_queue["surface"],
+            "snn_sleep_plasticity_scheduler_design_review_ticket_queue.v1",
+        )
+        self.assertEqual(design_ticket_queue["verified_count"], 1)
+        self.assertEqual(
+            design_ticket_queue["latest_verified_ticket"][
+                "scheduler_design_review_ticket_id"
+            ],
+            design_ticket_id,
+        )
+        self.assertFalse(design_ticket_queue["installs_scheduler"])
+        self.assertFalse(design_ticket_queue["executes_suggested_endpoint"])
+        self.assertFalse(design_ticket_queue["mutates_runtime_state"])
+        installation_proposal = (
+            controller.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                limit=4
+            )
+        )
+        repeated_installation_proposal = (
+            controller.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                limit=4
+            )
+        )
+        self.assertEqual(
+            installation_proposal["surface"],
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal.v1",
+        )
+        self.assertTrue(installation_proposal["ready"])
+        self.assertEqual(
+            installation_proposal["candidate"]["scheduler_design_review_ticket_id"],
+            design_ticket_id,
+        )
+        self.assertFalse(installation_proposal["installs_scheduler"])
+        self.assertFalse(installation_proposal["registers_timer"])
+        self.assertFalse(installation_proposal["starts_background_worker"])
+        self.assertFalse(installation_proposal["executes_suggested_endpoint"])
+        self.assertFalse(installation_proposal["mutates_runtime_state"])
+        self.assertFalse(
+            installation_proposal["promotion_gate"][
+                "eligible_for_scheduler_installation"
+            ]
+        )
+        self.assertEqual(
+            repeated_installation_proposal["provenance_evidence"][
+                "scheduler_installation_autonomy_proposal_hash"
+            ],
+            installation_proposal["provenance_evidence"][
+                "scheduler_installation_autonomy_proposal_hash"
+            ],
+        )
+        older_valid_ticket = deepcopy(design_ticket)
+        older_valid_ticket["scheduler_design_review_ticket_id"] = "older-valid-design-ticket"
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets.append(
+            older_valid_ticket
+        )
+        proposal_with_older_ticket = (
+            controller.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                limit=4
+            )
+        )
+        self.assertEqual(
+            proposal_with_older_ticket["provenance_evidence"][
+                "scheduler_installation_autonomy_proposal_hash"
+            ],
+            installation_proposal["provenance_evidence"][
+                "scheduler_installation_autonomy_proposal_hash"
+            ],
+        )
+        malformed_ticket = deepcopy(design_ticket)
+        malformed_ticket["scheduler_design_review_ticket_id"] = "malformed-design-ticket"
+        malformed_ticket["design_parameters"] = {"cycles": "not-an-integer"}
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets.appendleft(
+            malformed_ticket
+        )
+        limited_queue = (
+            controller.snn_sleep_plasticity_scheduler_design_review_ticket_queue(
+                limit=1
+            )
+        )
+        self.assertEqual(limited_queue["tampered_count"], 1)
+        self.assertEqual(
+            limited_queue["latest_verified_ticket"][
+                "scheduler_design_review_ticket_id"
+            ],
+            design_ticket_id,
+        )
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets.popleft()
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets.pop()
+        installation_preflight = (
+            controller.snn_sleep_plasticity_scheduler_installation_preflight(
+                limit=4
+            )
+        )
+        repeated_installation_preflight = (
+            controller.snn_sleep_plasticity_scheduler_installation_preflight(
+                limit=4
+            )
+        )
+        self.assertEqual(
+            installation_preflight["surface"],
+            "snn_sleep_plasticity_scheduler_installation_preflight.v1",
+        )
+        self.assertTrue(installation_preflight["ready"])
+        self.assertEqual(
+            installation_preflight["installation_review_preflight"][
+                "scheduler_design_review_ticket_id"
+            ],
+            design_ticket_id,
+        )
+        self.assertEqual(
+            installation_preflight["installation_review_preflight"][
+                "scheduler_design_review_ticket_hash"
+            ],
+            design_ticket["evidence_hash"],
+        )
+        self.assertEqual(
+            installation_preflight["installation_review_preflight"][
+                "source_scheduler_experiment_hash"
+            ],
+            design["provenance_evidence"]["source_scheduler_experiment_hash"],
+        )
+        self.assertEqual(
+            installation_preflight["installation_review_preflight"][
+                "scheduler_review_parameters"
+            ]["cycles"],
+            3,
+        )
+        self.assertEqual(
+            installation_preflight["installation_review_preflight"][
+                "bound_state_revision"
+            ],
+            manager._runtime_state.state_revision,
+        )
+        self.assertFalse(installation_preflight["installs_scheduler"])
+        self.assertFalse(installation_preflight["registers_timer"])
+        self.assertFalse(installation_preflight["starts_background_worker"])
+        self.assertFalse(installation_preflight["executes_suggested_endpoint"])
+        self.assertFalse(installation_preflight["writes_checkpoint"])
+        self.assertFalse(installation_preflight["applies_plasticity"])
+        self.assertFalse(installation_preflight["mutates_runtime_state"])
+        self.assertFalse(
+            installation_preflight["promotion_gate"][
+                "eligible_for_scheduler_installation"
+            ]
+        )
+        self.assertEqual(
+            repeated_installation_preflight["provenance_evidence"][
+                "scheduler_installation_preflight_hash"
+            ],
+            installation_preflight["provenance_evidence"][
+                "scheduler_installation_preflight_hash"
+            ],
+        )
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets[0][
+            "scheduler_design_hash"
+        ] = "tampered"
+        self.assertIsNone(
+            controller.verified_snn_sleep_plasticity_scheduler_design_review_ticket(
+                design_ticket_id,
+                operator_id="operator-scheduler-design",
+            )
+        )
+        tampered_design_ticket_queue = (
+            controller.snn_sleep_plasticity_scheduler_design_review_ticket_queue(limit=4)
+        )
+        self.assertEqual(tampered_design_ticket_queue["verified_count"], 0)
+        self.assertEqual(tampered_design_ticket_queue["tampered_count"], 1)
+        tampered_installation_proposal = (
+            controller.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                limit=4
+            )
+        )
+        self.assertFalse(tampered_installation_proposal["ready"])
+        tampered_installation_preflight = (
+            controller.snn_sleep_plasticity_scheduler_installation_preflight(
+                limit=4
+            )
+        )
+        self.assertFalse(tampered_installation_preflight["ready"])
+        controller.snn_sleep_plasticity_scheduler_design_review_tickets[0] = design_ticket
+        with self.assertRaisesRegex(ValueError, "current controller evidence"):
+            controller.record_snn_sleep_plasticity_scheduler_design_review_ticket(
+                limit=4,
+                cycles=3,
+                min_stable_cycles=3,
+                max_review_interval_seconds=120.0,
+                expected_state_revision=manager._runtime_state.state_revision,
+                scheduler_design_hash="0" * 64,
+                operator_id="operator-scheduler-design",
+                confirmation=True,
+            )
+        self.assertEqual(manager._runtime_state.state_revision, revision_before_experiment)
+        self.assertEqual(
+            manager._runtime_state.dirty_without_revision_calls,
+            dirty_calls_before_experiment + 1,
+        )
+        self.assertEqual(
+            len(controller.snn_sleep_plasticity_review_tickets),
+            ticket_count_before_experiment,
+        )
+        forged_ticket = dict(ticket)
+        forged_ticket["surface"] = "forged_sleep_plasticity_review_ticket.v1"
+        controller.snn_sleep_plasticity_review_tickets[0] = forged_ticket
+        forged_queue = controller.snn_sleep_plasticity_review_ticket_queue(limit=4)
+        self.assertEqual(forged_queue["verified_count"], 0)
+        self.assertEqual(forged_queue["tampered_count"], 1)
+        controller.snn_sleep_plasticity_review_tickets[0] = ticket
+        controller.snn_sleep_plasticity_review_tickets[0]["sleep_policy_hash"] = "tampered"
+        tampered_queue = controller.snn_sleep_plasticity_review_ticket_queue(limit=4)
+        self.assertEqual(tampered_queue["verified_count"], 0)
+        self.assertEqual(tampered_queue["tampered_count"], 1)
+        tampered_proposal = controller.snn_sleep_plasticity_autonomy_proposal(limit=4)
+        self.assertFalse(tampered_proposal["ready"])
+        self.assertEqual(
+            tampered_proposal["candidate"]["action"],
+            "collect_sleep_plasticity_review_ticket",
+        )
+        tampered_experiment = controller.snn_sleep_plasticity_scheduler_experiment(
+            limit=4,
+            cycles=3,
+        )
+        self.assertFalse(tampered_experiment["ready"])
+        self.assertFalse(
+            tampered_experiment["promotion_gate"][
+                "eligible_for_operator_scheduler_design_review"
+            ]
+        )
+        tampered_design = controller.snn_sleep_plasticity_scheduler_design(
+            limit=4,
+            cycles=3,
+        )
+        self.assertFalse(tampered_design["ready"])
+        self.assertFalse(
+            tampered_design["promotion_gate"][
+                "eligible_for_operator_scheduler_design_review"
+            ]
+        )
+        self.assertIsNone(
+            controller.verified_snn_sleep_plasticity_review_ticket(
+                ticket_id,
+                operator_id="operator-sleep",
+            )
+        )
+        controller.snn_sleep_plasticity_review_tickets[0] = ticket
+        manager._runtime_state.state_revision += 1
+        stale_queue = controller.snn_sleep_plasticity_review_ticket_queue(limit=4)
+        self.assertEqual(stale_queue["verified_count"], 0)
+        self.assertEqual(stale_queue["stale_count"], 1)
+        stale_experiment = controller.snn_sleep_plasticity_scheduler_experiment(
+            limit=4,
+            cycles=3,
+        )
+        self.assertFalse(stale_experiment["ready"])
+        self.assertFalse(
+            stale_experiment["promotion_gate"][
+                "eligible_for_operator_scheduler_design_review"
+            ]
+        )
+        stale_design = controller.snn_sleep_plasticity_scheduler_design(
+            limit=4,
+            cycles=3,
+        )
+        self.assertFalse(stale_design["ready"])
+        self.assertFalse(
+            stale_design["promotion_gate"][
+                "eligible_for_operator_scheduler_design_review"
+            ]
+        )
+        self.assertIsNone(
+            controller.verified_snn_sleep_plasticity_review_ticket(
+                ticket_id,
+                operator_id="operator-sleep",
+            )
+        )
+
+    def test_snn_sleep_plasticity_review_ticket_rejects_non_recommended_policy(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        policy = self._sleep_policy()
+        policy["recommendation"] = {
+            "action": "continue_monitoring_transition_memory",
+            "recommended": False,
+            "suggested_endpoint": None,
+            "executable": False,
+        }
+
+        with self.assertRaisesRegex(ValueError, "non-executable recommendation"):
+            controller.record_snn_sleep_plasticity_review_ticket(
+                sleep_policy=policy,
+                operator_id="operator-sleep",
+                confirmation=True,
+            )
+
+    def test_snn_sleep_plasticity_review_ticket_rejects_mismatched_action_endpoint(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        policy = self._sleep_policy()
+        policy["recommendation"]["suggested_endpoint"] = (
+            "/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal"
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-executable recommendation"):
+            controller.record_snn_sleep_plasticity_review_ticket(
+                sleep_policy=policy,
+                operator_id="operator-sleep",
+                confirmation=True,
+            )
 
     def test_snn_replay_artifact_recording_policy_proposal_blocks_below_threshold(self) -> None:
         manager = _FakeReplayManager()

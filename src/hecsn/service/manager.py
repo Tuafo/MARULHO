@@ -217,6 +217,12 @@ class HECSNServiceManager:
             snn_replay_artifact_recording_review_tickets=list(
                 terminus_state.get("snn_replay_artifact_recording_review_tickets") or []
             ),
+            snn_sleep_plasticity_review_tickets=list(
+                terminus_state.get("snn_sleep_plasticity_review_tickets") or []
+            ),
+            snn_sleep_plasticity_scheduler_design_review_tickets=list(
+                terminus_state.get("snn_sleep_plasticity_scheduler_design_review_tickets") or []
+            ),
             snn_transition_memory_replay_artifacts=list(
                 terminus_state.get("snn_transition_memory_replay_artifacts") or []
             ),
@@ -324,6 +330,14 @@ class HECSNServiceManager:
             living_loop_status_fn=self._living_loop_status_impl,
             policy_actuator_status_fn=self._policy_actuator_status_impl,
             cognitive_signal_state_fn=self._cognitive_signal_state_impl,
+            sleep_plasticity_autonomy_proposal_fn=(
+                lambda: self._replay_controller.snn_sleep_plasticity_autonomy_proposal(limit=8)
+            ),
+            sleep_plasticity_scheduler_installation_autonomy_proposal_fn=(
+                lambda: self._replay_controller.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                    limit=8
+                )
+            ),
         )
 
     def _build_brain_runtime_dependencies(self) -> BrainRuntimeDependencies:
@@ -517,6 +531,28 @@ class HECSNServiceManager:
         value: Sequence[Mapping[str, Any]],
     ) -> None:
         self._replay_controller.snn_replay_artifact_recording_review_tickets = value
+
+    @property
+    def _snn_sleep_plasticity_review_tickets(self) -> deque[dict[str, Any]]:
+        return self._replay_controller.snn_sleep_plasticity_review_tickets
+
+    @_snn_sleep_plasticity_review_tickets.setter
+    def _snn_sleep_plasticity_review_tickets(
+        self,
+        value: Sequence[Mapping[str, Any]],
+    ) -> None:
+        self._replay_controller.snn_sleep_plasticity_review_tickets = value
+
+    @property
+    def _snn_sleep_plasticity_scheduler_design_review_tickets(self) -> deque[dict[str, Any]]:
+        return self._replay_controller.snn_sleep_plasticity_scheduler_design_review_tickets
+
+    @_snn_sleep_plasticity_scheduler_design_review_tickets.setter
+    def _snn_sleep_plasticity_scheduler_design_review_tickets(
+        self,
+        value: Sequence[Mapping[str, Any]],
+    ) -> None:
+        self._replay_controller.snn_sleep_plasticity_scheduler_design_review_tickets = value
 
     @property
     def _snn_transition_memory_replay_artifacts(self) -> deque[dict[str, Any]]:

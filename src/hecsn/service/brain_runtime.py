@@ -1399,6 +1399,13 @@ class BrainRuntime:
             "snn_replay_artifact_recording_review_tickets": [
                 deepcopy(item) for item in list(self._snn_replay_artifact_recording_review_tickets)
             ],
+            "snn_sleep_plasticity_review_tickets": [
+                deepcopy(item) for item in list(self._snn_sleep_plasticity_review_tickets)
+            ],
+            "snn_sleep_plasticity_scheduler_design_review_tickets": [
+                deepcopy(item)
+                for item in list(self._snn_sleep_plasticity_scheduler_design_review_tickets)
+            ],
             "snn_transition_memory_replay_artifacts": [
                 deepcopy(item) for item in list(self._snn_transition_memory_replay_artifacts)
             ],
@@ -1532,6 +1539,16 @@ _install_dependency_alias_property(
     "_snn_replay_artifact_recording_review_tickets",
     "replay_controller",
     "snn_replay_artifact_recording_review_tickets",
+)
+_install_dependency_alias_property(
+    "_snn_sleep_plasticity_review_tickets",
+    "replay_controller",
+    "snn_sleep_plasticity_review_tickets",
+)
+_install_dependency_alias_property(
+    "_snn_sleep_plasticity_scheduler_design_review_tickets",
+    "replay_controller",
+    "snn_sleep_plasticity_scheduler_design_review_tickets",
 )
 _install_dependency_alias_property(
     "_snn_transition_memory_replay_artifacts",

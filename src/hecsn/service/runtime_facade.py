@@ -80,6 +80,14 @@ class RuntimeFacade:
     def snn_language_readout_draft(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_readout_draft(**kwargs)
 
+    def snn_language_readout_rollout_candidate(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("transition_memory_state") is None:
+            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._status_read_model.snn_language_readout_rollout_candidate(**kwargs)
+
+    def snn_language_readout_rollout_replay_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_readout_rollout_replay_evaluation(**kwargs)
+
     def snn_language_readout_evidence_ledger(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.snapshot(**kwargs)
 
@@ -111,6 +119,434 @@ class RuntimeFacade:
 
     def snn_language_readout_evidence_ledger_record(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.record_readout_draft(**kwargs)
+
+    def snn_language_readout_rollout_evidence_ledger_record(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.record_readout_rollout_replay_evaluation(**kwargs)
+
+    def snn_language_readout_rollout_rehearsal_promotion_policy(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_rehearsal_promotion_policy(**kwargs)
+
+    def snn_language_readout_rollout_rehearsal_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_rehearsal_evaluation(**kwargs)
+
+    def snn_language_readout_rollout_rehearsal_experiment(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_rehearsal_experiment(**kwargs)
+
+    def snn_language_readout_rollout_consolidation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_consolidation_design(**kwargs)
+
+    def snn_language_readout_rollout_consolidation_shadow_delta(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_consolidation_shadow_delta(**kwargs)
+
+    def snn_language_readout_rollout_consolidation_shadow_application_preflight(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if kwargs.get("transition_memory_state") is None:
+            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._snn_language_readout_ledger.rollout_consolidation_shadow_application_preflight(
+            **kwargs
+        )
+
+    def snn_language_readout_rollout_developmental_plasticity_review(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if kwargs.get("transition_memory_state") is None:
+            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        return self._root._snn_language_readout_ledger.rollout_developmental_plasticity_review(
+            **kwargs
+        )
+
+    def snn_language_readout_rollout_regeneration_proposal_adapter(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_regeneration_proposal_adapter(
+            **kwargs
+        )
+
+    def snn_language_readout_rollout_regeneration_replay_artifact_review(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.rollout_regeneration_replay_artifact_review(
+            **kwargs
+        )
+
+    def snn_language_readout_rollout_regeneration_permit_request(
+        self,
+        *,
+        rollout_regeneration_replay_artifact_review: Mapping[str, Any],
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        review = dict(rollout_regeneration_replay_artifact_review)
+        gate = review.get("promotion_gate") if isinstance(review.get("promotion_gate"), Mapping) else {}
+        preview = (
+            review.get("permit_request_preview")
+            if isinstance(review.get("permit_request_preview"), Mapping)
+            else {}
+        )
+        before_revision = int(self._root._runtime_state.state_revision)
+        required = {
+            "confirmation": bool(confirmation),
+            "operator_id_available": bool(str(operator_id or "").strip()),
+            "review_surface_available": review.get("surface")
+            == "snn_language_readout_rollout_regeneration_replay_artifact_review.v1",
+            "review_owned_by_hecsn": bool(review.get("owned_by_hecsn")),
+            "review_gate_ready": bool(
+                gate.get("eligible_for_regeneration_permit_request")
+            ),
+            "review_does_not_apply_plasticity": not bool(review.get("applies_plasticity")),
+            "review_does_not_mutate_synapses": not bool(review.get("mutates_runtime_state")),
+            "review_has_no_existing_permit": not bool(
+                preview.get("permit_issued")
+            ),
+            "replay_artifact_id_available": bool(str(preview.get("replay_artifact_id") or "")),
+            "regeneration_design_available": isinstance(preview.get("regeneration_design"), Mapping)
+            and bool(preview.get("regeneration_design")),
+        }
+        if not all(required.values()):
+            return {
+                "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_permit_request",
+                "surface": "snn_language_readout_rollout_regeneration_permit_request.v1",
+                "accepted": False,
+                "available": bool(review),
+                "status": "blocked_missing_rollout_regeneration_permit_request_evidence",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "returns_trained_weights": False,
+                "issues_regeneration_permit": False,
+                "executor_ready": False,
+                "before": {"state_revision": before_revision},
+                "after": {"state_revision": int(self._root._runtime_state.state_revision)},
+                "promotion_gate": {
+                    "status": "blocked_missing_rollout_regeneration_permit_request_evidence",
+                    "eligible_for_regeneration_application": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_growth": False,
+                    "eligible_for_pruning": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required,
+                },
+            }
+        try:
+            permit = self._root._replay_controller.issue_regeneration_permit(
+                replay_artifact_id=str(preview.get("replay_artifact_id") or ""),
+                regeneration_design=dict(preview.get("regeneration_design") or {}),
+                operator_id=operator_id,
+                confirmation=confirmation,
+            )
+        except ValueError as exc:
+            return {
+                "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_permit_request",
+                "surface": "snn_language_readout_rollout_regeneration_permit_request.v1",
+                "accepted": False,
+                "available": True,
+                "status": "blocked_replay_controller_regeneration_permit_rejected",
+                "reason": str(exc),
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "returns_trained_weights": False,
+                "issues_regeneration_permit": False,
+                "executor_ready": False,
+                "before": {"state_revision": before_revision},
+                "after": {"state_revision": int(self._root._runtime_state.state_revision)},
+                "promotion_gate": {
+                    "status": "blocked_replay_controller_regeneration_permit_rejected",
+                    "eligible_for_regeneration_application": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_growth": False,
+                    "eligible_for_pruning": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "required_evidence": {
+                        **required,
+                        "replay_controller_permit_issued": False,
+                    },
+                },
+            }
+        return {
+            "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_permit_request",
+            "surface": "snn_language_readout_rollout_regeneration_permit_request.v1",
+            "accepted": True,
+            "available": True,
+            "status": "regeneration_permit_issued",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": True,
+            "returns_trained_weights": False,
+            "issues_regeneration_permit": True,
+            "executor_ready": False,
+            "rollout_regeneration_replay_artifact_review_hash": review.get(
+                "rollout_regeneration_replay_artifact_review_hash"
+            ),
+            "replay_evidence": permit,
+            "regeneration_design": dict(preview.get("regeneration_design") or {}),
+            "before": {"state_revision": before_revision},
+            "after": {
+                "state_revision": int(self._root._runtime_state.state_revision),
+                "dirty_state": bool(self._root._runtime_state.dirty_state),
+            },
+            "promotion_gate": {
+                "status": "ready_for_checkpoint_backed_regeneration_application",
+                "eligible_for_regeneration_application": True,
+                "eligible_for_structural_write": False,
+                "eligible_for_growth": False,
+                "eligible_for_pruning": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_action": False,
+                "next_gate": "checkpoint_backed_snn_transition_memory_regeneration",
+                "required_evidence": {
+                    **required,
+                    "replay_controller_permit_issued": True,
+                    "checkpoint_executor_still_required": True,
+                },
+            },
+        }
+
+    def snn_language_readout_rollout_regeneration_application_preflight(
+        self,
+        *,
+        rollout_regeneration_permit_request: Mapping[str, Any],
+        expected_state_revision: int,
+        checkpoint_path: str | None = None,
+    ) -> dict[str, Any]:
+        request = dict(rollout_regeneration_permit_request)
+        gate = request.get("promotion_gate") if isinstance(request.get("promotion_gate"), Mapping) else {}
+        permit = request.get("replay_evidence") if isinstance(request.get("replay_evidence"), Mapping) else {}
+        design = (
+            request.get("regeneration_design")
+            if isinstance(request.get("regeneration_design"), Mapping)
+            else {}
+        )
+        before_revision = int(self._root._runtime_state.state_revision)
+        checkpoint = str(checkpoint_path or "").strip()
+        required = {
+            "permit_request_surface_available": request.get("surface")
+            == "snn_language_readout_rollout_regeneration_permit_request.v1",
+            "permit_request_accepted": bool(request.get("accepted")),
+            "permit_request_owned_by_hecsn": bool(request.get("owned_by_hecsn")),
+            "permit_request_gate_ready": bool(gate.get("eligible_for_regeneration_application")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "checkpoint_path_available": bool(checkpoint),
+            "permit_available": bool(permit.get("permit_id")),
+            "permit_ready": bool(permit.get("ready")),
+            "permit_owned_by_hecsn": bool(permit.get("owned_by_hecsn")),
+            "regeneration_design_available": bool(design),
+            "permit_request_does_not_apply_plasticity": not bool(request.get("applies_plasticity")),
+            "permit_request_does_not_checkpoint": not bool(request.get("checkpoint_written")),
+        }
+        ready = all(required.values())
+        proposal = {
+            "available": ready,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "service.runtime_facade.rollout_regeneration_application_preflight",
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "replay_evidence": dict(permit),
+            "regeneration_design": dict(design),
+            "promotion_gate": {
+                "status": "ready_for_operator_review"
+                if ready
+                else "blocked_missing_rollout_regeneration_application_preflight_evidence"
+            },
+        }
+        return {
+            "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_application_preflight",
+            "surface": "snn_language_readout_rollout_regeneration_application_preflight.v1",
+            "available": bool(request),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "returns_trained_weights": False,
+            "writes_checkpoint": False,
+            "executor_called": False,
+            "expected_state_revision": int(expected_state_revision),
+            "checkpoint_path": checkpoint or None,
+            "regeneration_proposal": proposal,
+            "before": {"state_revision": before_revision},
+            "after": {"state_revision": int(self._root._runtime_state.state_revision)},
+            "promotion_gate": {
+                "status": "ready_for_checkpoint_backed_regeneration_executor"
+                if ready
+                else "blocked_missing_rollout_regeneration_application_preflight_evidence",
+                "eligible_for_checkpoint_backed_regeneration_executor": ready,
+                "eligible_for_regeneration_application": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_growth": False,
+                "eligible_for_pruning": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_action": False,
+                "requires_operator_confirmation_at_executor": ready,
+                "next_gate": "checkpoint_backed_snn_transition_memory_regeneration"
+                if ready
+                else "collect_rollout_regeneration_permit_and_checkpoint_evidence",
+                "required_evidence": required,
+            },
+        }
+
+    def snn_language_readout_rollout_regeneration_application(
+        self,
+        *,
+        rollout_regeneration_application_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        checkpoint_path: str | None = None,
+        max_outgoing_row_mass: float = 1.0,
+    ) -> dict[str, Any]:
+        preflight = dict(rollout_regeneration_application_preflight)
+        gate = preflight.get("promotion_gate") if isinstance(preflight.get("promotion_gate"), Mapping) else {}
+        proposal = (
+            preflight.get("regeneration_proposal")
+            if isinstance(preflight.get("regeneration_proposal"), Mapping)
+            else {}
+        )
+        preflight_checkpoint = str(preflight.get("checkpoint_path") or "").strip()
+        requested_checkpoint = str(checkpoint_path or "").strip()
+        effective_checkpoint = requested_checkpoint or preflight_checkpoint
+        before_revision = int(self._root._runtime_state.state_revision)
+        required = {
+            "preflight_surface_available": preflight.get("surface")
+            == "snn_language_readout_rollout_regeneration_application_preflight.v1",
+            "preflight_ready": bool(preflight.get("ready")),
+            "preflight_owned_by_hecsn": bool(preflight.get("owned_by_hecsn")),
+            "preflight_gate_ready": bool(
+                gate.get("eligible_for_checkpoint_backed_regeneration_executor")
+            ),
+            "preflight_does_not_apply_plasticity": not bool(preflight.get("applies_plasticity")),
+            "preflight_does_not_mutate_runtime": not bool(preflight.get("mutates_runtime_state")),
+            "preflight_did_not_call_executor": not bool(preflight.get("executor_called")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "expected_revision_matches_preflight": int(preflight.get("expected_state_revision", -1))
+            == int(expected_state_revision),
+            "checkpoint_path_available": bool(effective_checkpoint),
+            "checkpoint_path_matches_preflight": not bool(requested_checkpoint and preflight_checkpoint)
+            or requested_checkpoint == preflight_checkpoint,
+            "operator_id_available": bool(str(operator_id or "").strip()),
+            "confirmation": bool(confirmation),
+            "proposal_available": bool(proposal.get("available")),
+            "proposal_ready": bool(proposal.get("ready")),
+            "proposal_owned_by_hecsn": bool(proposal.get("owned_by_hecsn")),
+            "proposal_does_not_generate_text": not bool(proposal.get("generates_text")),
+            "proposal_does_not_load_external_checkpoint": not bool(
+                proposal.get("loads_external_checkpoint")
+            ),
+        }
+        if not all(required.values()):
+            return {
+                "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_application",
+                "surface": "snn_language_readout_rollout_regeneration_application.v1",
+                "accepted": False,
+                "available": bool(preflight),
+                "status": "blocked_missing_rollout_regeneration_application_evidence",
+                "reason": "blocked_missing_rollout_regeneration_application_evidence",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "returns_trained_weights": False,
+                "writes_checkpoint": False,
+                "executor_called": False,
+                "checkpoint_path": effective_checkpoint or None,
+                "before": {"state_revision": before_revision},
+                "after": {"state_revision": int(self._root._runtime_state.state_revision)},
+                "promotion_gate": {
+                    "status": "blocked_missing_rollout_regeneration_application_evidence",
+                    "eligible_for_checkpoint_backed_regeneration_executor": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_growth": False,
+                    "eligible_for_pruning": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required,
+                },
+            }
+
+        executor_result = self._root._snn_language_plasticity_executor.regenerate_transition_memory(
+            regeneration_proposal=dict(proposal),
+            expected_state_revision=expected_state_revision,
+            operator_id=operator_id,
+            confirmation=confirmation,
+            checkpoint_path=effective_checkpoint,
+            max_outgoing_row_mass=max_outgoing_row_mass,
+        )
+        checkpoint_transaction = executor_result.get("checkpoint_transaction")
+        writes_checkpoint = bool(
+            isinstance(checkpoint_transaction, Mapping)
+            and checkpoint_transaction.get("pre_regeneration_checkpoint_saved")
+        )
+        accepted = bool(executor_result.get("accepted"))
+        return {
+            "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_application",
+            "surface": "snn_language_readout_rollout_regeneration_application.v1",
+            "accepted": accepted,
+            "available": True,
+            "status": "regeneration_applied"
+            if accepted
+            else "blocked_by_checkpoint_backed_regeneration_executor",
+            "reason": executor_result.get("reason"),
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": bool(executor_result.get("applies_plasticity")),
+            "mutates_runtime_state": bool(executor_result.get("mutates_runtime_state")),
+            "returns_trained_weights": False,
+            "writes_checkpoint": writes_checkpoint,
+            "executor_called": True,
+            "checkpoint_path": effective_checkpoint,
+            "executor_result": executor_result,
+            "before": {"state_revision": before_revision},
+            "after": {"state_revision": int(self._root._runtime_state.state_revision)},
+            "promotion_gate": {
+                "status": "checkpoint_backed_regeneration_applied"
+                if accepted
+                else "checkpoint_backed_regeneration_executor_blocked",
+                "eligible_for_checkpoint_backed_regeneration_executor": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_growth": False,
+                "eligible_for_pruning": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_action": False,
+                "required_evidence": required,
+            },
+        }
 
     def snn_language_transition_memory_prediction_evaluation(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("transition_memory_state") is None:
@@ -157,6 +593,41 @@ class RuntimeFacade:
         if kwargs.get("transition_memory_state") is None:
             kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
         return self._root._status_read_model.snn_language_transition_memory_sleep_policy(**kwargs)
+
+    def snn_sleep_plasticity_review_ticket(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.record_snn_sleep_plasticity_review_ticket(**kwargs)
+
+    def snn_sleep_plasticity_review_ticket_queue(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_review_ticket_queue(**kwargs)
+
+    def snn_sleep_plasticity_autonomy_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_autonomy_proposal(**kwargs)
+
+    def snn_sleep_plasticity_scheduler_experiment(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_scheduler_experiment(**kwargs)
+
+    def snn_sleep_plasticity_scheduler_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_scheduler_design(**kwargs)
+
+    def snn_sleep_plasticity_scheduler_design_review_ticket(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.record_snn_sleep_plasticity_scheduler_design_review_ticket(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_scheduler_design_review_ticket_queue(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_scheduler_design_review_ticket_queue(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_scheduler_installation_autonomy_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_scheduler_installation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_scheduler_installation_preflight(
+            **kwargs
+        )
 
     def snn_language_transition_memory_regeneration_proposal(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("transition_memory_state") is None:

@@ -56,6 +56,20 @@ from .schemas import (
     SNNLanguageReadoutPlasticityReplayBridgeRequest,
     SNNLanguageReadoutRehearsalEvaluationRequest,
     SNNLanguageReadoutRehearsalExperimentRequest,
+    SNNLanguageReadoutRolloutCandidateRequest,
+    SNNLanguageReadoutRolloutConsolidationDesignRequest,
+    SNNLanguageReadoutRolloutConsolidationShadowApplicationPreflightRequest,
+    SNNLanguageReadoutRolloutConsolidationShadowDeltaRequest,
+    SNNLanguageReadoutRolloutDevelopmentalPlasticityReviewRequest,
+    SNNLanguageReadoutRolloutRegenerationApplicationRequest,
+    SNNLanguageReadoutRolloutLedgerRecordRequest,
+    SNNLanguageReadoutRolloutRegenerationApplicationPreflightRequest,
+    SNNLanguageReadoutRolloutRegenerationProposalAdapterRequest,
+    SNNLanguageReadoutRolloutRegenerationPermitRequestRequest,
+    SNNLanguageReadoutRolloutRegenerationReplayArtifactReviewRequest,
+    SNNLanguageReadoutRolloutReplayEvaluationRequest,
+    SNNLanguageReadoutRolloutRehearsalEvaluationRequest,
+    SNNLanguageReadoutRolloutRehearsalExperimentRequest,
     SNNLanguageReadoutReplayDesignRequest,
     SNNLanguageReadoutReplayDryRunRequest,
     SNNLanguageTransitionMemoryPredictionEvaluationRequest,
@@ -70,6 +84,8 @@ from .schemas import (
     SNNLanguageTransitionMemoryRegenerationPermitRequest,
     SNNLanguageTransitionMemoryRegenerationRequest,
     SNNLanguageTransitionMemorySleepPolicyRequest,
+    SNNSleepPlasticityReviewTicketRequest,
+    SNNSleepPlasticitySchedulerDesignReviewTicketRequest,
     SNNEvaluatedTransitionMemoryReplayArtifactRequest,
     SNNReplayArtifactRecordingReviewTicketRequest,
     SNNReplayEvaluationContextRequest,
@@ -398,6 +414,33 @@ def create_app(
             max_draft_terms=request.max_draft_terms,
         )
 
+    @app.post("/terminus/snn-language-sequence/readout-rollout-candidate")
+    def terminus_snn_language_readout_rollout_candidate(
+        request: SNNLanguageReadoutRolloutCandidateRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_candidate(
+            prediction_report=request.prediction_report,
+            readout_vocabulary_slots=[
+                _model_to_dict(slot)
+                for slot in request.readout_vocabulary_slots
+            ],
+            transition_memory_state=request.transition_memory_state,
+            device_evidence=request.device_evidence,
+            transition_memory_evaluation=request.transition_memory_evaluation,
+            rollout_steps=request.rollout_steps,
+            top_k=request.top_k,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-rollout-candidate/replay-evaluation")
+    def terminus_snn_language_readout_rollout_replay_evaluation(
+        request: SNNLanguageReadoutRolloutReplayEvaluationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_replay_evaluation(
+            readout_rollout_candidate=request.readout_rollout_candidate,
+            candidate_limit=request.candidate_limit,
+            device_evidence=request.device_evidence,
+        )
+
     @app.get("/terminus/snn-language-sequence/readout-ledger")
     def terminus_snn_language_readout_ledger(limit: int = Query(20, ge=0, le=128)) -> dict[str, Any]:
         return runtime.snn_language_readout_evidence_ledger(limit=limit)
@@ -483,6 +526,141 @@ def create_app(
             expected_state_revision=request.expected_state_revision,
             operator_id=request.operator_id,
             confirmation=request.confirmation,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/record-rollout-replay-evaluation")
+    def terminus_snn_language_readout_rollout_ledger_record(
+        request: SNNLanguageReadoutRolloutLedgerRecordRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_evidence_ledger_record(
+            readout_rollout_replay_evaluation=request.readout_rollout_replay_evaluation,
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+        )
+
+    @app.get("/terminus/snn-language-sequence/readout-ledger/rollout-rehearsal-promotion-policy")
+    def terminus_snn_language_readout_rollout_rehearsal_promotion_policy(
+        limit: int = Query(8, ge=0, le=32),
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_rehearsal_promotion_policy(
+            candidate_limit=limit,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-rehearsal-evaluation")
+    def terminus_snn_language_readout_rollout_rehearsal_evaluation(
+        request: SNNLanguageReadoutRolloutRehearsalEvaluationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_rehearsal_evaluation(
+            rollout_rehearsal_promotion_policy=request.rollout_rehearsal_promotion_policy,
+            candidate_limit=request.candidate_limit,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-rehearsal-experiment")
+    def terminus_snn_language_readout_rollout_rehearsal_experiment(
+        request: SNNLanguageReadoutRolloutRehearsalExperimentRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_rehearsal_experiment(
+            rollout_rehearsal_evaluation=request.rollout_rehearsal_evaluation,
+            replay_cycles=request.replay_cycles,
+            stability_floor=request.stability_floor,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-consolidation-design")
+    def terminus_snn_language_readout_rollout_consolidation_design(
+        request: SNNLanguageReadoutRolloutConsolidationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_consolidation_design(
+            rollout_rehearsal_experiment=request.rollout_rehearsal_experiment,
+            consolidation_policy=request.consolidation_policy,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-consolidation-shadow-delta")
+    def terminus_snn_language_readout_rollout_consolidation_shadow_delta(
+        request: SNNLanguageReadoutRolloutConsolidationShadowDeltaRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_consolidation_shadow_delta(
+            rollout_consolidation_design=request.rollout_consolidation_design,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post(
+        "/terminus/snn-language-sequence/readout-ledger/rollout-consolidation-shadow-application-preflight"
+    )
+    def terminus_snn_language_readout_rollout_consolidation_shadow_application_preflight(
+        request: SNNLanguageReadoutRolloutConsolidationShadowApplicationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_consolidation_shadow_application_preflight(
+            rollout_consolidation_design=request.rollout_consolidation_design,
+            rollout_consolidation_shadow_delta=request.rollout_consolidation_shadow_delta,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-developmental-plasticity-review")
+    def terminus_snn_language_readout_rollout_developmental_plasticity_review(
+        request: SNNLanguageReadoutRolloutDevelopmentalPlasticityReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_developmental_plasticity_review(
+            rollout_consolidation_design=request.rollout_consolidation_design,
+            rollout_consolidation_shadow_application_preflight=(
+                request.rollout_consolidation_shadow_application_preflight
+            ),
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-proposal-adapter")
+    def terminus_snn_language_readout_rollout_regeneration_proposal_adapter(
+        request: SNNLanguageReadoutRolloutRegenerationProposalAdapterRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_regeneration_proposal_adapter(
+            rollout_developmental_plasticity_review=request.rollout_developmental_plasticity_review,
+        )
+
+    @app.post(
+        "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-replay-artifact-review"
+    )
+    def terminus_snn_language_readout_rollout_regeneration_replay_artifact_review(
+        request: SNNLanguageReadoutRolloutRegenerationReplayArtifactReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_regeneration_replay_artifact_review(
+            rollout_regeneration_proposal_adapter=request.rollout_regeneration_proposal_adapter,
+            snn_transition_memory_replay_artifact=request.snn_transition_memory_replay_artifact,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-permit-request")
+    def terminus_snn_language_readout_rollout_regeneration_permit_request(
+        request: SNNLanguageReadoutRolloutRegenerationPermitRequestRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_regeneration_permit_request(
+            rollout_regeneration_replay_artifact_review=(
+                request.rollout_regeneration_replay_artifact_review
+            ),
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application-preflight")
+    def terminus_snn_language_readout_rollout_regeneration_application_preflight(
+        request: SNNLanguageReadoutRolloutRegenerationApplicationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_regeneration_application_preflight(
+            rollout_regeneration_permit_request=request.rollout_regeneration_permit_request,
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application")
+    def terminus_snn_language_readout_rollout_regeneration_application(
+        request: SNNLanguageReadoutRolloutRegenerationApplicationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_rollout_regeneration_application(
+            rollout_regeneration_application_preflight=(
+                request.rollout_regeneration_application_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            checkpoint_path=request.checkpoint_path,
+            max_outgoing_row_mass=request.max_outgoing_row_mass,
         )
 
     @app.post("/terminus/snn-language-sequence/transition-memory-prediction-evaluation")
@@ -640,6 +818,119 @@ def create_app(
             transition_memory_state=request.transition_memory_state,
             subcortex_sleep_pressure=request.subcortex_sleep_pressure,
             replay_evidence=request.replay_evidence,
+            rollout_regeneration_evidence=request.rollout_regeneration_evidence,
+            readout_ledger_evidence=request.readout_ledger_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/plasticity-sleep-policy/review-ticket")
+    def terminus_snn_sleep_plasticity_review_ticket(
+        request: SNNSleepPlasticityReviewTicketRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_sleep_plasticity_review_ticket(
+                sleep_policy=request.sleep_policy,
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/terminus/snn-language-sequence/plasticity-sleep-policy/review-tickets")
+    def terminus_snn_sleep_plasticity_review_ticket_queue(
+        limit: int = Query(20, ge=1, le=64),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_review_ticket_queue(limit=limit)
+
+    @app.get("/terminus/snn-language-sequence/plasticity-sleep-policy/autonomy-proposal")
+    def terminus_snn_sleep_plasticity_autonomy_proposal(
+        limit: int = Query(20, ge=1, le=64),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_autonomy_proposal(limit=limit)
+
+    @app.get("/terminus/snn-language-sequence/plasticity-sleep-policy/scheduler-experiment")
+    def terminus_snn_sleep_plasticity_scheduler_experiment(
+        limit: int = Query(20, ge=1, le=64),
+        cycles: int = Query(4, ge=1, le=16),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_scheduler_experiment(
+            limit=limit,
+            cycles=cycles,
+        )
+
+    @app.get("/terminus/snn-language-sequence/plasticity-sleep-policy/scheduler-design")
+    def terminus_snn_sleep_plasticity_scheduler_design(
+        limit: int = Query(20, ge=1, le=64),
+        cycles: int = Query(4, ge=3, le=16),
+        min_stable_cycles: int = Query(3, ge=3, le=16),
+        max_review_interval_seconds: float = Query(300.0, ge=60.0, le=3600.0),
+    ) -> dict[str, Any]:
+        if min_stable_cycles > cycles:
+            raise HTTPException(
+                status_code=422,
+                detail="min_stable_cycles must not exceed cycles.",
+            )
+        return runtime.snn_sleep_plasticity_scheduler_design(
+            limit=limit,
+            cycles=cycles,
+            min_stable_cycles=min_stable_cycles,
+            max_review_interval_seconds=max_review_interval_seconds,
+        )
+
+    @app.post(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/scheduler-design/review-ticket"
+    )
+    def terminus_snn_sleep_plasticity_scheduler_design_review_ticket(
+        request: SNNSleepPlasticitySchedulerDesignReviewTicketRequest,
+    ) -> dict[str, Any]:
+        if request.min_stable_cycles > request.cycles:
+            raise HTTPException(
+                status_code=422,
+                detail="min_stable_cycles must not exceed cycles.",
+            )
+        try:
+            return runtime.snn_sleep_plasticity_scheduler_design_review_ticket(
+                limit=request.limit,
+                cycles=request.cycles,
+                min_stable_cycles=request.min_stable_cycles,
+                max_review_interval_seconds=request.max_review_interval_seconds,
+                expected_state_revision=request.expected_state_revision,
+                scheduler_design_hash=request.scheduler_design_hash,
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/scheduler-design/review-tickets"
+    )
+    def terminus_snn_sleep_plasticity_scheduler_design_review_ticket_queue(
+        limit: int = Query(20, ge=1, le=64),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_scheduler_design_review_ticket_queue(
+            limit=limit
+        )
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "scheduler-installation-autonomy-proposal"
+    )
+    def terminus_snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+        limit: int = Query(20, ge=1, le=64),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+            limit=limit
+        )
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "scheduler-installation-preflight"
+    )
+    def terminus_snn_sleep_plasticity_scheduler_installation_preflight(
+        limit: int = Query(20, ge=1, le=64),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_scheduler_installation_preflight(
+            limit=limit
         )
 
     @app.post("/terminus/snn-language-sequence/plasticity-regeneration-proposal")

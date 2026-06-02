@@ -20,9 +20,33 @@ DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_REPLAY_REGENERATION_PERMITS = 64
 DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS = 64
 DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS = 64
+DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS = 64
+DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS = 64
 DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS = 64
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
+SNN_SLEEP_PLASTICITY_REVIEW_GATES = {
+    "review_rollout_regeneration_application": (
+        "rollout_regeneration_application_review",
+        "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application",
+    ),
+    "review_rollout_regeneration_application_preflight": (
+        "rollout_regeneration_application_preflight_review",
+        "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application-preflight",
+    ),
+    "review_rollout_regeneration_permit_request": (
+        "rollout_regeneration_permit_request_review",
+        "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-permit-request",
+    ),
+    "review_transition_memory_homeostatic_maintenance": (
+        "transition_memory_homeostatic_maintenance_review",
+        "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+    ),
+    "review_replay_artifact_recording_or_rollout_regeneration": (
+        "replay_artifact_recording_or_rollout_regeneration_review",
+        "/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -50,6 +74,8 @@ class ReplayController:
         regeneration_permits: Sequence[Mapping[str, Any]] | None = None,
         snn_replay_evaluation_contexts: Sequence[Mapping[str, Any]] | None = None,
         snn_replay_artifact_recording_review_tickets: Sequence[Mapping[str, Any]] | None = None,
+        snn_sleep_plasticity_review_tickets: Sequence[Mapping[str, Any]] | None = None,
+        snn_sleep_plasticity_scheduler_design_review_tickets: Sequence[Mapping[str, Any]] | None = None,
         snn_transition_memory_replay_artifacts: Sequence[Mapping[str, Any]] | None = None,
         history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
     ) -> None:
@@ -63,6 +89,12 @@ class ReplayController:
         self._snn_replay_artifact_recording_review_tickets: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS
         )
+        self._snn_sleep_plasticity_review_tickets: deque[dict[str, Any]] = deque(
+            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS
+        )
+        self._snn_sleep_plasticity_scheduler_design_review_tickets: deque[dict[str, Any]] = deque(
+            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS
+        )
         self._snn_transition_memory_replay_artifacts: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS
         )
@@ -71,6 +103,10 @@ class ReplayController:
         self.load_snn_replay_evaluation_contexts(snn_replay_evaluation_contexts or [])
         self.load_snn_replay_artifact_recording_review_tickets(
             snn_replay_artifact_recording_review_tickets or []
+        )
+        self.load_snn_sleep_plasticity_review_tickets(snn_sleep_plasticity_review_tickets or [])
+        self.load_snn_sleep_plasticity_scheduler_design_review_tickets(
+            snn_sleep_plasticity_scheduler_design_review_tickets or []
         )
         self.load_snn_transition_memory_replay_artifacts(snn_transition_memory_replay_artifacts or [])
 
@@ -172,6 +208,48 @@ class ReplayController:
         self._snn_replay_artifact_recording_review_tickets.clear()
         self._snn_replay_artifact_recording_review_tickets.extend(
             normalized[:DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS]
+        )
+
+    @property
+    def snn_sleep_plasticity_review_tickets(self) -> deque[dict[str, Any]]:
+        return self._snn_sleep_plasticity_review_tickets
+
+    @snn_sleep_plasticity_review_tickets.setter
+    def snn_sleep_plasticity_review_tickets(
+        self,
+        tickets: Sequence[Mapping[str, Any]],
+    ) -> None:
+        self.load_snn_sleep_plasticity_review_tickets(tickets)
+
+    def load_snn_sleep_plasticity_review_tickets(
+        self,
+        tickets: Sequence[Mapping[str, Any]],
+    ) -> None:
+        normalized = [dict(item) for item in tickets if isinstance(item, Mapping)]
+        self._snn_sleep_plasticity_review_tickets.clear()
+        self._snn_sleep_plasticity_review_tickets.extend(
+            normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS]
+        )
+
+    @property
+    def snn_sleep_plasticity_scheduler_design_review_tickets(self) -> deque[dict[str, Any]]:
+        return self._snn_sleep_plasticity_scheduler_design_review_tickets
+
+    @snn_sleep_plasticity_scheduler_design_review_tickets.setter
+    def snn_sleep_plasticity_scheduler_design_review_tickets(
+        self,
+        tickets: Sequence[Mapping[str, Any]],
+    ) -> None:
+        self.load_snn_sleep_plasticity_scheduler_design_review_tickets(tickets)
+
+    def load_snn_sleep_plasticity_scheduler_design_review_tickets(
+        self,
+        tickets: Sequence[Mapping[str, Any]],
+    ) -> None:
+        normalized = [dict(item) for item in tickets if isinstance(item, Mapping)]
+        self._snn_sleep_plasticity_scheduler_design_review_tickets.clear()
+        self._snn_sleep_plasticity_scheduler_design_review_tickets.extend(
+            normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS]
         )
 
     def record_snn_replay_evaluation_context(
@@ -682,6 +760,1346 @@ class ReplayController:
                 else None
             )
 
+    def record_snn_sleep_plasticity_review_ticket(
+        self,
+        *,
+        sleep_policy: Mapping[str, Any],
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Record operator intent to review a sleep-policy recommendation."""
+
+        policy = dict(sleep_policy)
+        recommendation = (
+            policy.get("recommendation")
+            if isinstance(policy.get("recommendation"), Mapping)
+            else {}
+        )
+        transition_memory = (
+            policy.get("transition_memory")
+            if isinstance(policy.get("transition_memory"), Mapping)
+            else {}
+        )
+        replay_evidence = (
+            policy.get("replay_evidence")
+            if isinstance(policy.get("replay_evidence"), Mapping)
+            else {}
+        )
+        rollout_evidence = (
+            policy.get("rollout_regeneration_evidence")
+            if isinstance(policy.get("rollout_regeneration_evidence"), Mapping)
+            else {}
+        )
+        readout_evidence = (
+            policy.get("readout_ledger_evidence")
+            if isinstance(policy.get("readout_ledger_evidence"), Mapping)
+            else {}
+        )
+        normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
+        action = str(recommendation.get("action") or "")
+        suggested_endpoint = str(recommendation.get("suggested_endpoint") or "")
+        gate = SNN_SLEEP_PLASTICITY_REVIEW_GATES.get(action)
+        if not confirmation:
+            raise ValueError("SNN sleep plasticity review ticket confirmation=true is required.")
+        if not normalized_operator_id:
+            raise ValueError("SNN sleep plasticity review ticket operator_id is required.")
+        if policy.get("surface") != "snn_language_transition_memory_sleep_policy.v1":
+            raise ValueError("SNN sleep plasticity review ticket requires sleep policy surface.")
+        if not policy.get("owned_by_hecsn") or policy.get("mutates_runtime_state"):
+            raise ValueError("SNN sleep plasticity review ticket requires non-mutating HECSN policy.")
+        if (
+            not bool(recommendation.get("recommended"))
+            or bool(recommendation.get("executable"))
+            or gate is None
+            or suggested_endpoint != gate[1]
+        ):
+            raise ValueError("SNN sleep plasticity review ticket requires a non-executable recommendation.")
+        with self._lock:
+            recorded_revision = int(self._runtime_state.state_revision)
+            material = {
+                "recorded_state_revision": recorded_revision,
+                "operator_id": normalized_operator_id,
+                "confirmation": True,
+                "sleep_policy_hash": self._sha256_json(policy),
+                "recommended_action": action,
+                "review_gate_key": gate[0],
+                "suggested_endpoint": gate[1],
+                "reason_codes": [
+                    str(value)
+                    for value in list(recommendation.get("reason_codes") or [])
+                    if str(value)
+                ][:32],
+                "transition_memory_hash": self._sha256_json(transition_memory),
+                "replay_evidence_hash": self._sha256_json(replay_evidence),
+                "rollout_regeneration_evidence_hash": self._sha256_json(rollout_evidence),
+                "readout_ledger_evidence_hash": self._sha256_json(readout_evidence),
+            }
+            evidence_hash = self._sha256_json(material)
+            ticket = {
+                "artifact_kind": "terminus_snn_sleep_plasticity_review_ticket",
+                "surface": "snn_sleep_plasticity_review_ticket.v1",
+                "available": True,
+                "ready": True,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.snn_sleep_plasticity_review_ticket",
+                "review_ticket_id": f"snn-sleep-plasticity-review-{evidence_hash[:16]}-{uuid4()}",
+                "evidence_hash": evidence_hash,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                **material,
+                "sleep_policy_surface": policy.get("surface"),
+                "requires_operator_confirmation": True,
+                "executable": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+            }
+            self._snn_sleep_plasticity_review_tickets.appendleft(deepcopy(ticket))
+            self._runtime_state.mark_dirty_without_revision()
+            return deepcopy(ticket)
+
+    def verified_snn_sleep_plasticity_review_ticket(
+        self,
+        review_ticket_id: str,
+        *,
+        operator_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        expected_operator_id = (
+            self._normalize_feedback_text(operator_id, max_chars=160)
+            if operator_id is not None
+            else None
+        )
+        with self._lock:
+            ticket = next(
+                (
+                    dict(item)
+                    for item in self._snn_sleep_plasticity_review_tickets
+                    if str(item.get("review_ticket_id") or "") == str(review_ticket_id or "")
+                ),
+                None,
+            )
+            if ticket is None:
+                return None
+            material = {
+                "recorded_state_revision": int(ticket.get("recorded_state_revision", -1)),
+                "operator_id": ticket.get("operator_id"),
+                "confirmation": bool(ticket.get("confirmation")),
+                "sleep_policy_hash": ticket.get("sleep_policy_hash"),
+                "recommended_action": ticket.get("recommended_action"),
+                "review_gate_key": ticket.get("review_gate_key"),
+                "suggested_endpoint": ticket.get("suggested_endpoint"),
+                "reason_codes": list(ticket.get("reason_codes") or []),
+                "transition_memory_hash": ticket.get("transition_memory_hash"),
+                "replay_evidence_hash": ticket.get("replay_evidence_hash"),
+                "rollout_regeneration_evidence_hash": ticket.get("rollout_regeneration_evidence_hash"),
+                "readout_ledger_evidence_hash": ticket.get("readout_ledger_evidence_hash"),
+            }
+            return (
+                deepcopy(ticket)
+                if (
+                    ticket.get("artifact_kind") == "terminus_snn_sleep_plasticity_review_ticket"
+                    and ticket.get("surface") == "snn_sleep_plasticity_review_ticket.v1"
+                    and ticket.get("source") == "replay_controller.snn_sleep_plasticity_review_ticket"
+                    and ticket.get("ready")
+                    and ticket.get("owned_by_hecsn")
+                    and ticket.get("confirmation") is True
+                    and (
+                        expected_operator_id is None
+                        or str(ticket.get("operator_id") or "") == expected_operator_id
+                    )
+                    and int(ticket.get("recorded_state_revision", -1)) == int(self._runtime_state.state_revision)
+                    and str(ticket.get("evidence_hash") or "") == self._sha256_json(material)
+                    and SNN_SLEEP_PLASTICITY_REVIEW_GATES.get(
+                        str(ticket.get("recommended_action") or "")
+                    )
+                    == (
+                        str(ticket.get("review_gate_key") or ""),
+                        str(ticket.get("suggested_endpoint") or ""),
+                    )
+                    and not bool(ticket.get("executable"))
+                    and not bool(ticket.get("mutates_runtime_state"))
+                    and not bool(ticket.get("applies_plasticity"))
+                    and not bool(ticket.get("writes_checkpoint"))
+                    and not bool(ticket.get("records_replay_artifact"))
+                    and not bool(ticket.get("issues_regeneration_permit"))
+                )
+                else None
+            )
+
+    def snn_sleep_plasticity_review_ticket_queue(self, *, limit: int = 20) -> dict[str, Any]:
+        """Expose durable sleep-policy review tickets without executing them."""
+
+        with self._lock:
+            requested = max(1, min(DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS, int(limit)))
+            current_revision = int(self._runtime_state.state_revision)
+            tickets: list[dict[str, Any]] = []
+            action_counts: Counter[str] = Counter()
+            verified_count = 0
+            stale_count = 0
+            tampered_count = 0
+            for raw_ticket in list(self._snn_sleep_plasticity_review_tickets):
+                if not isinstance(raw_ticket, Mapping):
+                    continue
+                ticket = dict(raw_ticket)
+                material = {
+                    "recorded_state_revision": int(ticket.get("recorded_state_revision", -1)),
+                    "operator_id": ticket.get("operator_id"),
+                    "confirmation": bool(ticket.get("confirmation")),
+                    "sleep_policy_hash": ticket.get("sleep_policy_hash"),
+                    "recommended_action": ticket.get("recommended_action"),
+                    "review_gate_key": ticket.get("review_gate_key"),
+                    "suggested_endpoint": ticket.get("suggested_endpoint"),
+                    "reason_codes": list(ticket.get("reason_codes") or []),
+                    "transition_memory_hash": ticket.get("transition_memory_hash"),
+                    "replay_evidence_hash": ticket.get("replay_evidence_hash"),
+                    "rollout_regeneration_evidence_hash": ticket.get("rollout_regeneration_evidence_hash"),
+                    "readout_ledger_evidence_hash": ticket.get("readout_ledger_evidence_hash"),
+                }
+                hash_verified = str(ticket.get("evidence_hash") or "") == self._sha256_json(material)
+                revision_current = int(ticket.get("recorded_state_revision", -1)) == current_revision
+                identity_verified = bool(
+                    ticket.get("artifact_kind") == "terminus_snn_sleep_plasticity_review_ticket"
+                    and ticket.get("surface") == "snn_sleep_plasticity_review_ticket.v1"
+                    and ticket.get("source") == "replay_controller.snn_sleep_plasticity_review_ticket"
+                    and SNN_SLEEP_PLASTICITY_REVIEW_GATES.get(
+                        str(ticket.get("recommended_action") or "")
+                    )
+                    == (
+                        str(ticket.get("review_gate_key") or ""),
+                        str(ticket.get("suggested_endpoint") or ""),
+                    )
+                )
+                non_executing = (
+                    not bool(ticket.get("executable"))
+                    and not bool(ticket.get("mutates_runtime_state"))
+                    and not bool(ticket.get("applies_plasticity"))
+                    and not bool(ticket.get("writes_checkpoint"))
+                    and not bool(ticket.get("records_replay_artifact"))
+                    and not bool(ticket.get("issues_regeneration_permit"))
+                )
+                verified = bool(
+                    ticket.get("ready")
+                    and ticket.get("owned_by_hecsn")
+                    and ticket.get("confirmation") is True
+                    and hash_verified
+                    and revision_current
+                    and identity_verified
+                    and non_executing
+                )
+                if verified:
+                    verified_count += 1
+                    action_counts[str(ticket.get("recommended_action") or "unknown")] += 1
+                elif not revision_current:
+                    stale_count += 1
+                elif not hash_verified or not identity_verified or not non_executing:
+                    tampered_count += 1
+                tickets.append(
+                    {
+                        "review_ticket_id": ticket.get("review_ticket_id"),
+                        "surface": ticket.get("surface"),
+                        "recorded_at": ticket.get("recorded_at"),
+                        "recorded_state_revision": int(ticket.get("recorded_state_revision", -1)),
+                        "operator_id": ticket.get("operator_id"),
+                        "recommended_action": ticket.get("recommended_action"),
+                        "review_gate_key": ticket.get("review_gate_key"),
+                        "suggested_endpoint": ticket.get("suggested_endpoint"),
+                        "reason_codes": list(ticket.get("reason_codes") or []),
+                        "evidence_hash": ticket.get("evidence_hash"),
+                        "sleep_policy_hash": ticket.get("sleep_policy_hash"),
+                        "verified": verified,
+                        "hash_verified": hash_verified,
+                        "identity_verified": identity_verified,
+                        "revision_current": revision_current,
+                        "non_executing": non_executing,
+                        "executable": False,
+                        "mutates_runtime_state": False,
+                        "applies_plasticity": False,
+                    }
+                )
+            selected = tickets[:requested]
+            latest_verified = next((deepcopy(item) for item in selected if item["verified"]), None)
+            next_gate = (
+                latest_verified.get("suggested_endpoint")
+                if isinstance(latest_verified, Mapping)
+                else None
+            )
+            return {
+                "artifact_kind": "terminus_snn_sleep_plasticity_review_ticket_queue",
+                "surface": "snn_sleep_plasticity_review_ticket_queue.v1",
+                "available": True,
+                "ready": verified_count > 0,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.snn_sleep_plasticity_review_ticket_queue",
+                "endpoint": "/terminus/snn-language-sequence/plasticity-sleep-policy/review-tickets",
+                "count": int(len(tickets)),
+                "limit": int(requested),
+                "current_state_revision": current_revision,
+                "verified_count": int(verified_count),
+                "stale_count": int(stale_count),
+                "tampered_count": int(tampered_count),
+                "pending_action_counts": dict(action_counts),
+                "latest_verified_ticket": latest_verified,
+                "next_gate": next_gate,
+                "advisory": True,
+                "executable": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "tickets": selected,
+            }
+
+    def snn_sleep_plasticity_autonomy_proposal(self, *, limit: int = 20) -> dict[str, Any]:
+        """Build a non-executing autonomy candidate from verified sleep-policy tickets."""
+
+        queue = self.snn_sleep_plasticity_review_ticket_queue(limit=limit)
+        latest = (
+            queue.get("latest_verified_ticket")
+            if isinstance(queue.get("latest_verified_ticket"), Mapping)
+            else None
+        )
+        ready = latest is not None and bool(queue.get("ready"))
+        recommended_action = str(latest.get("recommended_action") or "") if latest else ""
+        suggested_endpoint = str(latest.get("suggested_endpoint") or "") if latest else ""
+        reason_codes = [
+            str(value)
+            for value in list(latest.get("reason_codes") or [])
+            if str(value)
+        ] if latest else []
+        required_evidence = {
+            "verified_sleep_plasticity_review_ticket": ready,
+            "ticket_hash_verified": bool(latest.get("hash_verified")) if latest else False,
+            "ticket_revision_current": bool(latest.get("revision_current")) if latest else False,
+            "ticket_non_executing": bool(latest.get("non_executing")) if latest else False,
+            "suggested_endpoint_present": bool(suggested_endpoint),
+        }
+        action = (
+            "review_sleep_plasticity_next_gate"
+            if ready
+            else "collect_sleep_plasticity_review_ticket"
+        )
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_autonomy_proposal",
+            "surface": "snn_sleep_plasticity_autonomy_proposal.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_plasticity_autonomy_proposal",
+            "advisory": True,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_structural_write": False,
+            "candidate": {
+                "candidate_id": (
+                    "snn-sleep-plasticity-autonomy:"
+                    f"{str(latest.get('review_ticket_id') or '')[:48]}"
+                ) if latest else None,
+                "action": action,
+                "review_ticket_id": latest.get("review_ticket_id") if latest else None,
+                "review_ticket_hash": latest.get("evidence_hash") if latest else None,
+                "recommended_action": recommended_action or None,
+                "suggested_endpoint": suggested_endpoint or None,
+                "reason_codes": reason_codes,
+                "state_revision": int(queue.get("current_state_revision", -1)),
+                "priority_score": 1.0 if ready else 0.0,
+            },
+            "promotion_gate": {
+                "status": "ready_for_operator_next_gate_review" if ready else "collect_sleep_plasticity_review_ticket",
+                "eligible_for_autonomy_planning": ready,
+                "eligible_for_action": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity": False,
+                "next_gate": suggested_endpoint or "/terminus/snn-language-sequence/plasticity-sleep-policy",
+                "required_evidence": required_evidence,
+            },
+            "ticket_queue": {
+                "surface": queue.get("surface"),
+                "count": int(queue.get("count", 0) or 0),
+                "verified_count": int(queue.get("verified_count", 0) or 0),
+                "stale_count": int(queue.get("stale_count", 0) or 0),
+                "tampered_count": int(queue.get("tampered_count", 0) or 0),
+                "pending_action_counts": dict(queue.get("pending_action_counts") or {}),
+            },
+        }
+
+    def snn_sleep_plasticity_scheduler_experiment(
+        self,
+        *,
+        limit: int = 20,
+        cycles: int = 4,
+    ) -> dict[str, Any]:
+        """Measure proposal stability before any sleep/plasticity scheduler exists."""
+
+        bounded_cycles = max(1, min(16, int(cycles)))
+        observations: list[dict[str, Any]] = []
+        baseline_hash = ""
+        for cycle in range(1, bounded_cycles + 1):
+            proposal = self.snn_sleep_plasticity_autonomy_proposal(limit=limit)
+            candidate = (
+                proposal.get("candidate")
+                if isinstance(proposal.get("candidate"), Mapping)
+                else {}
+            )
+            gate = (
+                proposal.get("promotion_gate")
+                if isinstance(proposal.get("promotion_gate"), Mapping)
+                else {}
+            )
+            material = {
+                "ready": bool(proposal.get("ready")),
+                "review_ticket_id": candidate.get("review_ticket_id"),
+                "review_ticket_hash": candidate.get("review_ticket_hash"),
+                "recommended_action": candidate.get("recommended_action"),
+                "suggested_endpoint": candidate.get("suggested_endpoint"),
+                "state_revision": int(candidate.get("state_revision", -1)),
+                "promotion_status": gate.get("status"),
+                "next_gate": gate.get("next_gate"),
+                "eligible_for_autonomy_planning": bool(gate.get("eligible_for_autonomy_planning")),
+            }
+            observation_hash = self._sha256_json(material)
+            if cycle == 1:
+                baseline_hash = observation_hash
+            observations.append(
+                {
+                    "cycle": cycle,
+                    "observation_hash": observation_hash,
+                    "stable_against_first_cycle": observation_hash == baseline_hash,
+                    **material,
+                }
+            )
+        latest = observations[-1]
+        ready = bool(
+            latest["ready"]
+            and latest["eligible_for_autonomy_planning"]
+            and latest["review_ticket_id"]
+            and all(item["stable_against_first_cycle"] for item in observations)
+        )
+        provenance_material = {
+            "cycle_count": bounded_cycles,
+            "observations": observations,
+            "ready": ready,
+        }
+        scheduler_experiment_hash = self._sha256_json(provenance_material)
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_experiment",
+            "surface": "snn_sleep_plasticity_scheduler_experiment.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_plasticity_scheduler_experiment",
+            "advisory": True,
+            "isolated": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "returns_trained_weights": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "executes_suggested_endpoint": False,
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_structural_write": False,
+            "eligible_for_plasticity": False,
+            "provenance_evidence": {
+                "scheduler_experiment_id": (
+                    f"snn-sleep-plasticity-scheduler-experiment-{scheduler_experiment_hash[:16]}"
+                ),
+                "scheduler_experiment_hash": scheduler_experiment_hash,
+                "hash_algorithm": "sha256",
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_hash_stability_experiment",
+            },
+            "experiment_summary": {
+                "cycle_count": bounded_cycles,
+                "stable_cycle_count": sum(
+                    1 for item in observations if item["stable_against_first_cycle"]
+                ),
+                "proposal_stable": all(
+                    item["stable_against_first_cycle"] for item in observations
+                ),
+                "review_ticket_id": latest["review_ticket_id"],
+                "review_ticket_hash": latest["review_ticket_hash"],
+                "next_gate": latest["next_gate"],
+                "bound_state_revision": latest["state_revision"],
+            },
+            "ephemeral_experiment": {
+                "observations": observations,
+                "runtime_update_applied": False,
+                "weights_persisted": False,
+                "checkpoint_written": False,
+                "plasticity_applied": False,
+                "scheduler_installed": False,
+                "suggested_endpoint_called": False,
+            },
+            "promotion_gate": {
+                "status": "ready_for_operator_scheduler_design_review"
+                if ready
+                else "collect_verified_stable_sleep_plasticity_autonomy_proposal",
+                "eligible_for_operator_scheduler_design_review": ready,
+                "eligible_for_scheduler_installation": False,
+                "eligible_for_action": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity": False,
+                "next_gate": "operator_review_snn_sleep_plasticity_scheduler_design"
+                if ready
+                else "/terminus/snn-language-sequence/plasticity-sleep-policy",
+                "required_evidence": {
+                    "verified_sleep_plasticity_autonomy_proposal": bool(latest["ready"]),
+                    "proposal_stable_across_cycles": all(
+                        item["stable_against_first_cycle"] for item in observations
+                    ),
+                    "review_ticket_present": bool(latest["review_ticket_id"]),
+                    "autonomy_planning_only": bool(latest["eligible_for_autonomy_planning"]),
+                    "scheduler_not_installed": True,
+                    "suggested_endpoint_not_called": True,
+                },
+            },
+        }
+
+    def snn_sleep_plasticity_scheduler_design(
+        self,
+        *,
+        limit: int = 20,
+        cycles: int = 4,
+        min_stable_cycles: int = 3,
+        max_review_interval_seconds: float = 300.0,
+    ) -> dict[str, Any]:
+        """Describe a bounded operator-reviewed scheduler without installing one."""
+
+        bounded_min_stable_cycles = max(1, min(16, int(min_stable_cycles)))
+        bounded_review_interval_seconds = max(
+            1.0,
+            min(3600.0, float(max_review_interval_seconds)),
+        )
+        experiment = self.snn_sleep_plasticity_scheduler_experiment(
+            limit=limit,
+            cycles=cycles,
+        )
+        summary = (
+            experiment.get("experiment_summary")
+            if isinstance(experiment.get("experiment_summary"), Mapping)
+            else {}
+        )
+        experiment_provenance = (
+            experiment.get("provenance_evidence")
+            if isinstance(experiment.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        stable_cycle_count = int(summary.get("stable_cycle_count", 0) or 0)
+        ready = bool(
+            experiment.get("ready")
+            and summary.get("proposal_stable")
+            and summary.get("review_ticket_id")
+            and stable_cycle_count >= bounded_min_stable_cycles
+        )
+        scheduler_design = {
+            "scheduler_mode": "operator_review_only",
+            "source_scheduler_experiment_id": experiment_provenance.get(
+                "scheduler_experiment_id"
+            ),
+            "source_scheduler_experiment_hash": experiment_provenance.get(
+                "scheduler_experiment_hash"
+            ),
+            "review_ticket_id": summary.get("review_ticket_id"),
+            "review_ticket_hash": summary.get("review_ticket_hash"),
+            "bound_state_revision": int(summary.get("bound_state_revision", -1)),
+            "reviewed_next_gate": summary.get("next_gate"),
+            "observed_cycle_count": int(summary.get("cycle_count", 0) or 0),
+            "min_stable_cycles": bounded_min_stable_cycles,
+            "observed_stable_cycles": stable_cycle_count,
+            "max_review_interval_seconds": bounded_review_interval_seconds,
+            "requires_current_revision": True,
+            "requires_operator_confirmation": True,
+            "automatic_endpoint_execution": False,
+            "automatic_plasticity": False,
+        }
+        provenance_material = {
+            "ready": ready,
+            "scheduler_design": scheduler_design,
+        }
+        scheduler_design_hash = self._sha256_json(provenance_material)
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_design",
+            "surface": "snn_sleep_plasticity_scheduler_design.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_plasticity_scheduler_design",
+            "advisory": True,
+            "isolated": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "returns_trained_weights": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "executes_suggested_endpoint": False,
+            "installs_scheduler": False,
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_structural_write": False,
+            "eligible_for_plasticity": False,
+            "provenance_evidence": {
+                "scheduler_design_id": (
+                    f"snn-sleep-plasticity-scheduler-design-{scheduler_design_hash[:16]}"
+                ),
+                "scheduler_design_hash": scheduler_design_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+                "source_scheduler_experiment_surface": experiment.get("surface"),
+                "source_scheduler_experiment_hash": experiment_provenance.get(
+                    "scheduler_experiment_hash"
+                ),
+                "review_ticket_hash": summary.get("review_ticket_hash"),
+                "bound_state_revision": int(summary.get("bound_state_revision", -1)),
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_scheduler_design",
+            },
+            "scheduler_design": scheduler_design,
+            "safety_contract": {
+                "scheduler_installation_allowed": False,
+                "suggested_endpoint_execution_allowed": False,
+                "replay_recording_allowed": False,
+                "live_replay_allowed": False,
+                "permit_issuance_allowed": False,
+                "checkpoint_write_allowed": False,
+                "growth_allowed": False,
+                "pruning_allowed": False,
+                "plasticity_allowed": False,
+                "runtime_mutation_allowed": False,
+            },
+            "promotion_gate": {
+                "status": "ready_for_operator_scheduler_design_review"
+                if ready
+                else "collect_verified_stable_sleep_plasticity_scheduler_experiment",
+                "eligible_for_operator_scheduler_design_review": ready,
+                "eligible_for_scheduler_installation": False,
+                "eligible_for_action": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity": False,
+                "next_gate": "operator_review_snn_sleep_plasticity_scheduler_design"
+                if ready
+                else "/terminus/snn-language-sequence/plasticity-sleep-policy/scheduler-experiment",
+                "required_evidence": {
+                    "verified_stable_scheduler_experiment": bool(experiment.get("ready")),
+                    "minimum_stable_cycles_observed": (
+                        stable_cycle_count >= bounded_min_stable_cycles
+                    ),
+                    "review_ticket_present": bool(summary.get("review_ticket_id")),
+                    "scheduler_not_installed": True,
+                    "suggested_endpoint_not_called": True,
+                    "automatic_plasticity_disabled": True,
+                },
+            },
+        }
+
+    def record_snn_sleep_plasticity_scheduler_design_review_ticket(
+        self,
+        *,
+        limit: int = 20,
+        cycles: int = 4,
+        min_stable_cycles: int = 3,
+        max_review_interval_seconds: float = 300.0,
+        expected_state_revision: int,
+        scheduler_design_hash: str,
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Record operator review of a current controller-recomputed scheduler design."""
+
+        normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
+        if not confirmation:
+            raise ValueError("SNN sleep plasticity scheduler design review confirmation=true is required.")
+        if not normalized_operator_id:
+            raise ValueError("SNN sleep plasticity scheduler design review operator_id is required.")
+        if int(expected_state_revision) != int(self._runtime_state.state_revision):
+            raise ValueError("SNN sleep plasticity scheduler design review requires current state revision.")
+        current = self.snn_sleep_plasticity_scheduler_design(
+            limit=limit,
+            cycles=cycles,
+            min_stable_cycles=min_stable_cycles,
+            max_review_interval_seconds=max_review_interval_seconds,
+        )
+        current_design = (
+            current.get("scheduler_design")
+            if isinstance(current.get("scheduler_design"), Mapping)
+            else {}
+        )
+        current_provenance = (
+            current.get("provenance_evidence")
+            if isinstance(current.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        if (
+            not current.get("ready")
+            or str(scheduler_design_hash or "")
+            != str(current_provenance.get("scheduler_design_hash") or "")
+        ):
+            raise ValueError("SNN sleep plasticity scheduler design review requires current controller evidence.")
+        with self._lock:
+            material = {
+                "recorded_state_revision": int(self._runtime_state.state_revision),
+                "operator_id": normalized_operator_id,
+                "confirmation": True,
+                "design_parameters": {
+                    "limit": int(limit),
+                    "cycles": int(cycles),
+                    "min_stable_cycles": int(min_stable_cycles),
+                    "max_review_interval_seconds": float(max_review_interval_seconds),
+                },
+                "scheduler_design_id": current_provenance.get("scheduler_design_id"),
+                "scheduler_design_hash": current_provenance.get("scheduler_design_hash"),
+                "source_scheduler_experiment_hash": current_provenance.get(
+                    "source_scheduler_experiment_hash"
+                ),
+                "review_ticket_id": current_design.get("review_ticket_id"),
+                "review_ticket_hash": current_design.get("review_ticket_hash"),
+                "reviewed_next_gate": current_design.get("reviewed_next_gate"),
+            }
+            evidence_hash = self._sha256_json(material)
+            ticket = {
+                "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_design_review_ticket",
+                "surface": "snn_sleep_plasticity_scheduler_design_review_ticket.v1",
+                "available": True,
+                "ready": True,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.snn_sleep_plasticity_scheduler_design_review_ticket",
+                "scheduler_design_review_ticket_id": (
+                    f"snn-sleep-plasticity-scheduler-design-review-{evidence_hash[:16]}-{uuid4()}"
+                ),
+                "evidence_hash": evidence_hash,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                **material,
+                "requires_operator_confirmation": True,
+                "advisory": True,
+                "executable": False,
+                "installs_scheduler": False,
+                "executes_suggested_endpoint": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "applies_plasticity": False,
+                "mutates_transition_memory": False,
+                "mutates_runtime_state": False,
+                "eligible_for_scheduler_installation": False,
+            }
+            self._snn_sleep_plasticity_scheduler_design_review_tickets.appendleft(
+                deepcopy(ticket)
+            )
+            self._runtime_state.mark_dirty_without_revision()
+            return deepcopy(ticket)
+
+    def verified_snn_sleep_plasticity_scheduler_design_review_ticket(
+        self,
+        scheduler_design_review_ticket_id: str,
+        *,
+        operator_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        expected_operator_id = (
+            self._normalize_feedback_text(operator_id, max_chars=160)
+            if operator_id is not None
+            else None
+        )
+        with self._lock:
+            ticket = next(
+                (
+                    dict(item)
+                    for item in self._snn_sleep_plasticity_scheduler_design_review_tickets
+                    if str(item.get("scheduler_design_review_ticket_id") or "")
+                    == str(scheduler_design_review_ticket_id or "")
+                ),
+                None,
+            )
+            if ticket is None:
+                return None
+            try:
+                design_parameters = dict(ticket.get("design_parameters") or {})
+                current = self.snn_sleep_plasticity_scheduler_design(
+                    limit=int(design_parameters.get("limit", 0) or 0),
+                    cycles=int(design_parameters.get("cycles", 0) or 0),
+                    min_stable_cycles=int(design_parameters.get("min_stable_cycles", 0) or 0),
+                    max_review_interval_seconds=float(
+                        design_parameters.get("max_review_interval_seconds", 0.0) or 0.0
+                    ),
+                )
+            except (TypeError, ValueError):
+                return None
+            current_design = (
+                current.get("scheduler_design")
+                if isinstance(current.get("scheduler_design"), Mapping)
+                else {}
+            )
+            current_provenance = (
+                current.get("provenance_evidence")
+                if isinstance(current.get("provenance_evidence"), Mapping)
+                else {}
+            )
+            material = {
+                "recorded_state_revision": int(ticket.get("recorded_state_revision", -1)),
+                "operator_id": ticket.get("operator_id"),
+                "confirmation": bool(ticket.get("confirmation")),
+                "design_parameters": dict(ticket.get("design_parameters") or {}),
+                "scheduler_design_id": ticket.get("scheduler_design_id"),
+                "scheduler_design_hash": ticket.get("scheduler_design_hash"),
+                "source_scheduler_experiment_hash": ticket.get(
+                    "source_scheduler_experiment_hash"
+                ),
+                "review_ticket_id": ticket.get("review_ticket_id"),
+                "review_ticket_hash": ticket.get("review_ticket_hash"),
+                "reviewed_next_gate": ticket.get("reviewed_next_gate"),
+            }
+            return (
+                deepcopy(ticket)
+                if (
+                    ticket.get("artifact_kind")
+                    == "terminus_snn_sleep_plasticity_scheduler_design_review_ticket"
+                    and ticket.get("surface")
+                    == "snn_sleep_plasticity_scheduler_design_review_ticket.v1"
+                    and ticket.get("source")
+                    == "replay_controller.snn_sleep_plasticity_scheduler_design_review_ticket"
+                    and ticket.get("ready")
+                    and ticket.get("owned_by_hecsn")
+                    and ticket.get("confirmation") is True
+                    and (
+                        expected_operator_id is None
+                        or str(ticket.get("operator_id") or "") == expected_operator_id
+                    )
+                    and int(ticket.get("recorded_state_revision", -1))
+                    == int(self._runtime_state.state_revision)
+                    and str(ticket.get("evidence_hash") or "") == self._sha256_json(material)
+                    and current.get("ready")
+                    and str(ticket.get("scheduler_design_id") or "")
+                    == str(current_provenance.get("scheduler_design_id") or "")
+                    and str(ticket.get("scheduler_design_hash") or "")
+                    == str(current_provenance.get("scheduler_design_hash") or "")
+                    and str(ticket.get("source_scheduler_experiment_hash") or "")
+                    == str(current_provenance.get("source_scheduler_experiment_hash") or "")
+                    and str(ticket.get("review_ticket_id") or "")
+                    == str(current_design.get("review_ticket_id") or "")
+                    and str(ticket.get("review_ticket_hash") or "")
+                    == str(current_design.get("review_ticket_hash") or "")
+                    and str(ticket.get("reviewed_next_gate") or "")
+                    == str(current_design.get("reviewed_next_gate") or "")
+                    and self.verified_snn_sleep_plasticity_review_ticket(
+                        str(ticket.get("review_ticket_id") or "")
+                    )
+                    is not None
+                    and not bool(ticket.get("executable"))
+                    and not bool(ticket.get("installs_scheduler"))
+                    and not bool(ticket.get("executes_suggested_endpoint"))
+                    and not bool(ticket.get("records_replay_artifact"))
+                    and not bool(ticket.get("issues_regeneration_permit"))
+                    and not bool(ticket.get("writes_checkpoint"))
+                    and not bool(ticket.get("applies_plasticity"))
+                    and not bool(ticket.get("mutates_transition_memory"))
+                    and not bool(ticket.get("mutates_runtime_state"))
+                    and not bool(ticket.get("eligible_for_scheduler_installation"))
+                )
+                else None
+            )
+
+    def snn_sleep_plasticity_scheduler_design_review_ticket_queue(
+        self,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Expose verified accepted scheduler designs without installing a scheduler."""
+
+        with self._lock:
+            requested = max(
+                1,
+                min(DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS, int(limit)),
+            )
+            tickets: list[dict[str, Any]] = []
+            verified_count = 0
+            stale_count = 0
+            tampered_count = 0
+            latest_verified: dict[str, Any] | None = None
+            current_revision = int(self._runtime_state.state_revision)
+            for raw_ticket in list(self._snn_sleep_plasticity_scheduler_design_review_tickets):
+                if not isinstance(raw_ticket, Mapping):
+                    continue
+                ticket = dict(raw_ticket)
+                revision_current = (
+                    int(ticket.get("recorded_state_revision", -1)) == current_revision
+                )
+                non_executing = not any(
+                    bool(ticket.get(field))
+                    for field in (
+                        "executable",
+                        "installs_scheduler",
+                        "executes_suggested_endpoint",
+                        "records_replay_artifact",
+                        "issues_regeneration_permit",
+                        "writes_checkpoint",
+                        "applies_plasticity",
+                        "mutates_transition_memory",
+                        "mutates_runtime_state",
+                        "eligible_for_scheduler_installation",
+                    )
+                )
+                try:
+                    verified_ticket = (
+                        self.verified_snn_sleep_plasticity_scheduler_design_review_ticket(
+                            str(ticket.get("scheduler_design_review_ticket_id") or "")
+                        )
+                    )
+                except (TypeError, ValueError):
+                    verified_ticket = None
+                verified = verified_ticket is not None
+                if verified:
+                    verified_count += 1
+                elif not revision_current:
+                    stale_count += 1
+                else:
+                    tampered_count += 1
+                projection = {
+                        "scheduler_design_review_ticket_id": ticket.get(
+                            "scheduler_design_review_ticket_id"
+                        ),
+                        "scheduler_design_review_ticket_hash": ticket.get("evidence_hash"),
+                        "recorded_at": ticket.get("recorded_at"),
+                        "bound_state_revision": int(
+                            ticket.get("recorded_state_revision", -1)
+                        ),
+                        "operator_id": ticket.get("operator_id"),
+                        "scheduler_design_id": ticket.get("scheduler_design_id"),
+                        "scheduler_design_hash": ticket.get("scheduler_design_hash"),
+                        "source_scheduler_experiment_hash": ticket.get(
+                            "source_scheduler_experiment_hash"
+                        ),
+                        "review_ticket_id": ticket.get("review_ticket_id"),
+                        "review_ticket_hash": ticket.get("review_ticket_hash"),
+                        "scheduler_review_parameters": (
+                            dict(ticket.get("design_parameters") or {})
+                            if isinstance(ticket.get("design_parameters"), Mapping)
+                            else {}
+                        ),
+                        "reviewed_sleep_plasticity_endpoint": ticket.get(
+                            "reviewed_next_gate"
+                        ),
+                        "verified": verified,
+                        "revision_current": revision_current,
+                        "non_executing": non_executing,
+                        "executable": False,
+                        "installs_scheduler": False,
+                        "executes_suggested_endpoint": False,
+                        "mutates_runtime_state": False,
+                        "applies_plasticity": False,
+                    }
+                tickets.append(projection)
+                if verified and latest_verified is None:
+                    latest_verified = deepcopy(projection)
+            selected = tickets[:requested]
+            return {
+                "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_design_review_ticket_queue",
+                "surface": "snn_sleep_plasticity_scheduler_design_review_ticket_queue.v1",
+                "available": True,
+                "ready": verified_count > 0,
+                "owned_by_hecsn": True,
+                "source": (
+                    "replay_controller."
+                    "snn_sleep_plasticity_scheduler_design_review_ticket_queue"
+                ),
+                "count": len(tickets),
+                "limit": requested,
+                "current_state_revision": current_revision,
+                "verified_count": verified_count,
+                "stale_count": stale_count,
+                "tampered_count": tampered_count,
+                "latest_verified_ticket": latest_verified,
+                "advisory": True,
+                "executable": False,
+                "installs_scheduler": False,
+                "executes_suggested_endpoint": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "eligible_for_scheduler_installation": False,
+                "tickets": selected,
+            }
+
+    def snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+        self,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Propose installation-preflight review from accepted scheduler designs."""
+
+        queue = self.snn_sleep_plasticity_scheduler_design_review_ticket_queue(limit=limit)
+        latest = (
+            queue.get("latest_verified_ticket")
+            if isinstance(queue.get("latest_verified_ticket"), Mapping)
+            else None
+        )
+        ready = latest is not None and bool(queue.get("ready"))
+        ticket_id = (
+            str(latest.get("scheduler_design_review_ticket_id") or "")
+            if latest
+            else ""
+        )
+        candidate = {
+            "candidate_id": (
+                f"snn-sleep-plasticity-scheduler-installation:{ticket_id[:64]}"
+                if ticket_id
+                else None
+            ),
+            "action": (
+                "review_snn_sleep_plasticity_scheduler_installation_preflight"
+                if ready
+                else "collect_verified_scheduler_design_review_ticket"
+            ),
+            "scheduler_design_review_ticket_id": ticket_id or None,
+            "scheduler_design_review_ticket_hash": (
+                latest.get("scheduler_design_review_ticket_hash") if latest else None
+            ),
+            "scheduler_design_id": latest.get("scheduler_design_id") if latest else None,
+            "scheduler_design_hash": latest.get("scheduler_design_hash") if latest else None,
+            "source_scheduler_experiment_hash": (
+                latest.get("source_scheduler_experiment_hash") if latest else None
+            ),
+            "review_ticket_id": latest.get("review_ticket_id") if latest else None,
+            "review_ticket_hash": latest.get("review_ticket_hash") if latest else None,
+            "reviewed_sleep_plasticity_endpoint": (
+                latest.get("reviewed_sleep_plasticity_endpoint") if latest else None
+            ),
+            "scheduler_review_parameters": (
+                dict(latest.get("scheduler_review_parameters") or {}) if latest else {}
+            ),
+            "bound_state_revision": int(queue.get("current_state_revision", -1)),
+            "priority_score": 1.0 if ready else 0.0,
+        }
+        provenance_material = {
+            "ready": ready,
+            "current_state_revision": int(queue.get("current_state_revision", -1)),
+            "candidate": candidate,
+        }
+        proposal_hash = self._sha256_json(provenance_material)
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_installation_autonomy_proposal",
+            "surface": "snn_sleep_plasticity_scheduler_installation_autonomy_proposal.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": (
+                "replay_controller."
+                "snn_sleep_plasticity_scheduler_installation_autonomy_proposal"
+            ),
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "installs_scheduler": False,
+            "registers_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "eligible_for_scheduler_installation": False,
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_structural_write": False,
+            "eligible_for_growth": False,
+            "eligible_for_pruning": False,
+            "eligible_for_plasticity": False,
+            "provenance_evidence": {
+                "scheduler_installation_autonomy_proposal_id": (
+                    "snn-sleep-plasticity-scheduler-installation-autonomy-"
+                    f"{proposal_hash[:16]}"
+                ),
+                "scheduler_installation_autonomy_proposal_hash": proposal_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_scheduler_installation_autonomy_proposal",
+            },
+            "safety_contract": {
+                "scheduler_installation_allowed": False,
+                "timer_registration_allowed": False,
+                "background_worker_start_allowed": False,
+                "suggested_endpoint_execution_allowed": False,
+                "replay_recording_allowed": False,
+                "permit_issuance_allowed": False,
+                "checkpoint_write_allowed": False,
+                "plasticity_allowed": False,
+                "transition_memory_mutation_allowed": False,
+                "runtime_mutation_allowed": False,
+            },
+            "candidate": candidate,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_scheduler_installation_preflight_review"
+                    if ready
+                    else "collect_verified_scheduler_design_review_ticket"
+                ),
+                "eligible_for_autonomy_planning": ready,
+                "eligible_for_scheduler_installation_preflight_review": ready,
+                "eligible_for_scheduler_installation": False,
+                "eligible_for_action": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity": False,
+                "next_gate": (
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "scheduler-installation-preflight"
+                    if ready
+                    else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "scheduler-design/review-tickets"
+                ),
+                "required_evidence": {
+                    "verified_scheduler_design_review_ticket": ready,
+                    "scheduler_not_installed": True,
+                    "timer_not_registered": True,
+                    "background_worker_not_started": True,
+                    "suggested_endpoint_not_called": True,
+                    "automatic_plasticity_disabled": True,
+                },
+            },
+        }
+
+    def snn_sleep_plasticity_scheduler_installation_preflight(
+        self,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Verify scheduler-installation intent without creating a scheduler."""
+
+        proposal = self.snn_sleep_plasticity_scheduler_installation_autonomy_proposal(
+            limit=limit
+        )
+        candidate = (
+            proposal.get("candidate")
+            if isinstance(proposal.get("candidate"), Mapping)
+            else {}
+        )
+        proposal_provenance = (
+            proposal.get("provenance_evidence")
+            if isinstance(proposal.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        ready = bool(
+            proposal.get("ready")
+            and candidate.get("scheduler_design_review_ticket_id")
+            and candidate.get("scheduler_design_review_ticket_hash")
+            and candidate.get("scheduler_design_id")
+            and candidate.get("scheduler_design_hash")
+            and candidate.get("source_scheduler_experiment_hash")
+            and candidate.get("review_ticket_id")
+            and candidate.get("review_ticket_hash")
+            and candidate.get("reviewed_sleep_plasticity_endpoint")
+            and all(
+                key in dict(candidate.get("scheduler_review_parameters") or {})
+                for key in (
+                    "limit",
+                    "cycles",
+                    "min_stable_cycles",
+                    "max_review_interval_seconds",
+                )
+            )
+            and int(candidate.get("bound_state_revision", -1))
+            == int(self._runtime_state.state_revision)
+            and not any(
+                bool(proposal.get(field))
+                for field in (
+                    "executable",
+                    "installs_scheduler",
+                    "registers_timer",
+                    "starts_background_worker",
+                    "executes_suggested_endpoint",
+                    "records_replay_artifact",
+                    "issues_regeneration_permit",
+                    "writes_checkpoint",
+                    "applies_plasticity",
+                    "mutates_transition_memory",
+                    "mutates_runtime_state",
+                    "eligible_for_scheduler_installation",
+                )
+            )
+        )
+        installation_review_preflight = {
+            "scheduler_mode": "operator_review_only",
+            "scheduler_design_review_ticket_id": candidate.get(
+                "scheduler_design_review_ticket_id"
+            ),
+            "scheduler_design_review_ticket_hash": candidate.get(
+                "scheduler_design_review_ticket_hash"
+            ),
+            "scheduler_design_id": candidate.get("scheduler_design_id"),
+            "scheduler_design_hash": candidate.get("scheduler_design_hash"),
+            "source_scheduler_experiment_hash": candidate.get(
+                "source_scheduler_experiment_hash"
+            ),
+            "review_ticket_id": candidate.get("review_ticket_id"),
+            "review_ticket_hash": candidate.get("review_ticket_hash"),
+            "reviewed_sleep_plasticity_endpoint": candidate.get(
+                "reviewed_sleep_plasticity_endpoint"
+            ),
+            "scheduler_review_parameters": dict(
+                candidate.get("scheduler_review_parameters") or {}
+            ),
+            "bound_state_revision": int(candidate.get("bound_state_revision", -1)),
+            "requires_operator_confirmation": True,
+            "automatic_endpoint_execution": False,
+            "automatic_plasticity": False,
+        }
+        provenance_material = {
+            "ready": ready,
+            "source_scheduler_installation_autonomy_proposal_hash": (
+                proposal_provenance.get(
+                    "scheduler_installation_autonomy_proposal_hash"
+                )
+            ),
+            "installation_review_preflight": installation_review_preflight,
+        }
+        preflight_hash = self._sha256_json(provenance_material)
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_scheduler_installation_preflight",
+            "surface": "snn_sleep_plasticity_scheduler_installation_preflight.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": (
+                "replay_controller."
+                "snn_sleep_plasticity_scheduler_installation_preflight"
+            ),
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "installs_scheduler": False,
+            "registers_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "eligible_for_scheduler_installation": False,
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_structural_write": False,
+            "eligible_for_growth": False,
+            "eligible_for_pruning": False,
+            "eligible_for_plasticity": False,
+            "provenance_evidence": {
+                "scheduler_installation_preflight_id": (
+                    f"snn-sleep-plasticity-scheduler-installation-preflight-{preflight_hash[:16]}"
+                ),
+                "scheduler_installation_preflight_hash": preflight_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+                "source_scheduler_installation_autonomy_proposal_hash": (
+                    proposal_provenance.get(
+                        "scheduler_installation_autonomy_proposal_hash"
+                    )
+                ),
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_scheduler_installation_preflight",
+            },
+            "safety_contract": {
+                "scheduler_installation_allowed": False,
+                "timer_registration_allowed": False,
+                "background_worker_start_allowed": False,
+                "suggested_endpoint_execution_allowed": False,
+                "replay_recording_allowed": False,
+                "permit_issuance_allowed": False,
+                "checkpoint_write_allowed": False,
+                "plasticity_allowed": False,
+                "transition_memory_mutation_allowed": False,
+                "runtime_mutation_allowed": False,
+            },
+            "installation_review_preflight": installation_review_preflight,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_scheduler_installation_review"
+                    if ready
+                    else "collect_verified_scheduler_installation_autonomy_proposal"
+                ),
+                "eligible_for_operator_scheduler_installation_review": ready,
+                "eligible_for_scheduler_installation": False,
+                "eligible_for_action": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity": False,
+                "next_gate": (
+                    "operator_review_snn_sleep_plasticity_scheduler_installation"
+                    if ready
+                    else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "scheduler-design/review-tickets"
+                ),
+                "required_evidence": {
+                    "verified_scheduler_installation_autonomy_proposal": bool(
+                        proposal.get("ready")
+                    ),
+                    "scheduler_design_review_ticket_present": bool(
+                        candidate.get("scheduler_design_review_ticket_id")
+                    ),
+                    "scheduler_not_installed": True,
+                    "timer_not_registered": True,
+                    "background_worker_not_started": True,
+                    "suggested_endpoint_not_called": True,
+                    "automatic_plasticity_disabled": True,
+                },
+            },
+        }
+
     @property
     def snn_transition_memory_replay_artifacts(self) -> deque[dict[str, Any]]:
         return self._snn_transition_memory_replay_artifacts
@@ -718,11 +2136,13 @@ class ReplayController:
         window = [dict(item) for item in replay_window if isinstance(item, Mapping)]
         metadata = dict(artifact_metadata or {})
         error = mismatch.get("prediction_error") if isinstance(mismatch.get("prediction_error"), Mapping) else {}
+        mismatch_score = max(0.0, min(1.0, float(error.get("mismatch_score", 0.0) or 0.0)))
+        pressure_score = max(0.0, min(1.0, float(pressure.get("pressure_score", mismatch_score) or 0.0)))
         if not confirmation:
             raise ValueError("SNN transition-memory replay artifact confirmation=true is required.")
         if not normalized_operator_id:
             raise ValueError("SNN transition-memory replay artifact operator_id is required.")
-        if not mismatch.get("available") or float(error.get("mismatch_score", 0.0) or 0.0) < 0.66:
+        if not mismatch.get("available") or mismatch_score < 0.66:
             raise ValueError("SNN transition-memory replay artifact requires high mismatch evidence.")
         if not pressure.get("available"):
             raise ValueError("SNN transition-memory replay artifact requires plasticity pressure evidence.")
@@ -746,7 +2166,9 @@ class ReplayController:
                 "operator_id": normalized_operator_id,
                 "confirmation": True,
                 "mismatch_hash": self._sha256_json(mismatch),
+                "mismatch_score": mismatch_score,
                 "pressure_hash": self._sha256_json(pressure),
+                "pressure_score": pressure_score,
                 "replay_window_hash": self._sha256_json(window),
                 "replay_window_size": len(window),
                 "internal_ledger_backed": bool(metadata.get("internal_ledger_backed")),
@@ -889,7 +2311,9 @@ class ReplayController:
                 "operator_id": normalized_operator_id,
                 "confirmation": True,
                 "mismatch_hash": artifact["mismatch_hash"],
+                "mismatch_score": float(artifact.get("mismatch_score", 0.0) or 0.0),
                 "pressure_hash": artifact["pressure_hash"],
+                "pressure_score": float(artifact.get("pressure_score", 0.0) or 0.0),
                 "replay_artifact_id": artifact["replay_artifact_id"],
                 "replay_artifact_hash": artifact["evidence_hash"],
                 "replay_window_hash": artifact["replay_window_hash"],
@@ -934,7 +2358,9 @@ class ReplayController:
                 "operator_id": permit.get("operator_id"),
                 "confirmation": bool(permit.get("confirmation")),
                 "mismatch_hash": permit.get("mismatch_hash"),
+                "mismatch_score": float(permit.get("mismatch_score", 0.0) or 0.0),
                 "pressure_hash": permit.get("pressure_hash"),
+                "pressure_score": float(permit.get("pressure_score", 0.0) or 0.0),
                 "replay_window_hash": permit.get("replay_window_hash"),
                 "replay_window_size": int(permit.get("replay_window_size", 0) or 0),
                 "readout_evidence_hashes": list(permit.get("readout_evidence_hashes") or []),
@@ -1000,7 +2426,9 @@ class ReplayController:
             "operator_id": artifact.get("operator_id"),
             "confirmation": bool(artifact.get("confirmation")),
             "mismatch_hash": artifact.get("mismatch_hash"),
+            "mismatch_score": float(artifact.get("mismatch_score", 0.0) or 0.0),
             "pressure_hash": artifact.get("pressure_hash"),
+            "pressure_score": float(artifact.get("pressure_score", 0.0) or 0.0),
             "replay_window_hash": artifact.get("replay_window_hash"),
             "replay_window_size": int(artifact.get("replay_window_size", 0) or 0),
             "internal_ledger_backed": bool(artifact.get("internal_ledger_backed")),

@@ -831,6 +831,455 @@ def generate_snn_language_readout_draft(
     }
 
 
+def rollout_snn_language_readout_candidate(
+    prediction_report: Mapping[str, Any],
+    readout_vocabulary_slots: Sequence[Mapping[str, Any]],
+    transition_memory_state: Mapping[str, Any],
+    device_evidence: Mapping[str, Any] | None = None,
+    transition_memory_evaluation: Mapping[str, Any] | None = None,
+    *,
+    rollout_steps: int = 4,
+    top_k: int = 4,
+) -> dict[str, Any]:
+    """Roll HECSN sparse transition memory forward into bounded grounded labels."""
+
+    report = dict(prediction_report)
+    state = dict(transition_memory_state or {})
+    persistent_weights = (
+        state.get("sparse_transition_weights")
+        if isinstance(state.get("sparse_transition_weights"), Mapping)
+        else {}
+    )
+    persistent_weights_hash = _sha256_json(dict(persistent_weights))
+    device_report = dict(device_evidence or report.get("device_evidence") or {})
+    device = _safe_tensor_device(str(device_report.get("device") or device_report.get("tensor_device") or "cpu"))
+    memory_tensor = _persistent_transition_weight_tensor(persistent_weights, 64, device)
+    requested_steps = max(1, min(int(rollout_steps), 12))
+    requested_k = max(1, min(int(top_k), 8))
+    current_sparse = (
+        report.get("current_sparse_code")
+        if isinstance(report.get("current_sparse_code"), Mapping)
+        else {}
+    )
+    current_indices = [
+        int(value)
+        for value in list(current_sparse.get("active_indices") or [])
+        if isinstance(value, int) and 0 <= int(value) < 64
+    ][:16]
+    vocabulary_slots = [dict(slot) for slot in readout_vocabulary_slots if isinstance(slot, Mapping)][:32]
+    vocabulary_count = len(vocabulary_slots)
+    grounded_count = sum(1 for slot in vocabulary_slots if bool(slot.get("grounded")))
+    vocabulary_candidates: list[dict[str, Any]] = []
+    for slot in vocabulary_slots:
+        label = _text(slot.get("label"))
+        if not label:
+            continue
+        probe = build_spike_language_decoder_probe(
+            {
+                "readout_slots": [slot],
+                "device_evidence": device_report,
+            }
+        )
+        sparse = probe.get("sparse_code_evidence") if isinstance(probe.get("sparse_code_evidence"), Mapping) else {}
+        active = [
+            int(value) % 64
+            for value in list(sparse.get("active_indices") or [])
+            if isinstance(value, int)
+        ]
+        folded_active = sorted({int(value) % 32 for value in active})
+        vocabulary_candidates.append(
+            {
+                "label": label,
+                "pressure_band": slot.get("pressure_band"),
+                "grounded": bool(slot.get("grounded")),
+                "active_indices": active[:16],
+                "folded_active_indices": folded_active[:16],
+            }
+        )
+
+    vector = _indices_to_vector(current_indices, 64, device)
+    rollout_trace: list[dict[str, Any]] = []
+    visited_hashes: set[str] = set()
+    for step_index in range(requested_steps):
+        logits = vector @ memory_tensor
+        predicted = torch.topk(logits, k=requested_k)
+        predicted_indices = [int(value) for value in predicted.indices.detach().cpu().tolist()]
+        predicted_strengths = [float(value) for value in predicted.values.detach().cpu().tolist()]
+        positive_strength = float(sum(max(0.0, value) for value in predicted_strengths))
+        strength_by_index = {
+            int(index): (
+                float(predicted_strengths[position])
+                if position < len(predicted_strengths)
+                else 0.0
+            )
+            for position, index in enumerate(predicted_indices)
+        }
+        label_matches = []
+        for candidate in vocabulary_candidates:
+            matched = [index for index in candidate["active_indices"] if index in strength_by_index]
+            score_by_index = strength_by_index
+            if not matched:
+                folded_strength_by_index = {
+                    int(index) % 32: strength
+                    for index, strength in strength_by_index.items()
+                }
+                matched = [
+                    index
+                    for index in candidate["folded_active_indices"]
+                    if index in folded_strength_by_index
+                ]
+                score_by_index = folded_strength_by_index
+            score = float(sum(max(0.0, score_by_index[index]) for index in matched))
+            if matched and score > 0.0:
+                label_matches.append(
+                    {
+                        "label": candidate["label"],
+                        "pressure_band": candidate.get("pressure_band"),
+                        "grounded": bool(candidate.get("grounded")),
+                        "matched_indices": matched,
+                        "score": score,
+                    }
+                )
+        label_matches.sort(key=lambda item: (-float(item["score"]), item["label"]))
+        selected = label_matches[0] if label_matches else None
+        active_hash = _sha256_json(predicted_indices[:16])
+        rollout_trace.append(
+            {
+                "step_index": step_index,
+                "predicted_sparse_indices": predicted_indices,
+                "predicted_sparse_strengths": predicted_strengths,
+                "support_strength": positive_strength,
+                "active_indices_hash": active_hash,
+                "selected_label": selected.get("label") if selected else None,
+                "selected_label_grounded": bool(selected.get("grounded")) if selected else False,
+                "selected_label_score": float(selected.get("score")) if selected else 0.0,
+                "candidate_label_count": len(label_matches),
+                "candidate_labels": label_matches[:6],
+            }
+        )
+        visited_hashes.add(active_hash)
+        vector = _indices_to_vector(predicted_indices, 64, device)
+
+    evaluation = dict(transition_memory_evaluation or {})
+    evaluation_summary = (
+        evaluation.get("evaluation_summary")
+        if isinstance(evaluation.get("evaluation_summary"), Mapping)
+        else {}
+    )
+    prediction_provenance = (
+        report.get("provenance_evidence")
+        if isinstance(report.get("provenance_evidence"), Mapping)
+        else {}
+    )
+    evaluation_ready = bool(
+        evaluation.get("surface") == "snn_language_transition_memory_prediction_evaluation.v1"
+        and evaluation.get("owned_by_hecsn")
+        and evaluation.get("promotion_gate", {}).get("status") == "ready_for_operator_review"
+        if isinstance(evaluation.get("promotion_gate"), Mapping)
+        else False
+    )
+    evaluation_provenance = (
+        evaluation.get("provenance_evidence")
+        if isinstance(evaluation.get("provenance_evidence"), Mapping)
+        else {}
+    )
+    evaluation_hash = str(
+        evaluation.get("transition_memory_evaluation_hash")
+        or evaluation_provenance.get("evaluation_hash")
+        or ""
+    )
+    evaluation_non_worsening = bool(evaluation_summary.get("worsened_sequence_count", 0) == 0)
+    grounded_labels = [
+        str(step.get("selected_label") or "")
+        for step in rollout_trace
+        if bool(step.get("selected_label_grounded")) and str(step.get("selected_label") or "")
+    ]
+    unique_grounded_labels = []
+    for label in grounded_labels:
+        if label not in unique_grounded_labels:
+            unique_grounded_labels.append(label)
+    rollout_hash = _sha256_json(
+        {
+            "prediction_hash": prediction_provenance.get("prediction_hash"),
+            "persistent_transition_weights_hash": persistent_weights_hash,
+            "rollout_trace": rollout_trace,
+            "transition_memory_evaluation_hash": evaluation_hash or None,
+        }
+    )
+    persistent_count = int(torch.count_nonzero(memory_tensor).item())
+    grounded_fraction = grounded_count / max(1, vocabulary_count)
+    ready = bool(
+        report.get("owned_by_hecsn")
+        and not bool(report.get("external_dependency"))
+        and persistent_count > 0
+        and current_indices
+        and rollout_trace
+        and unique_grounded_labels
+        and grounded_fraction >= 0.5
+        and evaluation_ready
+        and evaluation_non_worsening
+    )
+    return {
+        "artifact_kind": "terminus_snn_language_readout_rollout_candidate",
+        "surface": "snn_language_readout_rollout_candidate.v1",
+        "available": bool(current_indices and persistent_count > 0),
+        "source": "semantics.spike_language_neurons.readout_rollout_candidate",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": True,
+        "generation_scope": "bounded_grounded_readout_rollout_candidate",
+        "freeform_language_generation": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "returns_trained_weights": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "rollout": {
+            "step_count": len(rollout_trace),
+            "requested_steps": requested_steps,
+            "top_k": requested_k,
+            "labels": unique_grounded_labels[:requested_steps],
+            "text": " ".join(unique_grounded_labels[:requested_steps]),
+        },
+        "rollout_trace": rollout_trace,
+        "readout_rollout_evidence": {
+            "initial_sparse_indices": current_indices,
+            "visited_sparse_state_count": len(visited_hashes),
+            "persistent_transition_weight_count": persistent_count,
+            "persistent_transition_weights_hash": persistent_weights_hash,
+            "rollout_hash": rollout_hash,
+            "rollout_id": f"snn-readout-rollout:{rollout_hash[:16]}",
+        },
+        "grounding_evidence": {
+            "vocabulary_slot_count": vocabulary_count,
+            "grounded_slot_count": grounded_count,
+            "grounded_fraction": float(grounded_fraction),
+            "grounded_rollout_label_count": len(unique_grounded_labels),
+        },
+        "transition_memory_evaluation_evidence": {
+            "available": bool(evaluation),
+            "surface": evaluation.get("surface"),
+            "owned_by_hecsn": bool(evaluation.get("owned_by_hecsn")),
+            "review_ready": evaluation_ready,
+            "non_worsening": evaluation_non_worsening,
+            "transition_memory_evaluation_hash": evaluation_hash or None,
+            "persistent_transition_weight_count": int(
+                evaluation_summary.get("persistent_transition_weight_count") or 0
+            ),
+            "influenced_prediction_count": int(
+                evaluation_summary.get("influenced_prediction_count") or 0
+            ),
+        },
+        "provenance_evidence": {
+            "rollout_hash": rollout_hash,
+            "rollout_id": f"snn-readout-rollout:{rollout_hash[:16]}",
+            "prediction_hash": prediction_provenance.get("prediction_hash"),
+            "current_sparse_code_hash": prediction_provenance.get("current_sparse_code_hash"),
+            "persistent_transition_weights_hash": persistent_weights_hash,
+            "transition_memory_evaluation_hash": evaluation_hash or None,
+            "hash_algorithm": "sha256_canonical_json",
+        },
+        "device_evidence": {
+            "requested_device": str(device_report.get("device") or device_report.get("tensor_device") or "unknown"),
+            "tensor_device": str(memory_tensor.device),
+            "cuda_tensor": bool(memory_tensor.is_cuda),
+            "device_source": device_report.get("source") or device_report.get("device_source"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_readout_rollout_evidence",
+            "eligible_for_bounded_readout_rollout": ready,
+            "eligible_for_bounded_readout_generation": ready,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "requires_operator_approval": ready,
+            "next_gate": "operator_review_snn_language_readout_rollout_candidate"
+            if ready
+            else "collect_readout_rollout_evidence",
+            "required_evidence": {
+                "prediction_owned_by_hecsn": bool(report.get("owned_by_hecsn")),
+                "external_dependency_absent": not bool(report.get("external_dependency")),
+                "persistent_transition_memory_available": persistent_count > 0,
+                "initial_sparse_code_available": bool(current_indices),
+                "transition_memory_prediction_evaluation_ready": evaluation_ready,
+                "transition_memory_prediction_non_worsening": evaluation_non_worsening,
+                "grounded_vocabulary_available": grounded_fraction >= 0.5,
+                "grounded_rollout_labels_available": bool(unique_grounded_labels),
+                "runtime_mutation_absent": True,
+            },
+        },
+    }
+
+
+def evaluate_snn_language_readout_rollout_replay(
+    readout_rollout_candidate: Mapping[str, Any],
+    *,
+    candidate_limit: int = 8,
+    device_evidence: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a read-only replay-review gate for a bounded readout rollout."""
+
+    candidate = dict(readout_rollout_candidate)
+    limit = max(1, min(32, int(candidate_limit)))
+    rollout = candidate.get("rollout") if isinstance(candidate.get("rollout"), Mapping) else {}
+    rollout_trace = [
+        dict(item)
+        for item in list(candidate.get("rollout_trace") or [])
+        if isinstance(item, Mapping)
+    ][:limit]
+    rollout_evidence = (
+        candidate.get("readout_rollout_evidence")
+        if isinstance(candidate.get("readout_rollout_evidence"), Mapping)
+        else {}
+    )
+    provenance = (
+        candidate.get("provenance_evidence")
+        if isinstance(candidate.get("provenance_evidence"), Mapping)
+        else {}
+    )
+    transition_eval = (
+        candidate.get("transition_memory_evaluation_evidence")
+        if isinstance(candidate.get("transition_memory_evaluation_evidence"), Mapping)
+        else {}
+    )
+    gate = candidate.get("promotion_gate") if isinstance(candidate.get("promotion_gate"), Mapping) else {}
+    candidate_device = (
+        candidate.get("device_evidence")
+        if isinstance(candidate.get("device_evidence"), Mapping)
+        else {}
+    )
+    device_report = dict(device_evidence or candidate_device)
+    rollout_labels = [str(value) for value in list(rollout.get("labels") or []) if str(value)][:limit]
+    replay_targets: list[dict[str, Any]] = []
+    trace_hashes_valid = True
+    for step in rollout_trace:
+        sparse_indices = [
+                int(value)
+                for value in list(step.get("predicted_sparse_indices") or [])
+                if isinstance(value, int) and 0 <= int(value) < 64
+        ][:16]
+        active_indices_hash = str(step.get("active_indices_hash") or "")
+        active_hash_valid = active_indices_hash == _sha256_json(sparse_indices)
+        trace_hashes_valid = trace_hashes_valid and active_hash_valid
+        label = str(step.get("selected_label") or "")
+        grounded = bool(step.get("selected_label_grounded"))
+        if not label or not grounded:
+            continue
+        replay_targets.append(
+            {
+                "step_index": int(step.get("step_index") or len(replay_targets)),
+                "selected_label": label,
+                "grounded": True,
+                "selection_score": float(step.get("selected_label_score") or 0.0),
+                "transition_support": float(step.get("support_strength") or 0.0),
+                "predicted_sparse_indices": sparse_indices,
+                "active_indices_hash": active_indices_hash,
+                "active_indices_hash_valid": active_hash_valid,
+            }
+        )
+    rollout_hash = str(provenance.get("rollout_hash") or rollout_evidence.get("rollout_hash") or "")
+    required_provenance = {
+        "rollout_hash": rollout_hash,
+        "rollout_id": provenance.get("rollout_id"),
+        "prediction_hash": provenance.get("prediction_hash"),
+        "current_sparse_code_hash": provenance.get("current_sparse_code_hash"),
+        "persistent_transition_weights_hash": provenance.get("persistent_transition_weights_hash"),
+        "transition_memory_evaluation_hash": provenance.get("transition_memory_evaluation_hash"),
+    }
+    evaluation_material = {
+        "surface": "snn_language_readout_rollout_replay_evaluation.v1",
+        "candidate_limit": limit,
+        "rollout_hash": rollout_hash,
+        "rollout_id": required_provenance["rollout_id"],
+        "replay_targets": replay_targets,
+    }
+    evaluation_hash = _sha256_json(evaluation_material)
+    required = {
+        "candidate_surface_available": candidate.get("surface") == "snn_language_readout_rollout_candidate.v1",
+        "candidate_owned_by_hecsn": bool(candidate.get("owned_by_hecsn")),
+        "external_dependency_absent": not bool(candidate.get("external_dependency")),
+        "external_checkpoint_absent": not bool(candidate.get("loads_external_checkpoint")),
+        "candidate_gate_ready": bool(gate.get("eligible_for_bounded_readout_rollout")),
+        "runtime_mutation_absent": not bool(candidate.get("mutates_runtime_state")),
+        "training_absent": not bool(candidate.get("trains_runtime_model")),
+        "plasticity_absent": not bool(candidate.get("applies_plasticity")),
+        "freeform_generation_absent": not bool(candidate.get("freeform_language_generation")),
+        "provenance_complete": all(bool(value) for value in required_provenance.values()),
+        "transition_memory_review_ready": bool(transition_eval.get("review_ready")),
+        "transition_memory_non_worsening": bool(transition_eval.get("non_worsening")),
+        "grounded_rollout_labels_available": bool(rollout_labels) and bool(replay_targets),
+        "replay_targets_grounded": bool(replay_targets) and all(target["grounded"] for target in replay_targets),
+        "trace_hashes_valid": bool(rollout_trace) and trace_hashes_valid,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_readout_rollout_replay_evaluation",
+        "surface": "snn_language_readout_rollout_replay_evaluation.v1",
+        "available": bool(candidate),
+        "source": "semantics.spike_language_neurons.readout_rollout_replay_evaluation",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "freeform_language_generation": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "returns_trained_weights": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "recorded_in_ledger": False,
+        "eligible_for_replay_priority": False,
+        "eligible_for_replay_memory": False,
+        "replay_evaluation": {
+            "candidate_limit": limit,
+            "trace_step_count": len(rollout_trace),
+            "rollout_label_count": len(rollout_labels),
+            "target_count": len(replay_targets),
+            "trace_hashes_valid": trace_hashes_valid,
+            "replay_targets": replay_targets,
+        },
+        "provenance_evidence": {
+            "rollout_replay_evaluation_hash": evaluation_hash,
+            "rollout_replay_evaluation_id": f"snn-readout-rollout-replay-eval:{evaluation_hash[:16]}",
+            "rollout_hash": rollout_hash or None,
+            "rollout_id": required_provenance["rollout_id"],
+            "prediction_hash": required_provenance["prediction_hash"],
+            "current_sparse_code_hash": required_provenance["current_sparse_code_hash"],
+            "persistent_transition_weights_hash": required_provenance["persistent_transition_weights_hash"],
+            "transition_memory_evaluation_hash": required_provenance["transition_memory_evaluation_hash"],
+            "hash_algorithm": "sha256_canonical_json",
+        },
+        "device_evidence": {
+            "requested_device": device_report.get("device")
+            or device_report.get("requested_device")
+            or candidate_device.get("requested_device"),
+            "tensor_device": candidate_device.get("tensor_device"),
+            "cuda_tensor": bool(candidate_device.get("cuda_tensor")),
+            "device_source": device_report.get("source")
+            or device_report.get("device_source")
+            or candidate_device.get("device_source"),
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_review" if ready else "blocked_missing_readout_rollout_replay_evidence",
+            "eligible_for_readout_rollout_ledger_recording_review": ready,
+            "eligible_for_replay_priority": False,
+            "eligible_for_replay_memory": False,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "eligible_for_plasticity_application": False,
+            "requires_operator_approval": ready,
+            "next_gate": "operator_review_record_snn_language_readout_rollout_evidence"
+            if ready
+            else "collect_grounded_readout_rollout_replay_evidence",
+            "required_evidence": required,
+        },
+    }
+
+
 def build_snn_language_transition_memory_prediction_evaluation(
     training_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
     evaluation_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
@@ -2034,19 +2483,68 @@ def build_snn_language_transition_memory_sleep_policy(
     *,
     subcortex_sleep_pressure: Mapping[str, Any] | None = None,
     replay_evidence: Mapping[str, Any] | None = None,
+    rollout_regeneration_evidence: Mapping[str, Any] | None = None,
+    readout_ledger_evidence: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Recommend transition-memory homeostasis from active sleep/replay evidence."""
 
     state = dict(transition_memory_state)
     sleep = dict(subcortex_sleep_pressure or {})
     replay = dict(replay_evidence or {})
+    rollout = dict(rollout_regeneration_evidence or {})
+    ledger = dict(readout_ledger_evidence or {})
+    rollout_gate = rollout.get("promotion_gate") if isinstance(rollout.get("promotion_gate"), Mapping) else {}
+    ledger_summary = ledger.get("summary") if isinstance(ledger.get("summary"), Mapping) else {}
     transition_count = max(int(_float(state.get("sparse_transition_weight_count"), 0.0)), 0)
     maintenance_count = max(int(_float(state.get("homeostatic_maintenance_count"), 0.0)), 0)
+    regeneration_count = max(int(_float(state.get("regeneration_count"), 0.0)), 0)
+    regenerated_synapse_count = max(int(_float(state.get("regenerated_synapse_count_total"), 0.0)), 0)
+    rollout_event_count = max(int(_float(ledger_summary.get("rollout_event_count"), 0.0)), 0)
     sleep_pressure = min(max(_float(sleep.get("pressure") or sleep.get("sleep_pressure"), 0.0), 0.0), 1.0)
     replay_ready = bool(replay.get("ready") or replay.get("available") or replay.get("replay_ready"))
+    rollout_surface = _text(rollout.get("surface"))
+    rollout_replay_review_ready = bool(rollout_gate.get("eligible_for_regeneration_permit_request"))
+    rollout_permit_ready = bool(
+        rollout_surface == "snn_language_readout_rollout_regeneration_permit_request.v1"
+        and rollout.get("accepted")
+        and rollout_gate.get("eligible_for_regeneration_application")
+    )
+    rollout_preflight_ready = bool(
+        rollout_surface == "snn_language_readout_rollout_regeneration_application_preflight.v1"
+        and rollout.get("ready")
+        and rollout_gate.get("eligible_for_checkpoint_backed_regeneration_executor")
+    )
+    rollout_application_applied = bool(
+        rollout_surface == "snn_language_readout_rollout_regeneration_application.v1"
+        and rollout.get("accepted")
+        and rollout.get("mutates_runtime_state")
+    )
     pressure_high = sleep_pressure >= 0.5
     memory_present = transition_count > 0
-    recommend = memory_present and (pressure_high or replay_ready)
+    post_growth_maintenance_due = bool(
+        memory_present
+        and (rollout_application_applied or regeneration_count > maintenance_count)
+        and (pressure_high or replay_ready or regenerated_synapse_count > 0)
+    )
+    if rollout_preflight_ready:
+        action = "review_rollout_regeneration_application"
+        suggested_endpoint = "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application"
+    elif rollout_permit_ready:
+        action = "review_rollout_regeneration_application_preflight"
+        suggested_endpoint = "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-application-preflight"
+    elif rollout_replay_review_ready:
+        action = "review_rollout_regeneration_permit_request"
+        suggested_endpoint = "/terminus/snn-language-sequence/readout-ledger/rollout-regeneration-permit-request"
+    elif post_growth_maintenance_due or (memory_present and (pressure_high or replay_ready)):
+        action = "review_transition_memory_homeostatic_maintenance"
+        suggested_endpoint = "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance"
+    elif replay_ready or rollout_event_count > 0:
+        action = "review_replay_artifact_recording_or_rollout_regeneration"
+        suggested_endpoint = "/terminus/snn-language-sequence/transition-memory-replay-artifact/proposal"
+    else:
+        action = "continue_monitoring_transition_memory"
+        suggested_endpoint = None
+    recommend = action != "continue_monitoring_transition_memory"
     return {
         "artifact_kind": "terminus_snn_language_transition_memory_sleep_policy",
         "surface": "snn_language_transition_memory_sleep_policy.v1",
@@ -2063,6 +2561,8 @@ def build_snn_language_transition_memory_sleep_policy(
         "transition_memory": {
             "sparse_transition_weight_count": transition_count,
             "homeostatic_maintenance_count": maintenance_count,
+            "regeneration_count": regeneration_count,
+            "regenerated_synapse_count_total": regenerated_synapse_count,
         },
         "subcortex_sleep_pressure": {
             "pressure": sleep_pressure,
@@ -2074,14 +2574,23 @@ def build_snn_language_transition_memory_sleep_policy(
             "ready": replay_ready,
             "source": replay.get("source"),
         },
+        "rollout_regeneration_evidence": {
+            "available": bool(rollout),
+            "surface": rollout.get("surface"),
+            "replay_artifact_review_ready": rollout_replay_review_ready,
+            "permit_ready": rollout_permit_ready,
+            "application_preflight_ready": rollout_preflight_ready,
+            "application_applied": rollout_application_applied,
+        },
+        "readout_ledger_evidence": {
+            "available": bool(ledger),
+            "event_count": int(_float(ledger_summary.get("event_count"), 0.0)),
+            "rollout_event_count": rollout_event_count,
+        },
         "recommendation": {
-            "action": "review_transition_memory_homeostatic_maintenance"
-            if recommend
-            else "continue_monitoring_transition_memory",
+            "action": action,
             "recommended": recommend,
-            "suggested_endpoint": "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance"
-            if recommend
-            else None,
+            "suggested_endpoint": suggested_endpoint,
             "requires_operator_confirmation": True,
             "executable": False,
             "reason_codes": [
@@ -2090,6 +2599,12 @@ def build_snn_language_transition_memory_sleep_policy(
                     ("transition_memory_present", memory_present),
                     ("subcortex_sleep_pressure_high", pressure_high),
                     ("replay_evidence_ready", replay_ready),
+                    ("rollout_replay_artifact_review_ready", rollout_replay_review_ready),
+                    ("rollout_regeneration_permit_ready", rollout_permit_ready),
+                    ("rollout_regeneration_application_preflight_ready", rollout_preflight_ready),
+                    ("rollout_regeneration_application_applied", rollout_application_applied),
+                    ("post_growth_homeostatic_maintenance_due", post_growth_maintenance_due),
+                    ("readout_rollout_events_available", rollout_event_count > 0),
                 )
                 if include
             ],
@@ -2357,9 +2872,13 @@ __all__ = [
     "evaluate_spike_language_plasticity_shadow_application",
     "evaluate_spike_language_trainer_dry_run",
     "evaluate_spike_language_plasticity_replay",
+    "evaluate_snn_language_readout_rollout_replay",
     "build_spike_language_plasticity_pressure",
     "run_spike_language_plasticity_replay_experiment",
     "run_spike_language_plasticity_trial",
+    "generate_snn_language_readout_draft",
+    "rollout_snn_language_readout_candidate",
+    "build_snn_language_transition_memory_prediction_evaluation",
     "predict_spike_language_sequence",
     "run_spike_language_trainer_dry_run",
 ]

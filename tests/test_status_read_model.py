@@ -20,6 +20,7 @@ from typing import Any, Callable
 import torch
 
 from hecsn.config.model_config import HECSNConfig
+from hecsn.semantics import build_spike_language_decoder_probe
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.status_read_model import StatusReadModel
 from hecsn.training.checkpointing import save_trainer_checkpoint
@@ -907,6 +908,61 @@ def _build_cognitive_signal_state_snapshot() -> dict[str, Any]:
     }
 
 
+def _build_sleep_plasticity_autonomy_proposal_snapshot() -> dict[str, Any]:
+    return {
+        "surface": "snn_sleep_plasticity_autonomy_proposal.v1",
+        "ready": True,
+        "owned_by_hecsn": True,
+        "advisory": True,
+        "executable": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "candidate": {
+            "candidate_id": "snn-sleep-plasticity-autonomy:ticket-1",
+            "action": "review_sleep_plasticity_next_gate",
+            "review_ticket_id": "ticket-1",
+            "suggested_endpoint": "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_next_gate_review",
+            "eligible_for_autonomy_planning": True,
+            "eligible_for_action": False,
+            "eligible_for_structural_write": False,
+            "next_gate": "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        },
+    }
+
+
+def _build_sleep_plasticity_scheduler_installation_autonomy_proposal_snapshot() -> dict[str, Any]:
+    return {
+        "surface": "snn_sleep_plasticity_scheduler_installation_autonomy_proposal.v1",
+        "ready": True,
+        "owned_by_hecsn": True,
+        "advisory": True,
+        "executable": False,
+        "installs_scheduler": False,
+        "registers_timer": False,
+        "starts_background_worker": False,
+        "mutates_runtime_state": False,
+        "candidate": {
+            "scheduler_design_review_ticket_id": "design-ticket-1",
+            "scheduler_design_hash": "design-hash-1",
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_scheduler_installation_preflight_review",
+            "eligible_for_autonomy_planning": True,
+            "eligible_for_scheduler_installation_preflight_review": True,
+            "eligible_for_scheduler_installation": False,
+            "eligible_for_action": False,
+            "eligible_for_structural_write": False,
+            "next_gate": (
+                "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                "scheduler-installation-preflight"
+            ),
+        },
+    }
+
+
 def _build_read_model_with_living_loop() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState, dict[str, int]]:
     """Build a StatusReadModel with living loop callbacks wired for testing."""
     cfg = _build_config()
@@ -918,10 +974,16 @@ def _build_read_model_with_living_loop() -> tuple[StatusReadModel, HECSNTrainer,
     living_loop_result = _build_living_loop_snapshot()
     policy_result = _build_policy_actuator_snapshot()
     cognitive_signal_result = _build_cognitive_signal_state_snapshot()
+    sleep_plasticity_proposal_result = _build_sleep_plasticity_autonomy_proposal_snapshot()
+    scheduler_installation_proposal_result = (
+        _build_sleep_plasticity_scheduler_installation_autonomy_proposal_snapshot()
+    )
     call_counts: dict[str, int] = {
         "living_loop": 0,
         "policy_actuator": 0,
         "cognitive_signal": 0,
+        "sleep_plasticity": 0,
+        "scheduler_installation": 0,
     }
 
     def living_loop_snapshot_fn() -> dict[str, Any]:
@@ -935,6 +997,14 @@ def _build_read_model_with_living_loop() -> tuple[StatusReadModel, HECSNTrainer,
     def cognitive_signal_state_fn() -> dict[str, Any]:
         call_counts["cognitive_signal"] += 1
         return deepcopy(cognitive_signal_result)
+
+    def sleep_plasticity_autonomy_proposal_fn() -> dict[str, Any]:
+        call_counts["sleep_plasticity"] += 1
+        return deepcopy(sleep_plasticity_proposal_result)
+
+    def sleep_plasticity_scheduler_installation_autonomy_proposal_fn() -> dict[str, Any]:
+        call_counts["scheduler_installation"] += 1
+        return deepcopy(scheduler_installation_proposal_result)
 
     model = StatusReadModel(
         lock=lock,
@@ -952,6 +1022,10 @@ def _build_read_model_with_living_loop() -> tuple[StatusReadModel, HECSNTrainer,
         living_loop_status_fn=living_loop_snapshot_fn,
         policy_actuator_status_fn=policy_actuator_snapshot_fn,
         cognitive_signal_state_fn=cognitive_signal_state_fn,
+        sleep_plasticity_autonomy_proposal_fn=sleep_plasticity_autonomy_proposal_fn,
+        sleep_plasticity_scheduler_installation_autonomy_proposal_fn=(
+            sleep_plasticity_scheduler_installation_autonomy_proposal_fn
+        ),
     )
     return model, trainer, lock, runtime_state, call_counts
 
@@ -1010,12 +1084,58 @@ class StatusReadModelLivingLoopTests(unittest.TestCase):
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
 
+    def test_living_loop_status_includes_sleep_plasticity_autonomy_proposal(self) -> None:
+        model, _, _, runtime_state, call_counts = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        result = model.living_loop_status()
+        proposal = result["living_loop"]["snn_sleep_plasticity_autonomy_proposal"]
+
+        self.assertEqual(proposal["surface"], "snn_sleep_plasticity_autonomy_proposal.v1")
+        self.assertTrue(proposal["advisory"])
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertEqual(proposal["candidate"]["review_ticket_id"], "ticket-1")
+        self.assertEqual(
+            proposal["promotion_gate"]["next_gate"],
+            "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        )
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_structural_write"])
+        self.assertEqual(call_counts["sleep_plasticity"], 1)
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+
     def test_living_loop_status_returns_token_count(self) -> None:
         """living_loop_status() should include token_count at the top level."""
         model, trainer, _, _, _ = _build_read_model_with_living_loop()
         result = model.living_loop_status()
         self.assertIn("token_count", result)
         self.assertEqual(result["token_count"], int(trainer.token_count))
+
+    def test_living_loop_status_includes_scheduler_installation_autonomy_proposal(self) -> None:
+        model, _, _, runtime_state, call_counts = _build_read_model_with_living_loop()
+        revision_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        result = model.living_loop_status()
+        proposal = result["living_loop"][
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal"
+        ]
+
+        self.assertEqual(
+            proposal["surface"],
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal.v1",
+        )
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["installs_scheduler"])
+        self.assertFalse(proposal["registers_timer"])
+        self.assertFalse(proposal["starts_background_worker"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertEqual(call_counts["scheduler_installation"], 1)
+        self.assertEqual(runtime_state.state_revision, revision_before)
+        self.assertFalse(runtime_state.dirty_state)
 
     def test_living_loop_status_returns_state_revision(self) -> None:
         """living_loop_status() should include state_revision from runtime state."""
@@ -1088,11 +1208,51 @@ class StatusReadModelPolicyActuatorTests(unittest.TestCase):
         self.assertFalse(candidates["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertFalse(runtime_state.dirty_state)
 
+    def test_policy_actuator_status_includes_sleep_plasticity_autonomy_proposal(self) -> None:
+        model, _, _, runtime_state, call_counts = _build_read_model_with_living_loop()
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        result = model.policy_actuator_status()
+        proposal = result["snn_sleep_plasticity_autonomy_proposal"]
+
+        self.assertEqual(proposal["surface"], "snn_sleep_plasticity_autonomy_proposal.v1")
+        self.assertTrue(proposal["advisory"])
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertEqual(proposal["candidate"]["action"], "review_sleep_plasticity_next_gate")
+        self.assertTrue(proposal["promotion_gate"]["eligible_for_autonomy_planning"])
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_action"])
+        self.assertFalse(proposal["promotion_gate"]["eligible_for_structural_write"])
+        self.assertEqual(call_counts["sleep_plasticity"], 1)
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+
     def test_policy_actuator_status_delegates_to_callback(self) -> None:
         """policy_actuator_status() should delegate through the injected callback."""
         model, _, _, _, call_counts = _build_read_model_with_living_loop()
         model.policy_actuator_status()
         self.assertGreater(call_counts["policy_actuator"], 0)
+
+    def test_policy_actuator_status_includes_scheduler_installation_autonomy_proposal(self) -> None:
+        model, _, _, runtime_state, call_counts = _build_read_model_with_living_loop()
+        revision_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        result = model.policy_actuator_status()
+        proposal = result[
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal"
+        ]
+
+        self.assertTrue(proposal["ready"])
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["installs_scheduler"])
+        self.assertFalse(proposal["registers_timer"])
+        self.assertFalse(proposal["starts_background_worker"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertEqual(call_counts["scheduler_installation"], 1)
+        self.assertEqual(runtime_state.state_revision, revision_before)
+        self.assertFalse(runtime_state.dirty_state)
 
 
 class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
@@ -1422,6 +1582,110 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(report["mutates_runtime_state"])
         self.assertFalse(report["trains_runtime_model"])
         self.assertEqual(report["evaluation_summary"]["persistent_transition_weight_count"], 1)
+
+    def test_snn_language_readout_rollout_candidate_does_not_advance_revision(self) -> None:
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        observed = [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}]
+        device = {"device": "cpu", "source": "test"}
+        current_probe = build_spike_language_decoder_probe({"readout_slots": current, "device_evidence": device})
+        observed_probe = build_spike_language_decoder_probe({"readout_slots": observed, "device_evidence": device})
+        current_index = int(current_probe["sparse_code_evidence"]["active_indices"][0])
+        observed_index = int(observed_probe["sparse_code_evidence"]["active_indices"][0])
+        weights = {f"{current_index}:{observed_index}": 0.8}
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            current,
+            device_evidence=device,
+            top_k=4,
+            persistent_transition_weights=weights,
+        )
+        evaluation = model.snn_language_transition_memory_prediction_evaluation(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            [current, observed],
+            {"sparse_transition_weights": weights},
+            device_evidence=device,
+            top_k=4,
+        )
+        rev_before = runtime_state.state_revision
+        rollout = model.snn_language_readout_rollout_candidate(
+            prediction,
+            observed,
+            {"sparse_transition_weights": weights},
+            device_evidence=device,
+            transition_memory_evaluation=evaluation,
+            rollout_steps=2,
+            top_k=4,
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(rollout["surface"], "snn_language_readout_rollout_candidate.v1")
+        self.assertFalse(rollout["mutates_runtime_state"])
+        self.assertFalse(rollout["applies_plasticity"])
+        self.assertFalse(rollout["loads_external_checkpoint"])
+        self.assertIn("memory pressure", rollout["rollout"]["labels"])
+
+    def test_snn_language_readout_rollout_replay_evaluation_does_not_advance_revision(self) -> None:
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
+        observed = [{"label": "memory pressure", "pressure_band": "medium", "grounded": True}]
+        device = {"device": "cpu", "source": "test"}
+        current_probe = build_spike_language_decoder_probe({"readout_slots": current, "device_evidence": device})
+        observed_probe = build_spike_language_decoder_probe({"readout_slots": observed, "device_evidence": device})
+        current_index = int(current_probe["sparse_code_evidence"]["active_indices"][0])
+        observed_index = int(observed_probe["sparse_code_evidence"]["active_indices"][0])
+        weights = {f"{current_index}:{observed_index}": 0.8}
+        prediction = model.snn_language_sequence_prediction_probe(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            current,
+            device_evidence=device,
+            top_k=4,
+            persistent_transition_weights=weights,
+        )
+        evaluation = model.snn_language_transition_memory_prediction_evaluation(
+            [
+                [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
+                current,
+            ],
+            [current, observed],
+            {"sparse_transition_weights": weights},
+            device_evidence=device,
+            top_k=4,
+        )
+        rollout = model.snn_language_readout_rollout_candidate(
+            prediction,
+            observed,
+            {"sparse_transition_weights": weights},
+            device_evidence=device,
+            transition_memory_evaluation=evaluation,
+            rollout_steps=2,
+            top_k=4,
+        )
+        rev_before = runtime_state.state_revision
+        report = model.snn_language_readout_rollout_replay_evaluation(
+            rollout,
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        rev_after = runtime_state.state_revision
+
+        self.assertEqual(rev_before, rev_after)
+        self.assertEqual(report["surface"], "snn_language_readout_rollout_replay_evaluation.v1")
+        self.assertFalse(report["generates_text"])
+        self.assertFalse(report["mutates_runtime_state"])
+        self.assertFalse(report["recorded_in_ledger"])
+        self.assertFalse(report["eligible_for_replay_priority"])
+        self.assertTrue(report["promotion_gate"]["eligible_for_readout_rollout_ledger_recording_review"])
 
     def test_snn_language_sequence_mismatch_probe_does_not_advance_revision(self) -> None:
         """Mismatch probe reports prediction error without applying learning."""
@@ -2224,6 +2488,10 @@ class StatusReadModelLivingLoopCacheTests(unittest.TestCase):
             cached_result["living_loop"]["subcortical_control_candidates"]["surface"],
             "subcortical_control_candidates.v1",
         )
+        self.assertEqual(
+            cached_result["living_loop"]["snn_sleep_plasticity_autonomy_proposal"]["surface"],
+            "snn_sleep_plasticity_autonomy_proposal.v1",
+        )
 
     def test_policy_actuator_status_returns_cached_result_when_lock_contended(self) -> None:
         """When the lock is held, policy_actuator_status() returns cached data."""
@@ -2235,6 +2503,10 @@ class StatusReadModelLivingLoopCacheTests(unittest.TestCase):
         self.assertEqual(
             cached_result["subcortical_control_candidates"]["surface"],
             "subcortical_control_candidates.v1",
+        )
+        self.assertEqual(
+            cached_result["snn_sleep_plasticity_autonomy_proposal"]["surface"],
+            "snn_sleep_plasticity_autonomy_proposal.v1",
         )
 
 

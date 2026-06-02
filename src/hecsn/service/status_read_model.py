@@ -48,9 +48,11 @@ from hecsn.semantics import (
     evaluate_spike_language_plasticity_replay,
     evaluate_spike_language_sequence_mismatch,
     evaluate_spike_language_trainer_dry_run,
+    evaluate_snn_language_readout_rollout_replay,
     evaluate_subcortical_structural_plasticity_isolated,
     generate_snn_language_readout_draft,
     predict_spike_language_sequence,
+    rollout_snn_language_readout_candidate,
     run_spike_language_plasticity_replay_experiment,
     run_spike_language_trainer_dry_run,
     run_spike_language_plasticity_trial,
@@ -109,6 +111,13 @@ class StatusReadModel:
     cognitive_signal_state_fn: Callable that returns the current Cognitive Signal
         dict. Called under lock with short-timeout fallback. Used by
         ``cognitive_signal_state()`` delegation.
+    sleep_plasticity_autonomy_proposal_fn: Callable that returns the current
+        non-executing sleep-plasticity autonomy proposal. Called under lock and
+        attached only as advisory sidecar evidence.
+    sleep_plasticity_scheduler_installation_autonomy_proposal_fn: Callable that
+        returns the current non-executing scheduler-installation autonomy
+        proposal. Called under lock and attached only as advisory sidecar
+        evidence.
     """
 
     def __init__(
@@ -130,6 +139,8 @@ class StatusReadModel:
         living_loop_status_fn: Callable[[], dict[str, Any]] | None = None,
         policy_actuator_status_fn: Callable[[], dict[str, Any]] | None = None,
         cognitive_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
+        sleep_plasticity_autonomy_proposal_fn: Callable[[], dict[str, Any]] | None = None,
+        sleep_plasticity_scheduler_installation_autonomy_proposal_fn: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
@@ -151,6 +162,10 @@ class StatusReadModel:
         self._living_loop_status_fn = living_loop_status_fn
         self._policy_actuator_status_fn = policy_actuator_status_fn
         self._cognitive_signal_state_fn = cognitive_signal_state_fn
+        self._sleep_plasticity_autonomy_proposal_fn = sleep_plasticity_autonomy_proposal_fn
+        self._sleep_plasticity_scheduler_installation_autonomy_proposal_fn = (
+            sleep_plasticity_scheduler_installation_autonomy_proposal_fn
+        )
 
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
@@ -265,6 +280,8 @@ class StatusReadModel:
         memory_store: Mapping[str, Any],
         replay_dataset_summary: Mapping[str, Any] | None,
         trace_history_size: int,
+        sleep_plasticity_autonomy_proposal: Mapping[str, Any] | None = None,
+        sleep_plasticity_scheduler_installation_autonomy_proposal: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build the Runtime Truth contract. Reads self._trainer for token_count only."""
         configured = bool(terminus_runtime.get("configured"))
@@ -560,6 +577,75 @@ class StatusReadModel:
                 "snn_language_plasticity_live_application_preflight.v1",
             ],
         }
+        sleep_plasticity_proposal = dict(sleep_plasticity_autonomy_proposal or {})
+        sleep_plasticity_gate = (
+            sleep_plasticity_proposal.get("promotion_gate")
+            if isinstance(sleep_plasticity_proposal.get("promotion_gate"), Mapping)
+            else {}
+        )
+        sleep_plasticity_candidate = (
+            sleep_plasticity_proposal.get("candidate")
+            if isinstance(sleep_plasticity_proposal.get("candidate"), Mapping)
+            else {}
+        )
+        snn_sleep_plasticity_autonomy_gate = {
+            "surface": sleep_plasticity_proposal.get("surface"),
+            "ready": bool(sleep_plasticity_proposal.get("ready")),
+            "advisory": bool(sleep_plasticity_proposal.get("advisory", True)),
+            "executable": False,
+            "mutates_runtime_state": False,
+            "review_ticket_id": sleep_plasticity_candidate.get("review_ticket_id"),
+            "recommended_action": sleep_plasticity_candidate.get("recommended_action"),
+            "promotion_status": sleep_plasticity_gate.get("status"),
+            "next_gate": sleep_plasticity_gate.get("next_gate"),
+            "eligible_for_autonomy_planning": bool(
+                sleep_plasticity_gate.get("eligible_for_autonomy_planning")
+            ),
+            "eligible_for_action": False,
+            "eligible_for_structural_write": False,
+        }
+        scheduler_installation_proposal = dict(
+            sleep_plasticity_scheduler_installation_autonomy_proposal or {}
+        )
+        scheduler_installation_gate = (
+            scheduler_installation_proposal.get("promotion_gate")
+            if isinstance(scheduler_installation_proposal.get("promotion_gate"), Mapping)
+            else {}
+        )
+        scheduler_installation_candidate = (
+            scheduler_installation_proposal.get("candidate")
+            if isinstance(scheduler_installation_proposal.get("candidate"), Mapping)
+            else {}
+        )
+        snn_sleep_plasticity_scheduler_installation_autonomy_gate = {
+            "surface": scheduler_installation_proposal.get("surface"),
+            "ready": bool(scheduler_installation_proposal.get("ready")),
+            "advisory": bool(scheduler_installation_proposal.get("advisory", True)),
+            "executable": False,
+            "installs_scheduler": False,
+            "registers_timer": False,
+            "starts_background_worker": False,
+            "mutates_runtime_state": False,
+            "scheduler_design_review_ticket_id": scheduler_installation_candidate.get(
+                "scheduler_design_review_ticket_id"
+            ),
+            "scheduler_design_hash": scheduler_installation_candidate.get(
+                "scheduler_design_hash"
+            ),
+            "promotion_status": scheduler_installation_gate.get("status"),
+            "next_gate": scheduler_installation_gate.get("next_gate"),
+            "eligible_for_autonomy_planning": bool(
+                scheduler_installation_gate.get("eligible_for_autonomy_planning")
+            ),
+            "eligible_for_scheduler_installation_preflight_review": bool(
+                scheduler_installation_gate.get(
+                    "eligible_for_scheduler_installation_preflight_review"
+                )
+            ),
+            "eligible_for_scheduler_installation": False,
+            "eligible_for_action": False,
+            "eligible_for_structural_write": False,
+        }
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -590,6 +676,10 @@ class StatusReadModel:
                 "structural_plasticity_gate": structural_plasticity_gate,
                 "snn_language_readiness_gate": snn_language_readiness_gate,
                 "snn_language_plasticity_path": snn_language_plasticity_path,
+                "snn_sleep_plasticity_autonomy_gate": snn_sleep_plasticity_autonomy_gate,
+                "snn_sleep_plasticity_scheduler_installation_autonomy_gate": (
+                    snn_sleep_plasticity_scheduler_installation_autonomy_gate
+                ),
             },
         }
 
@@ -641,6 +731,10 @@ class StatusReadModel:
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size, last_trace_id, last_trace_created_at = self._last_trace_fields()
+        sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
+        scheduler_installation_autonomy_proposal = (
+            self._sleep_plasticity_scheduler_installation_autonomy_proposal()
+        )
 
         return {
             "checkpoint_path": str(self._checkpoint_path_str),
@@ -665,11 +759,19 @@ class StatusReadModel:
             "concept_store": self._concept_store_snapshot_fn(),
             "terminus_runtime": terminus_runtime,
             "replay_dataset_summary": replay_dataset_summary,
+            "snn_sleep_plasticity_autonomy_proposal": sleep_plasticity_autonomy_proposal,
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal": (
+                scheduler_installation_autonomy_proposal
+            ),
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
                 replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
+                sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
+                sleep_plasticity_scheduler_installation_autonomy_proposal=(
+                    scheduler_installation_autonomy_proposal
+                ),
             ),
         }
 
@@ -680,6 +782,10 @@ class StatusReadModel:
         replay_dataset_summary = self._replay_dataset_summary_from_runtime(terminus_runtime)
         memory_store = self._trainer.model.memory_store.summary_stats()
         trace_history_size = int(len(self._trace_history))
+        sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
+        scheduler_installation_autonomy_proposal = (
+            self._sleep_plasticity_scheduler_installation_autonomy_proposal()
+        )
         multimodal = (
             self._multimodal_runtime_summary_fn()
             if self._multimodal_runtime_summary_fn is not None
@@ -693,11 +799,19 @@ class StatusReadModel:
             "runtime_scope": self._runtime_scope_report_locked(),
             "memory_store": memory_store,
             "replay_dataset_summary": replay_dataset_summary,
+            "snn_sleep_plasticity_autonomy_proposal": sleep_plasticity_autonomy_proposal,
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal": (
+                scheduler_installation_autonomy_proposal
+            ),
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
                 replay_dataset_summary=replay_dataset_summary,
                 trace_history_size=trace_history_size,
+                sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
+                sleep_plasticity_scheduler_installation_autonomy_proposal=(
+                    scheduler_installation_autonomy_proposal
+                ),
             ),
         }
 
@@ -963,6 +1077,10 @@ class StatusReadModel:
             payload = living_loop_status_fn()
             payload = self._attach_living_loop_control_candidates(payload)
             payload = self._attach_living_loop_self_repair_candidates(payload)
+            payload = self._attach_living_loop_sleep_plasticity_autonomy_proposal(payload)
+            payload = self._attach_living_loop_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                payload
+            )
             return {
                 **payload,
                 **self._runtime_mutation_payload(),
@@ -1042,6 +1160,67 @@ class StatusReadModel:
         enriched["living_loop"] = living_loop
         return enriched
 
+    def _sleep_plasticity_autonomy_proposal(self) -> dict[str, Any] | None:
+        if self._sleep_plasticity_autonomy_proposal_fn is None:
+            return None
+        proposal = self._sleep_plasticity_autonomy_proposal_fn()
+        if not isinstance(proposal, Mapping):
+            return None
+        return {
+            **dict(proposal),
+            "advisory": True,
+            "executable": False,
+            "mutates_runtime_state": False,
+        }
+
+    def _attach_living_loop_sleep_plasticity_autonomy_proposal(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Attach read-only sleep/plasticity autonomy evidence to living-loop status."""
+        proposal = self._sleep_plasticity_autonomy_proposal()
+        if proposal is None:
+            return dict(payload)
+        enriched = dict(payload)
+        living_loop = dict(enriched.get("living_loop") or {})
+        living_loop["snn_sleep_plasticity_autonomy_proposal"] = proposal
+        enriched["living_loop"] = living_loop
+        return enriched
+
+    def _sleep_plasticity_scheduler_installation_autonomy_proposal(
+        self,
+    ) -> dict[str, Any] | None:
+        callback = self._sleep_plasticity_scheduler_installation_autonomy_proposal_fn
+        if callback is None:
+            return None
+        proposal = callback()
+        if not isinstance(proposal, Mapping):
+            return None
+        return {
+            **dict(proposal),
+            "advisory": True,
+            "executable": False,
+            "installs_scheduler": False,
+            "registers_timer": False,
+            "starts_background_worker": False,
+            "mutates_runtime_state": False,
+        }
+
+    def _attach_living_loop_sleep_plasticity_scheduler_installation_autonomy_proposal(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        proposal = self._sleep_plasticity_scheduler_installation_autonomy_proposal()
+        if proposal is None:
+            return dict(payload)
+        enriched = dict(payload)
+        living_loop = dict(enriched.get("living_loop") or {})
+        living_loop[
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal"
+        ] = proposal
+        enriched["living_loop"] = living_loop
+        return enriched
+
     def policy_actuator_status(self) -> dict[str, Any]:
         """Return the policy actuator status snapshot (non-blocking with lock-contention fallback).
 
@@ -1063,7 +1242,11 @@ class StatusReadModel:
 
         def _build_locked() -> dict[str, Any]:
             payload = self._attach_policy_control_candidates(policy_actuator_status_fn())
-            return self._attach_policy_self_repair_candidates(payload)
+            payload = self._attach_policy_self_repair_candidates(payload)
+            payload = self._attach_policy_sleep_plasticity_autonomy_proposal(payload)
+            return self._attach_policy_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                payload
+            )
 
         result = self._read_snapshot(
             fresh_wait_seconds=None,
@@ -1094,6 +1277,31 @@ class StatusReadModel:
             "advisory": True,
             "executable": False,
         }
+        return enriched
+
+    def _attach_policy_sleep_plasticity_autonomy_proposal(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Attach advisory sleep/plasticity autonomy evidence to policy status."""
+        proposal = self._sleep_plasticity_autonomy_proposal()
+        if proposal is None:
+            return dict(payload)
+        enriched = dict(payload)
+        enriched["snn_sleep_plasticity_autonomy_proposal"] = proposal
+        return enriched
+
+    def _attach_policy_sleep_plasticity_scheduler_installation_autonomy_proposal(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        proposal = self._sleep_plasticity_scheduler_installation_autonomy_proposal()
+        if proposal is None:
+            return dict(payload)
+        enriched = dict(payload)
+        enriched[
+            "snn_sleep_plasticity_scheduler_installation_autonomy_proposal"
+        ] = proposal
         return enriched
 
     # ------------------------------------------------------------------
@@ -1380,6 +1588,52 @@ class StatusReadModel:
             ),
         )
 
+    def snn_language_readout_rollout_candidate(
+        self,
+        prediction_report: Mapping[str, Any],
+        readout_vocabulary_slots: Sequence[Mapping[str, Any]],
+        transition_memory_state: Mapping[str, Any],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        transition_memory_evaluation: Mapping[str, Any] | None = None,
+        rollout_steps: int = 4,
+        top_k: int = 4,
+    ) -> dict[str, Any]:
+        """Generate a bounded readout rollout candidate without mutating runtime."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: rollout_snn_language_readout_candidate(
+                prediction_report=prediction_report,
+                readout_vocabulary_slots=readout_vocabulary_slots,
+                transition_memory_state=transition_memory_state,
+                device_evidence=device_evidence,
+                transition_memory_evaluation=transition_memory_evaluation,
+                rollout_steps=rollout_steps,
+                top_k=top_k,
+            ),
+        )
+
+    def snn_language_readout_rollout_replay_evaluation(
+        self,
+        readout_rollout_candidate: Mapping[str, Any],
+        *,
+        candidate_limit: int = 8,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate bounded rollout replay targets without mutation."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: evaluate_snn_language_readout_rollout_replay(
+                readout_rollout_candidate,
+                candidate_limit=candidate_limit,
+                device_evidence=device_evidence,
+            ),
+        )
+
     def snn_language_transition_memory_prediction_evaluation(
         self,
         training_readout_slot_batches: Sequence[Sequence[Mapping[str, Any]]],
@@ -1596,6 +1850,8 @@ class StatusReadModel:
         *,
         subcortex_sleep_pressure: Mapping[str, Any] | None = None,
         replay_evidence: Mapping[str, Any] | None = None,
+        rollout_regeneration_evidence: Mapping[str, Any] | None = None,
+        readout_ledger_evidence: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Recommend transition-memory maintenance without mutating runtime state."""
 
@@ -1606,6 +1862,8 @@ class StatusReadModel:
                 transition_memory_state,
                 subcortex_sleep_pressure=subcortex_sleep_pressure,
                 replay_evidence=replay_evidence,
+                rollout_regeneration_evidence=rollout_regeneration_evidence,
+                readout_ledger_evidence=readout_ledger_evidence,
             ),
         )
 
