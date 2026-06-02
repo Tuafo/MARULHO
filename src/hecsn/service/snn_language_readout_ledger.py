@@ -208,6 +208,16 @@ class SNNLanguageReadoutEvidenceLedger:
                     "persistent_transition_weights_hash_available": bool(
                         str(provenance.get("persistent_transition_weights_hash") or "")
                     ),
+                    "server_transition_memory_hash_available": bool(
+                        str(provenance.get("server_transition_memory_hash") or "")
+                    ),
+                    "server_transition_memory_hash_match": bool(
+                        provenance.get("server_transition_memory_hash_match")
+                    ),
+                    "server_transition_memory_state_source_bound": (
+                        str(provenance.get("transition_memory_state_source") or "")
+                        == "service.runtime_facade.snn_language_plasticity_runtime_state"
+                    ),
                     "transition_memory_evaluation_hash_available": bool(
                         str(provenance.get("transition_memory_evaluation_hash") or "")
                     ),
@@ -513,6 +523,10 @@ class SNNLanguageReadoutEvidenceLedger:
                     and event.get("current_sparse_code_hash")
                     and event.get("transition_memory_evaluation_hash")
                     and event.get("persistent_transition_weights_hash")
+                    and event.get("server_transition_memory_hash")
+                    and event.get("server_transition_memory_hash_match")
+                    and str(event.get("transition_memory_state_source") or "")
+                    == "service.runtime_facade.snn_language_plasticity_runtime_state"
                 )
                 grounding_complete = bool(targets) and all(bool(item.get("grounded")) for item in targets)
                 trace_integrity_complete = bool(targets) and all(
@@ -565,6 +579,11 @@ class SNNLanguageReadoutEvidenceLedger:
                         "current_sparse_code_hash": event.get("current_sparse_code_hash"),
                         "transition_memory_evaluation_hash": event.get("transition_memory_evaluation_hash"),
                         "persistent_transition_weights_hash": event.get("persistent_transition_weights_hash"),
+                        "server_transition_memory_hash": event.get("server_transition_memory_hash"),
+                        "server_transition_memory_hash_match": bool(
+                            event.get("server_transition_memory_hash_match")
+                        ),
+                        "transition_memory_state_source": event.get("transition_memory_state_source"),
                         "state_revision": int(event.get("state_revision", 0) or 0),
                         "target_count": len(targets),
                         "replay_targets": targets,
@@ -896,6 +915,9 @@ class SNNLanguageReadoutEvidenceLedger:
             for step in list(trace.get("step_trace") or [])
             if isinstance(step, Mapping)
         ]
+        sparse_transition_candidates = self._rollout_sparse_transition_candidates(
+            source_traces
+        )
         for cycle_index in range(requested_cycles):
             replayed_hashes = [
                 str(step.get("active_indices_hash") or "")
@@ -975,6 +997,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "replay_cycles": requested_cycles,
                 "candidate_count": len(source_traces),
                 "step_count": len(baseline_hashes),
+                "sparse_transition_candidate_count": len(sparse_transition_candidates),
                 "stability_floor": requested_floor,
                 "minimum_cycle_stability": float(minimum_cycle_stability),
                 "mean_cycle_stability": float(mean_cycle_stability),
@@ -986,6 +1009,7 @@ class SNNLanguageReadoutEvidenceLedger:
             },
             "ephemeral_experiment": {
                 "trace": cycle_trace,
+                "sparse_transition_candidates": sparse_transition_candidates,
                 "runtime_update_applied": False,
                 "weights_persisted": False,
                 "checkpoint_written": False,
@@ -1045,6 +1069,11 @@ class SNNLanguageReadoutEvidenceLedger:
             for item in list(experiment.get("trace") or [])
             if isinstance(item, Mapping)
         ]
+        sparse_transition_candidates = [
+            dict(item)
+            for item in list(experiment.get("sparse_transition_candidates") or [])
+            if isinstance(item, Mapping)
+        ][:64]
         step_hashes = [
             str(item.get("matching_step_hash_count") or "")
             for item in cycle_trace
@@ -1052,19 +1081,37 @@ class SNNLanguageReadoutEvidenceLedger:
         minimum_stability = float(summary.get("minimum_cycle_stability", 0.0) or 0.0)
         stability_gain = max(0.0, min(1.0, minimum_stability))
         proposed_delta = min(max_weight_delta, learning_rate * stability_gain)
-        candidate_synapses = [
-            {
-                "synapse_id": f"snn-rollout-local:{index}",
-                "source_step_index": index,
-                "target_step_index": index + 1,
-                "local_only": local_only,
-                "proposed_weight_delta": float(proposed_delta),
-                "homeostatic_decay": float(homeostatic_decay),
-                "normalization": normalization,
-                "applied_to_runtime": False,
-            }
-            for index in range(max(0, int(summary.get("step_count", 0) or 0) - 1))
-        ]
+        candidate_synapses = []
+        for index, candidate in enumerate(sparse_transition_candidates):
+            try:
+                source_index = int(candidate.get("source_index"))
+                target_index = int(candidate.get("target_index"))
+            except (TypeError, ValueError):
+                continue
+            if not (
+                0 <= source_index < _LANGUAGE_NEURON_COUNT
+                and 0 <= target_index < _LANGUAGE_NEURON_COUNT
+            ):
+                continue
+            candidate_synapses.append(
+                {
+                    "synapse_id": f"snn-rollout-local:{source_index}:{target_index}:{index}",
+                    "source_step_index": source_index,
+                    "target_step_index": target_index,
+                    "source_neuron_index": source_index,
+                    "target_neuron_index": target_index,
+                    "source_trace_index": int(candidate.get("source_trace_index", 0) or 0),
+                    "source_rollout_step_index": int(candidate.get("source_step_index", 0) or 0),
+                    "target_rollout_step_index": int(candidate.get("target_step_index", 0) or 0),
+                    "source_active_indices_hash": candidate.get("source_active_indices_hash"),
+                    "target_active_indices_hash": candidate.get("target_active_indices_hash"),
+                    "local_only": local_only,
+                    "proposed_weight_delta": float(proposed_delta),
+                    "homeostatic_decay": float(homeostatic_decay),
+                    "normalization": normalization,
+                    "applied_to_runtime": False,
+                }
+            )
         required = {
             "rollout_rehearsal_experiment_surface_available": report.get("surface")
             == "snn_language_readout_rollout_rehearsal_experiment.v1",
@@ -1100,6 +1147,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "normalization": normalization,
             "rollback_snapshot_id": rollback.get("snapshot_id"),
             "candidate_synapses": candidate_synapses,
+            "sparse_transition_candidates": sparse_transition_candidates,
         }
         design_hash = self._sha256_json(design_material)
         return {
@@ -1188,8 +1236,12 @@ class SNNLanguageReadoutEvidenceLedger:
         max_weight_delta = float(design.get("max_weight_delta", 0.0) or 0.0)
         for item in candidates:
             try:
-                source_index = int(item.get("source_step_index"))
-                target_index = int(item.get("target_step_index"))
+                source_index = int(
+                    item.get("source_neuron_index", item.get("source_step_index"))
+                )
+                target_index = int(
+                    item.get("target_neuron_index", item.get("target_step_index"))
+                )
                 proposed = max(
                     -max_weight_delta,
                     min(float(item.get("proposed_weight_delta", 0.0) or 0.0), max_weight_delta),
@@ -1663,8 +1715,8 @@ class SNNLanguageReadoutEvidenceLedger:
         max_weight_delta = float(design.get("max_weight_delta", 0.0) or 0.0)
         for item in candidates:
             try:
-                source = int(item.get("source_step_index"))
-                target = int(item.get("target_step_index"))
+                source = int(item.get("source_neuron_index", item.get("source_step_index")))
+                target = int(item.get("target_neuron_index", item.get("target_step_index")))
                 delta = float(item.get("proposed_weight_delta"))
             except (TypeError, ValueError):
                 continue
@@ -1680,6 +1732,11 @@ class SNNLanguageReadoutEvidenceLedger:
                     "initial_weight": max(0.0, min(abs(delta), max_weight_delta, 0.25)),
                     "locality_distance": abs(target - source),
                     "source_synapse_id": item.get("synapse_id"),
+                    "source_trace_index": item.get("source_trace_index"),
+                    "source_rollout_step_index": item.get("source_rollout_step_index"),
+                    "target_rollout_step_index": item.get("target_rollout_step_index"),
+                    "source_active_indices_hash": item.get("source_active_indices_hash"),
+                    "target_active_indices_hash": item.get("target_active_indices_hash"),
                     "local_only": bool(item.get("local_only")),
                     "normalization": bool(item.get("normalization")),
                     "applied_to_runtime": False,
@@ -1791,6 +1848,18 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "candidate_locality_temporal": all(
                 int(item.get("locality_distance", 0) or 0) <= 8 for item in growth_candidates
+            ),
+            "candidate_rollout_step_provenance_available": all(
+                item.get("source_rollout_step_index") is not None
+                and item.get("target_rollout_step_index") is not None
+                and int(item.get("target_rollout_step_index", 0) or 0)
+                > int(item.get("source_rollout_step_index", -1) or -1)
+                for item in growth_candidates
+            ),
+            "candidate_active_hash_provenance_available": all(
+                bool(str(item.get("source_active_indices_hash") or ""))
+                and bool(str(item.get("target_active_indices_hash") or ""))
+                for item in growth_candidates
             ),
             "candidate_local_only": all(bool(item.get("local_only")) for item in growth_candidates),
             "normalization_enabled": all(bool(item.get("normalization")) for item in growth_candidates),
@@ -1976,6 +2045,11 @@ class SNNLanguageReadoutEvidenceLedger:
                         "rollout_developmental_plasticity_review_hash"
                     ),
                     "source_synapse_id": item.get("source_synapse_id"),
+                    "source_trace_index": item.get("source_trace_index"),
+                    "source_rollout_step_index": item.get("source_rollout_step_index"),
+                    "target_rollout_step_index": item.get("target_rollout_step_index"),
+                    "source_active_indices_hash": item.get("source_active_indices_hash"),
+                    "target_active_indices_hash": item.get("target_active_indices_hash"),
                 }
             )
         candidates.sort(key=lambda item: (item["pre_index"], item["post_index"]))
@@ -2106,6 +2180,18 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "candidate_locality_temporal": all(
                 0 <= int(item["locality_distance"]) <= locality_radius <= 8
+                for item in candidates
+            ),
+            "candidate_rollout_step_provenance_available": all(
+                item.get("source_rollout_step_index") is not None
+                and item.get("target_rollout_step_index") is not None
+                and int(item.get("target_rollout_step_index", 0) or 0)
+                > int(item.get("source_rollout_step_index", -1) or -1)
+                for item in candidates
+            ),
+            "candidate_active_hash_provenance_available": all(
+                bool(str(item.get("source_active_indices_hash") or ""))
+                and bool(str(item.get("target_active_indices_hash") or ""))
                 for item in candidates
             ),
             "candidate_local_only": all(bool(item.get("local_only", True)) for item in raw_candidates),
@@ -3639,6 +3725,31 @@ class SNNLanguageReadoutEvidenceLedger:
                 and provenance.get("replay_window_hash")
                 and replay_readout_hashes
             )
+            local_edge_provenance = (
+                dict(provenance.get("local_edge_provenance"))
+                if isinstance(provenance.get("local_edge_provenance"), Mapping)
+                else {}
+            )
+            try:
+                source_rollout_step_index = int(
+                    local_edge_provenance.get("source_rollout_step_index")
+                )
+                target_rollout_step_index = int(
+                    local_edge_provenance.get("target_rollout_step_index")
+                )
+                rollout_step_order_valid = target_rollout_step_index > source_rollout_step_index
+            except (TypeError, ValueError):
+                source_rollout_step_index = None
+                target_rollout_step_index = None
+                rollout_step_order_valid = False
+            local_edge_provenance_complete = bool(
+                local_edge_provenance.get("source_synapse_id")
+                and local_edge_provenance.get("source_active_indices_hash")
+                and local_edge_provenance.get("target_active_indices_hash")
+                and source_rollout_step_index is not None
+                and target_rollout_step_index is not None
+                and rollout_step_order_valid
+            )
             ledger_field_match = bool(
                 replay_hashes_present_in_ledger
                 if provenance_type == "replay_regeneration"
@@ -3726,12 +3837,24 @@ class SNNLanguageReadoutEvidenceLedger:
                 "replay_artifact_hash": provenance.get("replay_artifact_hash"),
                 "replay_window_hash": provenance.get("replay_window_hash"),
                 "readout_evidence_hashes": replay_readout_hashes,
+                "local_edge_provenance": local_edge_provenance,
+                "local_edge_provenance_complete": local_edge_provenance_complete,
+                "local_edge_rollout_step_order_valid": rollout_step_order_valid,
+                "source_rollout_step_index": source_rollout_step_index,
+                "target_rollout_step_index": target_rollout_step_index,
+                "source_active_indices_hash": local_edge_provenance.get(
+                    "source_active_indices_hash"
+                ),
+                "target_active_indices_hash": local_edge_provenance.get(
+                    "target_active_indices_hash"
+                ),
                 "ledger_evidence_present": bool(ledger_event),
                 "replay_ledger_evidence_present": replay_hashes_present_in_ledger,
                 "ledger_field_match": ledger_field_match,
                 "ledger_hash_valid": ledger_hash_valid,
                 "provenance_complete": bool(
                     replay_provenance_complete
+                    and local_edge_provenance_complete
                     if provenance_type == "replay_regeneration"
                     else (
                         readout_hash
@@ -3752,6 +3875,9 @@ class SNNLanguageReadoutEvidenceLedger:
         rows = all_rows[:row_limit]
         orphan_weight_keys = sorted(set(weights.keys()) - set(provenance_by_key.keys()))
         dangling_provenance_keys = sorted(set(provenance_by_key.keys()) - set(weights.keys()))
+        replay_regeneration_rows = [
+            row for row in all_rows if row.get("provenance_type") == "replay_regeneration"
+        ]
         required = {
             "runtime_state_surface_available": runtime.get("surface")
             == "snn_language_plasticity_runtime_state.v1",
@@ -3791,6 +3917,14 @@ class SNNLanguageReadoutEvidenceLedger:
             "audited_source_indices_in_range": all(
                 bool(row["source_indices_in_range"]) for row in all_rows
             ) if all_rows else False,
+            "audited_replay_regeneration_local_edge_provenance_complete": all(
+                bool(row["local_edge_provenance_complete"])
+                for row in replay_regeneration_rows
+            ) if replay_regeneration_rows else True,
+            "audited_replay_regeneration_rollout_step_order_valid": all(
+                bool(row["local_edge_rollout_step_order_valid"])
+                for row in replay_regeneration_rows
+            ) if replay_regeneration_rows else True,
             "no_unprovenanced_weights": not bool(orphan_weight_keys),
             "no_dangling_provenance": not bool(dangling_provenance_keys),
             "all_weights_finite": len(finite_weight_keys) == len(weights),
@@ -3825,6 +3959,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 "noncanonical_weight_key_count": len(weights) - len(canonical_weight_keys),
                 "out_of_range_weight_key_count": len(weights) - len(in_range_weight_keys),
                 "ledger_event_count": len(ledger_events),
+                "replay_regeneration_synapse_count": len(replay_regeneration_rows),
+                "local_edge_provenance_count": sum(
+                    1 for row in all_rows if bool(row.get("local_edge_provenance"))
+                ),
+                "complete_local_edge_provenance_count": sum(
+                    1 for row in all_rows if bool(row.get("local_edge_provenance_complete"))
+                ),
             },
             "audited_synapses": rows,
             "orphan_weight_keys": orphan_weight_keys[: max(0, min(int(limit), 512))],
@@ -3989,6 +4130,11 @@ class SNNLanguageReadoutEvidenceLedger:
             "current_sparse_code_hash": provenance.get("current_sparse_code_hash"),
             "transition_memory_evaluation_hash": provenance.get("transition_memory_evaluation_hash"),
             "persistent_transition_weights_hash": provenance.get("persistent_transition_weights_hash"),
+            "server_transition_memory_hash": provenance.get("server_transition_memory_hash"),
+            "server_transition_memory_hash_match": bool(
+                provenance.get("server_transition_memory_hash_match")
+            ),
+            "transition_memory_state_source": provenance.get("transition_memory_state_source"),
             "device_evidence": {
                 "requested_device": observed_device.get("requested_device"),
                 "tensor_device": observed_device.get("tensor_device"),
@@ -4012,6 +4158,9 @@ class SNNLanguageReadoutEvidenceLedger:
             "current_sparse_code_hash": material["current_sparse_code_hash"],
             "transition_memory_evaluation_hash": material["transition_memory_evaluation_hash"],
             "persistent_transition_weights_hash": material["persistent_transition_weights_hash"],
+            "server_transition_memory_hash": material["server_transition_memory_hash"],
+            "server_transition_memory_hash_match": material["server_transition_memory_hash_match"],
+            "transition_memory_state_source": material["transition_memory_state_source"],
             "device_evidence": material["device_evidence"],
             "target_count": len(normalized_targets),
             "trace_step_count": int(replay_evaluation.get("trace_step_count") or 0),
@@ -4046,6 +4195,63 @@ class SNNLanguageReadoutEvidenceLedger:
                 "active_indices_hash_valid": active_indices_hash == self._sha256_json(sparse_indices),
         }
 
+    @staticmethod
+    def _rollout_sparse_transition_candidates(
+        source_traces: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Pick one bounded local sparse edge per adjacent rollout step."""
+
+        candidates: list[dict[str, Any]] = []
+        seen: set[tuple[int, int]] = set()
+        for trace_index, trace in enumerate(source_traces[:16]):
+            steps = [
+                dict(item)
+                for item in list(trace.get("step_trace") or [])
+                if isinstance(item, Mapping)
+            ][:32]
+            for previous, current in zip(steps, steps[1:]):
+                previous_indices = sorted(
+                    {
+                        int(value)
+                        for value in list(previous.get("sparse_active_indices") or [])
+                        if isinstance(value, int) and 0 <= int(value) < _LANGUAGE_NEURON_COUNT
+                    }
+                )
+                current_indices = sorted(
+                    {
+                        int(value)
+                        for value in list(current.get("sparse_active_indices") or [])
+                        if isinstance(value, int) and 0 <= int(value) < _LANGUAGE_NEURON_COUNT
+                    }
+                )
+                if not previous_indices or not current_indices:
+                    continue
+                previous_only = [value for value in previous_indices if value not in current_indices]
+                current_only = [value for value in current_indices if value not in previous_indices]
+                source_index = previous_only[0] if previous_only else previous_indices[0]
+                target_pool = [value for value in (current_only or current_indices) if value != source_index]
+                if not target_pool:
+                    continue
+                target_index = target_pool[0]
+                key = (source_index, target_index)
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(
+                    {
+                        "source_trace_index": int(trace_index),
+                        "source_step_index": int(previous.get("step_index", 0) or 0),
+                        "target_step_index": int(current.get("step_index", 0) or 0),
+                        "source_index": int(source_index),
+                        "target_index": int(target_index),
+                        "source_active_indices_hash": previous.get("active_indices_hash"),
+                        "target_active_indices_hash": current.get("active_indices_hash"),
+                    }
+                )
+                if len(candidates) >= 64:
+                    return candidates
+        return candidates
+
     def _rollout_ledger_event_material_hash(self, event: Mapping[str, Any]) -> str:
         device_evidence = (
             event.get("device_evidence")
@@ -4066,6 +4272,11 @@ class SNNLanguageReadoutEvidenceLedger:
                 "current_sparse_code_hash": event.get("current_sparse_code_hash"),
                 "transition_memory_evaluation_hash": event.get("transition_memory_evaluation_hash"),
                 "persistent_transition_weights_hash": event.get("persistent_transition_weights_hash"),
+                "server_transition_memory_hash": event.get("server_transition_memory_hash"),
+                "server_transition_memory_hash_match": bool(
+                    event.get("server_transition_memory_hash_match")
+                ),
+                "transition_memory_state_source": event.get("transition_memory_state_source"),
                 "device_evidence": {
                     "requested_device": device_evidence.get("requested_device"),
                     "tensor_device": device_evidence.get("tensor_device"),

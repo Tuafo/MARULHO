@@ -86,7 +86,10 @@ from .schemas import (
     SNNLanguageTransitionMemorySleepPolicyRequest,
     SNNSleepPlasticityReviewTicketRequest,
     SNNSleepPlasticitySchedulerDesignReviewTicketRequest,
+    SNNSleepPlasticityReviewSchedulerInstallationRequest,
+    SNNSleepPlasticityReviewSchedulerCycleAcknowledgmentRequest,
     SNNEvaluatedTransitionMemoryReplayArtifactRequest,
+    SNNDueCycleReplayArtifactRecordingReviewTicketRequest,
     SNNReplayArtifactRecordingReviewTicketRequest,
     SNNReplayEvaluationContextRequest,
     SNNTransitionMemoryReplayArtifactProposalRequest,
@@ -424,7 +427,6 @@ def create_app(
                 _model_to_dict(slot)
                 for slot in request.readout_vocabulary_slots
             ],
-            transition_memory_state=request.transition_memory_state,
             device_evidence=request.device_evidence,
             transition_memory_evaluation=request.transition_memory_evaluation,
             rollout_steps=request.rollout_steps,
@@ -931,6 +933,161 @@ def create_app(
     ) -> dict[str, Any]:
         return runtime.snn_sleep_plasticity_scheduler_installation_preflight(
             limit=limit
+        )
+
+    @app.post(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler/install"
+    )
+    def terminus_snn_sleep_plasticity_review_scheduler_installation(
+        request: SNNSleepPlasticityReviewSchedulerInstallationRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_sleep_plasticity_review_scheduler_installation(
+                limit=request.limit,
+                expected_state_revision=request.expected_state_revision,
+                scheduler_installation_preflight_hash=(
+                    request.scheduler_installation_preflight_hash
+                ),
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler"
+    )
+    def terminus_snn_sleep_plasticity_review_scheduler_runtime() -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_review_scheduler_runtime()
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "review-scheduler/cycle-inspection"
+    )
+    def terminus_snn_sleep_plasticity_review_scheduler_cycle_inspection() -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_review_scheduler_cycle_inspection()
+
+    @app.post(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "review-scheduler/cycle-acknowledgment"
+    )
+    def terminus_snn_sleep_plasticity_review_scheduler_cycle_acknowledgment(
+        request: SNNSleepPlasticityReviewSchedulerCycleAcknowledgmentRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment(
+                expected_state_revision=request.expected_state_revision,
+                scheduler_installation_id=request.scheduler_installation_id,
+                scheduler_installation_evidence_hash=(
+                    request.scheduler_installation_evidence_hash
+                ),
+                review_ticket_id=request.review_ticket_id,
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "review-scheduler/cycle-acknowledgment-preflight"
+    )
+    def terminus_snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+        scheduler_installation_id: str = Query(..., min_length=1, max_length=240),
+        scheduler_installation_evidence_hash: str = Query(..., min_length=64, max_length=64),
+        review_ticket_id: str = Query(..., min_length=1, max_length=240),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+            scheduler_installation_id=scheduler_installation_id,
+            scheduler_installation_evidence_hash=scheduler_installation_evidence_hash,
+            review_ticket_id=review_ticket_id,
+        )
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "review-scheduler/cycle-autonomy-proposal"
+    )
+    def terminus_snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal() -> dict[str, Any]:
+        return runtime.snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal()
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+        "review-scheduler/due-cycle-bounded-replay-selection-proposal"
+    )
+    def terminus_snn_due_cycle_bounded_replay_selection_proposal(
+        limit: int = Query(8, ge=0, le=32),
+        max_candidates: int = Query(1, ge=1, le=8),
+    ) -> dict[str, Any]:
+        return runtime.snn_due_cycle_bounded_replay_selection_proposal(
+            limit=limit,
+            max_candidates=max_candidates,
+        )
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler/"
+        "due-cycle-replay-artifact-recording-review-proposal"
+    )
+    def terminus_snn_due_cycle_replay_artifact_recording_review_proposal(
+        limit: int = Query(8, ge=0, le=32),
+        max_candidates: int = Query(1, ge=1, le=8),
+        min_priority_score: float = Query(66.0, ge=0.0, le=100.0),
+    ) -> dict[str, Any]:
+        return runtime.snn_due_cycle_replay_artifact_recording_review_proposal(
+            limit=limit,
+            max_candidates=max_candidates,
+            policy={"min_priority_score": min_priority_score},
+        )
+
+    @app.post(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler/"
+        "due-cycle-replay-artifact-recording-review-ticket"
+    )
+    def terminus_snn_due_cycle_replay_artifact_recording_review_ticket(
+        request: SNNDueCycleReplayArtifactRecordingReviewTicketRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_due_cycle_replay_artifact_recording_review_ticket(
+                limit=request.limit,
+                max_candidates=request.max_candidates,
+                policy={"min_priority_score": request.min_priority_score},
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler/"
+        "sleep-phase-separation-proposal"
+    )
+    def terminus_snn_sleep_phase_separation_proposal(
+        limit: int = Query(8, ge=0, le=32),
+        max_candidates: int = Query(1, ge=1, le=8),
+    ) -> dict[str, Any]:
+        return runtime.snn_sleep_phase_separation_proposal(
+            limit=limit,
+            max_candidates=max_candidates,
+        )
+
+    @app.get(
+        "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler/"
+        "rem-like-homeostatic-stabilization-preflight"
+    )
+    def terminus_snn_rem_like_homeostatic_stabilization_preflight(
+        limit: int = Query(8, ge=0, le=32),
+        max_candidates: int = Query(1, ge=1, le=8),
+        decay_factor: float = Query(0.98, gt=0.0, le=1.0),
+        prune_below: float = Query(0.005, ge=0.0, le=0.25),
+        max_outgoing_row_mass: float = Query(1.0, gt=0.0, le=4.0),
+    ) -> dict[str, Any]:
+        return runtime.snn_rem_like_homeostatic_stabilization_preflight(
+            limit=limit,
+            max_candidates=max_candidates,
+            maintenance_policy={
+                "decay_factor": decay_factor,
+                "prune_below": prune_below,
+                "max_outgoing_row_mass": max_outgoing_row_mass,
+            },
         )
 
     @app.post("/terminus/snn-language-sequence/plasticity-regeneration-proposal")

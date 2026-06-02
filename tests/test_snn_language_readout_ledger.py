@@ -69,6 +69,11 @@ def _ready_rollout_replay_evaluation() -> dict[str, object]:
             "current_sparse_code_hash": "current-sparse-code-hash-1",
             "transition_memory_evaluation_hash": "evaluation-hash-1",
             "persistent_transition_weights_hash": "weights-hash-1",
+            "server_transition_memory_hash": "weights-hash-1",
+            "server_transition_memory_hash_match": True,
+            "transition_memory_state_source": (
+                "service.runtime_facade.snn_language_plasticity_runtime_state"
+            ),
         },
         "device_evidence": {
             "requested_device": "cpu",
@@ -112,6 +117,19 @@ def _ready_draft_for(
             "eligible_for_cognition_substrate": False,
         },
     }
+
+
+def _first_rollout_synapse(design: dict[str, object]) -> str:
+    rollout_design = design["rollout_consolidation_design"]
+    assert isinstance(rollout_design, dict)
+    candidates = rollout_design["candidate_synapses"]
+    assert isinstance(candidates, list) and candidates
+    first = candidates[0]
+    assert isinstance(first, dict)
+    return (
+        f"{int(first.get('source_neuron_index', first['source_step_index']))}:"
+        f"{int(first.get('target_neuron_index', first['target_step_index']))}"
+    )
 
 
 def test_readout_ledger_records_ready_provenance_bound_draft_once() -> None:
@@ -219,6 +237,12 @@ def test_readout_ledger_records_rollout_replay_evaluation_separately_from_replay
     assert result["promotion_gate"]["eligible_for_rollout_replay_memory"] is True
     assert result["promotion_gate"]["eligible_for_replay_priority"] is False
     assert result["recorded_event"]["rollout_replay_evaluation_hash"] == "rollout-eval-hash-1"
+    assert result["recorded_event"]["server_transition_memory_hash"] == "weights-hash-1"
+    assert result["recorded_event"]["server_transition_memory_hash_match"] is True
+    assert (
+        result["recorded_event"]["transition_memory_state_source"]
+        == "service.runtime_facade.snn_language_plasticity_runtime_state"
+    )
     assert result["recorded_event"]["recorded_in_ledger"] is True
     assert result["recorded_event"]["eligible_for_replay_priority"] is False
     assert duplicate["accepted"] is True
@@ -287,6 +311,24 @@ def test_readout_ledger_blocks_unready_or_unconfirmed_rollout_replay_evaluation(
         operator_id="operator-test",
         confirmation=True,
     )
+    missing_server_hash_evaluation = _ready_rollout_replay_evaluation()
+    missing_server_hash_evaluation["provenance_evidence"].pop("server_transition_memory_hash")
+    missing_server_hash = ledger.record_readout_rollout_replay_evaluation(
+        readout_rollout_replay_evaluation=missing_server_hash_evaluation,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+    mismatched_server_hash_evaluation = _ready_rollout_replay_evaluation()
+    mismatched_server_hash_evaluation["provenance_evidence"][
+        "server_transition_memory_hash_match"
+    ] = False
+    mismatched_server_hash = ledger.record_readout_rollout_replay_evaluation(
+        readout_rollout_replay_evaluation=mismatched_server_hash_evaluation,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-test",
+        confirmation=True,
+    )
 
     assert result["accepted"] is False
     assert result["promotion_gate"]["required_evidence"]["rollout_recording_review_ready"] is False
@@ -300,6 +342,20 @@ def test_readout_ledger_blocks_unready_or_unconfirmed_rollout_replay_evaluation(
     assert ungrounded["promotion_gate"]["required_evidence"]["grounded_replay_targets_available"] is False
     assert invalid_hash["accepted"] is False
     assert invalid_hash["promotion_gate"]["required_evidence"]["replay_target_hashes_valid"] is False
+    assert missing_server_hash["accepted"] is False
+    assert (
+        missing_server_hash["promotion_gate"]["required_evidence"][
+            "server_transition_memory_hash_available"
+        ]
+        is False
+    )
+    assert mismatched_server_hash["accepted"] is False
+    assert (
+        mismatched_server_hash["promotion_gate"]["required_evidence"][
+            "server_transition_memory_hash_match"
+        ]
+        is False
+    )
     assert ledger.snapshot()["summary"]["rollout_event_count"] == 0
     assert runtime_state.dirty_state is False
 
@@ -343,6 +399,12 @@ def test_readout_ledger_rollout_rehearsal_promotion_policy_is_deterministic_read
     assert policy["candidates"][0]["sparse_index_count"] == 4
     assert policy["candidates"][0]["sparse_occupancy"] > 0.0
     assert policy["candidates"][0]["device_evidence"]["tensor_device"] == "cpu"
+    assert policy["candidates"][0]["server_transition_memory_hash"] == "weights-hash-1"
+    assert policy["candidates"][0]["server_transition_memory_hash_match"] is True
+    assert (
+        policy["candidates"][0]["transition_memory_state_source"]
+        == "service.runtime_facade.snn_language_plasticity_runtime_state"
+    )
     assert policy["candidates"][0]["priority_components"]["provenance"] == 1.0
     assert policy["candidates"][0]["priority_components"]["grounding"] == 1.0
     assert policy["candidates"][0]["priority_components"]["trace_integrity"] == 1.0
@@ -373,6 +435,14 @@ def test_readout_ledger_rollout_rehearsal_promotion_policy_blocks_tampered_or_fa
     tampered = ledger.rollout_rehearsal_promotion_policy(candidate_limit=4)
     ledger_state.clear()
     ledger_state.update(deepcopy(baseline_state))
+    ledger_state["rollout_events"][0]["server_transition_memory_hash"] = "tampered"
+    tampered_server_hash = ledger.rollout_rehearsal_promotion_policy(candidate_limit=4)
+    ledger_state.clear()
+    ledger_state.update(deepcopy(baseline_state))
+    ledger_state["rollout_events"][0]["server_transition_memory_hash_match"] = False
+    mismatched_server_hash = ledger.rollout_rehearsal_promotion_policy(candidate_limit=4)
+    ledger_state.clear()
+    ledger_state.update(deepcopy(baseline_state))
     ledger_state["rollout_events"][0]["device_evidence"] = {}
     missing_device = ledger.rollout_rehearsal_promotion_policy(candidate_limit=4)
     ledger_state.clear()
@@ -387,6 +457,10 @@ def test_readout_ledger_rollout_rehearsal_promotion_policy_blocks_tampered_or_fa
 
     assert tampered["candidate_count"] == 0
     assert tampered["promotion_gate"]["eligible_for_operator_rollout_rehearsal_review"] is False
+    assert tampered_server_hash["candidate_count"] == 0
+    assert tampered_server_hash["promotion_gate"]["eligible_for_operator_rollout_rehearsal_review"] is False
+    assert mismatched_server_hash["candidate_count"] == 0
+    assert mismatched_server_hash["promotion_gate"]["eligible_for_operator_rollout_rehearsal_review"] is False
     assert missing_device["candidate_count"] == 0
     assert missing_device["promotion_gate"]["eligible_for_operator_rollout_rehearsal_review"] is False
     assert cuda_fallback["candidate_count"] == 0
@@ -523,6 +597,7 @@ def test_readout_ledger_rollout_consolidation_design_proposes_bounded_local_upda
         candidate_limit=4,
     )
     experiment = ledger.rollout_rehearsal_experiment(evaluation, replay_cycles=4)
+    assert experiment["experiment_summary"]["sparse_transition_candidate_count"] == 1
     before = runtime_state.snapshot()
 
     design = ledger.rollout_consolidation_design(
@@ -562,6 +637,14 @@ def test_readout_ledger_rollout_consolidation_design_proposes_bounded_local_upda
     proposal = design["rollout_consolidation_design"]
     assert proposal["candidate_synapse_count"] == 1
     assert proposal["candidate_synapses"][0]["local_only"] is True
+    assert proposal["candidate_synapses"][0]["source_neuron_index"] == 1
+    assert proposal["candidate_synapses"][0]["target_neuron_index"] == 4
+    assert proposal["candidate_synapses"][0]["source_step_index"] == 1
+    assert proposal["candidate_synapses"][0]["target_step_index"] == 4
+    assert proposal["candidate_synapses"][0]["source_rollout_step_index"] == 0
+    assert proposal["candidate_synapses"][0]["target_rollout_step_index"] == 1
+    assert proposal["candidate_synapses"][0]["source_active_indices_hash"] == _sha256_json([1, 2, 3])
+    assert proposal["candidate_synapses"][0]["target_active_indices_hash"] == _sha256_json([2, 3, 4])
     assert proposal["candidate_synapses"][0]["proposed_weight_delta"] == 0.02
     assert proposal["candidate_synapses"][0]["homeostatic_decay"] == 0.01
     assert proposal["runtime_update_applied"] is False
@@ -573,6 +656,33 @@ def test_readout_ledger_rollout_consolidation_design_proposes_bounded_local_upda
     assert design["promotion_gate"]["eligible_for_plasticity_application"] is False
     assert blocked["promotion_gate"]["required_evidence"]["rollback_policy_available"] is False
     assert blocked["promotion_gate"]["eligible_for_operator_rollout_consolidation_design_review"] is False
+
+
+def test_rollout_sparse_transition_candidates_use_neuron_indices_not_step_numbers() -> None:
+    candidates = SNNLanguageReadoutEvidenceLedger._rollout_sparse_transition_candidates(
+        [
+            {
+                "step_trace": [
+                    {
+                        "step_index": 10,
+                        "sparse_active_indices": [1, 2, 3],
+                        "active_indices_hash": _sha256_json([1, 2, 3]),
+                    },
+                    {
+                        "step_index": 20,
+                        "sparse_active_indices": [2, 3, 4],
+                        "active_indices_hash": _sha256_json([2, 3, 4]),
+                    },
+                ]
+            }
+        ]
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["source_index"] == 1
+    assert candidates[0]["target_index"] == 4
+    assert candidates[0]["source_step_index"] == 10
+    assert candidates[0]["target_step_index"] == 20
 
 
 def test_readout_ledger_rollout_consolidation_shadow_delta_materializes_ephemeral_tensor_without_writes() -> None:
@@ -605,6 +715,7 @@ def test_readout_ledger_rollout_consolidation_shadow_delta_materializes_ephemera
         design,
         device_evidence={"device": "cpu", "source": "test"},
     )
+    first_synapse = _first_rollout_synapse(design)
     repeat = ledger.rollout_consolidation_shadow_delta(
         design,
         device_evidence={"device": "cpu", "source": "test"},
@@ -615,7 +726,7 @@ def test_readout_ledger_rollout_consolidation_shadow_delta_materializes_ephemera
     )
     invalid_design = deepcopy(design)
     invalid_design["rollout_consolidation_design"]["candidate_synapses"][0][
-        "source_step_index"
+        "source_neuron_index"
     ] = -1
     invalid_coordinate = ledger.rollout_consolidation_shadow_delta(
         invalid_design,
@@ -683,17 +794,18 @@ def test_readout_ledger_rollout_consolidation_shadow_application_preflight_verif
         design,
         device_evidence={"device": "cpu", "source": "test"},
     )
+    first_synapse = _first_rollout_synapse(design)
     before = runtime_state.snapshot()
 
     preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {"0:1": 0.1}},
+        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
     )
     repeat = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {"0:1": 0.1}},
+        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
     )
     growth = ledger.rollout_consolidation_shadow_application_preflight(
         design,
@@ -705,14 +817,14 @@ def test_readout_ledger_rollout_consolidation_shadow_application_preflight_verif
     tampered = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         tampered_shadow,
-        transition_memory_state={"sparse_transition_weights": {"0:1": 0.1}},
+        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
     )
     tampered_design = deepcopy(design)
     tampered_design["rollout_consolidation_design_material"]["max_weight_delta"] = 0.25
     design_tampered = ledger.rollout_consolidation_shadow_application_preflight(
         tampered_design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {"0:1": 0.1}},
+        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
     )
     duplicate_shadow = deepcopy(shadow)
     duplicate_shadow["bounded_synapses"].append(deepcopy(duplicate_shadow["bounded_synapses"][0]))
@@ -721,7 +833,7 @@ def test_readout_ledger_rollout_consolidation_shadow_application_preflight_verif
     duplicate = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         duplicate_shadow,
-        transition_memory_state={"sparse_transition_weights": {"0:1": 0.1}},
+        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
     )
     after = runtime_state.snapshot()
 
@@ -793,6 +905,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         design,
         device_evidence={"device": "cpu", "source": "test"},
     )
+    first_synapse = _first_rollout_synapse(design)
     growth_preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
@@ -801,7 +914,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
     existing_preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {"0:1": 0.1}},
+        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
     )
     before = runtime_state.snapshot()
 
@@ -829,7 +942,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
-            "sparse_transition_weights": {"0:1": 0.1},
+            "sparse_transition_weights": {first_synapse: 0.1},
         },
     )
     tampered_design = deepcopy(design)
@@ -867,6 +980,25 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "sparse_transition_weights": {},
         },
     )
+    missing_hash_design = deepcopy(design)
+    missing_hash_design["rollout_consolidation_design"]["candidate_synapses"][0][
+        "source_active_indices_hash"
+    ] = ""
+    missing_hash_design["rollout_consolidation_design_material"][
+        "candidate_synapses"
+    ] = missing_hash_design["rollout_consolidation_design"]["candidate_synapses"]
+    missing_hash_design["rollout_consolidation_design_material"][
+        "sparse_transition_candidates"
+    ][0]["source_active_indices_hash"] = ""
+    missing_hash = ledger.rollout_developmental_plasticity_review(
+        missing_hash_design,
+        growth_preflight,
+        transition_memory_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {},
+        },
+    )
     after = runtime_state.snapshot()
 
     assert before == after
@@ -879,11 +1011,18 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
     assert review["mutates_runtime_state"] is False
     assert review["returns_trained_weights"] is False
     assert review["developmental_plasticity_review"]["growth_candidate_count"] == 1
-    assert review["developmental_plasticity_review"]["growth_candidates"][0]["synapse"] == "0:1"
+    assert review["developmental_plasticity_review"]["growth_candidates"][0]["synapse"] == first_synapse
+    growth_candidate = review["developmental_plasticity_review"]["growth_candidates"][0]
+    assert growth_candidate["source_rollout_step_index"] == 0
+    assert growth_candidate["target_rollout_step_index"] == 1
+    assert growth_candidate["source_active_indices_hash"] == _sha256_json([1, 2, 3])
+    assert growth_candidate["target_active_indices_hash"] == _sha256_json([2, 3, 4])
     assert review["developmental_plasticity_review"]["structural_growth_applied"] is False
     assert review["developmental_plasticity_review"]["structural_pruning_applied"] is False
     assert review["integrity_evidence"]["design_hash_recomputed_match"] is True
     assert review["integrity_evidence"]["preflight_hash_recomputed_match"] is True
+    assert review["integrity_evidence"]["candidate_rollout_step_provenance_available"] is True
+    assert review["integrity_evidence"]["candidate_active_hash_provenance_available"] is True
     assert review["runtime_memory_evidence"]["candidate_synapses_absent_from_runtime"] is True
     assert review["growth_classification"]["all_candidates_are_growth"] is True
     assert review["topology_budget_evidence"]["candidate_count_bounded"] is True
@@ -905,6 +1044,12 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         "growth_candidate_count_matches_preflight"
     ] is False
     assert signed_tampered["integrity_evidence"]["preflight_hash_recomputed_match"] is False
+    assert missing_hash["integrity_evidence"][
+        "candidate_active_hash_provenance_available"
+    ] is False
+    assert missing_hash["promotion_gate"][
+        "eligible_for_operator_rollout_developmental_plasticity_review"
+    ] is False
 
 
 def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_without_permit() -> None:
@@ -991,7 +1136,14 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     assert adapter["executor_ready"] is False
     assert adapter["regeneration_design"]["mismatch_score"] == 0.0
     assert adapter["regeneration_design"]["candidate_count"] == 1
-    assert adapter["regeneration_design"]["candidate_synapses"][0]["synapse"] == "0:1"
+    assert adapter["regeneration_design"]["candidate_synapses"][0]["synapse"] == _first_rollout_synapse(design)
+    adapter_candidate = adapter["regeneration_design"]["candidate_synapses"][0]
+    assert adapter_candidate["source_rollout_step_index"] == 0
+    assert adapter_candidate["target_rollout_step_index"] == 1
+    assert adapter_candidate["source_active_indices_hash"] == _sha256_json([1, 2, 3])
+    assert adapter_candidate["target_active_indices_hash"] == _sha256_json([2, 3, 4])
+    assert adapter["integrity_evidence"]["candidate_rollout_step_provenance_available"] is True
+    assert adapter["integrity_evidence"]["candidate_active_hash_provenance_available"] is True
     assert adapter["blocked_replay_evidence"]["ready"] is False
     assert adapter["blocked_replay_evidence"]["permit_id"] is None
     assert adapter["executor_bypass_evidence"]["is_transition_memory_regeneration_proposal"] is False
@@ -1325,6 +1477,12 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
                         "post_index": 3,
                         "initial_weight": 0.1,
                         "locality_distance": 2,
+                        "source_synapse_id": "snn-rollout-local:1:3:0",
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 10,
+                        "target_rollout_step_index": 20,
+                        "source_active_indices_hash": "source-active-hash-1",
+                        "target_active_indices_hash": "target-active-hash-1",
                     }
                 ],
             },
@@ -1349,6 +1507,16 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
     assert result["mutates_runtime_state"] is True
     assert result["executor_result"]["surface"] == "snn_language_transition_memory_regeneration.v1"
     assert abs(language_state["sparse_transition_weights"]["1:3"] - 0.1) < 1e-9
+    local_edge = result["executor_result"]["regeneration"]["regenerated_synapses"][0][
+        "local_edge_provenance"
+    ]
+    assert local_edge["source_synapse_id"] == "snn-rollout-local:1:3:0"
+    assert local_edge["source_rollout_step_index"] == 10
+    assert local_edge["target_rollout_step_index"] == 20
+    assert local_edge["source_active_indices_hash"] == "source-active-hash-1"
+    assert language_state["synapse_provenance_by_key"]["1:3"][
+        "local_edge_provenance"
+    ] == local_edge
     assert runtime_state.state_revision == 1
     assert result["promotion_gate"]["status"] == "checkpoint_backed_regeneration_applied"
 
@@ -2060,6 +2228,48 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
             },
         }
     )
+    replay_regeneration = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:3": 0.03},
+            "synapse_provenance_by_key": {
+                "1:3": {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": "permit-1",
+                    "replay_artifact_id": "artifact-1",
+                    "replay_artifact_hash": "artifact-hash-1",
+                    "replay_window_hash": "window-hash-1",
+                    "readout_evidence_hashes": [evidence_hash],
+                    "local_edge_provenance": {
+                        "source_synapse_id": "snn-rollout-local:1:3:0",
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 10,
+                        "target_rollout_step_index": 20,
+                        "source_active_indices_hash": "source-active-hash-1",
+                        "target_active_indices_hash": "target-active-hash-1",
+                    },
+                }
+            },
+        }
+    )
+    replay_missing_local_edge = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:3": 0.03},
+            "synapse_provenance_by_key": {
+                "1:3": {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": "permit-1",
+                    "replay_artifact_id": "artifact-1",
+                    "replay_artifact_hash": "artifact-hash-1",
+                    "replay_window_hash": "window-hash-1",
+                    "readout_evidence_hashes": [evidence_hash],
+                }
+            },
+        }
+    )
     ledger_state["events"][0]["labels"] = ["tampered material"]
     tampered_ledger = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
@@ -2105,6 +2315,25 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     assert malformed["promotion_gate"]["required_evidence"]["audited_source_indices_in_range"] is False
     assert non_numeric["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
     assert non_numeric["promotion_gate"]["required_evidence"]["audited_synapses_have_finite_weights"] is False
+    assert replay_regeneration["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is True
+    assert replay_regeneration["audit_summary"]["replay_regeneration_synapse_count"] == 1
+    assert replay_regeneration["audit_summary"]["local_edge_provenance_count"] == 1
+    assert replay_regeneration["audit_summary"]["complete_local_edge_provenance_count"] == 1
+    assert replay_regeneration["audited_synapses"][0]["local_edge_provenance_complete"] is True
+    assert replay_regeneration["audited_synapses"][0][
+        "local_edge_rollout_step_order_valid"
+    ] is True
+    assert replay_regeneration["audited_synapses"][0]["source_rollout_step_index"] == 10
+    assert replay_regeneration["audited_synapses"][0]["target_rollout_step_index"] == 20
+    assert replay_regeneration["audited_synapses"][0][
+        "source_active_indices_hash"
+    ] == "source-active-hash-1"
+    assert replay_missing_local_edge["promotion_gate"][
+        "eligible_for_readout_synapse_audit_review"
+    ] is False
+    assert replay_missing_local_edge["promotion_gate"]["required_evidence"][
+        "audited_replay_regeneration_local_edge_provenance_complete"
+    ] is False
     assert tampered_ledger["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
     assert tampered_ledger["promotion_gate"]["required_evidence"]["audited_synapses_match_ledger_fields"] is True
     assert tampered_ledger["promotion_gate"]["required_evidence"]["audited_ledger_hashes_valid"] is False

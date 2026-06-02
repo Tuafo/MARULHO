@@ -81,8 +81,12 @@ class RuntimeFacade:
         return self._root._status_read_model.snn_language_readout_draft(**kwargs)
 
     def snn_language_readout_rollout_candidate(self, **kwargs: Any) -> dict[str, Any]:
-        if kwargs.get("transition_memory_state") is None:
-            kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
+        state = dict(self.snn_language_plasticity_runtime_state())
+        state["transition_memory_state_source"] = (
+            "service.runtime_facade.snn_language_plasticity_runtime_state"
+        )
+        state["current_state_revision"] = int(self._root._runtime_state.state_revision)
+        kwargs["transition_memory_state"] = state
         return self._root._status_read_model.snn_language_readout_rollout_candidate(**kwargs)
 
     def snn_language_readout_rollout_replay_evaluation(self, **kwargs: Any) -> dict[str, Any]:
@@ -629,6 +633,89 @@ class RuntimeFacade:
             **kwargs
         )
 
+    def snn_sleep_plasticity_review_scheduler_installation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.install_snn_sleep_plasticity_review_scheduler(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_review_scheduler_runtime(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_review_scheduler_runtime(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_review_scheduler_cycle_inspection(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_review_scheduler_cycle_inspection(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_review_scheduler_cycle_acknowledgment(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.acknowledge_snn_sleep_plasticity_review_scheduler_cycle(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+            **kwargs
+        )
+
+    def snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._replay_controller.snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal(
+            **kwargs
+        )
+
+    def snn_due_cycle_bounded_replay_selection_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        limit = kwargs.pop("limit", 8)
+        queue = self.snn_replay_consolidation_priority_queue(limit=limit)
+        return self._root._replay_controller.snn_due_cycle_bounded_replay_selection_proposal(
+            consolidation_priority_queue=queue,
+            max_candidates=kwargs.pop("max_candidates", 1),
+            **kwargs,
+        )
+
+    def snn_due_cycle_replay_artifact_recording_review_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        limit = kwargs.pop("limit", 8)
+        max_candidates = kwargs.pop("max_candidates", 1)
+        policy = kwargs.pop("policy", None)
+        selection = self.snn_due_cycle_bounded_replay_selection_proposal(
+            limit=limit,
+            max_candidates=max_candidates,
+            **kwargs,
+        )
+        artifact_recording_policy = self.snn_replay_artifact_recording_policy_proposal(
+            limit=limit,
+            policy=policy,
+        )
+        return self._root._replay_controller.snn_due_cycle_replay_artifact_recording_review_proposal(
+            due_cycle_selection_proposal=selection,
+            artifact_recording_policy_proposal=artifact_recording_policy,
+        )
+
+    def snn_sleep_phase_separation_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        limit = kwargs.pop("limit", 8)
+        max_candidates = kwargs.pop("max_candidates", 1)
+        selection = self.snn_due_cycle_bounded_replay_selection_proposal(
+            limit=limit,
+            max_candidates=max_candidates,
+        )
+        return self._root._replay_controller.snn_sleep_phase_separation_proposal(
+            due_cycle_selection_proposal=selection,
+            cycle_acknowledgment_preflight=kwargs.pop(
+                "cycle_acknowledgment_preflight",
+                None,
+            ),
+        )
+
+    def snn_rem_like_homeostatic_stabilization_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        phase = self.snn_sleep_phase_separation_proposal(
+            limit=kwargs.pop("limit", 8),
+            max_candidates=kwargs.pop("max_candidates", 1),
+        )
+        return self._root._replay_controller.snn_rem_like_homeostatic_stabilization_preflight(
+            sleep_phase_separation_proposal=phase,
+            transition_memory_state=self.snn_language_plasticity_runtime_state(),
+            maintenance_policy=kwargs.pop("maintenance_policy", None),
+        )
+
     def snn_language_transition_memory_regeneration_proposal(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("transition_memory_state") is None:
             kwargs["transition_memory_state"] = self.snn_language_plasticity_runtime_state()
@@ -680,6 +767,27 @@ class RuntimeFacade:
         )
         return self._root._replay_controller.record_snn_replay_artifact_recording_review_ticket(
             policy_proposal=proposal,
+            **kwargs,
+        )
+
+    def snn_due_cycle_replay_artifact_recording_review_ticket(self, **kwargs: Any) -> dict[str, Any]:
+        limit = kwargs.pop("limit", 8)
+        max_candidates = kwargs.pop("max_candidates", 1)
+        policy = kwargs.pop("policy", None)
+        policy_proposal = self.snn_replay_artifact_recording_policy_proposal(
+            limit=limit,
+            policy=policy,
+        )
+        due_cycle_review_proposal = (
+            self.snn_due_cycle_replay_artifact_recording_review_proposal(
+                limit=limit,
+                max_candidates=max_candidates,
+                policy=policy,
+            )
+        )
+        return self._root._replay_controller.record_snn_replay_artifact_recording_review_ticket(
+            policy_proposal=policy_proposal,
+            due_cycle_review_proposal=due_cycle_review_proposal,
             **kwargs,
         )
 

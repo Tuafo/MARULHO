@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from threading import RLock
 import unittest
 from unittest.mock import patch
@@ -307,6 +308,21 @@ class ReplayControllerTests(unittest.TestCase):
 
         self.assertIs(controller.snn_sleep_plasticity_scheduler_design_review_tickets, tickets)
         self.assertEqual(tickets[0]["scheduler_design_review_ticket_id"], "design-ticket-1")
+
+    def test_snn_sleep_plasticity_review_scheduler_installation_setter_preserves_existing_deque_reference(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        installations = controller.snn_sleep_plasticity_review_scheduler_installations
+
+        controller.snn_sleep_plasticity_review_scheduler_installations = [
+            {"scheduler_installation_id": "scheduler-1", "evidence_hash": "hash-1"}
+        ]
+
+        self.assertIs(
+            controller.snn_sleep_plasticity_review_scheduler_installations,
+            installations,
+        )
+        self.assertEqual(installations[0]["scheduler_installation_id"], "scheduler-1")
 
     def test_snn_replay_evaluation_context_verification_fails_closed(self) -> None:
         manager = _FakeReplayManager()
@@ -805,6 +821,599 @@ class ReplayControllerTests(unittest.TestCase):
                 "scheduler_installation_preflight_hash"
             ],
         )
+        review_scheduler_installation = (
+            controller.install_snn_sleep_plasticity_review_scheduler(
+                limit=4,
+                expected_state_revision=manager._runtime_state.state_revision,
+                scheduler_installation_preflight_hash=(
+                    installation_preflight["provenance_evidence"][
+                        "scheduler_installation_preflight_hash"
+                    ]
+                ),
+                operator_id="operator-review-scheduler",
+                confirmation=True,
+            )
+        )
+        self.assertEqual(
+            review_scheduler_installation["surface"],
+            "snn_sleep_plasticity_review_scheduler_installation.v1",
+        )
+        self.assertTrue(review_scheduler_installation["scheduler_installed"])
+        self.assertEqual(review_scheduler_installation["scheduler_mode"], "review_only")
+        self.assertFalse(review_scheduler_installation["registers_os_timer"])
+        self.assertFalse(review_scheduler_installation["starts_background_worker"])
+        self.assertFalse(review_scheduler_installation["executes_suggested_endpoint"])
+        self.assertFalse(review_scheduler_installation["writes_checkpoint"])
+        self.assertFalse(review_scheduler_installation["applies_plasticity"])
+        self.assertFalse(review_scheduler_installation["mutates_transition_memory"])
+        self.assertFalse(review_scheduler_installation["mutates_runtime_state"])
+        review_scheduler_runtime = (
+            controller.snn_sleep_plasticity_review_scheduler_runtime()
+        )
+        self.assertEqual(
+            review_scheduler_runtime["surface"],
+            "snn_sleep_plasticity_review_scheduler_runtime.v1",
+        )
+        self.assertTrue(review_scheduler_runtime["ready"])
+        self.assertTrue(review_scheduler_runtime["scheduler_installed"])
+        self.assertFalse(review_scheduler_runtime["review_due"])
+        self.assertFalse(review_scheduler_runtime["registers_os_timer"])
+        self.assertFalse(review_scheduler_runtime["starts_background_worker"])
+        self.assertFalse(review_scheduler_runtime["executes_suggested_endpoint"])
+        self.assertFalse(review_scheduler_runtime["applies_plasticity"])
+        self.assertFalse(review_scheduler_runtime["mutates_runtime_state"])
+        due_observed_at = datetime.fromisoformat(
+            str(review_scheduler_installation["next_review_due_at"])
+        ) + timedelta(seconds=1)
+        due_cycle_inspection = (
+            controller.snn_sleep_plasticity_review_scheduler_cycle_inspection(
+                observed_at=due_observed_at
+            )
+        )
+        repeated_due_cycle_inspection = (
+            controller.snn_sleep_plasticity_review_scheduler_cycle_inspection(
+                observed_at=due_observed_at
+            )
+        )
+        self.assertEqual(
+            due_cycle_inspection["surface"],
+            "snn_sleep_plasticity_review_scheduler_cycle_inspection.v1",
+        )
+        self.assertTrue(due_cycle_inspection["ready"])
+        self.assertTrue(due_cycle_inspection["cycle_inspection"]["review_due"])
+        self.assertFalse(due_cycle_inspection["executes_suggested_endpoint"])
+        self.assertFalse(due_cycle_inspection["records_replay_artifact"])
+        self.assertFalse(due_cycle_inspection["writes_checkpoint"])
+        self.assertFalse(due_cycle_inspection["applies_plasticity"])
+        self.assertFalse(due_cycle_inspection["mutates_transition_memory"])
+        self.assertFalse(due_cycle_inspection["mutates_runtime_state"])
+        self.assertFalse(due_cycle_inspection["eligible_for_endpoint_execution"])
+        self.assertEqual(
+            repeated_due_cycle_inspection["provenance_evidence"][
+                "review_scheduler_cycle_inspection_hash"
+            ],
+            due_cycle_inspection["provenance_evidence"][
+                "review_scheduler_cycle_inspection_hash"
+            ],
+        )
+        due_cycle_autonomy_proposal = (
+            controller.snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal(
+                observed_at=due_observed_at
+            )
+        )
+        repeated_due_cycle_autonomy_proposal = (
+            controller.snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal(
+                observed_at=due_observed_at
+            )
+        )
+        self.assertEqual(
+            due_cycle_autonomy_proposal["surface"],
+            "snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal.v1",
+        )
+        self.assertTrue(due_cycle_autonomy_proposal["ready"])
+        self.assertEqual(
+            due_cycle_autonomy_proposal["candidate"][
+                "reviewed_sleep_plasticity_endpoint"
+            ],
+            review_scheduler_installation["reviewed_sleep_plasticity_endpoint"],
+        )
+        self.assertFalse(due_cycle_autonomy_proposal["executes_suggested_endpoint"])
+        self.assertFalse(due_cycle_autonomy_proposal["records_replay_artifact"])
+        self.assertFalse(due_cycle_autonomy_proposal["writes_checkpoint"])
+        self.assertFalse(due_cycle_autonomy_proposal["applies_plasticity"])
+        self.assertFalse(due_cycle_autonomy_proposal["mutates_transition_memory"])
+        self.assertFalse(due_cycle_autonomy_proposal["mutates_runtime_state"])
+        self.assertFalse(
+            due_cycle_autonomy_proposal["candidate"]["endpoint_execution_allowed"]
+        )
+        self.assertEqual(
+            repeated_due_cycle_autonomy_proposal["provenance_evidence"][
+                "review_scheduler_cycle_autonomy_proposal_hash"
+            ],
+            due_cycle_autonomy_proposal["provenance_evidence"][
+                "review_scheduler_cycle_autonomy_proposal_hash"
+            ],
+        )
+        sleep_replay_context = self._record_replay_evaluation_context(controller)
+        sleep_replay_priority_queue = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [
+                    {
+                        "priority_score": 90.0,
+                        "all_labels_grounded": True,
+                    }
+                ],
+            },
+            limit=4,
+        )
+        sleep_replay_selection_proposal = (
+            controller.snn_due_cycle_bounded_replay_selection_proposal(
+                consolidation_priority_queue=sleep_replay_priority_queue,
+                observed_at=due_observed_at,
+            )
+        )
+        repeated_sleep_replay_selection_proposal = (
+            controller.snn_due_cycle_bounded_replay_selection_proposal(
+                consolidation_priority_queue=sleep_replay_priority_queue,
+                observed_at=due_observed_at,
+            )
+        )
+        self.assertEqual(
+            sleep_replay_selection_proposal["surface"],
+            "snn_due_cycle_bounded_replay_selection_proposal.v1",
+        )
+        self.assertTrue(sleep_replay_selection_proposal["ready"])
+        self.assertEqual(
+            sleep_replay_selection_proposal["selection"]["candidates"][0][
+                "replay_evaluation_context_id"
+            ],
+            sleep_replay_context["replay_evaluation_context_id"],
+        )
+        self.assertFalse(sleep_replay_selection_proposal["executes_suggested_endpoint"])
+        self.assertFalse(sleep_replay_selection_proposal["records_replay_artifact"])
+        self.assertFalse(sleep_replay_selection_proposal["runs_live_replay"])
+        self.assertFalse(sleep_replay_selection_proposal["writes_checkpoint"])
+        self.assertFalse(sleep_replay_selection_proposal["applies_plasticity"])
+        self.assertFalse(sleep_replay_selection_proposal["mutates_transition_memory"])
+        self.assertFalse(sleep_replay_selection_proposal["mutates_runtime_state"])
+        self.assertEqual(
+            repeated_sleep_replay_selection_proposal["provenance_evidence"][
+                "due_cycle_bounded_replay_selection_proposal_hash"
+            ],
+            sleep_replay_selection_proposal["provenance_evidence"][
+                "due_cycle_bounded_replay_selection_proposal_hash"
+            ],
+        )
+        sleep_replay_recording_policy = (
+            controller.snn_replay_artifact_recording_policy_proposal(
+                consolidation_priority_queue=sleep_replay_priority_queue,
+                policy={"min_priority_score": 60.0},
+            )
+        )
+        due_cycle_recording_review_proposal = (
+            controller.snn_due_cycle_replay_artifact_recording_review_proposal(
+                due_cycle_selection_proposal=sleep_replay_selection_proposal,
+                artifact_recording_policy_proposal=sleep_replay_recording_policy,
+            )
+        )
+        repeated_due_cycle_recording_review_proposal = (
+            controller.snn_due_cycle_replay_artifact_recording_review_proposal(
+                due_cycle_selection_proposal=sleep_replay_selection_proposal,
+                artifact_recording_policy_proposal=sleep_replay_recording_policy,
+            )
+        )
+        self.assertEqual(
+            due_cycle_recording_review_proposal["surface"],
+            "snn_due_cycle_replay_artifact_recording_review_proposal.v1",
+        )
+        self.assertTrue(due_cycle_recording_review_proposal["ready"])
+        self.assertEqual(
+            due_cycle_recording_review_proposal["review_target"][
+                "replay_evaluation_context_id"
+            ],
+            sleep_replay_context["replay_evaluation_context_id"],
+        )
+        self.assertFalse(due_cycle_recording_review_proposal["records_replay_artifact"])
+        self.assertFalse(due_cycle_recording_review_proposal["runs_live_replay"])
+        self.assertFalse(due_cycle_recording_review_proposal["writes_checkpoint"])
+        self.assertFalse(due_cycle_recording_review_proposal["applies_plasticity"])
+        self.assertFalse(due_cycle_recording_review_proposal["mutates_runtime_state"])
+        self.assertEqual(
+            repeated_due_cycle_recording_review_proposal["provenance_evidence"][
+                "due_cycle_replay_artifact_recording_review_proposal_hash"
+            ],
+            due_cycle_recording_review_proposal["provenance_evidence"][
+                "due_cycle_replay_artifact_recording_review_proposal_hash"
+            ],
+        )
+        due_cycle_recording_review_ticket = (
+            controller.record_snn_replay_artifact_recording_review_ticket(
+                policy_proposal=sleep_replay_recording_policy,
+                due_cycle_review_proposal=due_cycle_recording_review_proposal,
+                operator_id="operator-due-cycle-replay-review",
+                confirmation=True,
+            )
+        )
+        self.assertEqual(
+            due_cycle_recording_review_ticket["surface"],
+            "snn_replay_artifact_recording_review_ticket.v1",
+        )
+        self.assertEqual(
+            due_cycle_recording_review_ticket["due_cycle_review_proposal_hash"],
+            due_cycle_recording_review_proposal["provenance_evidence"][
+                "due_cycle_replay_artifact_recording_review_proposal_hash"
+            ],
+        )
+        self.assertIsNotNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                str(due_cycle_recording_review_ticket["review_ticket_id"]),
+                operator_id="operator-due-cycle-replay-review",
+            )
+        )
+        controller.snn_replay_artifact_recording_review_tickets[0][
+            "due_cycle_review_proposal_hash"
+        ] = "tampered"
+        self.assertIsNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                str(due_cycle_recording_review_ticket["review_ticket_id"]),
+                operator_id="operator-due-cycle-replay-review",
+            )
+        )
+        controller.snn_replay_artifact_recording_review_tickets[0] = (
+            due_cycle_recording_review_ticket
+        )
+        cycle_acknowledgment_preflight = (
+            controller.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+                scheduler_installation_id=review_scheduler_installation[
+                    "scheduler_installation_id"
+                ],
+                scheduler_installation_evidence_hash=review_scheduler_installation[
+                    "evidence_hash"
+                ],
+                review_ticket_id=due_cycle_recording_review_ticket["review_ticket_id"],
+                observed_at=due_observed_at,
+            )
+        )
+        self.assertTrue(cycle_acknowledgment_preflight["ready"])
+        self.assertFalse(cycle_acknowledgment_preflight["executes_suggested_endpoint"])
+        self.assertFalse(cycle_acknowledgment_preflight["records_replay_artifact"])
+        self.assertFalse(cycle_acknowledgment_preflight["applies_plasticity"])
+        self.assertFalse(cycle_acknowledgment_preflight["mutates_runtime_state"])
+        sleep_phase_separation = controller.snn_sleep_phase_separation_proposal(
+            due_cycle_selection_proposal=sleep_replay_selection_proposal,
+            cycle_acknowledgment_preflight=cycle_acknowledgment_preflight,
+        )
+        repeated_sleep_phase_separation = controller.snn_sleep_phase_separation_proposal(
+            due_cycle_selection_proposal=sleep_replay_selection_proposal,
+            cycle_acknowledgment_preflight=cycle_acknowledgment_preflight,
+        )
+        self.assertEqual(
+            sleep_phase_separation["surface"],
+            "snn_sleep_phase_separation_proposal.v1",
+        )
+        self.assertTrue(
+            sleep_phase_separation["nrem_like_replay_nomination"]["ready"]
+        )
+        self.assertTrue(
+            sleep_phase_separation["rem_like_stabilization_review"]["ready"]
+        )
+        self.assertFalse(sleep_phase_separation["records_replay_artifact"])
+        self.assertFalse(sleep_phase_separation["runs_live_replay"])
+        self.assertFalse(sleep_phase_separation["applies_plasticity"])
+        self.assertFalse(sleep_phase_separation["mutates_runtime_state"])
+        self.assertEqual(
+            repeated_sleep_phase_separation["provenance_evidence"][
+                "sleep_phase_separation_proposal_hash"
+            ],
+            sleep_phase_separation["provenance_evidence"][
+                "sleep_phase_separation_proposal_hash"
+            ],
+        )
+        nrem_only_phase_separation = controller.snn_sleep_phase_separation_proposal(
+            due_cycle_selection_proposal=sleep_replay_selection_proposal,
+        )
+        self.assertTrue(
+            nrem_only_phase_separation["nrem_like_replay_nomination"]["ready"]
+        )
+        self.assertFalse(
+            nrem_only_phase_separation["rem_like_stabilization_review"]["ready"]
+        )
+        revision_before_rem_preflight = manager._runtime_state.state_revision
+        dirty_calls_before_rem_preflight = (
+            manager._runtime_state.dirty_without_revision_calls
+        )
+        rem_homeostatic_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=sleep_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 4,
+                    "homeostatic_maintenance_count": 0,
+                    "regeneration_count": 1,
+                },
+            )
+        )
+        repeated_rem_homeostatic_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=sleep_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 4,
+                    "homeostatic_maintenance_count": 0,
+                    "regeneration_count": 1,
+                },
+            )
+        )
+        self.assertEqual(
+            manager._runtime_state.state_revision,
+            revision_before_rem_preflight,
+        )
+        self.assertEqual(
+            manager._runtime_state.dirty_without_revision_calls,
+            dirty_calls_before_rem_preflight,
+        )
+        self.assertEqual(
+            rem_homeostatic_preflight["surface"],
+            "snn_rem_like_homeostatic_stabilization_preflight.v1",
+        )
+        self.assertTrue(rem_homeostatic_preflight["ready"])
+        self.assertEqual(
+            rem_homeostatic_preflight["review_plan"]["suggested_endpoint"],
+            "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance",
+        )
+        self.assertFalse(rem_homeostatic_preflight["executes_suggested_endpoint"])
+        self.assertFalse(rem_homeostatic_preflight["writes_checkpoint"])
+        self.assertFalse(rem_homeostatic_preflight["applies_plasticity"])
+        self.assertFalse(rem_homeostatic_preflight["mutates_transition_memory"])
+        self.assertFalse(rem_homeostatic_preflight["mutates_runtime_state"])
+        self.assertEqual(
+            repeated_rem_homeostatic_preflight["provenance_evidence"][
+                "rem_like_homeostatic_stabilization_preflight_hash"
+            ],
+            rem_homeostatic_preflight["provenance_evidence"][
+                "rem_like_homeostatic_stabilization_preflight_hash"
+            ],
+        )
+        blocked_rem_homeostatic_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=nrem_only_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 4,
+                    "homeostatic_maintenance_count": 0,
+                    "regeneration_count": 1,
+                },
+            )
+        )
+        self.assertFalse(blocked_rem_homeostatic_preflight["ready"])
+        missing_transition_memory_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=sleep_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 0,
+                    "homeostatic_maintenance_count": 0,
+                    "regeneration_count": 1,
+                },
+            )
+        )
+        self.assertFalse(missing_transition_memory_preflight["ready"])
+        self.assertFalse(
+            missing_transition_memory_preflight["promotion_gate"]["required_evidence"][
+                "transition_memory_present"
+            ]
+        )
+        stale_maintenance_pressure_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=sleep_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 4,
+                    "homeostatic_maintenance_count": 1,
+                    "regeneration_count": 1,
+                },
+            )
+        )
+        self.assertFalse(stale_maintenance_pressure_preflight["ready"])
+        self.assertFalse(
+            stale_maintenance_pressure_preflight["promotion_gate"][
+                "required_evidence"
+            ]["post_growth_homeostatic_maintenance_due"]
+        )
+        tampered_phase_separation = deepcopy(sleep_phase_separation)
+        tampered_phase_separation["writes_checkpoint"] = True
+        tampered_phase_separation["applies_plasticity"] = True
+        tampered_phase_separation["mutates_transition_memory"] = True
+        tampered_phase_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=tampered_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 4,
+                    "homeostatic_maintenance_count": 0,
+                    "regeneration_count": 1,
+                },
+            )
+        )
+        self.assertFalse(tampered_phase_preflight["ready"])
+        self.assertFalse(
+            tampered_phase_preflight["promotion_gate"]["required_evidence"][
+                "checkpoint_write_blocked"
+            ]
+        )
+        self.assertFalse(
+            tampered_phase_preflight["promotion_gate"]["required_evidence"][
+                "plasticity_blocked"
+            ]
+        )
+        self.assertFalse(
+            tampered_phase_preflight["promotion_gate"]["required_evidence"][
+                "transition_memory_mutation_blocked"
+            ]
+        )
+        out_of_bound_policy_preflight = (
+            controller.snn_rem_like_homeostatic_stabilization_preflight(
+                sleep_phase_separation_proposal=sleep_phase_separation,
+                transition_memory_state={
+                    "sparse_transition_weight_count": 4,
+                    "homeostatic_maintenance_count": 0,
+                    "regeneration_count": 1,
+                },
+                maintenance_policy={
+                    "decay_factor": 1.2,
+                    "prune_below": 0.5,
+                    "max_outgoing_row_mass": 8.0,
+                },
+            )
+        )
+        self.assertFalse(out_of_bound_policy_preflight["ready"])
+        self.assertFalse(
+            out_of_bound_policy_preflight["promotion_gate"]["required_evidence"][
+                "maintenance_parameters_bounded"
+            ]
+        )
+        self.assertIsNone(out_of_bound_policy_preflight["review_plan"]["decay_factor"])
+        self.assertEqual(
+            manager._runtime_state.state_revision,
+            revision_before_rem_preflight,
+        )
+        self.assertEqual(
+            manager._runtime_state.dirty_without_revision_calls,
+            dirty_calls_before_rem_preflight,
+        )
+        two_candidate_selection = deepcopy(sleep_replay_selection_proposal)
+        two_candidate_selection["selection"]["candidate_count"] = 2
+        two_candidate_selection["selection"]["candidates"].append(
+            deepcopy(two_candidate_selection["selection"]["candidates"][0])
+        )
+        two_candidate_phase_separation = controller.snn_sleep_phase_separation_proposal(
+            due_cycle_selection_proposal=two_candidate_selection,
+            cycle_acknowledgment_preflight=cycle_acknowledgment_preflight,
+        )
+        self.assertFalse(
+            two_candidate_phase_separation["nrem_like_replay_nomination"]["ready"]
+        )
+        self.assertTrue(
+            two_candidate_phase_separation["rem_like_stabilization_review"]["ready"]
+        )
+        cycle_acknowledgment = (
+            controller.acknowledge_snn_sleep_plasticity_review_scheduler_cycle(
+                expected_state_revision=manager._runtime_state.state_revision,
+                scheduler_installation_id=review_scheduler_installation[
+                    "scheduler_installation_id"
+                ],
+                scheduler_installation_evidence_hash=review_scheduler_installation[
+                    "evidence_hash"
+                ],
+                review_ticket_id=due_cycle_recording_review_ticket["review_ticket_id"],
+                operator_id="operator-review-scheduler-cycle",
+                confirmation=True,
+                observed_at=due_observed_at,
+            )
+        )
+        self.assertEqual(
+            cycle_acknowledgment["surface"],
+            "snn_sleep_plasticity_review_scheduler_cycle_acknowledgment.v1",
+        )
+        self.assertTrue(cycle_acknowledgment["scheduler_cadence_advanced"])
+        self.assertTrue(cycle_acknowledgment["mutates_scheduler_cadence_state"])
+        self.assertFalse(cycle_acknowledgment["executes_suggested_endpoint"])
+        self.assertFalse(cycle_acknowledgment["records_replay_artifact"])
+        self.assertFalse(cycle_acknowledgment["runs_live_replay"])
+        self.assertFalse(cycle_acknowledgment["writes_checkpoint"])
+        self.assertFalse(cycle_acknowledgment["applies_plasticity"])
+        self.assertFalse(cycle_acknowledgment["mutates_transition_memory"])
+        self.assertFalse(cycle_acknowledgment["mutates_runtime_state"])
+        acknowledged_scheduler_runtime = (
+            controller.snn_sleep_plasticity_review_scheduler_runtime(
+                observed_at=due_observed_at
+            )
+        )
+        self.assertTrue(acknowledged_scheduler_runtime["ready"])
+        self.assertFalse(acknowledged_scheduler_runtime["review_due"])
+        self.assertEqual(
+            acknowledged_scheduler_runtime["acknowledged_cycle_count"],
+            1,
+        )
+        self.assertEqual(
+            len(controller.snn_sleep_plasticity_review_scheduler_installations),
+            2,
+        )
+        acknowledged_scheduler_configuration = (
+            controller.snn_sleep_plasticity_review_scheduler_installations[0]
+        )
+        self.assertEqual(
+            acknowledged_scheduler_configuration[
+                "previous_scheduler_configuration_evidence_hash"
+            ],
+            review_scheduler_installation["evidence_hash"],
+        )
+        self.assertEqual(
+            datetime.fromisoformat(
+                acknowledged_scheduler_configuration["next_review_due_at"]
+            ),
+            datetime.fromisoformat(review_scheduler_installation["next_review_due_at"])
+            + timedelta(seconds=120.0),
+        )
+        consumed_cycle_acknowledgment_preflight = (
+            controller.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+                scheduler_installation_id=review_scheduler_installation[
+                    "scheduler_installation_id"
+                ],
+                scheduler_installation_evidence_hash=review_scheduler_installation[
+                    "evidence_hash"
+                ],
+                review_ticket_id=due_cycle_recording_review_ticket["review_ticket_id"],
+                observed_at=due_observed_at,
+            )
+        )
+        self.assertFalse(consumed_cycle_acknowledgment_preflight["ready"])
+        with self.assertRaisesRegex(ValueError, "current preflight evidence"):
+            controller.acknowledge_snn_sleep_plasticity_review_scheduler_cycle(
+                expected_state_revision=manager._runtime_state.state_revision,
+                scheduler_installation_id=review_scheduler_installation[
+                    "scheduler_installation_id"
+                ],
+                scheduler_installation_evidence_hash=review_scheduler_installation[
+                    "evidence_hash"
+                ],
+                review_ticket_id=due_cycle_recording_review_ticket["review_ticket_id"],
+                operator_id="operator-review-scheduler-cycle",
+                confirmation=True,
+                observed_at=due_observed_at,
+            )
+        waiting_sleep_replay_selection_proposal = (
+            controller.snn_due_cycle_bounded_replay_selection_proposal(
+                consolidation_priority_queue=sleep_replay_priority_queue,
+            )
+        )
+        self.assertFalse(waiting_sleep_replay_selection_proposal["ready"])
+        self.assertEqual(
+            waiting_sleep_replay_selection_proposal["selection"]["candidate_count"],
+            0,
+        )
+        tampered_sleep_replay_priority_queue = deepcopy(sleep_replay_priority_queue)
+        tampered_sleep_replay_priority_queue["candidates"][0][
+            "replay_evaluation_context_hash"
+        ] = "tampered"
+        tampered_sleep_replay_selection_proposal = (
+            controller.snn_due_cycle_bounded_replay_selection_proposal(
+                consolidation_priority_queue=tampered_sleep_replay_priority_queue,
+                observed_at=due_observed_at,
+            )
+        )
+        self.assertFalse(tampered_sleep_replay_selection_proposal["ready"])
+        self.assertEqual(
+            tampered_sleep_replay_selection_proposal["selection"]["candidate_count"],
+            0,
+        )
+        tampered_due_cycle_recording_review_proposal = (
+            controller.snn_due_cycle_replay_artifact_recording_review_proposal(
+                due_cycle_selection_proposal=tampered_sleep_replay_selection_proposal,
+                artifact_recording_policy_proposal=sleep_replay_recording_policy,
+            )
+        )
+        self.assertFalse(tampered_due_cycle_recording_review_proposal["ready"])
+        self.assertIsNone(
+            tampered_due_cycle_recording_review_proposal["review_target"][
+                "replay_evaluation_context_id"
+            ]
+        )
         controller.snn_sleep_plasticity_scheduler_design_review_tickets[0][
             "scheduler_design_hash"
         ] = "tampered"
@@ -831,6 +1440,11 @@ class ReplayControllerTests(unittest.TestCase):
             )
         )
         self.assertFalse(tampered_installation_preflight["ready"])
+        tampered_review_scheduler_runtime = (
+            controller.snn_sleep_plasticity_review_scheduler_runtime()
+        )
+        self.assertFalse(tampered_review_scheduler_runtime["ready"])
+        self.assertFalse(tampered_review_scheduler_runtime["scheduler_installed"])
         controller.snn_sleep_plasticity_scheduler_design_review_tickets[0] = design_ticket
         with self.assertRaisesRegex(ValueError, "current controller evidence"):
             controller.record_snn_sleep_plasticity_scheduler_design_review_ticket(
@@ -846,7 +1460,7 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertEqual(manager._runtime_state.state_revision, revision_before_experiment)
         self.assertEqual(
             manager._runtime_state.dirty_without_revision_calls,
-            dirty_calls_before_experiment + 1,
+            dirty_calls_before_experiment + 5,
         )
         self.assertEqual(
             len(controller.snn_sleep_plasticity_review_tickets),

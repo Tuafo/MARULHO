@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Mapping, Sequence
 
 from hecsn.semantics.spike_language_decoder import build_spike_language_decoder_probe
@@ -920,6 +922,7 @@ def evaluate_subcortical_structural_plasticity_isolated(
     spike_health_delta = _isolated_spike_health_delta(pre_snapshot, post_snapshot)
     runtime_truth_delta = _isolated_runtime_truth_delta(pre_snapshot, post_snapshot)
     rollback_evidence = _isolated_rollback_evidence(rollback_policy or {})
+    snapshot_binding = _isolated_structural_snapshot_binding(pre_snapshot, post_snapshot)
 
     bounded_delta = (
         structural_delta["edges_added_delta"] >= 0
@@ -930,6 +933,8 @@ def evaluate_subcortical_structural_plasticity_isolated(
     )
     ready_for_review = bool(
         bounded_delta
+        and snapshot_binding["structural_delta_present"]
+        and snapshot_binding["snapshot_hashes_distinct"]
         and device_evidence["consistent"]
         and spike_health_delta["improved_or_stable"]
         and runtime_truth_delta["improved_or_stable"]
@@ -952,6 +957,7 @@ def evaluate_subcortical_structural_plasticity_isolated(
         "spike_health_delta": spike_health_delta,
         "runtime_truth_delta": runtime_truth_delta,
         "rollback_evidence": rollback_evidence,
+        "snapshot_binding": snapshot_binding,
         "promotion_gate": {
             "status": promotion_status,
             "next_gate": (
@@ -966,10 +972,13 @@ def evaluate_subcortical_structural_plasticity_isolated(
             "requires_reversible_mutation_ledger": True,
             "requires_runtime_truth_improvement": True,
             "requires_device_evidence": True,
+            "requires_bound_snapshot_hashes": True,
+            "requires_nonzero_structural_delta": True,
         },
         "success_evidence": [
             "pre_mutation_structural_snapshot",
             "post_mutation_structural_snapshot",
+            "pre_post_snapshot_hash_binding",
             "runtime_truth_delta",
             "spike_health_delta",
             "device_evidence_report",
@@ -984,6 +993,8 @@ def evaluate_subcortical_structural_plasticity_isolated(
             "requires_runtime_truth_improvement": True,
             "requires_reversible_mutation_ledger": True,
             "requires_device_evidence": True,
+            "requires_bound_snapshot_hashes": True,
+            "requires_nonzero_structural_delta": True,
         },
         "limitations": [
             "Evaluation only; it compares snapshots and never calls growth, pruning, or binding mutation code.",
@@ -1700,6 +1711,55 @@ def _isolated_structural_delta(
     }
 
 
+def _isolated_structural_snapshot_binding(
+    pre_snapshot: Mapping[str, Any],
+    post_snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    pre_hash = _sha256_json(dict(pre_snapshot))
+    post_hash = _sha256_json(dict(post_snapshot))
+    pre_revision = _snapshot_revision(pre_snapshot)
+    post_revision = _snapshot_revision(post_snapshot)
+    pre_topology = _snapshot_binding_topology(pre_snapshot)
+    post_topology = _snapshot_binding_topology(post_snapshot)
+    structural_delta_present = any(
+        int(_float(post_topology.get(key), 0.0)) != int(_float(pre_topology.get(key), 0.0))
+        for key in (
+            "edges_added_total",
+            "edges_removed_total",
+            "growth_events",
+            "prune_events",
+        )
+    )
+    return {
+        "hash_algorithm": "sha256_canonical_json",
+        "pre_snapshot_hash": pre_hash,
+        "post_snapshot_hash": post_hash,
+        "snapshot_hashes_distinct": pre_hash != post_hash,
+        "pre_state_revision": pre_revision,
+        "post_state_revision": post_revision,
+        "state_revision_order_valid": (
+            pre_revision is None
+            or post_revision is None
+            or int(post_revision) >= int(pre_revision)
+        ),
+        "structural_delta_present": structural_delta_present,
+        "raw_snapshots_exposed": False,
+    }
+
+
+def _snapshot_revision(snapshot: Mapping[str, Any]) -> int | None:
+    for key in ("current_state_revision", "state_revision", "runtime_state_revision"):
+        value = snapshot.get(key)
+        if isinstance(value, bool):
+            continue
+        try:
+            if value is not None:
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _snapshot_binding_topology(snapshot: Mapping[str, Any]) -> Mapping[str, Any]:
     topology = snapshot.get("binding_topology") if isinstance(snapshot.get("binding_topology"), Mapping) else {}
     if topology:
@@ -1793,6 +1853,13 @@ def _runtime_truth_rank(verdict: str) -> int:
         "alive": 4,
     }
     return ranks.get(verdict, 0)
+
+
+def _sha256_json(value: Any) -> str:
+    encoded = json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _isolated_rollback_evidence(rollback_policy: Mapping[str, Any]) -> dict[str, Any]:

@@ -14,6 +14,7 @@ from hecsn.semantics import (
     build_snn_language_transition_memory_prediction_evaluation,
     build_snn_language_transition_memory_sleep_policy,
     build_snn_language_transition_memory_regeneration_proposal,
+    build_snn_language_readout_trajectory_evidence,
     evaluate_spike_language_adapter_heldout,
     evaluate_spike_language_plasticity_live_application_preflight,
     evaluate_spike_language_plasticity_live_application_readiness,
@@ -722,6 +723,31 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertTrue(draft["persistent_transition_evidence"]["influenced_prediction"])
         self.assertTrue(draft["transition_memory_evaluation_evidence"]["review_ready"])
         self.assertTrue(draft["transition_memory_evaluation_evidence"]["provenance_match"])
+        trajectory = draft["readout_trajectory_evidence"]
+        self.assertEqual(
+            trajectory["surface"],
+            "snn_language_readout_trajectory_evidence.v1",
+        )
+        self.assertEqual(trajectory["trajectory_kind"], "draft")
+        self.assertTrue(trajectory["bounded_output"])
+        self.assertFalse(trajectory["freeform_language_generation"])
+        self.assertFalse(trajectory["mutates_runtime_state"])
+        self.assertTrue(
+            trajectory["promotion_gate"][
+                "eligible_for_bounded_snn_language_readout"
+            ]
+        )
+        self.assertTrue(
+            trajectory["promotion_gate"]["required_evidence"][
+                "event_sparsity_preserved"
+            ]
+        )
+        self.assertTrue(
+            trajectory["promotion_gate"]["required_evidence"][
+                "transition_memory_bound"
+            ]
+        )
+        self.assertEqual(trajectory["device_evidence"]["tensor_device"], "cpu")
         self.assertEqual(
             draft["transition_memory_evaluation_evidence"]["prediction_hash"],
             prediction["provenance_evidence"]["prediction_hash"],
@@ -807,6 +833,20 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             f"{current_index}:{memory_index}": 0.9,
             f"{memory_index}:{error_index}": 0.8,
         }
+        server_transition_state = {
+            "sparse_transition_weights": transition_weights,
+            "transition_memory_state_source": (
+                "service.runtime_facade.snn_language_plasticity_runtime_state"
+            ),
+            "current_state_revision": 7,
+        }
+        server_transition_state = {
+            "sparse_transition_weights": transition_weights,
+            "transition_memory_state_source": (
+                "service.runtime_facade.snn_language_plasticity_runtime_state"
+            ),
+            "current_state_revision": 7,
+        }
         training_batches = [
             [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
             current,
@@ -829,7 +869,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         rollout = rollout_snn_language_readout_candidate(
             prediction,
             vocabulary,
-            {"sparse_transition_weights": transition_weights},
+            server_transition_state,
             device,
             transition_memory_evaluation,
             rollout_steps=3,
@@ -839,6 +879,24 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             prediction,
             vocabulary,
             {"sparse_transition_weights": {}},
+            device,
+            transition_memory_evaluation,
+            rollout_steps=3,
+            top_k=4,
+        )
+        blocked_bad_parameters = rollout_snn_language_readout_candidate(
+            prediction,
+            vocabulary,
+            server_transition_state,
+            device,
+            transition_memory_evaluation,
+            rollout_steps=13,
+            top_k="wide",
+        )
+        blocked_caller_memory = rollout_snn_language_readout_candidate(
+            prediction,
+            vocabulary,
+            {"sparse_transition_weights": transition_weights},
             device,
             transition_memory_evaluation,
             rollout_steps=3,
@@ -861,6 +919,37 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertIn("prediction error", rollout["rollout"]["labels"])
         self.assertNotIn("ungrounded lure", rollout["rollout"]["labels"])
         self.assertEqual(rollout["readout_rollout_evidence"]["persistent_transition_weight_count"], 2)
+        self.assertTrue(
+            rollout["readout_rollout_evidence"]["server_transition_memory_hash_match"]
+        )
+        self.assertTrue(
+            rollout["readout_rollout_evidence"][
+                "caller_transition_memory_state_absent_or_ignored"
+            ]
+        )
+        trajectory = rollout["readout_trajectory_evidence"]
+        self.assertEqual(
+            trajectory["surface"],
+            "snn_language_readout_trajectory_evidence.v1",
+        )
+        self.assertEqual(trajectory["trajectory_kind"], "rollout")
+        self.assertTrue(trajectory["trajectory"]["adaptive_timesteps"])
+        self.assertTrue(trajectory["trajectory"]["event_sparse"])
+        self.assertFalse(trajectory["freeform_language_generation"])
+        self.assertFalse(trajectory["applies_plasticity"])
+        self.assertFalse(trajectory["mutates_runtime_state"])
+        self.assertEqual(
+            trajectory["transition_memory_evidence"][
+                "persistent_transition_weight_count"
+            ],
+            2,
+        )
+        self.assertEqual(trajectory["device_evidence"]["tensor_device"], "cpu")
+        self.assertTrue(
+            trajectory["promotion_gate"][
+                "eligible_for_bounded_snn_language_readout"
+            ]
+        )
         self.assertTrue(rollout["promotion_gate"]["eligible_for_bounded_readout_rollout"])
         self.assertFalse(rollout["promotion_gate"]["eligible_for_freeform_language_generation"])
         self.assertFalse(rollout["promotion_gate"]["eligible_for_cognition_substrate"])
@@ -872,6 +961,100 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
                 "persistent_transition_memory_available"
             ]
         )
+        self.assertFalse(
+            blocked_bad_parameters["promotion_gate"][
+                "eligible_for_bounded_readout_rollout"
+            ]
+        )
+        self.assertFalse(
+            blocked_bad_parameters["promotion_gate"]["required_evidence"][
+                "bounded_parameters_accepted_as_is"
+            ]
+        )
+        self.assertFalse(
+            blocked_bad_parameters["readout_rollout_evidence"]["bounded_parameters"][
+                "accepted_as_is"
+            ]
+        )
+        self.assertFalse(
+            blocked_bad_parameters["readout_rollout_evidence"]["bounded_parameters"][
+                "top_k_parse_valid"
+            ]
+        )
+        self.assertEqual(
+            blocked_bad_parameters["readout_rollout_evidence"]["bounded_parameters"][
+                "rollout_steps"
+            ],
+            13,
+        )
+        self.assertFalse(blocked_bad_parameters["generates_text"])
+        self.assertEqual(blocked_bad_parameters["rollout"]["labels"], [])
+        self.assertFalse(
+            blocked_bad_parameters["readout_trajectory_evidence"]["promotion_gate"][
+                "eligible_for_bounded_snn_language_readout"
+            ]
+        )
+        self.assertFalse(
+            blocked_caller_memory["promotion_gate"][
+                "eligible_for_bounded_readout_rollout"
+            ]
+        )
+        self.assertFalse(
+            blocked_caller_memory["promotion_gate"]["required_evidence"][
+                "server_transition_memory_hash_match"
+            ]
+        )
+        self.assertFalse(
+            blocked_caller_memory["promotion_gate"]["required_evidence"][
+                "caller_transition_memory_state_absent_or_ignored"
+            ]
+        )
+
+    def test_snn_language_readout_trajectory_evidence_fails_closed_without_memory_binding(self) -> None:
+        evidence = build_snn_language_readout_trajectory_evidence(
+            trajectory_kind="rollout",
+            labels=["memory pressure"],
+            sparse_steps=[
+                {
+                    "step_index": 0,
+                    "predicted_sparse_indices": [1, 2, 3],
+                    "support_strength": 0.9,
+                }
+            ],
+            grounding_evidence={
+                "grounded_fraction": 1.0,
+                "grounded_rollout_label_count": 1,
+            },
+            transition_memory_evidence={
+                "persistent_transition_weight_count": 0,
+            },
+            device_evidence={
+                "requested_device": "cpu",
+                "tensor_device": "cpu",
+                "cuda_tensor": False,
+                "device_source": "trajectory_fixture",
+            },
+        )
+
+        self.assertEqual(
+            evidence["surface"],
+            "snn_language_readout_trajectory_evidence.v1",
+        )
+        self.assertTrue(evidence["available"])
+        self.assertTrue(evidence["bounded_output"])
+        self.assertFalse(evidence["freeform_language_generation"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+        self.assertFalse(
+            evidence["promotion_gate"][
+                "eligible_for_bounded_snn_language_readout"
+            ]
+        )
+        self.assertFalse(
+            evidence["promotion_gate"]["required_evidence"][
+                "transition_memory_bound"
+            ]
+        )
+        self.assertEqual(evidence["promotion_gate"]["status"], "collect_sparse_readout_trajectory_evidence")
 
     def test_snn_language_readout_rollout_replay_evaluation_builds_review_targets_without_mutation(self) -> None:
         current = [{"label": "concept focus", "pressure_band": "medium", "grounded": True}]
@@ -890,6 +1073,13 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         transition_weights = {
             f"{current_index}:{memory_index}": 0.9,
             f"{memory_index}:{error_index}": 0.8,
+        }
+        server_transition_state = {
+            "sparse_transition_weights": transition_weights,
+            "transition_memory_state_source": (
+                "service.runtime_facade.snn_language_plasticity_runtime_state"
+            ),
+            "current_state_revision": 7,
         }
         training_batches = [
             [{"label": "prediction error", "pressure_band": "high", "grounded": True}],
@@ -912,7 +1102,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         rollout = rollout_snn_language_readout_candidate(
             prediction,
             vocabulary,
-            {"sparse_transition_weights": transition_weights},
+            server_transition_state,
             device,
             transition_memory_evaluation,
             rollout_steps=3,
@@ -931,6 +1121,48 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         )
         blocked_external = evaluate_snn_language_readout_rollout_replay(
             {**rollout, "external_dependency": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_checkpoint = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "loads_external_checkpoint": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_freeform = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "freeform_language_generation": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_mutating = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "mutates_runtime_state": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_plasticity = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "applies_plasticity": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_training = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "trains_runtime_model": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_weights = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "returns_trained_weights": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        blocked_decoding = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "decodes_text": True},
+            candidate_limit=4,
+            device_evidence=device,
+        )
+        tampered_trace = [dict(item) for item in rollout["rollout_trace"]]
+        tampered_trace[0]["selected_label"] = "prediction error"
+        blocked_hash_tamper = evaluate_snn_language_readout_rollout_replay(
+            {**rollout, "rollout_trace": tampered_trace},
             candidate_limit=4,
             device_evidence=device,
         )
@@ -966,11 +1198,70 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             evaluation["provenance_evidence"]["rollout_replay_evaluation_hash"],
             repeat["provenance_evidence"]["rollout_replay_evaluation_hash"],
         )
+        self.assertEqual(
+            evaluation["provenance_evidence"]["server_transition_memory_hash"],
+            rollout["readout_rollout_evidence"]["server_transition_memory_hash"],
+        )
+        self.assertTrue(evaluation["provenance_evidence"]["server_transition_memory_hash_match"])
+        self.assertEqual(
+            evaluation["provenance_evidence"]["transition_memory_state_source"],
+            "service.runtime_facade.snn_language_plasticity_runtime_state",
+        )
+        self.assertTrue(
+            evaluation["promotion_gate"]["required_evidence"][
+                "server_transition_memory_hash_available"
+            ]
+        )
+        self.assertTrue(
+            evaluation["promotion_gate"]["required_evidence"][
+                "server_transition_memory_state_source_bound"
+            ]
+        )
         self.assertFalse(
             blocked_external["promotion_gate"]["required_evidence"]["external_dependency_absent"]
         )
         self.assertFalse(
             blocked_external["promotion_gate"]["eligible_for_readout_rollout_ledger_recording_review"]
+        )
+        self.assertFalse(
+            blocked_checkpoint["promotion_gate"]["required_evidence"][
+                "external_checkpoint_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_freeform["promotion_gate"]["required_evidence"][
+                "freeform_generation_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_mutating["promotion_gate"]["required_evidence"][
+                "runtime_mutation_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_plasticity["promotion_gate"]["required_evidence"][
+                "plasticity_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_training["promotion_gate"]["required_evidence"][
+                "training_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_weights["promotion_gate"]["required_evidence"][
+                "trained_weights_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_decoding["promotion_gate"]["required_evidence"][
+                "text_decoding_absent"
+            ]
+        )
+        self.assertFalse(
+            blocked_hash_tamper["promotion_gate"]["required_evidence"][
+                "rollout_hash_valid"
+            ]
         )
 
     def test_transition_memory_prediction_evaluation_compares_memory_against_baseline_without_generation(self) -> None:
@@ -2095,6 +2386,7 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
     def test_structural_plasticity_isolated_evaluator_reports_deltas_without_mutation(self) -> None:
         report = evaluate_subcortical_structural_plasticity_isolated(
             {
+                "current_state_revision": 10,
                 "binding_topology": {
                     "edges_added_total": 4,
                     "edges_removed_total": 1,
@@ -2109,6 +2401,7 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
                 "runtime_truth": {"verdict": "degraded"},
             },
             {
+                "current_state_revision": 11,
                 "binding_topology": {
                     "edges_added_total": 5,
                     "edges_removed_total": 2,
@@ -2135,7 +2428,47 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertTrue(report["spike_health_delta"]["improved_or_stable"])
         self.assertTrue(report["runtime_truth_delta"]["improved_or_stable"])
         self.assertTrue(report["rollback_evidence"]["available"])
+        self.assertEqual(report["snapshot_binding"]["hash_algorithm"], "sha256_canonical_json")
+        self.assertEqual(len(report["snapshot_binding"]["pre_snapshot_hash"]), 64)
+        self.assertEqual(len(report["snapshot_binding"]["post_snapshot_hash"]), 64)
+        self.assertTrue(report["snapshot_binding"]["snapshot_hashes_distinct"])
+        self.assertTrue(report["snapshot_binding"]["structural_delta_present"])
+        self.assertEqual(report["snapshot_binding"]["pre_state_revision"], 10)
+        self.assertEqual(report["snapshot_binding"]["post_state_revision"], 11)
+        self.assertTrue(report["snapshot_binding"]["state_revision_order_valid"])
+        self.assertFalse(report["snapshot_binding"]["raw_snapshots_exposed"])
+        self.assertIn("pre_post_snapshot_hash_binding", report["success_evidence"])
+        self.assertTrue(report["promotion_gate"]["requires_bound_snapshot_hashes"])
+        self.assertTrue(report["promotion_gate"]["requires_nonzero_structural_delta"])
         self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
+
+    def test_structural_plasticity_isolated_evaluator_blocks_identical_snapshots(self) -> None:
+        snapshot = {
+            "current_state_revision": 12,
+            "binding_topology": {
+                "edges_added_total": 4,
+                "edges_removed_total": 1,
+                "growth_events": 1,
+                "prune_events": 0,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
+            "runtime_truth": {"verdict": "alive"},
+        }
+
+        report = evaluate_subcortical_structural_plasticity_isolated(
+            snapshot,
+            dict(snapshot),
+            rollback_policy={"available": True, "snapshot_id": "pre-structural-eval"},
+        )
+
+        self.assertFalse(report["snapshot_binding"]["snapshot_hashes_distinct"])
+        self.assertFalse(report["snapshot_binding"]["structural_delta_present"])
+        self.assertEqual(report["promotion_gate"]["status"], "blocked_evidence_incomplete")
+        self.assertFalse(report["promotion_gate"]["eligible_for_structural_mutation"])
 
 
 if __name__ == "__main__":

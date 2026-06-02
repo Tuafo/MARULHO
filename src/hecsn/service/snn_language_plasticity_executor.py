@@ -483,12 +483,21 @@ class SNNLanguagePlasticityApplicationExecutor:
                 weight = min(max(float(candidate.get("initial_weight", 0.0) or 0.0), 0.0), max(0.0, row_mass_limit - row_mass))
                 if weight <= 0.0:
                     continue
+                local_edge_provenance = {
+                    "source_synapse_id": candidate.get("source_synapse_id"),
+                    "source_trace_index": candidate.get("source_trace_index"),
+                    "source_rollout_step_index": candidate.get("source_rollout_step_index"),
+                    "target_rollout_step_index": candidate.get("target_rollout_step_index"),
+                    "source_active_indices_hash": candidate.get("source_active_indices_hash"),
+                    "target_active_indices_hash": candidate.get("target_active_indices_hash"),
+                }
                 weights[key] = weight
                 regenerated.append(
                     {
                         "synapse": key,
                         "initial_weight": weight,
                         "locality_distance": candidate.get("locality_distance"),
+                        "local_edge_provenance": local_edge_provenance,
                         "replay_provenance": {
                             "permit_id": replay.get("permit_id"),
                             "replay_artifact_id": replay.get("replay_artifact_id"),
@@ -517,6 +526,11 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "replay_artifact_hash": replay.get("replay_artifact_hash"),
                     "replay_window_hash": replay.get("replay_window_hash"),
                     "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
+                    "local_edge_provenance": deepcopy(
+                        regenerated_synapse.get("local_edge_provenance")
+                        if isinstance(regenerated_synapse.get("local_edge_provenance"), Mapping)
+                        else {}
+                    ),
                 }
             event = {
                 "event_index": int(ledger["regeneration_count"]),

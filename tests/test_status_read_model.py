@@ -206,7 +206,11 @@ def _build_architecture_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
     }
 
 
-def _build_read_model() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
+def _build_read_model(
+    *,
+    language_plasticity_state_fn: Callable[[], dict[str, Any]] | None = None,
+    readout_ledger_state_fn: Callable[[], dict[str, Any]] | None = None,
+) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
     cfg = _build_config()
     trainer = HECSNTrainer(HECSNModel(cfg), cfg)
     lock = threading.RLock()
@@ -226,6 +230,8 @@ def _build_read_model() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock,
         sensory_preview_history=deque(maxlen=8),
         architecture_snapshot_fn=lambda: _build_architecture_snapshot(trainer),
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
+        language_plasticity_state_fn=language_plasticity_state_fn,
+        readout_ledger_state_fn=readout_ledger_state_fn,
     )
     return model, trainer, lock, runtime_state
 
@@ -1617,7 +1623,13 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         rollout = model.snn_language_readout_rollout_candidate(
             prediction,
             observed,
-            {"sparse_transition_weights": weights},
+            {
+                "sparse_transition_weights": weights,
+                "transition_memory_state_source": (
+                    "service.runtime_facade.snn_language_plasticity_runtime_state"
+                ),
+                "current_state_revision": runtime_state.state_revision,
+            },
             device_evidence=device,
             transition_memory_evaluation=evaluation,
             rollout_steps=2,
@@ -1665,7 +1677,13 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         rollout = model.snn_language_readout_rollout_candidate(
             prediction,
             observed,
-            {"sparse_transition_weights": weights},
+            {
+                "sparse_transition_weights": weights,
+                "transition_memory_state_source": (
+                    "service.runtime_facade.snn_language_plasticity_runtime_state"
+                ),
+                "current_state_revision": runtime_state.state_revision,
+            },
             device_evidence=device,
             transition_memory_evaluation=evaluation,
             rollout_steps=2,
@@ -2706,6 +2724,40 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(truth["evidence"]["self_repair_gate"]["eligible_for_structural_mutation"])
         for forbidden_key in ("candidates", "endpoint", "candidate_id", "suggested_endpoint", "suggested_input"):
             self.assertNotIn(forbidden_key, truth["evidence"]["self_repair_gate"])
+        self.assertIn("self_repair_evaluation_gate", truth["evidence"])
+        repair_evaluation_gate = truth["evidence"]["self_repair_evaluation_gate"]
+        self.assertEqual(
+            repair_evaluation_gate["artifact_kind"],
+            "terminus_subcortical_self_repair_evaluation_plan",
+        )
+        self.assertEqual(repair_evaluation_gate["surface"], "subcortical_self_repair_evaluation.v1")
+        self.assertIn(
+            repair_evaluation_gate["next_gate"],
+            {
+                "operator_approved_deep_sleep_or_replay_evaluation",
+                "collect_spike_window",
+                "continue_monitoring",
+            },
+        )
+        self.assertTrue(repair_evaluation_gate["advisory"])
+        self.assertFalse(repair_evaluation_gate["executable"])
+        self.assertFalse(repair_evaluation_gate["mutates_runtime_state"])
+        self.assertFalse(repair_evaluation_gate["eligible_for_action"])
+        self.assertFalse(repair_evaluation_gate["eligible_for_fact_promotion"])
+        self.assertFalse(repair_evaluation_gate["eligible_for_structural_mutation"])
+        self.assertTrue(repair_evaluation_gate["requires_isolated_replay_or_deep_sleep"])
+        self.assertTrue(repair_evaluation_gate["requires_runtime_truth_improvement"])
+        self.assertTrue(repair_evaluation_gate["requires_device_evidence"])
+        self.assertIn("runtime_truth_delta", repair_evaluation_gate["success_evidence"])
+        for forbidden_key in (
+            "repair_surface",
+            "evaluation_cases",
+            "endpoint",
+            "candidate_id",
+            "suggested_endpoint",
+            "suggested_input",
+        ):
+            self.assertNotIn(forbidden_key, repair_evaluation_gate)
         self.assertIn("structural_plasticity_gate", truth["evidence"])
         structural_gate = truth["evidence"]["structural_plasticity_gate"]
         self.assertEqual(
@@ -2727,6 +2779,14 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(structural_gate["eligible_for_action"])
         self.assertFalse(structural_gate["eligible_for_fact_promotion"])
         self.assertFalse(structural_gate["eligible_for_structural_mutation"])
+        self.assertIn("eligible_for_replay_review", structural_gate)
+        self.assertIn("requires_operator_approval", structural_gate)
+        self.assertTrue(structural_gate["requires_isolated_evaluation"])
+        self.assertTrue(structural_gate["requires_runtime_truth_improvement"])
+        self.assertTrue(structural_gate["requires_reversible_mutation_ledger"])
+        self.assertTrue(structural_gate["requires_device_evidence"])
+        self.assertIn("rollback_policy", structural_gate["success_evidence"])
+        self.assertIn("runtime_truth_delta", structural_gate["success_evidence"])
         self.assertIn("binding_report_available", structural_gate)
         self.assertIn("local_plasticity_report_available", structural_gate)
         self.assertIn("binding_device_keys", structural_gate)
@@ -2734,6 +2794,11 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("observed_structural_device_key_count", structural_gate)
         self.assertIn("local_plasticity_eligibility_traces_available", structural_gate)
         self.assertIn("local_plasticity_homeostatic_state_available", structural_gate)
+        self.assertIn("local_plasticity_spike_backend", structural_gate)
+        self.assertIn("local_plasticity_rule", structural_gate)
+        self.assertIn("local_plasticity_spike_health_risk", structural_gate)
+        self.assertIn("local_plasticity_synaptic_validation_available", structural_gate)
+        self.assertIn("local_plasticity_synaptic_validation_passed", structural_gate)
         self.assertIn("local_plasticity_synaptic_validation_failed", structural_gate)
         for forbidden_key in (
             "structural_cases",
@@ -2742,6 +2807,8 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "binding_topology",
             "device_evidence",
             "local_plasticity",
+            "recent_events",
+            "active_growth_concepts",
             "suggested_endpoint",
             "suggested_input",
         ):
@@ -2825,6 +2892,289 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertIn("snn_language_plasticity_shadow_application.v1", plasticity_path["gates"])
         self.assertIn("snn_language_plasticity_live_application_readiness.v1", plasticity_path["gates"])
         self.assertIn("snn_language_plasticity_live_application_preflight.v1", plasticity_path["gates"])
+        self.assertIn("snn_readout_rollout_server_state_binding", truth["evidence"])
+        rollout_binding = truth["evidence"]["snn_readout_rollout_server_state_binding"]
+        self.assertEqual(
+            rollout_binding["artifact_kind"],
+            "terminus_snn_readout_rollout_server_state_binding_gate",
+        )
+        self.assertEqual(
+            rollout_binding["surface"],
+            "snn_readout_rollout_server_state_binding.v1",
+        )
+        self.assertTrue(rollout_binding["owned_by_hecsn"])
+        self.assertFalse(rollout_binding["external_dependency"])
+        self.assertTrue(rollout_binding["advisory"])
+        self.assertFalse(rollout_binding["executable"])
+        self.assertFalse(rollout_binding["generates_text"])
+        self.assertFalse(rollout_binding["decodes_text"])
+        self.assertFalse(rollout_binding["freeform_language_generation"])
+        self.assertFalse(rollout_binding["loads_external_checkpoint"])
+        self.assertFalse(rollout_binding["accepts_caller_transition_memory_state"])
+        self.assertTrue(rollout_binding["requires_server_transition_memory_state"])
+        self.assertTrue(rollout_binding["runtime_mutation_absent"])
+        self.assertTrue(rollout_binding["plasticity_absent"])
+        self.assertTrue(rollout_binding["checkpoint_write_absent"])
+        self.assertTrue(rollout_binding["rollout_execution_absent"])
+        self.assertFalse(rollout_binding["runs_replay"])
+        self.assertFalse(rollout_binding["records_ledger_event"])
+        self.assertFalse(rollout_binding["calls_rollout"])
+        self.assertFalse(rollout_binding["eligible_for_rollout_execution"])
+        self.assertFalse(rollout_binding["eligible_for_fact_promotion"])
+        self.assertFalse(rollout_binding["eligible_for_cognition_substrate"])
+        self.assertEqual(
+            rollout_binding["promotion_status"],
+            "waiting_for_server_transition_memory",
+        )
+        self.assertFalse(rollout_binding["server_transition_memory_available"])
+        self.assertIsNone(rollout_binding["server_transition_memory_hash"])
+        self.assertEqual(rollout_binding["server_transition_weight_count"], 0)
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "transition_memory_state",
+        ):
+            self.assertNotIn(forbidden_key, rollout_binding)
+        self.assertIn("snn_readout_rollout_consolidation_path", truth["evidence"])
+        consolidation_path = truth["evidence"]["snn_readout_rollout_consolidation_path"]
+        self.assertEqual(
+            consolidation_path["artifact_kind"],
+            "terminus_snn_readout_rollout_consolidation_path_evidence",
+        )
+        self.assertEqual(
+            consolidation_path["surface"],
+            "snn_readout_rollout_consolidation_path_evidence.v1",
+        )
+        self.assertTrue(consolidation_path["owned_by_hecsn"])
+        self.assertFalse(consolidation_path["external_dependency"])
+        self.assertTrue(consolidation_path["advisory"])
+        self.assertFalse(consolidation_path["executable"])
+        self.assertFalse(consolidation_path["executes_rehearsal"])
+        self.assertFalse(consolidation_path["executes_consolidation"])
+        self.assertFalse(consolidation_path["runs_live_replay"])
+        self.assertFalse(consolidation_path["records_ledger_event"])
+        self.assertFalse(consolidation_path["writes_checkpoint"])
+        self.assertFalse(consolidation_path["generates_text"])
+        self.assertFalse(consolidation_path["decodes_text"])
+        self.assertFalse(consolidation_path["freeform_language_generation"])
+        self.assertFalse(consolidation_path["applies_plasticity"])
+        self.assertFalse(consolidation_path["mutates_runtime_state"])
+        self.assertEqual(consolidation_path["rollout_event_count"], 0)
+        self.assertEqual(
+            consolidation_path["promotion_status"],
+            "waiting_for_recorded_rollout_replay_evidence",
+        )
+        self.assertFalse(consolidation_path["eligible_for_rollout_rehearsal_policy_review"])
+        self.assertEqual(
+            consolidation_path["next_gate"],
+            "snn_language_readout_rollout_evidence_ledger_record.v1",
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "replay_targets",
+        ):
+            self.assertNotIn(forbidden_key, consolidation_path)
+        self.assertIn("snn_readout_applied_synapse_provenance", truth["evidence"])
+        applied_provenance = truth["evidence"]["snn_readout_applied_synapse_provenance"]
+        self.assertEqual(
+            applied_provenance["artifact_kind"],
+            "terminus_snn_readout_applied_synapse_provenance_evidence",
+        )
+        self.assertEqual(
+            applied_provenance["surface"],
+            "snn_readout_applied_synapse_provenance_evidence.v1",
+        )
+        self.assertTrue(applied_provenance["owned_by_hecsn"])
+        self.assertFalse(applied_provenance["external_dependency"])
+        self.assertTrue(applied_provenance["advisory"])
+        self.assertFalse(applied_provenance["executable"])
+        self.assertFalse(applied_provenance["runs_audit"])
+        self.assertFalse(applied_provenance["runs_replay"])
+        self.assertFalse(applied_provenance["calls_endpoint"])
+        self.assertFalse(applied_provenance["generates_text"])
+        self.assertFalse(applied_provenance["decodes_text"])
+        self.assertFalse(applied_provenance["freeform_language_generation"])
+        self.assertFalse(applied_provenance["applies_plasticity"])
+        self.assertFalse(applied_provenance["mutates_runtime_state"])
+        self.assertFalse(applied_provenance["writes_checkpoint"])
+        self.assertEqual(applied_provenance["sparse_transition_weight_count"], 0)
+        self.assertEqual(applied_provenance["synapse_provenance_count"], 0)
+        self.assertEqual(applied_provenance["missing_local_edge_provenance_count"], 0)
+        self.assertFalse(
+            applied_provenance["eligible_for_readout_synapse_audit_review"]
+        )
+        self.assertEqual(
+            applied_provenance["promotion_status"],
+            "waiting_for_complete_applied_synapse_provenance",
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "synapse_provenance_by_key",
+            "sparse_transition_weights",
+        ):
+            self.assertNotIn(forbidden_key, applied_provenance)
+
+    def test_runtime_truth_binding_reports_server_transition_memory_without_mutation(self) -> None:
+        memory_state = {
+            "sparse_transition_weights": {"1:2": 0.5, "2:3": 0.75},
+            "synapse_provenance_by_key": {"1:2": {"source": "unit"}, "2:3": {"source": "unit"}},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        status_binding = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_rollout_server_state_binding"
+        ]
+        terminus_binding = model.terminus_status()["runtime_truth"]["evidence"][
+            "snn_readout_rollout_server_state_binding"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertTrue(status_binding["server_transition_memory_available"])
+        self.assertEqual(status_binding["server_transition_weight_count"], 2)
+        self.assertEqual(status_binding["server_synapse_provenance_count"], 2)
+        self.assertIsInstance(status_binding["server_transition_memory_hash"], str)
+        self.assertEqual(len(status_binding["server_transition_memory_hash"]), 64)
+        self.assertEqual(
+            status_binding["promotion_status"],
+            "ready_for_server_bound_rollout_review",
+        )
+        self.assertEqual(
+            terminus_binding["server_transition_memory_hash"],
+            status_binding["server_transition_memory_hash"],
+        )
+        self.assertEqual(
+            terminus_binding["server_transition_weight_count"],
+            status_binding["server_transition_weight_count"],
+        )
+
+    def test_runtime_truth_applied_synapse_provenance_reports_local_edge_health_without_audit(self) -> None:
+        memory_state = {
+            "sparse_transition_weights": {"1:3": 0.1},
+            "synapse_provenance_by_key": {
+                "1:3": {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": "permit-1",
+                    "replay_artifact_id": "artifact-1",
+                    "local_edge_provenance": {
+                        "source_synapse_id": "snn-rollout-local:1:3:0",
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 10,
+                        "target_rollout_step_index": 20,
+                        "source_active_indices_hash": "source-active-hash-1",
+                        "target_active_indices_hash": "target-active-hash-1",
+                    },
+                }
+            },
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        evidence = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(evidence["sparse_transition_weight_count"], 1)
+        self.assertEqual(evidence["synapse_provenance_count"], 1)
+        self.assertEqual(evidence["replay_regeneration_synapse_count"], 1)
+        self.assertEqual(evidence["complete_local_edge_provenance_count"], 1)
+        self.assertEqual(evidence["missing_local_edge_provenance_count"], 0)
+        self.assertEqual(evidence["invalid_rollout_step_order_count"], 0)
+        self.assertEqual(evidence["orphan_weight_count"], 0)
+        self.assertEqual(evidence["dangling_provenance_count"], 0)
+        self.assertTrue(evidence["eligible_for_readout_synapse_audit_review"])
+        self.assertEqual(
+            evidence["promotion_status"],
+            "ready_for_readout_synapse_provenance_audit",
+        )
+        self.assertFalse(evidence["runs_audit"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+
+        missing = deepcopy(memory_state)
+        missing["synapse_provenance_by_key"]["1:3"].pop("local_edge_provenance")
+        missing_model, _, _, _ = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(missing)
+        )
+        blocked = missing_model.status()["runtime_truth"]["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+
+        self.assertEqual(blocked["missing_local_edge_provenance_count"], 1)
+        self.assertFalse(blocked["eligible_for_readout_synapse_audit_review"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "replay_regeneration_local_edge_provenance_complete"
+            ]
+        )
+
+    def test_runtime_truth_consolidation_path_reports_recorded_rollout_without_execution(self) -> None:
+        ledger_state = {
+            "rollout_events": [
+                {
+                    "rollout_evidence_hash": "evidence-hash",
+                    "rollout_hash": "rollout-hash",
+                    "persistent_transition_weights_hash": "transition-hash",
+                    "recorded_at": "2026-06-02T00:00:00+00:00",
+                }
+            ],
+            "total_rollout_recorded_count": 1,
+            "last_rollout_recorded_at": "2026-06-02T00:00:00+00:00",
+        }
+        model, _, _, runtime_state = _build_read_model(
+            readout_ledger_state_fn=lambda: deepcopy(ledger_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        path = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_rollout_consolidation_path"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(path["rollout_event_count"], 1)
+        self.assertEqual(path["total_rollout_recorded_count"], 1)
+        self.assertEqual(path["unique_rollout_count"], 1)
+        self.assertEqual(path["unique_transition_memory_count"], 1)
+        self.assertEqual(path["latest_rollout_evidence_hash"], "evidence-hash")
+        self.assertEqual(path["latest_rollout_hash"], "rollout-hash")
+        self.assertEqual(path["latest_transition_memory_hash"], "transition-hash")
+        self.assertEqual(
+            path["promotion_status"],
+            "ready_for_rollout_rehearsal_policy_review",
+        )
+        self.assertTrue(path["eligible_for_rollout_rehearsal_policy_review"])
+        self.assertFalse(path["executes_rehearsal"])
+        self.assertFalse(path["executes_consolidation"])
+        self.assertFalse(path["runs_live_replay"])
+        self.assertFalse(path["records_ledger_event"])
+        self.assertFalse(path["writes_checkpoint"])
+        self.assertFalse(path["generates_text"])
+        self.assertFalse(path["applies_plasticity"])
+        self.assertFalse(path["mutates_runtime_state"])
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):

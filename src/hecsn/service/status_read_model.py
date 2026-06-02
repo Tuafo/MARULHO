@@ -118,6 +118,15 @@ class StatusReadModel:
         returns the current non-executing scheduler-installation autonomy
         proposal. Called under lock and attached only as advisory sidecar
         evidence.
+    due_cycle_bounded_replay_selection_proposal_fn: Callable that returns the
+        current non-executing due-cycle bounded replay-selection proposal.
+        Called under lock and attached only as advisory sidecar evidence.
+    language_plasticity_state_fn: Callable that returns the current SNN language
+        plasticity state. Called under lock and summarized only as non-executing
+        server-state binding evidence for readout rollout.
+    readout_ledger_state_fn: Callable that returns the current SNN language
+        readout ledger state. Called under lock and summarized only as
+        non-executing rollout rehearsal/consolidation path evidence.
     """
 
     def __init__(
@@ -141,6 +150,9 @@ class StatusReadModel:
         cognitive_signal_state_fn: Callable[[], dict[str, Any]] | None = None,
         sleep_plasticity_autonomy_proposal_fn: Callable[[], dict[str, Any]] | None = None,
         sleep_plasticity_scheduler_installation_autonomy_proposal_fn: Callable[[], dict[str, Any]] | None = None,
+        due_cycle_bounded_replay_selection_proposal_fn: Callable[[], dict[str, Any]] | None = None,
+        language_plasticity_state_fn: Callable[[], dict[str, Any]] | None = None,
+        readout_ledger_state_fn: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
@@ -166,6 +178,11 @@ class StatusReadModel:
         self._sleep_plasticity_scheduler_installation_autonomy_proposal_fn = (
             sleep_plasticity_scheduler_installation_autonomy_proposal_fn
         )
+        self._due_cycle_bounded_replay_selection_proposal_fn = (
+            due_cycle_bounded_replay_selection_proposal_fn
+        )
+        self._language_plasticity_state_fn = language_plasticity_state_fn
+        self._readout_ledger_state_fn = readout_ledger_state_fn
 
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
@@ -282,6 +299,7 @@ class StatusReadModel:
         trace_history_size: int,
         sleep_plasticity_autonomy_proposal: Mapping[str, Any] | None = None,
         sleep_plasticity_scheduler_installation_autonomy_proposal: Mapping[str, Any] | None = None,
+        due_cycle_bounded_replay_selection_proposal: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Build the Runtime Truth contract. Reads self._trainer for token_count only."""
         configured = bool(terminus_runtime.get("configured"))
@@ -382,6 +400,68 @@ class StatusReadModel:
                 else 0
             ),
         }
+        self_repair_evaluation_surface = build_subcortical_self_repair_evaluation_surface(
+            subcortex_spike_health
+        )
+        self_repair_evaluation_gate_surface = (
+            self_repair_evaluation_surface.get("evaluation_gate")
+            if isinstance(self_repair_evaluation_surface.get("evaluation_gate"), Mapping)
+            else {}
+        )
+        self_repair_evaluation_safety = (
+            self_repair_evaluation_surface.get("safety_invariants")
+            if isinstance(self_repair_evaluation_surface.get("safety_invariants"), Mapping)
+            else {}
+        )
+        self_repair_evaluation_gate = {
+            "surface": self_repair_evaluation_surface.get("surface"),
+            "artifact_kind": self_repair_evaluation_surface.get("artifact_kind"),
+            "source": self_repair_evaluation_surface.get("source"),
+            "advisory": bool(self_repair_evaluation_surface.get("advisory")),
+            "executable": bool(self_repair_evaluation_surface.get("executable")),
+            "mutates_runtime_state": bool(
+                self_repair_evaluation_surface.get("mutates_runtime_state")
+            ),
+            "promotion_status": self_repair_evaluation_gate_surface.get("status"),
+            "next_gate": self_repair_evaluation_gate_surface.get("next_gate"),
+            "ready_case_count": int(
+                self_repair_evaluation_gate_surface.get("ready_case_count", 0) or 0
+            ),
+            "case_count": int(
+                self_repair_evaluation_gate_surface.get("case_count", 0) or 0
+            ),
+            "eligible_for_action": bool(
+                self_repair_evaluation_gate_surface.get("eligible_for_action")
+            ),
+            "eligible_for_fact_promotion": bool(
+                self_repair_evaluation_gate_surface.get("eligible_for_fact_promotion")
+            ),
+            "eligible_for_replay_review": bool(
+                self_repair_evaluation_gate_surface.get("eligible_for_replay_review")
+            ),
+            "eligible_for_structural_mutation": bool(
+                self_repair_evaluation_gate_surface.get("eligible_for_structural_mutation")
+            ),
+            "requires_operator_approval": bool(
+                self_repair_evaluation_gate_surface.get("requires_operator_approval")
+                or self_repair_evaluation_safety.get("requires_operator_approval")
+            ),
+            "requires_isolated_replay_or_deep_sleep": bool(
+                self_repair_evaluation_safety.get("requires_isolated_replay_or_deep_sleep")
+            ),
+            "requires_runtime_truth_improvement": bool(
+                self_repair_evaluation_safety.get("requires_runtime_truth_improvement")
+            ),
+            "requires_device_evidence": bool(
+                self_repair_evaluation_safety.get("requires_device_evidence")
+            ),
+            "success_evidence": list(
+                str(item) for item in list(
+                    self_repair_evaluation_surface.get("success_evidence") or []
+                )[:8]
+            ),
+        }
+
         structural_surface = build_subcortical_structural_plasticity_surface(
             self._concept_store_snapshot_fn(),
             self._runtime_scope_report_locked(),
@@ -427,7 +507,32 @@ class StatusReadModel:
             "next_gate": structural_gate.get("next_gate"),
             "eligible_for_action": bool(structural_gate.get("eligible_for_action")),
             "eligible_for_fact_promotion": bool(structural_gate.get("eligible_for_fact_promotion")),
+            "eligible_for_replay_review": bool(structural_gate.get("eligible_for_replay_review")),
             "eligible_for_structural_mutation": bool(structural_gate.get("eligible_for_structural_mutation")),
+            "requires_operator_approval": bool(structural_gate.get("requires_operator_approval")),
+            "requires_isolated_evaluation": bool(
+                (structural_surface.get("safety_invariants") or {}).get("requires_isolated_evaluation")
+                if isinstance(structural_surface.get("safety_invariants"), Mapping)
+                else False
+            ),
+            "requires_runtime_truth_improvement": bool(
+                (structural_surface.get("safety_invariants") or {}).get("requires_runtime_truth_improvement")
+                if isinstance(structural_surface.get("safety_invariants"), Mapping)
+                else False
+            ),
+            "requires_reversible_mutation_ledger": bool(
+                (structural_surface.get("safety_invariants") or {}).get("requires_reversible_mutation_ledger")
+                if isinstance(structural_surface.get("safety_invariants"), Mapping)
+                else False
+            ),
+            "requires_device_evidence": bool(
+                (structural_surface.get("safety_invariants") or {}).get("requires_device_evidence")
+                if isinstance(structural_surface.get("safety_invariants"), Mapping)
+                else False
+            ),
+            "success_evidence": list(
+                str(item) for item in list(structural_surface.get("success_evidence") or [])[:8]
+            ),
             "ready_case_count": int(structural_gate.get("ready_case_count", 0) or 0),
             "case_count": int(structural_gate.get("case_count", 0) or 0),
             "concept_growth_ready": bool(structural_concept_growth.get("growth_ready")),
@@ -443,6 +548,17 @@ class StatusReadModel:
             ),
             "local_plasticity_homeostatic_state_available": bool(
                 structural_local_plasticity.get("homeostatic_state_available")
+            ),
+            "local_plasticity_spike_backend": structural_local_plasticity.get("spike_backend"),
+            "local_plasticity_rule": structural_local_plasticity.get("plasticity_rule"),
+            "local_plasticity_spike_health_risk": bool(
+                structural_local_plasticity.get("spike_health_risk")
+            ),
+            "local_plasticity_synaptic_validation_available": bool(
+                structural_local_plasticity.get("synaptic_validation_available")
+            ),
+            "local_plasticity_synaptic_validation_passed": bool(
+                structural_local_plasticity.get("synaptic_validation_passed")
             ),
             "local_plasticity_synaptic_validation_failed": bool(
                 structural_local_plasticity.get("synaptic_validation_failed")
@@ -577,6 +693,15 @@ class StatusReadModel:
                 "snn_language_plasticity_live_application_preflight.v1",
             ],
         }
+        snn_readout_rollout_server_state_binding = (
+            self._snn_readout_rollout_server_state_binding()
+        )
+        snn_readout_rollout_consolidation_path = (
+            self._snn_readout_rollout_consolidation_path()
+        )
+        snn_readout_applied_synapse_provenance = (
+            self._snn_readout_applied_synapse_provenance()
+        )
         sleep_plasticity_proposal = dict(sleep_plasticity_autonomy_proposal or {})
         sleep_plasticity_gate = (
             sleep_plasticity_proposal.get("promotion_gate")
@@ -646,6 +771,45 @@ class StatusReadModel:
             "eligible_for_action": False,
             "eligible_for_structural_write": False,
         }
+        replay_selection_proposal = dict(
+            due_cycle_bounded_replay_selection_proposal or {}
+        )
+        replay_selection_gate = (
+            replay_selection_proposal.get("promotion_gate")
+            if isinstance(replay_selection_proposal.get("promotion_gate"), Mapping)
+            else {}
+        )
+        replay_selection = (
+            replay_selection_proposal.get("selection")
+            if isinstance(replay_selection_proposal.get("selection"), Mapping)
+            else {}
+        )
+        snn_due_cycle_bounded_replay_selection_gate = {
+            "surface": replay_selection_proposal.get("surface"),
+            "ready": bool(replay_selection_proposal.get("ready")),
+            "advisory": bool(replay_selection_proposal.get("advisory", True)),
+            "executable": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "scheduler_installation_id": replay_selection.get(
+                "scheduler_installation_id"
+            ),
+            "candidate_count": int(replay_selection.get("candidate_count", 0) or 0),
+            "promotion_status": replay_selection_gate.get("status"),
+            "next_gate": replay_selection_gate.get("next_gate"),
+            "eligible_for_operator_sleep_replay_selection_inspection": bool(
+                replay_selection_gate.get(
+                    "eligible_for_operator_sleep_replay_selection_inspection"
+                )
+            ),
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_plasticity": False,
+            "eligible_for_structural_write": False,
+        }
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -673,13 +837,360 @@ class StatusReadModel:
                 "source_configuration_hash": source_configuration["configuration_hash"],
                 "subcortex_spike_health": subcortex_spike_health,
                 "self_repair_gate": self_repair_gate,
+                "self_repair_evaluation_gate": self_repair_evaluation_gate,
                 "structural_plasticity_gate": structural_plasticity_gate,
                 "snn_language_readiness_gate": snn_language_readiness_gate,
                 "snn_language_plasticity_path": snn_language_plasticity_path,
+                "snn_readout_rollout_server_state_binding": (
+                    snn_readout_rollout_server_state_binding
+                ),
+                "snn_readout_rollout_consolidation_path": (
+                    snn_readout_rollout_consolidation_path
+                ),
+                "snn_readout_applied_synapse_provenance": (
+                    snn_readout_applied_synapse_provenance
+                ),
                 "snn_sleep_plasticity_autonomy_gate": snn_sleep_plasticity_autonomy_gate,
                 "snn_sleep_plasticity_scheduler_installation_autonomy_gate": (
                     snn_sleep_plasticity_scheduler_installation_autonomy_gate
                 ),
+                "snn_due_cycle_bounded_replay_selection_gate": (
+                    snn_due_cycle_bounded_replay_selection_gate
+                ),
+            },
+        }
+
+    def _snn_readout_applied_synapse_provenance(self) -> dict[str, Any]:
+        """Summarize applied readout synapse provenance without running audit."""
+
+        state = (
+            self._language_plasticity_state_fn()
+            if self._language_plasticity_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        sparse_weights = (
+            state.get("sparse_transition_weights")
+            if isinstance(state.get("sparse_transition_weights"), Mapping)
+            else {}
+        )
+        provenance = (
+            state.get("synapse_provenance_by_key")
+            if isinstance(state.get("synapse_provenance_by_key"), Mapping)
+            else {}
+        )
+        rows = [
+            dict(value)
+            for value in dict(provenance).values()
+            if isinstance(value, Mapping)
+        ]
+        replay_rows = [
+            row for row in rows if str(row.get("provenance_type") or "") == "replay_regeneration"
+        ]
+        complete_local_edge_rows = 0
+        invalid_rollout_step_rows = 0
+        for row in replay_rows:
+            local = (
+                row.get("local_edge_provenance")
+                if isinstance(row.get("local_edge_provenance"), Mapping)
+                else {}
+            )
+            try:
+                source_step = int(local.get("source_rollout_step_index"))
+                target_step = int(local.get("target_rollout_step_index"))
+                ordered = target_step > source_step
+            except (TypeError, ValueError):
+                ordered = False
+            complete = bool(
+                local.get("source_synapse_id")
+                and local.get("source_active_indices_hash")
+                and local.get("target_active_indices_hash")
+                and ordered
+            )
+            if complete:
+                complete_local_edge_rows += 1
+            if not ordered:
+                invalid_rollout_step_rows += 1
+        missing_local_edge_rows = max(0, len(replay_rows) - complete_local_edge_rows)
+        orphan_weight_count = len(set(map(str, dict(sparse_weights).keys())) - set(map(str, dict(provenance).keys())))
+        dangling_provenance_count = len(
+            set(map(str, dict(provenance).keys())) - set(map(str, dict(sparse_weights).keys()))
+        )
+        ready = bool(
+            provenance
+            and orphan_weight_count == 0
+            and dangling_provenance_count == 0
+            and missing_local_edge_rows == 0
+            and invalid_rollout_step_rows == 0
+        )
+        return {
+            "surface": "snn_readout_applied_synapse_provenance_evidence.v1",
+            "artifact_kind": "terminus_snn_readout_applied_synapse_provenance_evidence",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "runs_audit": False,
+            "runs_replay": False,
+            "calls_endpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "sparse_transition_weight_count": len(sparse_weights),
+            "synapse_provenance_count": len(provenance),
+            "replay_regeneration_synapse_count": len(replay_rows),
+            "complete_local_edge_provenance_count": complete_local_edge_rows,
+            "missing_local_edge_provenance_count": missing_local_edge_rows,
+            "invalid_rollout_step_order_count": invalid_rollout_step_rows,
+            "orphan_weight_count": orphan_weight_count,
+            "dangling_provenance_count": dangling_provenance_count,
+            "promotion_status": (
+                "ready_for_readout_synapse_provenance_audit"
+                if ready
+                else "waiting_for_complete_applied_synapse_provenance"
+            ),
+            "next_gate": "snn_language_readout_synapse_provenance_audit.v1",
+            "eligible_for_readout_synapse_audit_review": ready,
+            "eligible_for_live_replay": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_readout_synapse_provenance_audit"
+                    if ready
+                    else "waiting_for_complete_applied_synapse_provenance"
+                ),
+                "eligible_for_readout_synapse_audit_review": ready,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "synapse_provenance_available": bool(provenance),
+                    "no_unprovenanced_weights": orphan_weight_count == 0,
+                    "no_dangling_provenance": dangling_provenance_count == 0,
+                    "replay_regeneration_local_edge_provenance_complete": (
+                        missing_local_edge_rows == 0
+                    ),
+                    "replay_regeneration_rollout_step_order_valid": (
+                        invalid_rollout_step_rows == 0
+                    ),
+                    "runtime_mutation_absent": True,
+                    "endpoint_execution_absent": True,
+                    "audit_execution_absent": True,
+                    "checkpoint_write_absent": True,
+                    "freeform_language_generation_absent": True,
+                },
+            },
+        }
+
+    def _snn_readout_rollout_consolidation_path(self) -> dict[str, Any]:
+        """Summarize rollout rehearsal/consolidation ledger state without executing gates."""
+
+        state = (
+            self._readout_ledger_state_fn()
+            if self._readout_ledger_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        events = [
+            dict(item)
+            for item in list(state.get("events") or [])
+            if isinstance(item, Mapping)
+        ]
+        rollout_events = [
+            dict(item)
+            for item in list(state.get("rollout_events") or [])
+            if isinstance(item, Mapping)
+        ]
+        transition_hashes = sorted(
+            {
+                str(item.get("persistent_transition_weights_hash") or "")
+                for item in rollout_events
+                if str(item.get("persistent_transition_weights_hash") or "")
+            }
+        )
+        rollout_hashes = sorted(
+            {
+                str(item.get("rollout_hash") or "")
+                for item in rollout_events
+                if str(item.get("rollout_hash") or "")
+            }
+        )
+        latest_rollout = rollout_events[0] if rollout_events else {}
+        rollout_evidence_available = bool(rollout_events)
+        promotion_status = (
+            "ready_for_rollout_rehearsal_policy_review"
+            if rollout_evidence_available
+            else "waiting_for_recorded_rollout_replay_evidence"
+        )
+        return {
+            "surface": "snn_readout_rollout_consolidation_path_evidence.v1",
+            "artifact_kind": "terminus_snn_readout_rollout_consolidation_path_evidence",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "executes_rehearsal": False,
+            "executes_consolidation": False,
+            "runs_live_replay": False,
+            "records_ledger_event": False,
+            "writes_checkpoint": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "event_count": len(events),
+            "rollout_event_count": len(rollout_events),
+            "total_recorded_count": int(state.get("total_recorded_count", len(events)) or 0),
+            "total_rollout_recorded_count": int(
+                state.get("total_rollout_recorded_count", len(rollout_events)) or 0
+            ),
+            "unique_rollout_count": len(rollout_hashes),
+            "unique_transition_memory_count": len(transition_hashes),
+            "latest_rollout_recorded_at": state.get("last_rollout_recorded_at"),
+            "latest_rollout_evidence_hash": latest_rollout.get("rollout_evidence_hash"),
+            "latest_rollout_hash": latest_rollout.get("rollout_hash"),
+            "latest_transition_memory_hash": latest_rollout.get(
+                "persistent_transition_weights_hash"
+            ),
+            "next_gate": (
+                "snn_language_readout_rollout_rehearsal_promotion_policy.v1"
+                if rollout_evidence_available
+                else "snn_language_readout_rollout_evidence_ledger_record.v1"
+            ),
+            "promotion_status": promotion_status,
+            "eligible_for_rollout_rehearsal_policy_review": rollout_evidence_available,
+            "eligible_for_live_replay": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": promotion_status,
+                "eligible_for_rollout_rehearsal_policy_review": rollout_evidence_available,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "recorded_rollout_replay_evidence_available": rollout_evidence_available,
+                    "runtime_mutation_absent": True,
+                    "endpoint_execution_absent": True,
+                    "tensor_rehearsal_absent": True,
+                    "checkpoint_write_absent": True,
+                    "freeform_language_generation_absent": True,
+                },
+            },
+        }
+
+    def _snn_readout_rollout_server_state_binding(self) -> dict[str, Any]:
+        """Summarize readout-rollout server-state binding without running rollout."""
+
+        state = (
+            self._language_plasticity_state_fn()
+            if self._language_plasticity_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        sparse_weights = (
+            state.get("sparse_transition_weights")
+            if isinstance(state.get("sparse_transition_weights"), Mapping)
+            else {}
+        )
+        provenance = (
+            state.get("synapse_provenance_by_key")
+            if isinstance(state.get("synapse_provenance_by_key"), Mapping)
+            else {}
+        )
+        transition_memory_hash = (
+            hashlib.sha256(
+                json.dumps(
+                    dict(sparse_weights),
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
+            if sparse_weights
+            else None
+        )
+        weight_count = len(sparse_weights)
+        transition_memory_available = bool(weight_count > 0)
+        promotion_status = (
+            "ready_for_server_bound_rollout_review"
+            if transition_memory_available
+            else "waiting_for_server_transition_memory"
+        )
+        return {
+            "surface": "snn_readout_rollout_server_state_binding.v1",
+            "artifact_kind": "terminus_snn_readout_rollout_server_state_binding_gate",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "loads_external_checkpoint": False,
+            "accepts_caller_transition_memory_state": False,
+            "requires_server_transition_memory_state": True,
+            "transition_memory_state_source": (
+                "service.runtime_facade.snn_language_plasticity_runtime_state"
+            ),
+            "server_transition_memory_available": transition_memory_available,
+            "server_transition_memory_hash": transition_memory_hash,
+            "server_transition_weight_count": weight_count,
+            "server_synapse_provenance_count": len(provenance),
+            "current_state_revision": int(self._runtime_state.state_revision),
+            "runtime_mutation_absent": True,
+            "plasticity_absent": True,
+            "checkpoint_write_absent": True,
+            "rollout_execution_absent": True,
+            "runs_replay": False,
+            "records_ledger_event": False,
+            "calls_rollout": False,
+            "bounded_parameter_route_shape": {
+                "rollout_steps": {"min": 1, "max": 12},
+                "top_k": {"min": 1, "max": 8},
+            },
+            "next_gate": "snn_language_readout_rollout_candidate.v1",
+            "promotion_status": promotion_status,
+            "eligible_for_rollout_execution": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_cognition_substrate": False,
+            "promotion_gate": {
+                "status": promotion_status,
+                "eligible_for_bounded_snn_readout_rollout_review": transition_memory_available,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "server_transition_memory_available": transition_memory_available,
+                    "server_transition_memory_hash_available": transition_memory_hash is not None,
+                    "caller_transition_memory_state_absent_or_ignored": True,
+                    "bounded_rollout_parameters_enforced": True,
+                    "trajectory_evidence_required": True,
+                    "external_dependency_absent": True,
+                    "runtime_mutation_absent": True,
+                },
             },
         }
 
@@ -735,6 +1246,9 @@ class StatusReadModel:
         scheduler_installation_autonomy_proposal = (
             self._sleep_plasticity_scheduler_installation_autonomy_proposal()
         )
+        due_cycle_bounded_replay_selection_proposal = (
+            self._due_cycle_bounded_replay_selection_proposal()
+        )
 
         return {
             "checkpoint_path": str(self._checkpoint_path_str),
@@ -763,6 +1277,9 @@ class StatusReadModel:
             "snn_sleep_plasticity_scheduler_installation_autonomy_proposal": (
                 scheduler_installation_autonomy_proposal
             ),
+            "snn_due_cycle_bounded_replay_selection_proposal": (
+                due_cycle_bounded_replay_selection_proposal
+            ),
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
@@ -771,6 +1288,9 @@ class StatusReadModel:
                 sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
                 sleep_plasticity_scheduler_installation_autonomy_proposal=(
                     scheduler_installation_autonomy_proposal
+                ),
+                due_cycle_bounded_replay_selection_proposal=(
+                    due_cycle_bounded_replay_selection_proposal
                 ),
             ),
         }
@@ -785,6 +1305,9 @@ class StatusReadModel:
         sleep_plasticity_autonomy_proposal = self._sleep_plasticity_autonomy_proposal()
         scheduler_installation_autonomy_proposal = (
             self._sleep_plasticity_scheduler_installation_autonomy_proposal()
+        )
+        due_cycle_bounded_replay_selection_proposal = (
+            self._due_cycle_bounded_replay_selection_proposal()
         )
         multimodal = (
             self._multimodal_runtime_summary_fn()
@@ -803,6 +1326,9 @@ class StatusReadModel:
             "snn_sleep_plasticity_scheduler_installation_autonomy_proposal": (
                 scheduler_installation_autonomy_proposal
             ),
+            "snn_due_cycle_bounded_replay_selection_proposal": (
+                due_cycle_bounded_replay_selection_proposal
+            ),
             "runtime_truth": self._runtime_truth_contract_locked(
                 terminus_runtime=terminus_runtime,
                 memory_store=memory_store,
@@ -811,6 +1337,9 @@ class StatusReadModel:
                 sleep_plasticity_autonomy_proposal=sleep_plasticity_autonomy_proposal,
                 sleep_plasticity_scheduler_installation_autonomy_proposal=(
                     scheduler_installation_autonomy_proposal
+                ),
+                due_cycle_bounded_replay_selection_proposal=(
+                    due_cycle_bounded_replay_selection_proposal
                 ),
             ),
         }
@@ -1081,6 +1610,9 @@ class StatusReadModel:
             payload = self._attach_living_loop_sleep_plasticity_scheduler_installation_autonomy_proposal(
                 payload
             )
+            payload = self._attach_living_loop_due_cycle_bounded_replay_selection_proposal(
+                payload
+            )
             return {
                 **payload,
                 **self._runtime_mutation_payload(),
@@ -1221,6 +1753,37 @@ class StatusReadModel:
         enriched["living_loop"] = living_loop
         return enriched
 
+    def _due_cycle_bounded_replay_selection_proposal(self) -> dict[str, Any] | None:
+        callback = self._due_cycle_bounded_replay_selection_proposal_fn
+        if callback is None:
+            return None
+        proposal = callback()
+        if not isinstance(proposal, Mapping):
+            return None
+        return {
+            **dict(proposal),
+            "advisory": True,
+            "executable": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+        }
+
+    def _attach_living_loop_due_cycle_bounded_replay_selection_proposal(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        proposal = self._due_cycle_bounded_replay_selection_proposal()
+        if proposal is None:
+            return dict(payload)
+        enriched = dict(payload)
+        living_loop = dict(enriched.get("living_loop") or {})
+        living_loop["snn_due_cycle_bounded_replay_selection_proposal"] = proposal
+        enriched["living_loop"] = living_loop
+        return enriched
+
     def policy_actuator_status(self) -> dict[str, Any]:
         """Return the policy actuator status snapshot (non-blocking with lock-contention fallback).
 
@@ -1244,7 +1807,10 @@ class StatusReadModel:
             payload = self._attach_policy_control_candidates(policy_actuator_status_fn())
             payload = self._attach_policy_self_repair_candidates(payload)
             payload = self._attach_policy_sleep_plasticity_autonomy_proposal(payload)
-            return self._attach_policy_sleep_plasticity_scheduler_installation_autonomy_proposal(
+            payload = self._attach_policy_sleep_plasticity_scheduler_installation_autonomy_proposal(
+                payload
+            )
+            return self._attach_policy_due_cycle_bounded_replay_selection_proposal(
                 payload
             )
 
@@ -1302,6 +1868,17 @@ class StatusReadModel:
         enriched[
             "snn_sleep_plasticity_scheduler_installation_autonomy_proposal"
         ] = proposal
+        return enriched
+
+    def _attach_policy_due_cycle_bounded_replay_selection_proposal(
+        self,
+        payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        proposal = self._due_cycle_bounded_replay_selection_proposal()
+        if proposal is None:
+            return dict(payload)
+        enriched = dict(payload)
+        enriched["snn_due_cycle_bounded_replay_selection_proposal"] = proposal
         return enriched
 
     # ------------------------------------------------------------------

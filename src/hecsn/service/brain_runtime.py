@@ -1237,6 +1237,9 @@ class BrainRuntime:
         living_loop_snapshot = self._living_loop_snapshot_locked(
             include_replay_dataset_summary=include_replay_dataset_summary,
         )
+        sleep_plasticity_review_scheduler = (
+            self._deps.replay_controller().snn_sleep_plasticity_review_scheduler_runtime()
+        )
         return {
             "configured": bool(self._brain_config.get("source_bank")),
             "running": bool(thread_alive),
@@ -1367,6 +1370,7 @@ class BrainRuntime:
             },
             "multimodal": self._multimodal_runtime_summary_locked(),
             "living_loop": living_loop_snapshot,
+            "snn_sleep_plasticity_review_scheduler": sleep_plasticity_review_scheduler,
         }
 
     def _brain_persisted_state_locked(self) -> dict[str, Any]:
@@ -1405,6 +1409,10 @@ class BrainRuntime:
             "snn_sleep_plasticity_scheduler_design_review_tickets": [
                 deepcopy(item)
                 for item in list(self._snn_sleep_plasticity_scheduler_design_review_tickets)
+            ],
+            "snn_sleep_plasticity_review_scheduler_installations": [
+                deepcopy(item)
+                for item in list(self._snn_sleep_plasticity_review_scheduler_installations)
             ],
             "snn_transition_memory_replay_artifacts": [
                 deepcopy(item) for item in list(self._snn_transition_memory_replay_artifacts)
@@ -1549,6 +1557,11 @@ _install_dependency_alias_property(
     "_snn_sleep_plasticity_scheduler_design_review_tickets",
     "replay_controller",
     "snn_sleep_plasticity_scheduler_design_review_tickets",
+)
+_install_dependency_alias_property(
+    "_snn_sleep_plasticity_review_scheduler_installations",
+    "replay_controller",
+    "snn_sleep_plasticity_review_scheduler_installations",
 )
 _install_dependency_alias_property(
     "_snn_transition_memory_replay_artifacts",

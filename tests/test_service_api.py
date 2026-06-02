@@ -138,6 +138,28 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("suggested_endpoint", status_gate)
         self.assertEqual(terminus_gate["artifact_kind"], status_gate["artifact_kind"])
         self.assertEqual(terminus_gate["surface"], status_gate["surface"])
+        status_evaluation_gate = status_truth["evidence"]["self_repair_evaluation_gate"]
+        terminus_evaluation_gate = terminus_truth["evidence"]["self_repair_evaluation_gate"]
+        self.assertEqual(
+            status_evaluation_gate["artifact_kind"],
+            "terminus_subcortical_self_repair_evaluation_plan",
+        )
+        self.assertEqual(status_evaluation_gate["surface"], "subcortical_self_repair_evaluation.v1")
+        self.assertTrue(status_evaluation_gate["advisory"])
+        self.assertFalse(status_evaluation_gate["executable"])
+        self.assertFalse(status_evaluation_gate["mutates_runtime_state"])
+        self.assertFalse(status_evaluation_gate["eligible_for_action"])
+        self.assertFalse(status_evaluation_gate["eligible_for_fact_promotion"])
+        self.assertFalse(status_evaluation_gate["eligible_for_structural_mutation"])
+        self.assertTrue(status_evaluation_gate["requires_isolated_replay_or_deep_sleep"])
+        self.assertTrue(status_evaluation_gate["requires_runtime_truth_improvement"])
+        self.assertTrue(status_evaluation_gate["requires_device_evidence"])
+        self.assertIn("runtime_truth_delta", status_evaluation_gate["success_evidence"])
+        self.assertNotIn("repair_surface", status_evaluation_gate)
+        self.assertNotIn("evaluation_cases", status_evaluation_gate)
+        self.assertNotIn("endpoint", status_evaluation_gate)
+        self.assertEqual(terminus_evaluation_gate["artifact_kind"], status_evaluation_gate["artifact_kind"])
+        self.assertEqual(terminus_evaluation_gate["surface"], status_evaluation_gate["surface"])
         status_structural_gate = status_truth["evidence"]["structural_plasticity_gate"]
         terminus_structural_gate = terminus_truth["evidence"]["structural_plasticity_gate"]
         self.assertEqual(
@@ -151,14 +173,34 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_structural_gate["eligible_for_action"])
         self.assertFalse(status_structural_gate["eligible_for_fact_promotion"])
         self.assertFalse(status_structural_gate["eligible_for_structural_mutation"])
+        self.assertIn("eligible_for_replay_review", status_structural_gate)
+        self.assertIn("requires_operator_approval", status_structural_gate)
+        self.assertTrue(status_structural_gate["requires_isolated_evaluation"])
+        self.assertTrue(status_structural_gate["requires_runtime_truth_improvement"])
+        self.assertTrue(status_structural_gate["requires_reversible_mutation_ledger"])
+        self.assertTrue(status_structural_gate["requires_device_evidence"])
+        self.assertIn("rollback_policy", status_structural_gate["success_evidence"])
+        self.assertIn("runtime_truth_delta", status_structural_gate["success_evidence"])
         self.assertIn("local_plasticity_report_available", status_structural_gate)
         self.assertIn("local_plasticity_homeostatic_state_available", status_structural_gate)
+        self.assertIn("local_plasticity_spike_backend", status_structural_gate)
+        self.assertIn("local_plasticity_rule", status_structural_gate)
+        self.assertIn("local_plasticity_spike_health_risk", status_structural_gate)
+        self.assertIn("local_plasticity_synaptic_validation_available", status_structural_gate)
+        self.assertIn("local_plasticity_synaptic_validation_passed", status_structural_gate)
+        self.assertIn("local_plasticity_synaptic_validation_failed", status_structural_gate)
         self.assertNotIn("structural_cases", status_structural_gate)
         self.assertNotIn("endpoint", status_structural_gate)
         self.assertNotIn("device_evidence", status_structural_gate)
         self.assertNotIn("local_plasticity", status_structural_gate)
+        self.assertNotIn("recent_events", status_structural_gate)
+        self.assertNotIn("active_growth_concepts", status_structural_gate)
         self.assertEqual(terminus_structural_gate["artifact_kind"], status_structural_gate["artifact_kind"])
         self.assertEqual(terminus_structural_gate["surface"], status_structural_gate["surface"])
+        self.assertEqual(
+            terminus_structural_gate["requires_runtime_truth_improvement"],
+            status_structural_gate["requires_runtime_truth_improvement"],
+        )
         status_language_gate = status_truth["evidence"]["snn_language_readiness_gate"]
         terminus_language_gate = terminus_truth["evidence"]["snn_language_readiness_gate"]
         self.assertEqual(status_language_gate["artifact_kind"], "terminus_snn_native_language_readiness_gate")
@@ -231,6 +273,165 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             terminus_plasticity_path["rollback_readiness"]["checkpoint_path"],
             status_plasticity_path["rollback_readiness"]["checkpoint_path"],
         )
+        status_rollout_binding = status_truth["evidence"]["snn_readout_rollout_server_state_binding"]
+        terminus_rollout_binding = terminus_truth["evidence"]["snn_readout_rollout_server_state_binding"]
+        self.assertEqual(
+            status_rollout_binding["artifact_kind"],
+            "terminus_snn_readout_rollout_server_state_binding_gate",
+        )
+        self.assertEqual(
+            status_rollout_binding["surface"],
+            "snn_readout_rollout_server_state_binding.v1",
+        )
+        self.assertTrue(status_rollout_binding["owned_by_hecsn"])
+        self.assertFalse(status_rollout_binding["external_dependency"])
+        self.assertTrue(status_rollout_binding["advisory"])
+        self.assertFalse(status_rollout_binding["executable"])
+        self.assertFalse(status_rollout_binding["generates_text"])
+        self.assertFalse(status_rollout_binding["decodes_text"])
+        self.assertFalse(status_rollout_binding["freeform_language_generation"])
+        self.assertFalse(status_rollout_binding["loads_external_checkpoint"])
+        self.assertFalse(status_rollout_binding["accepts_caller_transition_memory_state"])
+        self.assertTrue(status_rollout_binding["requires_server_transition_memory_state"])
+        self.assertTrue(status_rollout_binding["runtime_mutation_absent"])
+        self.assertTrue(status_rollout_binding["plasticity_absent"])
+        self.assertTrue(status_rollout_binding["checkpoint_write_absent"])
+        self.assertTrue(status_rollout_binding["rollout_execution_absent"])
+        self.assertFalse(status_rollout_binding["runs_replay"])
+        self.assertFalse(status_rollout_binding["records_ledger_event"])
+        self.assertFalse(status_rollout_binding["calls_rollout"])
+        self.assertFalse(status_rollout_binding["eligible_for_rollout_execution"])
+        self.assertFalse(status_rollout_binding["eligible_for_fact_promotion"])
+        self.assertFalse(status_rollout_binding["eligible_for_cognition_substrate"])
+        self.assertEqual(
+            status_rollout_binding["transition_memory_state_source"],
+            "service.runtime_facade.snn_language_plasticity_runtime_state",
+        )
+        self.assertEqual(
+            terminus_rollout_binding["artifact_kind"],
+            status_rollout_binding["artifact_kind"],
+        )
+        self.assertEqual(terminus_rollout_binding["surface"], status_rollout_binding["surface"])
+        self.assertEqual(
+            terminus_rollout_binding["server_transition_memory_hash"],
+            status_rollout_binding["server_transition_memory_hash"],
+        )
+        self.assertEqual(
+            terminus_rollout_binding["server_transition_weight_count"],
+            status_rollout_binding["server_transition_weight_count"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "suggested_endpoint",
+            "candidate",
+            "transition_memory_state",
+        ):
+            self.assertNotIn(forbidden_key, status_rollout_binding)
+        status_consolidation_path = status_truth["evidence"]["snn_readout_rollout_consolidation_path"]
+        terminus_consolidation_path = terminus_truth["evidence"][
+            "snn_readout_rollout_consolidation_path"
+        ]
+        self.assertEqual(
+            status_consolidation_path["artifact_kind"],
+            "terminus_snn_readout_rollout_consolidation_path_evidence",
+        )
+        self.assertEqual(
+            status_consolidation_path["surface"],
+            "snn_readout_rollout_consolidation_path_evidence.v1",
+        )
+        self.assertTrue(status_consolidation_path["owned_by_hecsn"])
+        self.assertFalse(status_consolidation_path["external_dependency"])
+        self.assertTrue(status_consolidation_path["advisory"])
+        self.assertFalse(status_consolidation_path["executable"])
+        self.assertFalse(status_consolidation_path["executes_rehearsal"])
+        self.assertFalse(status_consolidation_path["executes_consolidation"])
+        self.assertFalse(status_consolidation_path["runs_live_replay"])
+        self.assertFalse(status_consolidation_path["records_ledger_event"])
+        self.assertFalse(status_consolidation_path["writes_checkpoint"])
+        self.assertFalse(status_consolidation_path["generates_text"])
+        self.assertFalse(status_consolidation_path["decodes_text"])
+        self.assertFalse(status_consolidation_path["freeform_language_generation"])
+        self.assertFalse(status_consolidation_path["applies_plasticity"])
+        self.assertFalse(status_consolidation_path["mutates_runtime_state"])
+        self.assertFalse(status_consolidation_path["eligible_for_live_replay"])
+        self.assertFalse(status_consolidation_path["eligible_for_plasticity_application"])
+        self.assertFalse(status_consolidation_path["eligible_for_cognition_substrate"])
+        self.assertEqual(
+            terminus_consolidation_path["artifact_kind"],
+            status_consolidation_path["artifact_kind"],
+        )
+        self.assertEqual(
+            terminus_consolidation_path["surface"],
+            status_consolidation_path["surface"],
+        )
+        self.assertEqual(
+            terminus_consolidation_path["rollout_event_count"],
+            status_consolidation_path["rollout_event_count"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "replay_targets",
+        ):
+            self.assertNotIn(forbidden_key, status_consolidation_path)
+        status_applied_provenance = status_truth["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+        terminus_applied_provenance = terminus_truth["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+        self.assertEqual(
+            status_applied_provenance["artifact_kind"],
+            "terminus_snn_readout_applied_synapse_provenance_evidence",
+        )
+        self.assertEqual(
+            status_applied_provenance["surface"],
+            "snn_readout_applied_synapse_provenance_evidence.v1",
+        )
+        self.assertTrue(status_applied_provenance["owned_by_hecsn"])
+        self.assertFalse(status_applied_provenance["external_dependency"])
+        self.assertTrue(status_applied_provenance["advisory"])
+        self.assertFalse(status_applied_provenance["executable"])
+        self.assertFalse(status_applied_provenance["runs_audit"])
+        self.assertFalse(status_applied_provenance["runs_replay"])
+        self.assertFalse(status_applied_provenance["calls_endpoint"])
+        self.assertFalse(status_applied_provenance["generates_text"])
+        self.assertFalse(status_applied_provenance["decodes_text"])
+        self.assertFalse(status_applied_provenance["freeform_language_generation"])
+        self.assertFalse(status_applied_provenance["applies_plasticity"])
+        self.assertFalse(status_applied_provenance["mutates_runtime_state"])
+        self.assertFalse(status_applied_provenance["writes_checkpoint"])
+        self.assertEqual(
+            terminus_applied_provenance["artifact_kind"],
+            status_applied_provenance["artifact_kind"],
+        )
+        self.assertEqual(
+            terminus_applied_provenance["surface"],
+            status_applied_provenance["surface"],
+        )
+        self.assertEqual(
+            terminus_applied_provenance["synapse_provenance_count"],
+            status_applied_provenance["synapse_provenance_count"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "synapse_provenance_by_key",
+            "sparse_transition_weights",
+        ):
+            self.assertNotIn(forbidden_key, status_applied_provenance)
 
     def test_snn_language_readout_draft_endpoint_generates_bounded_grounded_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -274,6 +475,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 {"device": "cpu", "source": "service_api_readout_draft"},
                 top_k=4,
             )
+            app.state.hecsn_manager._snn_language_plasticity_state[
+                "sparse_transition_weights"
+            ] = dict(transition_weights)
             with TestClient(app) as client:
                 status_response = client.get("/status")
                 response = client.post(
@@ -291,13 +495,19 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     json={
                         "prediction_report": prediction_report,
                         "readout_vocabulary_slots": vocabulary,
-                        "transition_memory_state": {"sparse_transition_weights": transition_weights},
+                        "transition_memory_state": {
+                            "sparse_transition_weights": {"999:998": 9.9},
+                            "source": "caller_fabricated_transition_memory",
+                        },
                         "device_evidence": {"device": "cpu", "source": "service_api_readout_draft"},
                         "transition_memory_evaluation": transition_memory_evaluation,
                         "rollout_steps": 3,
                         "top_k": 4,
                     },
                 )
+                app.state.hecsn_manager._snn_language_plasticity_state[
+                    "sparse_transition_weights"
+                ] = {}
                 rollout_replay_evaluation_response = client.post(
                     "/terminus/snn-language-sequence/readout-rollout-candidate/replay-evaluation",
                     json={
@@ -785,6 +995,33 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(rollout["promotion_gate"]["eligible_for_action"])
         self.assertIn("memory pressure", rollout["rollout"]["labels"])
         self.assertEqual(
+            rollout["readout_rollout_evidence"]["transition_memory_state_source"],
+            "service.runtime_facade.snn_language_plasticity_runtime_state",
+        )
+        self.assertTrue(
+            rollout["readout_rollout_evidence"]["server_transition_memory_hash_match"]
+        )
+        self.assertTrue(
+            rollout["readout_rollout_evidence"][
+                "caller_transition_memory_state_absent_or_ignored"
+            ]
+        )
+        self.assertTrue(
+            rollout["readout_rollout_evidence"][
+                "prediction_transition_memory_hash_match"
+            ]
+        )
+        self.assertTrue(
+            rollout["readout_rollout_evidence"][
+                "transition_memory_evaluation_hash_match"
+            ]
+        )
+        self.assertTrue(
+            rollout["readout_trajectory_evidence"]["promotion_gate"][
+                "eligible_for_bounded_snn_language_readout"
+            ]
+        )
+        self.assertEqual(
             rollout_replay_evaluation["surface"],
             "snn_language_readout_rollout_replay_evaluation.v1",
         )
@@ -807,6 +1044,23 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             1,
         )
         self.assertEqual(
+            rollout_replay_evaluation["provenance_evidence"][
+                "server_transition_memory_hash"
+            ],
+            rollout["readout_rollout_evidence"]["server_transition_memory_hash"],
+        )
+        self.assertTrue(
+            rollout_replay_evaluation["provenance_evidence"][
+                "server_transition_memory_hash_match"
+            ]
+        )
+        self.assertEqual(
+            rollout_replay_evaluation["provenance_evidence"][
+                "transition_memory_state_source"
+            ],
+            "service.runtime_facade.snn_language_plasticity_runtime_state",
+        )
+        self.assertEqual(
             rollout_record["surface"],
             "snn_language_readout_rollout_evidence_ledger_record.v1",
         )
@@ -817,6 +1071,17 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(rollout_record["promotion_gate"]["eligible_for_rollout_replay_memory"])
         self.assertTrue(rollout_record["recorded_event"]["recorded_in_ledger"])
         self.assertFalse(rollout_record["recorded_event"]["eligible_for_replay_priority"])
+        self.assertEqual(
+            rollout_record["recorded_event"]["server_transition_memory_hash"],
+            rollout["readout_rollout_evidence"]["server_transition_memory_hash"],
+        )
+        self.assertTrue(
+            rollout_record["recorded_event"]["server_transition_memory_hash_match"]
+        )
+        self.assertEqual(
+            rollout_record["recorded_event"]["transition_memory_state_source"],
+            "service.runtime_facade.snn_language_plasticity_runtime_state",
+        )
         self.assertFalse(blocked_rollout_record["accepted"])
         self.assertFalse(blocked_rollout_record["promotion_gate"]["required_evidence"]["confirmation"])
         self.assertEqual(
@@ -832,6 +1097,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(
             rollout_rehearsal_policy["candidates"][0]["device_evidence"]["tensor_device"],
             "cpu",
+        )
+        self.assertEqual(
+            rollout_rehearsal_policy["candidates"][0]["server_transition_memory_hash"],
+            rollout["readout_rollout_evidence"]["server_transition_memory_hash"],
+        )
+        self.assertTrue(
+            rollout_rehearsal_policy["candidates"][0][
+                "server_transition_memory_hash_match"
+            ]
         )
         self.assertTrue(
             rollout_rehearsal_policy["promotion_gate"][
@@ -1920,6 +2194,129 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     "scheduler-installation-preflight",
                     params={"limit": 4},
                 )
+                sleep_review_scheduler_installation_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/install",
+                    json={
+                        "limit": 4,
+                        "expected_state_revision": sleep_ticket_response.json()[
+                            "recorded_state_revision"
+                        ],
+                        "scheduler_installation_preflight_hash": (
+                            sleep_scheduler_installation_preflight_response.json()[
+                                "provenance_evidence"
+                            ]["scheduler_installation_preflight_hash"]
+                        ),
+                        "operator_id": "operator-review-scheduler",
+                        "confirmation": True,
+                    },
+                )
+                sleep_review_scheduler_runtime_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler"
+                )
+                sleep_review_scheduler_cycle_inspection_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/cycle-inspection"
+                )
+                blocked_sleep_review_scheduler_cycle_acknowledgment_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                        "review-scheduler/cycle-acknowledgment",
+                        json={
+                            "expected_state_revision": sleep_ticket_response.json()[
+                                "recorded_state_revision"
+                            ],
+                            "scheduler_installation_id": (
+                                sleep_review_scheduler_installation_response.json()[
+                                    "scheduler_installation_id"
+                                ]
+                            ),
+                            "scheduler_installation_evidence_hash": (
+                                sleep_review_scheduler_installation_response.json()[
+                                    "evidence_hash"
+                                ]
+                            ),
+                            "review_ticket_id": "not-due-cycle-ticket",
+                            "operator_id": "operator-review-scheduler-cycle",
+                            "confirmation": True,
+                        },
+                    )
+                )
+                blocked_sleep_review_scheduler_cycle_acknowledgment_preflight_response = (
+                    client.get(
+                        "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                        "review-scheduler/cycle-acknowledgment-preflight",
+                        params={
+                            "scheduler_installation_id": (
+                                sleep_review_scheduler_installation_response.json()[
+                                    "scheduler_installation_id"
+                                ]
+                            ),
+                            "scheduler_installation_evidence_hash": (
+                                sleep_review_scheduler_installation_response.json()[
+                                    "evidence_hash"
+                                ]
+                            ),
+                            "review_ticket_id": "not-due-cycle-ticket",
+                        },
+                    )
+                )
+                sleep_review_scheduler_cycle_autonomy_proposal_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/cycle-autonomy-proposal"
+                )
+                sleep_replay_selection_proposal_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/due-cycle-bounded-replay-selection-proposal",
+                    params={"limit": 4, "max_candidates": 1},
+                )
+                blocked_sleep_replay_selection_excess_candidates_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/due-cycle-bounded-replay-selection-proposal",
+                    params={"limit": 4, "max_candidates": 9},
+                )
+                due_cycle_recording_review_proposal_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/"
+                    "due-cycle-replay-artifact-recording-review-proposal",
+                    params={
+                        "limit": 4,
+                        "max_candidates": 1,
+                        "min_priority_score": 60.0,
+                    },
+                )
+                blocked_due_cycle_recording_review_ticket_response = client.post(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/"
+                    "due-cycle-replay-artifact-recording-review-ticket",
+                    json={
+                        "limit": 4,
+                        "max_candidates": 1,
+                        "min_priority_score": 60.0,
+                        "operator_id": "operator-due-cycle-review",
+                        "confirmation": True,
+                    },
+                )
+                sleep_phase_separation_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/sleep-phase-separation-proposal",
+                    params={"limit": 4, "max_candidates": 1},
+                )
+                rem_homeostatic_preflight_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/rem-like-homeostatic-stabilization-preflight",
+                    params={"limit": 4, "max_candidates": 1},
+                )
+                blocked_rem_homeostatic_preflight_policy_response = client.get(
+                    "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/rem-like-homeostatic-stabilization-preflight",
+                    params={
+                        "limit": 4,
+                        "max_candidates": 1,
+                        "decay_factor": 1.2,
+                    },
+                )
                 blocked_sleep_scheduler_zero_cycles_response = client.get(
                     "/terminus/snn-language-sequence/plasticity-sleep-policy/scheduler-experiment",
                     params={"limit": 4, "cycles": 0},
@@ -1993,6 +2390,45 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             200,
         )
         self.assertEqual(sleep_scheduler_installation_preflight_response.status_code, 200)
+        self.assertEqual(sleep_review_scheduler_installation_response.status_code, 200)
+        self.assertEqual(sleep_review_scheduler_runtime_response.status_code, 200)
+        self.assertEqual(
+            sleep_review_scheduler_cycle_inspection_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            blocked_sleep_review_scheduler_cycle_acknowledgment_response.status_code,
+            400,
+        )
+        self.assertEqual(
+            blocked_sleep_review_scheduler_cycle_acknowledgment_preflight_response.status_code,
+            200,
+        )
+        self.assertFalse(
+            blocked_sleep_review_scheduler_cycle_acknowledgment_preflight_response.json()[
+                "ready"
+            ]
+        )
+        self.assertEqual(
+            sleep_review_scheduler_cycle_autonomy_proposal_response.status_code,
+            200,
+        )
+        self.assertEqual(sleep_replay_selection_proposal_response.status_code, 200)
+        self.assertEqual(
+            blocked_sleep_replay_selection_excess_candidates_response.status_code,
+            422,
+        )
+        self.assertEqual(due_cycle_recording_review_proposal_response.status_code, 200)
+        self.assertEqual(
+            blocked_due_cycle_recording_review_ticket_response.status_code,
+            400,
+        )
+        self.assertEqual(sleep_phase_separation_response.status_code, 200)
+        self.assertEqual(rem_homeostatic_preflight_response.status_code, 200)
+        self.assertEqual(
+            blocked_rem_homeostatic_preflight_policy_response.status_code,
+            422,
+        )
         self.assertEqual(blocked_sleep_scheduler_zero_cycles_response.status_code, 422)
         self.assertEqual(blocked_sleep_scheduler_excess_cycles_response.status_code, 422)
         self.assertEqual(blocked_sleep_scheduler_zero_limit_response.status_code, 422)
@@ -2041,6 +2477,22 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         sleep_scheduler_installation_preflight = (
             sleep_scheduler_installation_preflight_response.json()
         )
+        sleep_review_scheduler_installation = (
+            sleep_review_scheduler_installation_response.json()
+        )
+        sleep_review_scheduler_runtime = sleep_review_scheduler_runtime_response.json()
+        sleep_review_scheduler_cycle_inspection = (
+            sleep_review_scheduler_cycle_inspection_response.json()
+        )
+        sleep_review_scheduler_cycle_autonomy_proposal = (
+            sleep_review_scheduler_cycle_autonomy_proposal_response.json()
+        )
+        sleep_replay_selection_proposal = sleep_replay_selection_proposal_response.json()
+        due_cycle_recording_review_proposal = (
+            due_cycle_recording_review_proposal_response.json()
+        )
+        sleep_phase_separation = sleep_phase_separation_response.json()
+        rem_homeostatic_preflight = rem_homeostatic_preflight_response.json()
         living_loop_after_sleep_ticket = living_loop_after_sleep_ticket_response.json()
         policy_after_sleep_ticket = policy_after_sleep_ticket_response.json()
         terminus_after_sleep_ticket = terminus_after_sleep_ticket_response.json()
@@ -2300,6 +2752,131 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(sleep_scheduler_installation_preflight["writes_checkpoint"])
         self.assertFalse(sleep_scheduler_installation_preflight["applies_plasticity"])
         self.assertFalse(sleep_scheduler_installation_preflight["mutates_runtime_state"])
+        self.assertEqual(
+            sleep_review_scheduler_installation["surface"],
+            "snn_sleep_plasticity_review_scheduler_installation.v1",
+        )
+        self.assertTrue(sleep_review_scheduler_installation["scheduler_installed"])
+        self.assertEqual(
+            sleep_review_scheduler_installation["scheduler_mode"],
+            "review_only",
+        )
+        self.assertFalse(sleep_review_scheduler_installation["registers_os_timer"])
+        self.assertFalse(sleep_review_scheduler_installation["starts_background_worker"])
+        self.assertFalse(
+            sleep_review_scheduler_installation["executes_suggested_endpoint"]
+        )
+        self.assertFalse(sleep_review_scheduler_installation["writes_checkpoint"])
+        self.assertFalse(sleep_review_scheduler_installation["applies_plasticity"])
+        self.assertFalse(sleep_review_scheduler_installation["mutates_runtime_state"])
+        self.assertEqual(
+            sleep_review_scheduler_runtime["surface"],
+            "snn_sleep_plasticity_review_scheduler_runtime.v1",
+        )
+        self.assertTrue(sleep_review_scheduler_runtime["scheduler_installed"])
+        self.assertFalse(sleep_review_scheduler_runtime["review_due"])
+        self.assertFalse(sleep_review_scheduler_runtime["registers_os_timer"])
+        self.assertFalse(sleep_review_scheduler_runtime["starts_background_worker"])
+        self.assertFalse(sleep_review_scheduler_runtime["executes_suggested_endpoint"])
+        self.assertFalse(sleep_review_scheduler_runtime["applies_plasticity"])
+        self.assertFalse(sleep_review_scheduler_runtime["mutates_runtime_state"])
+        self.assertEqual(
+            sleep_review_scheduler_cycle_inspection["surface"],
+            "snn_sleep_plasticity_review_scheduler_cycle_inspection.v1",
+        )
+        self.assertFalse(sleep_review_scheduler_cycle_inspection["ready"])
+        self.assertFalse(
+            sleep_review_scheduler_cycle_inspection["cycle_inspection"]["review_due"]
+        )
+        self.assertFalse(
+            sleep_review_scheduler_cycle_inspection["executes_suggested_endpoint"]
+        )
+        self.assertFalse(sleep_review_scheduler_cycle_inspection["records_replay_artifact"])
+        self.assertFalse(sleep_review_scheduler_cycle_inspection["applies_plasticity"])
+        self.assertFalse(sleep_review_scheduler_cycle_inspection["mutates_runtime_state"])
+        self.assertEqual(
+            sleep_review_scheduler_cycle_autonomy_proposal["surface"],
+            "snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal.v1",
+        )
+        self.assertFalse(sleep_review_scheduler_cycle_autonomy_proposal["ready"])
+        self.assertFalse(
+            sleep_review_scheduler_cycle_autonomy_proposal[
+                "executes_suggested_endpoint"
+            ]
+        )
+        self.assertFalse(
+            sleep_review_scheduler_cycle_autonomy_proposal["records_replay_artifact"]
+        )
+        self.assertFalse(
+            sleep_review_scheduler_cycle_autonomy_proposal["applies_plasticity"]
+        )
+        self.assertFalse(
+            sleep_review_scheduler_cycle_autonomy_proposal["mutates_runtime_state"]
+        )
+        self.assertEqual(
+            sleep_review_scheduler_cycle_autonomy_proposal["promotion_gate"]["status"],
+            "waiting_for_review_cadence",
+        )
+        self.assertEqual(
+            sleep_replay_selection_proposal["surface"],
+            "snn_due_cycle_bounded_replay_selection_proposal.v1",
+        )
+        self.assertFalse(sleep_replay_selection_proposal["ready"])
+        self.assertEqual(
+            sleep_replay_selection_proposal["selection"]["candidate_count"],
+            0,
+        )
+        self.assertFalse(sleep_replay_selection_proposal["executes_suggested_endpoint"])
+        self.assertFalse(sleep_replay_selection_proposal["records_replay_artifact"])
+        self.assertFalse(sleep_replay_selection_proposal["runs_live_replay"])
+        self.assertFalse(sleep_replay_selection_proposal["applies_plasticity"])
+        self.assertFalse(sleep_replay_selection_proposal["mutates_runtime_state"])
+        self.assertEqual(
+            due_cycle_recording_review_proposal["surface"],
+            "snn_due_cycle_replay_artifact_recording_review_proposal.v1",
+        )
+        self.assertFalse(due_cycle_recording_review_proposal["ready"])
+        self.assertIsNone(
+            due_cycle_recording_review_proposal["review_target"][
+                "replay_evaluation_context_id"
+            ]
+        )
+        self.assertFalse(due_cycle_recording_review_proposal["records_replay_artifact"])
+        self.assertFalse(due_cycle_recording_review_proposal["runs_live_replay"])
+        self.assertFalse(due_cycle_recording_review_proposal["applies_plasticity"])
+        self.assertFalse(due_cycle_recording_review_proposal["mutates_runtime_state"])
+        self.assertEqual(
+            sleep_phase_separation["surface"],
+            "snn_sleep_phase_separation_proposal.v1",
+        )
+        self.assertFalse(
+            sleep_phase_separation["nrem_like_replay_nomination"]["ready"]
+        )
+        self.assertFalse(
+            sleep_phase_separation["rem_like_stabilization_review"]["ready"]
+        )
+        self.assertFalse(sleep_phase_separation["records_replay_artifact"])
+        self.assertFalse(sleep_phase_separation["runs_live_replay"])
+        self.assertFalse(sleep_phase_separation["applies_plasticity"])
+        self.assertFalse(sleep_phase_separation["mutates_runtime_state"])
+        self.assertEqual(
+            rem_homeostatic_preflight["surface"],
+            "snn_rem_like_homeostatic_stabilization_preflight.v1",
+        )
+        self.assertFalse(rem_homeostatic_preflight["ready"])
+        self.assertFalse(rem_homeostatic_preflight["executes_suggested_endpoint"])
+        self.assertFalse(rem_homeostatic_preflight["writes_checkpoint"])
+        self.assertFalse(rem_homeostatic_preflight["applies_plasticity"])
+        self.assertFalse(rem_homeostatic_preflight["mutates_transition_memory"])
+        self.assertFalse(rem_homeostatic_preflight["mutates_runtime_state"])
+        terminus_review_scheduler = status_after_sleep_ticket["terminus_runtime"][
+            "snn_sleep_plasticity_review_scheduler"
+        ]
+        self.assertTrue(terminus_review_scheduler["scheduler_installed"])
+        self.assertEqual(
+            terminus_review_scheduler["scheduler_installation_id"],
+            sleep_review_scheduler_installation["scheduler_installation_id"],
+        )
         living_loop_sleep_proposal = living_loop_after_sleep_ticket["living_loop"][
             "snn_sleep_plasticity_autonomy_proposal"
         ]
@@ -2377,6 +2954,33 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(
             status_scheduler_installation_gate["eligible_for_scheduler_installation"]
         )
+        living_loop_replay_selection = living_loop_after_sleep_ticket["living_loop"][
+            "snn_due_cycle_bounded_replay_selection_proposal"
+        ]
+        self.assertFalse(living_loop_replay_selection["ready"])
+        self.assertFalse(living_loop_replay_selection["runs_live_replay"])
+        policy_replay_selection = policy_after_sleep_ticket[
+            "snn_due_cycle_bounded_replay_selection_proposal"
+        ]
+        self.assertFalse(policy_replay_selection["records_replay_artifact"])
+        self.assertFalse(policy_replay_selection["mutates_runtime_state"])
+        self.assertFalse(
+            terminus_after_sleep_ticket[
+                "snn_due_cycle_bounded_replay_selection_proposal"
+            ]["ready"]
+        )
+        self.assertFalse(
+            status_after_sleep_ticket[
+                "snn_due_cycle_bounded_replay_selection_proposal"
+            ]["ready"]
+        )
+        status_replay_selection_gate = status_after_sleep_ticket["runtime_truth"][
+            "evidence"
+        ]["snn_due_cycle_bounded_replay_selection_gate"]
+        self.assertFalse(status_replay_selection_gate["ready"])
+        self.assertFalse(status_replay_selection_gate["runs_live_replay"])
+        self.assertFalse(status_replay_selection_gate["records_replay_artifact"])
+        self.assertFalse(status_replay_selection_gate["applies_plasticity"])
         self.assertEqual(
             status_after_sleep_ticket["state_revision"],
             status_before_sleep_ticket_response.json()["state_revision"],
@@ -3498,6 +4102,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     "/terminus/subcortical-structural-plasticity/evaluate",
                     json={
                         "pre_snapshot": {
+                            "current_state_revision": 5,
                             "binding_topology": {
                                 "edges_added_total": 1,
                                 "edges_removed_total": 0,
@@ -3516,6 +4121,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             "runtime_truth": {"verdict": "degraded"},
                         },
                         "post_snapshot": {
+                            "current_state_revision": 6,
                             "binding_topology": {
                                 "edges_added_total": 2,
                                 "edges_removed_total": 1,
@@ -3578,6 +4184,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(evaluation["promotion_gate"]["eligible_for_structural_mutation"])
         self.assertEqual(evaluation["promotion_gate"]["status"], "ready_for_operator_review")
         self.assertEqual(evaluation["structural_delta"]["edges_added_delta"], 1)
+        self.assertEqual(evaluation["snapshot_binding"]["hash_algorithm"], "sha256_canonical_json")
+        self.assertTrue(evaluation["snapshot_binding"]["snapshot_hashes_distinct"])
+        self.assertTrue(evaluation["snapshot_binding"]["structural_delta_present"])
+        self.assertEqual(evaluation["snapshot_binding"]["pre_state_revision"], 5)
+        self.assertEqual(evaluation["snapshot_binding"]["post_state_revision"], 6)
+        self.assertTrue(evaluation["snapshot_binding"]["state_revision_order_valid"])
+        self.assertFalse(evaluation["snapshot_binding"]["raw_snapshots_exposed"])
+        self.assertTrue(evaluation["promotion_gate"]["requires_bound_snapshot_hashes"])
+        self.assertTrue(evaluation["promotion_gate"]["requires_nonzero_structural_delta"])
         self.assertEqual(before_revision, after_revision)
         self.assertEqual(before_history, after_history)
 

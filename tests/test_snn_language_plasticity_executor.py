@@ -142,7 +142,18 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
     )
     result = executor.regenerate_transition_memory(
         regeneration_proposal=_regeneration_proposal(
-            {"pre_index": 1, "post_index": 3, "initial_weight": 0.1, "locality_distance": 2},
+            {
+                "pre_index": 1,
+                "post_index": 3,
+                "initial_weight": 0.1,
+                "locality_distance": 2,
+                "source_synapse_id": "snn-rollout-local:1:3:0",
+                "source_trace_index": 0,
+                "source_rollout_step_index": 10,
+                "target_rollout_step_index": 20,
+                "source_active_indices_hash": "source-active-hash-1",
+                "target_active_indices_hash": "target-active-hash-1",
+            },
             {"pre_index": 4, "post_index": 5, "initial_weight": 0.2, "locality_distance": 1},
         ),
         expected_state_revision=0,
@@ -166,12 +177,21 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
         == ["readout-hash-1", "readout-hash-2"]
     )
     assert language_state["synapse_regeneration"]["recent_events"][0]["regenerated_synapses"][0]["synapse"] == "1:3"
+    local_edge = language_state["synapse_regeneration"]["recent_events"][0][
+        "regenerated_synapses"
+    ][0]["local_edge_provenance"]
+    assert local_edge["source_synapse_id"] == "snn-rollout-local:1:3:0"
+    assert local_edge["source_rollout_step_index"] == 10
+    assert local_edge["target_rollout_step_index"] == 20
+    assert local_edge["source_active_indices_hash"] == "source-active-hash-1"
+    assert local_edge["target_active_indices_hash"] == "target-active-hash-1"
     provenance = language_state["synapse_provenance_by_key"]["1:3"]
     assert provenance["provenance_type"] == "replay_regeneration"
     assert provenance["permit_id"] == "permit-1"
     assert provenance["replay_artifact_id"] == "artifact-1"
     assert provenance["replay_window_hash"] == "window-hash-1"
     assert provenance["readout_evidence_hashes"] == ["readout-hash-1", "readout-hash-2"]
+    assert provenance["local_edge_provenance"] == local_edge
     assert language_state["synapse_regeneration"]["recent_events"][0]["committed_checkpoint_path"].endswith(
         ".regeneration.committed.pt"
     )

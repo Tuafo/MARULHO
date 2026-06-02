@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, deque
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import random
@@ -22,6 +22,7 @@ DEFAULT_SNN_REPLAY_EVALUATION_CONTEXTS = 64
 DEFAULT_SNN_REPLAY_ARTIFACT_RECORDING_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_TICKETS = 64
 DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS = 64
+DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS = 16
 DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS = 64
 MAX_REPLAY_SAMPLE_LIMIT = 20
 MAX_RUNTIME_TRACE_EXPORT_LIMIT = 50
@@ -76,6 +77,7 @@ class ReplayController:
         snn_replay_artifact_recording_review_tickets: Sequence[Mapping[str, Any]] | None = None,
         snn_sleep_plasticity_review_tickets: Sequence[Mapping[str, Any]] | None = None,
         snn_sleep_plasticity_scheduler_design_review_tickets: Sequence[Mapping[str, Any]] | None = None,
+        snn_sleep_plasticity_review_scheduler_installations: Sequence[Mapping[str, Any]] | None = None,
         snn_transition_memory_replay_artifacts: Sequence[Mapping[str, Any]] | None = None,
         history_maxlen: int = DEFAULT_REPLAY_SAMPLE_HISTORY,
     ) -> None:
@@ -95,6 +97,9 @@ class ReplayController:
         self._snn_sleep_plasticity_scheduler_design_review_tickets: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS
         )
+        self._snn_sleep_plasticity_review_scheduler_installations: deque[dict[str, Any]] = deque(
+            maxlen=DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS
+        )
         self._snn_transition_memory_replay_artifacts: deque[dict[str, Any]] = deque(
             maxlen=DEFAULT_SNN_TRANSITION_MEMORY_REPLAY_ARTIFACTS
         )
@@ -107,6 +112,9 @@ class ReplayController:
         self.load_snn_sleep_plasticity_review_tickets(snn_sleep_plasticity_review_tickets or [])
         self.load_snn_sleep_plasticity_scheduler_design_review_tickets(
             snn_sleep_plasticity_scheduler_design_review_tickets or []
+        )
+        self.load_snn_sleep_plasticity_review_scheduler_installations(
+            snn_sleep_plasticity_review_scheduler_installations or []
         )
         self.load_snn_transition_memory_replay_artifacts(snn_transition_memory_replay_artifacts or [])
 
@@ -250,6 +258,27 @@ class ReplayController:
         self._snn_sleep_plasticity_scheduler_design_review_tickets.clear()
         self._snn_sleep_plasticity_scheduler_design_review_tickets.extend(
             normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_SCHEDULER_DESIGN_REVIEW_TICKETS]
+        )
+
+    @property
+    def snn_sleep_plasticity_review_scheduler_installations(self) -> deque[dict[str, Any]]:
+        return self._snn_sleep_plasticity_review_scheduler_installations
+
+    @snn_sleep_plasticity_review_scheduler_installations.setter
+    def snn_sleep_plasticity_review_scheduler_installations(
+        self,
+        installations: Sequence[Mapping[str, Any]],
+    ) -> None:
+        self.load_snn_sleep_plasticity_review_scheduler_installations(installations)
+
+    def load_snn_sleep_plasticity_review_scheduler_installations(
+        self,
+        installations: Sequence[Mapping[str, Any]],
+    ) -> None:
+        normalized = [dict(item) for item in installations if isinstance(item, Mapping)]
+        self._snn_sleep_plasticity_review_scheduler_installations.clear()
+        self._snn_sleep_plasticity_review_scheduler_installations.extend(
+            normalized[:DEFAULT_SNN_SLEEP_PLASTICITY_REVIEW_SCHEDULER_INSTALLATIONS]
         )
 
     def record_snn_replay_evaluation_context(
@@ -649,6 +678,7 @@ class ReplayController:
         policy_proposal: Mapping[str, Any],
         operator_id: str,
         confirmation: bool,
+        due_cycle_review_proposal: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Record server-held policy intent for later artifact-recording review."""
 
@@ -662,6 +692,17 @@ class ReplayController:
         normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
         context_id = str(review.get("replay_evaluation_context_id") or "")
         context = self.verified_snn_replay_evaluation_context(context_id)
+        due_cycle_proposal = dict(due_cycle_review_proposal or {})
+        due_cycle_target = (
+            due_cycle_proposal.get("review_target")
+            if isinstance(due_cycle_proposal.get("review_target"), Mapping)
+            else {}
+        )
+        due_cycle_provenance = (
+            due_cycle_proposal.get("provenance_evidence")
+            if isinstance(due_cycle_proposal.get("provenance_evidence"), Mapping)
+            else {}
+        )
         if not confirmation:
             raise ValueError("SNN replay artifact recording review ticket confirmation=true is required.")
         if not normalized_operator_id:
@@ -676,6 +717,30 @@ class ReplayController:
             context.get("evidence_hash") or ""
         ):
             raise ValueError("SNN replay artifact recording review ticket requires a verified replay context.")
+        if due_cycle_review_proposal is not None and (
+            due_cycle_proposal.get("surface")
+            != "snn_due_cycle_replay_artifact_recording_review_proposal.v1"
+            or not due_cycle_proposal.get("ready")
+            or not due_cycle_proposal.get("owned_by_hecsn")
+            or due_cycle_proposal.get("executable") is not False
+            or due_cycle_proposal.get("records_replay_artifact") is not False
+            or due_cycle_proposal.get("runs_live_replay") is not False
+            or due_cycle_proposal.get("applies_plasticity") is not False
+            or due_cycle_proposal.get("mutates_runtime_state") is not False
+            or str(due_cycle_target.get("replay_evaluation_context_id") or "")
+            != context_id
+            or str(due_cycle_target.get("replay_evaluation_context_hash") or "")
+            != str(context.get("evidence_hash") or "")
+            or not due_cycle_provenance.get(
+                "due_cycle_replay_artifact_recording_review_proposal_hash"
+            )
+            or not due_cycle_target.get("scheduler_installation_id")
+            or not due_cycle_target.get("scheduler_installation_evidence_hash")
+            or not due_cycle_target.get("acknowledged_review_due_at")
+        ):
+            raise ValueError(
+                "SNN replay artifact recording review ticket requires a ready due-cycle review proposal."
+            )
         with self._lock:
             recorded_revision = int(self._runtime_state.state_revision)
             material = {
@@ -686,6 +751,22 @@ class ReplayController:
                 "replay_evaluation_context_id": context["replay_evaluation_context_id"],
                 "replay_evaluation_context_hash": context["evidence_hash"],
             }
+            if due_cycle_review_proposal is not None:
+                material["due_cycle_review_proposal_hash"] = due_cycle_provenance[
+                    "due_cycle_replay_artifact_recording_review_proposal_hash"
+                ]
+                material["due_cycle_selection_proposal_hash"] = due_cycle_provenance[
+                    "source_due_cycle_bounded_replay_selection_proposal_hash"
+                ]
+                material["scheduler_installation_id"] = due_cycle_target[
+                    "scheduler_installation_id"
+                ]
+                material["scheduler_installation_evidence_hash"] = due_cycle_target[
+                    "scheduler_installation_evidence_hash"
+                ]
+                material["acknowledged_review_due_at"] = due_cycle_target[
+                    "acknowledged_review_due_at"
+                ]
             evidence_hash = self._sha256_json(material)
             ticket = {
                 "artifact_kind": "terminus_snn_replay_artifact_recording_review_ticket",
@@ -736,6 +817,22 @@ class ReplayController:
                 "replay_evaluation_context_id": ticket.get("replay_evaluation_context_id"),
                 "replay_evaluation_context_hash": ticket.get("replay_evaluation_context_hash"),
             }
+            if ticket.get("due_cycle_review_proposal_hash"):
+                material["due_cycle_review_proposal_hash"] = ticket.get(
+                    "due_cycle_review_proposal_hash"
+                )
+                material["due_cycle_selection_proposal_hash"] = ticket.get(
+                    "due_cycle_selection_proposal_hash"
+                )
+                material["scheduler_installation_id"] = ticket.get(
+                    "scheduler_installation_id"
+                )
+                material["scheduler_installation_evidence_hash"] = ticket.get(
+                    "scheduler_installation_evidence_hash"
+                )
+                material["acknowledged_review_due_at"] = ticket.get(
+                    "acknowledged_review_due_at"
+                )
             context = self.verified_snn_replay_evaluation_context(
                 str(ticket.get("replay_evaluation_context_id") or "")
             )
@@ -2097,6 +2194,1644 @@ class ReplayController:
                     "suggested_endpoint_not_called": True,
                     "automatic_plasticity_disabled": True,
                 },
+            },
+        }
+
+    def install_snn_sleep_plasticity_review_scheduler(
+        self,
+        *,
+        limit: int = 20,
+        expected_state_revision: int,
+        scheduler_installation_preflight_hash: str,
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Install a passive review scheduler configuration without running work."""
+
+        normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
+        if not confirmation:
+            raise ValueError("SNN sleep plasticity review scheduler installation confirmation=true is required.")
+        if not normalized_operator_id:
+            raise ValueError("SNN sleep plasticity review scheduler installation operator_id is required.")
+        if int(expected_state_revision) != int(self._runtime_state.state_revision):
+            raise ValueError("SNN sleep plasticity review scheduler installation requires current state revision.")
+        preflight = self.snn_sleep_plasticity_scheduler_installation_preflight(limit=limit)
+        preflight_provenance = (
+            preflight.get("provenance_evidence")
+            if isinstance(preflight.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        installation_review = (
+            preflight.get("installation_review_preflight")
+            if isinstance(preflight.get("installation_review_preflight"), Mapping)
+            else {}
+        )
+        expected_hash = str(
+            preflight_provenance.get("scheduler_installation_preflight_hash") or ""
+        )
+        if (
+            not preflight.get("ready")
+            or str(scheduler_installation_preflight_hash or "") != expected_hash
+        ):
+            raise ValueError("SNN sleep plasticity review scheduler installation requires current preflight evidence.")
+        review_parameters = dict(
+            installation_review.get("scheduler_review_parameters") or {}
+        )
+        review_interval_seconds = float(
+            review_parameters.get("max_review_interval_seconds", 0.0) or 0.0
+        )
+        if review_interval_seconds < 60.0 or review_interval_seconds > 3600.0:
+            raise ValueError("SNN sleep plasticity review scheduler installation requires bounded review cadence.")
+        installed_at = datetime.now(timezone.utc)
+        next_review_due_at = installed_at + timedelta(seconds=review_interval_seconds)
+        with self._lock:
+            material = {
+                "installed_state_revision": int(self._runtime_state.state_revision),
+                "operator_id": normalized_operator_id,
+                "confirmation": True,
+                "scheduler_installation_preflight_hash": expected_hash,
+                "scheduler_design_review_ticket_id": installation_review.get(
+                    "scheduler_design_review_ticket_id"
+                ),
+                "scheduler_design_review_ticket_hash": installation_review.get(
+                    "scheduler_design_review_ticket_hash"
+                ),
+                "scheduler_design_hash": installation_review.get("scheduler_design_hash"),
+                "reviewed_sleep_plasticity_endpoint": installation_review.get(
+                    "reviewed_sleep_plasticity_endpoint"
+                ),
+                "scheduler_review_parameters": review_parameters,
+                "installed_at": installed_at.isoformat(),
+                "next_review_due_at": next_review_due_at.isoformat(),
+                "acknowledged_cycle_count": 0,
+                "last_cycle_acknowledgment": None,
+                "scheduler_configuration_revision": 0,
+                "previous_scheduler_configuration_evidence_hash": None,
+            }
+            evidence_hash = self._sha256_json(material)
+            installation = {
+                "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_installation",
+                "surface": "snn_sleep_plasticity_review_scheduler_installation.v1",
+                "available": True,
+                "ready": True,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.snn_sleep_plasticity_review_scheduler_installation",
+                "scheduler_installation_id": (
+                    f"snn-sleep-plasticity-review-scheduler-{evidence_hash[:16]}-{uuid4()}"
+                ),
+                "evidence_hash": evidence_hash,
+                **material,
+                "scheduler_installed": True,
+                "scheduler_mode": "review_only",
+                "review_due": False,
+                "advisory": True,
+                "executable": False,
+                "registers_os_timer": False,
+                "starts_background_worker": False,
+                "executes_suggested_endpoint": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "applies_plasticity": False,
+                "mutates_transition_memory": False,
+                "mutates_runtime_state": False,
+            }
+            self._snn_sleep_plasticity_review_scheduler_installations.appendleft(
+                deepcopy(installation)
+            )
+            self._runtime_state.mark_dirty_without_revision()
+            return deepcopy(installation)
+
+    def snn_sleep_plasticity_review_scheduler_runtime(
+        self,
+        *,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Expose the passive review scheduler and due-state without executing work."""
+
+        with self._lock:
+            installation = (
+                dict(self._snn_sleep_plasticity_review_scheduler_installations[0])
+                if self._snn_sleep_plasticity_review_scheduler_installations
+                else None
+            )
+            if installation is None:
+                return {
+                    "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_runtime",
+                    "surface": "snn_sleep_plasticity_review_scheduler_runtime.v1",
+                    "available": True,
+                    "ready": False,
+                    "owned_by_hecsn": True,
+                    "source": "replay_controller.snn_sleep_plasticity_review_scheduler_runtime",
+                    "scheduler_installed": False,
+                    "scheduler_mode": "review_only",
+                    "review_due": False,
+                    "executable": False,
+                    "registers_os_timer": False,
+                    "starts_background_worker": False,
+                    "executes_suggested_endpoint": False,
+                    "applies_plasticity": False,
+                    "mutates_runtime_state": False,
+                }
+            material = {
+                "installed_state_revision": int(
+                    installation.get("installed_state_revision", -1)
+                ),
+                "operator_id": installation.get("operator_id"),
+                "confirmation": bool(installation.get("confirmation")),
+                "scheduler_installation_preflight_hash": installation.get(
+                    "scheduler_installation_preflight_hash"
+                ),
+                "scheduler_design_review_ticket_id": installation.get(
+                    "scheduler_design_review_ticket_id"
+                ),
+                "scheduler_design_review_ticket_hash": installation.get(
+                    "scheduler_design_review_ticket_hash"
+                ),
+                "scheduler_design_hash": installation.get("scheduler_design_hash"),
+                "reviewed_sleep_plasticity_endpoint": installation.get(
+                    "reviewed_sleep_plasticity_endpoint"
+                ),
+                "scheduler_review_parameters": dict(
+                    installation.get("scheduler_review_parameters") or {}
+                ),
+                "installed_at": installation.get("installed_at"),
+                "next_review_due_at": installation.get("next_review_due_at"),
+                "acknowledged_cycle_count": int(
+                    installation.get("acknowledged_cycle_count", 0) or 0
+                ),
+                "last_cycle_acknowledgment": (
+                    dict(installation.get("last_cycle_acknowledgment") or {})
+                    if installation.get("last_cycle_acknowledgment")
+                    else None
+                ),
+                "scheduler_configuration_revision": int(
+                    installation.get("scheduler_configuration_revision", 0) or 0
+                ),
+                "previous_scheduler_configuration_evidence_hash": installation.get(
+                    "previous_scheduler_configuration_evidence_hash"
+                ),
+            }
+            try:
+                next_review_due_at = datetime.fromisoformat(
+                    str(installation.get("next_review_due_at") or "")
+                )
+            except ValueError:
+                next_review_due_at = datetime.min.replace(tzinfo=timezone.utc)
+            current_preflight = self.snn_sleep_plasticity_scheduler_installation_preflight(
+                limit=int(
+                    (
+                        installation.get("scheduler_review_parameters")
+                        if isinstance(
+                            installation.get("scheduler_review_parameters"),
+                            Mapping,
+                        )
+                        else {}
+                    ).get("limit", 20)
+                    or 20
+                )
+            )
+            current_preflight_provenance = (
+                current_preflight.get("provenance_evidence")
+                if isinstance(current_preflight.get("provenance_evidence"), Mapping)
+                else {}
+            )
+            verified = bool(
+                installation.get("artifact_kind")
+                == "terminus_snn_sleep_plasticity_review_scheduler_installation"
+                and installation.get("surface")
+                == "snn_sleep_plasticity_review_scheduler_installation.v1"
+                and installation.get("owned_by_hecsn")
+                and installation.get("confirmation") is True
+                and int(installation.get("installed_state_revision", -1))
+                == int(self._runtime_state.state_revision)
+                and str(installation.get("evidence_hash") or "")
+                == self._sha256_json(material)
+                and current_preflight.get("ready")
+                and str(installation.get("scheduler_installation_preflight_hash") or "")
+                == str(
+                    current_preflight_provenance.get(
+                        "scheduler_installation_preflight_hash"
+                    )
+                    or ""
+                )
+                and installation.get("scheduler_mode") == "review_only"
+                and installation.get("scheduler_installed") is True
+                and not bool(installation.get("registers_os_timer"))
+                and not bool(installation.get("starts_background_worker"))
+                and not bool(installation.get("executes_suggested_endpoint"))
+                and not bool(installation.get("records_replay_artifact"))
+                and not bool(installation.get("issues_regeneration_permit"))
+                and not bool(installation.get("writes_checkpoint"))
+                and not bool(installation.get("applies_plasticity"))
+                and not bool(installation.get("mutates_transition_memory"))
+                and not bool(installation.get("mutates_runtime_state"))
+            )
+            effective_observed_at = observed_at or datetime.now(timezone.utc)
+            review_due = bool(verified and effective_observed_at >= next_review_due_at)
+            return {
+                "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_runtime",
+                "surface": "snn_sleep_plasticity_review_scheduler_runtime.v1",
+                "available": True,
+                "ready": verified,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.snn_sleep_plasticity_review_scheduler_runtime",
+                "scheduler_installation_id": installation.get("scheduler_installation_id"),
+                "scheduler_installation_evidence_hash": installation.get(
+                    "evidence_hash"
+                ),
+                "scheduler_installed": verified,
+                "scheduler_mode": "review_only",
+                "installed_state_revision": installation.get("installed_state_revision"),
+                "installed_at": installation.get("installed_at"),
+                "next_review_due_at": installation.get("next_review_due_at"),
+                "acknowledged_cycle_count": int(
+                    installation.get("acknowledged_cycle_count", 0) or 0
+                ),
+                "last_cycle_acknowledgment": deepcopy(
+                    installation.get("last_cycle_acknowledgment")
+                ),
+                "scheduler_configuration_revision": int(
+                    installation.get("scheduler_configuration_revision", 0) or 0
+                ),
+                "previous_scheduler_configuration_evidence_hash": installation.get(
+                    "previous_scheduler_configuration_evidence_hash"
+                ),
+                "observed_at": effective_observed_at.isoformat(),
+                "review_due": review_due,
+                "reviewed_sleep_plasticity_endpoint": installation.get(
+                    "reviewed_sleep_plasticity_endpoint"
+                ),
+                "advisory": True,
+                "executable": False,
+                "registers_os_timer": False,
+                "starts_background_worker": False,
+                "executes_suggested_endpoint": False,
+                "records_replay_artifact": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "applies_plasticity": False,
+                "mutates_transition_memory": False,
+                "mutates_runtime_state": False,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_operator_review_cycle_inspection"
+                        if review_due
+                        else "waiting_for_review_cadence"
+                    ),
+                    "eligible_for_operator_review_cycle_inspection": review_due,
+                    "eligible_for_endpoint_execution": False,
+                    "eligible_for_plasticity": False,
+                },
+            }
+
+    def snn_sleep_plasticity_review_scheduler_cycle_inspection(
+        self,
+        *,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Inspect a due passive scheduler cycle without executing its reviewed gate."""
+
+        scheduler_runtime = self.snn_sleep_plasticity_review_scheduler_runtime(
+            observed_at=observed_at
+        )
+        ready = bool(
+            scheduler_runtime.get("ready")
+            and scheduler_runtime.get("scheduler_installed")
+            and scheduler_runtime.get("review_due")
+            and scheduler_runtime.get("reviewed_sleep_plasticity_endpoint")
+            and not scheduler_runtime.get("registers_os_timer")
+            and not scheduler_runtime.get("starts_background_worker")
+            and not scheduler_runtime.get("executes_suggested_endpoint")
+            and not scheduler_runtime.get("applies_plasticity")
+            and not scheduler_runtime.get("mutates_runtime_state")
+        )
+        cycle_inspection = {
+            "scheduler_installation_id": scheduler_runtime.get(
+                "scheduler_installation_id"
+            ),
+            "scheduler_installation_evidence_hash": scheduler_runtime.get(
+                "scheduler_installation_evidence_hash"
+            ),
+            "scheduler_mode": scheduler_runtime.get("scheduler_mode"),
+            "installed_state_revision": scheduler_runtime.get(
+                "installed_state_revision"
+            ),
+            "observed_at": scheduler_runtime.get("observed_at"),
+            "next_review_due_at": scheduler_runtime.get("next_review_due_at"),
+            "review_due": bool(scheduler_runtime.get("review_due")),
+            "reviewed_sleep_plasticity_endpoint": scheduler_runtime.get(
+                "reviewed_sleep_plasticity_endpoint"
+            ),
+        }
+        inspection_hash = self._sha256_json(
+            {
+                "ready": ready,
+                "cycle_inspection": cycle_inspection,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_cycle_inspection",
+            "surface": "snn_sleep_plasticity_review_scheduler_cycle_inspection.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_plasticity_review_scheduler_cycle_inspection",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "eligible_for_endpoint_execution": False,
+            "eligible_for_plasticity": False,
+            "provenance_evidence": {
+                "review_scheduler_cycle_inspection_id": (
+                    f"snn-sleep-plasticity-review-scheduler-cycle-{inspection_hash[:16]}"
+                ),
+                "review_scheduler_cycle_inspection_hash": inspection_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_review_scheduler_cycle_inspection",
+            },
+            "cycle_inspection": cycle_inspection,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_reviewed_sleep_plasticity_gate_inspection"
+                    if ready
+                    else "waiting_for_review_cadence"
+                ),
+                "eligible_for_operator_reviewed_gate_inspection": ready,
+                "eligible_for_endpoint_execution": False,
+                "eligible_for_plasticity": False,
+                "next_gate": (
+                    "operator_inspect_reviewed_sleep_plasticity_gate"
+                    if ready
+                    else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler"
+                ),
+            },
+        }
+
+    def snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+        self,
+        *,
+        scheduler_installation_id: str,
+        scheduler_installation_evidence_hash: str,
+        review_ticket_id: str,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Verify one due-cycle cadence advancement without mutating scheduler state."""
+
+        inspection = self.snn_sleep_plasticity_review_scheduler_cycle_inspection(
+            observed_at=observed_at
+        )
+        cycle = inspection.get("cycle_inspection") if isinstance(
+            inspection.get("cycle_inspection"), Mapping
+        ) else {}
+        ticket = self.verified_snn_replay_artifact_recording_review_ticket(
+            review_ticket_id
+        )
+        ticket_already_consumed = any(
+            str(
+                (
+                    item.get("last_cycle_acknowledgment")
+                    if isinstance(item.get("last_cycle_acknowledgment"), Mapping)
+                    else {}
+                ).get("acknowledged_due_cycle_review_ticket_id")
+                or ""
+            )
+            == str(review_ticket_id or "")
+            for item in self._snn_sleep_plasticity_review_scheduler_installations
+            if isinstance(item, Mapping)
+        )
+        required = {
+            "due_cycle_inspection_ready": bool(inspection.get("ready")),
+            "scheduler_installation_id_matches": bool(scheduler_installation_id)
+            and str(scheduler_installation_id)
+            == str(cycle.get("scheduler_installation_id") or ""),
+            "scheduler_installation_evidence_hash_matches": bool(
+                scheduler_installation_evidence_hash
+            )
+            and str(scheduler_installation_evidence_hash)
+            == str(cycle.get("scheduler_installation_evidence_hash") or ""),
+            "due_cycle_review_ticket_verified": ticket is not None,
+            "due_cycle_review_ticket_lineage_present": bool(
+                ticket and ticket.get("due_cycle_review_proposal_hash")
+            ),
+            "due_cycle_review_ticket_scheduler_matches": bool(ticket)
+            and str(ticket.get("scheduler_installation_id") or "")
+            == str(scheduler_installation_id or "")
+            and str(ticket.get("scheduler_installation_evidence_hash") or "")
+            == str(scheduler_installation_evidence_hash or ""),
+            "due_cycle_review_ticket_deadline_matches": bool(ticket)
+            and str(ticket.get("acknowledged_review_due_at") or "")
+            == str(cycle.get("next_review_due_at") or ""),
+            "due_cycle_review_ticket_not_consumed": not ticket_already_consumed,
+            "endpoint_execution_blocked": inspection.get(
+                "executes_suggested_endpoint"
+            )
+            is False,
+            "artifact_recording_blocked": inspection.get("records_replay_artifact")
+            is False,
+            "checkpoint_write_blocked": inspection.get("writes_checkpoint") is False,
+            "plasticity_blocked": inspection.get("applies_plasticity") is False,
+            "transition_memory_mutation_blocked": inspection.get(
+                "mutates_transition_memory"
+            )
+            is False,
+            "runtime_mutation_blocked": inspection.get("mutates_runtime_state") is False,
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "ready": ready,
+                "scheduler_installation_id": scheduler_installation_id,
+                "scheduler_installation_evidence_hash": scheduler_installation_evidence_hash,
+                "review_ticket_id": review_ticket_id,
+                "required_evidence": required,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight",
+            "surface": "snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "provenance_evidence": {
+                "cycle_acknowledgment_preflight_id": (
+                    f"snn-sleep-plasticity-cycle-ack-preflight-{preflight_hash[:16]}"
+                ),
+                "cycle_acknowledgment_preflight_hash": preflight_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_cycle_acknowledgment"
+                    if ready
+                    else "waiting_for_due_cycle_acknowledgment_evidence"
+                ),
+                "eligible_for_operator_cycle_acknowledgment": ready,
+                "eligible_for_endpoint_execution": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_plasticity": False,
+                "required_evidence": required,
+            },
+        }
+
+    def acknowledge_snn_sleep_plasticity_review_scheduler_cycle(
+        self,
+        *,
+        expected_state_revision: int,
+        scheduler_installation_id: str,
+        scheduler_installation_evidence_hash: str,
+        review_ticket_id: str,
+        operator_id: str,
+        confirmation: bool,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Advance one passive review cadence after operator inspection."""
+
+        normalized_operator_id = self._normalize_feedback_text(operator_id, max_chars=160)
+        if not confirmation:
+            raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment confirmation=true is required.")
+        if not normalized_operator_id:
+            raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment operator_id is required.")
+        if int(expected_state_revision) != int(self._runtime_state.state_revision):
+            raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires current state revision.")
+        preflight = self.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight(
+            scheduler_installation_id=scheduler_installation_id,
+            scheduler_installation_evidence_hash=scheduler_installation_evidence_hash,
+            review_ticket_id=review_ticket_id,
+            observed_at=observed_at,
+        )
+        if not preflight.get("ready"):
+            raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires current preflight evidence.")
+        inspection = self.snn_sleep_plasticity_review_scheduler_cycle_inspection(
+            observed_at=observed_at
+        )
+        cycle = (
+            inspection.get("cycle_inspection")
+            if isinstance(inspection.get("cycle_inspection"), Mapping)
+            else {}
+        )
+        provenance = inspection.get("provenance_evidence") if isinstance(
+            inspection.get("provenance_evidence"), Mapping
+        ) else {}
+        expected_inspection_hash = str(provenance.get("review_scheduler_cycle_inspection_hash") or "")
+        ticket = self.verified_snn_replay_artifact_recording_review_ticket(
+            review_ticket_id
+        )
+        if (
+            not inspection.get("ready")
+            or str(scheduler_installation_id or "")
+            != str(cycle.get("scheduler_installation_id") or "")
+            or str(scheduler_installation_evidence_hash or "")
+            != str(cycle.get("scheduler_installation_evidence_hash") or "")
+            or ticket is None
+            or not ticket.get("due_cycle_review_proposal_hash")
+            or str(ticket.get("scheduler_installation_id") or "")
+            != str(scheduler_installation_id or "")
+            or str(ticket.get("scheduler_installation_evidence_hash") or "")
+            != str(scheduler_installation_evidence_hash or "")
+            or str(ticket.get("acknowledged_review_due_at") or "")
+            != str(cycle.get("next_review_due_at") or "")
+            or inspection.get("executes_suggested_endpoint") is not False
+            or inspection.get("records_replay_artifact") is not False
+            or inspection.get("writes_checkpoint") is not False
+            or inspection.get("applies_plasticity") is not False
+            or inspection.get("mutates_transition_memory") is not False
+            or inspection.get("mutates_runtime_state") is not False
+        ):
+            raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires current due-cycle inspection evidence.")
+        acknowledged_at = observed_at or datetime.now(timezone.utc)
+        with self._lock:
+            if not self._snn_sleep_plasticity_review_scheduler_installations:
+                raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires an installed scheduler.")
+            installation = dict(
+                self._snn_sleep_plasticity_review_scheduler_installations[0]
+            )
+            if str(installation.get("scheduler_installation_id") or "") != str(
+                scheduler_installation_id or ""
+            ):
+                raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires the current scheduler installation.")
+            if str(installation.get("evidence_hash") or "") != str(
+                scheduler_installation_evidence_hash or ""
+            ):
+                raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires the current scheduler evidence hash.")
+            if any(
+                str(
+                    (
+                        item.get("last_cycle_acknowledgment")
+                        if isinstance(item.get("last_cycle_acknowledgment"), Mapping)
+                        else {}
+                    ).get("acknowledged_due_cycle_review_ticket_id")
+                    or ""
+                )
+                == str(review_ticket_id or "")
+                for item in self._snn_sleep_plasticity_review_scheduler_installations
+                if isinstance(item, Mapping)
+            ):
+                raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment ticket was already consumed.")
+            review_parameters = dict(
+                installation.get("scheduler_review_parameters") or {}
+            )
+            review_interval_seconds = float(
+                review_parameters.get("max_review_interval_seconds", 0.0) or 0.0
+            )
+            if review_interval_seconds < 60.0 or review_interval_seconds > 3600.0:
+                raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires bounded review cadence.")
+            try:
+                previous_next_review_due_at = datetime.fromisoformat(
+                    str(installation.get("next_review_due_at") or "")
+                )
+            except ValueError as exc:
+                raise ValueError("SNN sleep plasticity review scheduler cycle acknowledgment requires a valid due timestamp.") from exc
+            next_review_due_at = previous_next_review_due_at + timedelta(
+                seconds=review_interval_seconds
+            )
+            acknowledged_cycle_count = int(
+                installation.get("acknowledged_cycle_count", 0) or 0
+            ) + 1
+            acknowledgment_material = {
+                "scheduler_installation_id": installation.get(
+                    "scheduler_installation_id"
+                ),
+                "acknowledged_cycle_count": acknowledged_cycle_count,
+                "operator_id": normalized_operator_id,
+                "confirmation": True,
+                "acknowledged_at": acknowledged_at.isoformat(),
+                "review_scheduler_cycle_inspection_hash": expected_inspection_hash,
+                "acknowledged_due_cycle_review_ticket_id": ticket.get(
+                    "review_ticket_id"
+                ),
+                "acknowledged_due_cycle_review_ticket_hash": ticket.get(
+                    "evidence_hash"
+                ),
+                "previous_next_review_due_at": previous_next_review_due_at.isoformat(),
+                "next_review_due_at": next_review_due_at.isoformat(),
+            }
+            acknowledgment_hash = self._sha256_json(acknowledgment_material)
+            acknowledgment = {
+                "cycle_acknowledgment_id": (
+                    f"snn-sleep-plasticity-review-cycle-ack-{acknowledgment_hash[:16]}"
+                ),
+                "cycle_acknowledgment_hash": acknowledgment_hash,
+                **acknowledgment_material,
+            }
+            successor = deepcopy(installation)
+            successor["next_review_due_at"] = next_review_due_at.isoformat()
+            successor["acknowledged_cycle_count"] = acknowledged_cycle_count
+            successor["last_cycle_acknowledgment"] = acknowledgment
+            successor["scheduler_configuration_revision"] = int(
+                installation.get("scheduler_configuration_revision", 0) or 0
+            ) + 1
+            successor["previous_scheduler_configuration_evidence_hash"] = (
+                installation.get("evidence_hash")
+            )
+            installation_material = {
+                "installed_state_revision": int(
+                    successor.get("installed_state_revision", -1)
+                ),
+                "operator_id": successor.get("operator_id"),
+                "confirmation": bool(successor.get("confirmation")),
+                "scheduler_installation_preflight_hash": successor.get(
+                    "scheduler_installation_preflight_hash"
+                ),
+                "scheduler_design_review_ticket_id": successor.get(
+                    "scheduler_design_review_ticket_id"
+                ),
+                "scheduler_design_review_ticket_hash": successor.get(
+                    "scheduler_design_review_ticket_hash"
+                ),
+                "scheduler_design_hash": successor.get("scheduler_design_hash"),
+                "reviewed_sleep_plasticity_endpoint": successor.get(
+                    "reviewed_sleep_plasticity_endpoint"
+                ),
+                "scheduler_review_parameters": review_parameters,
+                "installed_at": successor.get("installed_at"),
+                "next_review_due_at": successor.get("next_review_due_at"),
+                "acknowledged_cycle_count": acknowledged_cycle_count,
+                "last_cycle_acknowledgment": acknowledgment,
+                "scheduler_configuration_revision": successor[
+                    "scheduler_configuration_revision"
+                ],
+                "previous_scheduler_configuration_evidence_hash": successor[
+                    "previous_scheduler_configuration_evidence_hash"
+                ],
+            }
+            successor["evidence_hash"] = self._sha256_json(installation_material)
+            self._snn_sleep_plasticity_review_scheduler_installations.appendleft(
+                deepcopy(successor)
+            )
+            self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_cycle_acknowledgment",
+                "surface": "snn_sleep_plasticity_review_scheduler_cycle_acknowledgment.v1",
+                "available": True,
+                "ready": True,
+                "owned_by_hecsn": True,
+                "source": "replay_controller.snn_sleep_plasticity_review_scheduler_cycle_acknowledgment",
+                **acknowledgment,
+                "scheduler_cadence_advanced": True,
+                "persists_scheduler_cadence_state": True,
+                "mutates_scheduler_cadence_state": True,
+                "registers_os_timer": False,
+                "starts_background_worker": False,
+                "executes_suggested_endpoint": False,
+                "records_replay_artifact": False,
+                "runs_live_replay": False,
+                "issues_regeneration_permit": False,
+                "writes_checkpoint": False,
+                "applies_plasticity": False,
+                "mutates_transition_memory": False,
+                "mutates_runtime_state": False,
+                "promotion_gate": {
+                    "status": "scheduler_review_cadence_advanced",
+                    "eligible_for_endpoint_execution": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_artifact_recording": False,
+                    "eligible_for_plasticity": False,
+                    "next_gate": "/terminus/snn-language-sequence/plasticity-sleep-policy/review-scheduler",
+                },
+            }
+
+    def snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal(
+        self,
+        *,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Expose a due reviewed-gate inspection candidate without executing it."""
+
+        inspection = self.snn_sleep_plasticity_review_scheduler_cycle_inspection(
+            observed_at=observed_at
+        )
+        cycle = (
+            inspection.get("cycle_inspection")
+            if isinstance(inspection.get("cycle_inspection"), Mapping)
+            else {}
+        )
+        inspection_provenance = (
+            inspection.get("provenance_evidence")
+            if isinstance(inspection.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        ready = bool(
+            inspection.get("ready")
+            and cycle.get("scheduler_installation_id")
+            and cycle.get("review_due")
+            and cycle.get("reviewed_sleep_plasticity_endpoint")
+            and not inspection.get("registers_os_timer")
+            and not inspection.get("starts_background_worker")
+            and not inspection.get("executes_suggested_endpoint")
+            and not inspection.get("records_replay_artifact")
+            and not inspection.get("writes_checkpoint")
+            and not inspection.get("applies_plasticity")
+            and not inspection.get("mutates_transition_memory")
+            and not inspection.get("mutates_runtime_state")
+        )
+        candidate = {
+            "candidate_id": (
+                "snn-sleep-plasticity-review-cycle:"
+                f"{str(cycle.get('scheduler_installation_id') or '')[:64]}"
+                if cycle.get("scheduler_installation_id")
+                else None
+            ),
+            "action": (
+                "inspect_reviewed_sleep_plasticity_gate"
+                if ready
+                else "wait_for_review_scheduler_cadence"
+            ),
+            "scheduler_installation_id": cycle.get("scheduler_installation_id"),
+            "scheduler_installation_evidence_hash": cycle.get(
+                "scheduler_installation_evidence_hash"
+            ),
+            "reviewed_sleep_plasticity_endpoint": cycle.get(
+                "reviewed_sleep_plasticity_endpoint"
+            ),
+            "observed_at": cycle.get("observed_at"),
+            "next_review_due_at": cycle.get("next_review_due_at"),
+            "review_due": bool(cycle.get("review_due")),
+            "endpoint_execution_allowed": False,
+            "priority_score": 1.0 if ready else 0.0,
+        }
+        proposal_hash = self._sha256_json(
+            {
+                "ready": ready,
+                "source_review_scheduler_cycle_inspection_hash": (
+                    inspection_provenance.get(
+                        "review_scheduler_cycle_inspection_hash"
+                    )
+                ),
+                "candidate": candidate,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal",
+            "surface": "snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "eligible_for_endpoint_execution": False,
+            "eligible_for_plasticity": False,
+            "provenance_evidence": {
+                "review_scheduler_cycle_autonomy_proposal_id": (
+                    f"snn-sleep-plasticity-review-cycle-autonomy-{proposal_hash[:16]}"
+                ),
+                "review_scheduler_cycle_autonomy_proposal_hash": proposal_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+                "source_review_scheduler_cycle_inspection_hash": (
+                    inspection_provenance.get(
+                        "review_scheduler_cycle_inspection_hash"
+                    )
+                ),
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_review_scheduler_cycle_autonomy_proposal",
+            },
+            "candidate": candidate,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_reviewed_sleep_plasticity_gate_inspection"
+                    if ready
+                    else "waiting_for_review_cadence"
+                ),
+                "eligible_for_autonomy_planning": ready,
+                "eligible_for_operator_reviewed_gate_inspection": ready,
+                "eligible_for_endpoint_execution": False,
+                "eligible_for_plasticity": False,
+                "next_gate": (
+                    "operator_inspect_reviewed_sleep_plasticity_gate"
+                    if ready
+                    else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler"
+                ),
+            },
+        }
+
+    def snn_due_cycle_bounded_replay_selection_proposal(
+        self,
+        *,
+        consolidation_priority_queue: Mapping[str, Any],
+        observed_at: datetime | None = None,
+        max_candidates: int = 1,
+    ) -> dict[str, Any]:
+        """Nominate current replay contexts for due sleep review without replaying them."""
+
+        cycle_proposal = (
+            self.snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal(
+                observed_at=observed_at
+            )
+        )
+        cycle_candidate = (
+            cycle_proposal.get("candidate")
+            if isinstance(cycle_proposal.get("candidate"), Mapping)
+            else {}
+        )
+        cycle_provenance = (
+            cycle_proposal.get("provenance_evidence")
+            if isinstance(cycle_proposal.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        queue = dict(consolidation_priority_queue)
+        queue_gate = (
+            queue.get("promotion_gate")
+            if isinstance(queue.get("promotion_gate"), Mapping)
+            else {}
+        )
+        requested = max(1, min(int(max_candidates), 8))
+        queue_candidates = [
+            dict(item)
+            for item in list(queue.get("candidates") or [])
+            if isinstance(item, Mapping)
+        ][:requested]
+        selected: list[dict[str, Any]] = []
+        for candidate in queue_candidates:
+            context_id = str(candidate.get("replay_evaluation_context_id") or "")
+            context = (
+                self.verified_snn_replay_evaluation_context(context_id)
+                if context_id
+                else None
+            )
+            if (
+                context is not None
+                and str(candidate.get("replay_evaluation_context_hash") or "")
+                == str(context.get("evidence_hash") or "")
+                and candidate.get("eligible_for_live_replay") is False
+                and candidate.get("eligible_for_artifact_recording") is False
+                and candidate.get("eligible_for_structural_write") is False
+            ):
+                selected.append(candidate)
+        required = {
+            "cycle_proposal_surface_available": cycle_proposal.get("surface")
+            == "snn_sleep_plasticity_review_scheduler_cycle_autonomy_proposal.v1",
+            "cycle_proposal_ready": bool(cycle_proposal.get("ready")),
+            "cycle_proposal_owned_by_hecsn": bool(cycle_proposal.get("owned_by_hecsn")),
+            "cycle_proposal_advisory": bool(cycle_proposal.get("advisory")),
+            "cycle_proposal_isolated": bool(cycle_proposal.get("isolated")),
+            "cycle_proposal_non_executable": cycle_proposal.get("executable") is False,
+            "cycle_proposal_timer_registration_blocked": cycle_proposal.get(
+                "registers_os_timer"
+            )
+            is False,
+            "cycle_proposal_background_worker_blocked": cycle_proposal.get(
+                "starts_background_worker"
+            )
+            is False,
+            "cycle_proposal_endpoint_execution_blocked": cycle_proposal.get(
+                "executes_suggested_endpoint"
+            )
+            is False,
+            "cycle_proposal_replay_recording_blocked": cycle_proposal.get(
+                "records_replay_artifact"
+            )
+            is False,
+            "cycle_proposal_plasticity_blocked": cycle_proposal.get(
+                "applies_plasticity"
+            )
+            is False,
+            "cycle_proposal_checkpoint_write_blocked": cycle_proposal.get(
+                "writes_checkpoint"
+            )
+            is False,
+            "cycle_proposal_regeneration_permit_blocked": cycle_proposal.get(
+                "issues_regeneration_permit"
+            )
+            is False,
+            "cycle_proposal_transition_memory_mutation_blocked": cycle_proposal.get(
+                "mutates_transition_memory"
+            )
+            is False,
+            "cycle_proposal_runtime_mutation_blocked": cycle_proposal.get(
+                "mutates_runtime_state"
+            )
+            is False,
+            "priority_queue_surface_available": queue.get("surface")
+            == "snn_replay_consolidation_priority_queue.v1",
+            "priority_queue_owned_by_hecsn": bool(queue.get("owned_by_hecsn")),
+            "priority_queue_advisory": bool(queue.get("advisory")),
+            "priority_queue_gate_ready": bool(
+                queue_gate.get("eligible_for_operator_consolidation_review")
+            ),
+            "priority_queue_non_executable": queue.get("executable") is False,
+            "priority_queue_live_replay_blocked": queue.get("eligible_for_live_replay")
+            is False,
+            "priority_queue_artifact_recording_blocked": queue.get(
+                "eligible_for_artifact_recording"
+            )
+            is False,
+            "priority_queue_structural_write_blocked": queue.get(
+                "eligible_for_structural_write"
+            )
+            is False,
+            "current_revision_candidate_available": bool(selected),
+        }
+        ready = all(required.values())
+        nominated = selected if ready else []
+        selection = {
+            "reviewed_sleep_plasticity_endpoint": cycle_candidate.get(
+                "reviewed_sleep_plasticity_endpoint"
+            ),
+            "scheduler_installation_id": cycle_candidate.get(
+                "scheduler_installation_id"
+            ),
+            "scheduler_installation_evidence_hash": cycle_candidate.get(
+                "scheduler_installation_evidence_hash"
+            ),
+            "acknowledged_review_due_at": cycle_candidate.get("next_review_due_at"),
+            "review_due": bool(cycle_candidate.get("review_due")),
+            "max_candidates": requested,
+            "candidate_count": len(nominated),
+            "candidates": nominated,
+        }
+        proposal_hash = self._sha256_json(
+            {
+                "ready": ready,
+                "source_review_scheduler_cycle_autonomy_proposal_hash": (
+                    cycle_provenance.get(
+                        "review_scheduler_cycle_autonomy_proposal_hash"
+                    )
+                ),
+                "source_consolidation_priority_queue_hash": self._sha256_json(queue),
+                "selection": selection,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_due_cycle_bounded_replay_selection_proposal",
+            "surface": "snn_due_cycle_bounded_replay_selection_proposal.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_due_cycle_bounded_replay_selection_proposal",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "eligible_for_endpoint_execution": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_plasticity": False,
+            "eligible_for_structural_write": False,
+            "provenance_evidence": {
+                "due_cycle_bounded_replay_selection_proposal_id": (
+                    f"snn-due-cycle-bounded-replay-selection-{proposal_hash[:16]}"
+                ),
+                "due_cycle_bounded_replay_selection_proposal_hash": proposal_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+                "source_review_scheduler_cycle_autonomy_proposal_hash": (
+                    cycle_provenance.get(
+                        "review_scheduler_cycle_autonomy_proposal_hash"
+                    )
+                ),
+                "source_consolidation_priority_queue_hash": self._sha256_json(queue),
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_due_cycle_bounded_replay_selection_proposal",
+            },
+            "selection": selection,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_sleep_replay_selection_inspection"
+                    if ready
+                    else "waiting_for_due_cycle_and_priority_evidence"
+                ),
+                "eligible_for_operator_sleep_replay_selection_inspection": ready,
+                "eligible_for_endpoint_execution": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_plasticity": False,
+                "eligible_for_structural_write": False,
+                "requires_operator_approval": ready,
+                "next_gate": (
+                    "operator_inspect_sleep_replay_selection"
+                    if ready
+                    else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/cycle-autonomy-proposal"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def snn_due_cycle_replay_artifact_recording_review_proposal(
+        self,
+        *,
+        due_cycle_selection_proposal: Mapping[str, Any],
+        artifact_recording_policy_proposal: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Bind due-cycle context selection to artifact-recording review policy."""
+
+        selection_proposal = dict(due_cycle_selection_proposal)
+        selection = (
+            selection_proposal.get("selection")
+            if isinstance(selection_proposal.get("selection"), Mapping)
+            else {}
+        )
+        selection_provenance = (
+            selection_proposal.get("provenance_evidence")
+            if isinstance(selection_proposal.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        selected_candidates = [
+            dict(item)
+            for item in list(selection.get("candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        selected = selected_candidates[0] if len(selected_candidates) == 1 else {}
+        policy_proposal = dict(artifact_recording_policy_proposal)
+        policy_review = (
+            policy_proposal.get("recommended_review")
+            if isinstance(policy_proposal.get("recommended_review"), Mapping)
+            else {}
+        )
+        policy_gate = (
+            policy_proposal.get("promotion_gate")
+            if isinstance(policy_proposal.get("promotion_gate"), Mapping)
+            else {}
+        )
+        context_id = str(selected.get("replay_evaluation_context_id") or "")
+        context = (
+            self.verified_snn_replay_evaluation_context(context_id)
+            if context_id
+            else None
+        )
+        required = {
+            "selection_surface_available": selection_proposal.get("surface")
+            == "snn_due_cycle_bounded_replay_selection_proposal.v1",
+            "selection_ready": bool(selection_proposal.get("ready")),
+            "selection_owned_by_hecsn": bool(selection_proposal.get("owned_by_hecsn")),
+            "selection_advisory": bool(selection_proposal.get("advisory")),
+            "selection_isolated": bool(selection_proposal.get("isolated")),
+            "selection_non_executable": selection_proposal.get("executable") is False,
+            "selection_timer_registration_blocked": selection_proposal.get(
+                "registers_os_timer"
+            )
+            is False,
+            "selection_background_worker_blocked": selection_proposal.get(
+                "starts_background_worker"
+            )
+            is False,
+            "selection_endpoint_execution_blocked": selection_proposal.get(
+                "executes_suggested_endpoint"
+            )
+            is False,
+            "selection_artifact_recording_blocked": selection_proposal.get(
+                "records_replay_artifact"
+            )
+            is False,
+            "selection_live_replay_blocked": selection_proposal.get("runs_live_replay")
+            is False,
+            "selection_regeneration_permit_blocked": selection_proposal.get(
+                "issues_regeneration_permit"
+            )
+            is False,
+            "selection_checkpoint_write_blocked": selection_proposal.get(
+                "writes_checkpoint"
+            )
+            is False,
+            "selection_plasticity_blocked": selection_proposal.get("applies_plasticity")
+            is False,
+            "selection_transition_memory_mutation_blocked": selection_proposal.get(
+                "mutates_transition_memory"
+            )
+            is False,
+            "selection_runtime_mutation_blocked": selection_proposal.get(
+                "mutates_runtime_state"
+            )
+            is False,
+            "exactly_one_nominated_context": len(selected_candidates) == 1,
+            "policy_surface_available": policy_proposal.get("surface")
+            == "snn_replay_artifact_recording_policy_proposal.v1",
+            "policy_ready": bool(policy_proposal.get("ready")),
+            "policy_owned_by_hecsn": bool(policy_proposal.get("owned_by_hecsn")),
+            "policy_advisory": bool(policy_proposal.get("advisory")),
+            "policy_non_executable": policy_proposal.get("executable") is False,
+            "policy_artifact_recording_blocked": policy_proposal.get(
+                "eligible_for_artifact_recording"
+            )
+            is False,
+            "policy_live_replay_blocked": policy_proposal.get("eligible_for_live_replay")
+            is False,
+            "policy_structural_write_blocked": policy_proposal.get(
+                "eligible_for_structural_write"
+            )
+            is False,
+            "policy_operator_review_gate_ready": bool(
+                policy_gate.get("eligible_for_operator_artifact_recording_review")
+            ),
+            "selection_policy_context_id_match": bool(context_id)
+            and context_id
+            == str(policy_review.get("replay_evaluation_context_id") or ""),
+            "selection_policy_context_hash_match": bool(
+                selected.get("replay_evaluation_context_hash")
+            )
+            and str(selected.get("replay_evaluation_context_hash") or "")
+            == str(policy_review.get("replay_evaluation_context_hash") or ""),
+            "context_verified_current_revision": context is not None,
+        }
+        ready = all(required.values())
+        review_target = {
+            "review_action": (
+                "operator_review_due_cycle_replay_artifact_recording"
+                if ready
+                else "wait_for_due_cycle_replay_artifact_recording_evidence"
+            ),
+            "replay_evaluation_context_id": context_id if ready else None,
+            "replay_evaluation_context_hash": (
+                selected.get("replay_evaluation_context_hash") if ready else None
+            ),
+            "recorded_state_revision": (
+                int(context.get("recorded_state_revision", -1))
+                if ready and context is not None
+                else None
+            ),
+            "priority_score": (
+                float(selected.get("priority_score", 0.0) or 0.0) if ready else 0.0
+            ),
+            "reason_codes": (
+                [str(value) for value in list(selected.get("reason_codes") or [])]
+                if ready
+                else []
+            ),
+            "scheduler_installation_id": (
+                selection.get("scheduler_installation_id") if ready else None
+            ),
+            "scheduler_installation_evidence_hash": (
+                selection.get("scheduler_installation_evidence_hash")
+                if ready
+                else None
+            ),
+            "acknowledged_review_due_at": (
+                selection.get("acknowledged_review_due_at") if ready else None
+            ),
+        }
+        proposal_hash = self._sha256_json(
+            {
+                "ready": ready,
+                "source_due_cycle_bounded_replay_selection_proposal_hash": (
+                    selection_provenance.get(
+                        "due_cycle_bounded_replay_selection_proposal_hash"
+                    )
+                ),
+                "source_artifact_recording_policy_proposal_hash": self._sha256_json(
+                    policy_proposal
+                ),
+                "review_target": review_target,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_due_cycle_replay_artifact_recording_review_proposal",
+            "surface": "snn_due_cycle_replay_artifact_recording_review_proposal.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_due_cycle_replay_artifact_recording_review_proposal",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "eligible_for_endpoint_execution": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_artifact_recording": False,
+            "eligible_for_plasticity": False,
+            "eligible_for_structural_write": False,
+            "provenance_evidence": {
+                "due_cycle_replay_artifact_recording_review_proposal_id": (
+                    f"snn-due-cycle-replay-artifact-review-{proposal_hash[:16]}"
+                ),
+                "due_cycle_replay_artifact_recording_review_proposal_hash": proposal_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+                "source_due_cycle_bounded_replay_selection_proposal_hash": (
+                    selection_provenance.get(
+                        "due_cycle_bounded_replay_selection_proposal_hash"
+                    )
+                ),
+                "source_artifact_recording_policy_proposal_hash": self._sha256_json(
+                    policy_proposal
+                ),
+            },
+            "device_evidence": {
+                "tensor_execution_required": False,
+                "cuda_applicable": False,
+                "reason": "control_plane_due_cycle_replay_artifact_recording_review_proposal",
+            },
+            "review_target": review_target,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_due_cycle_replay_artifact_recording_review"
+                    if ready
+                    else "waiting_for_due_cycle_replay_artifact_recording_evidence"
+                ),
+                "eligible_for_operator_due_cycle_replay_artifact_recording_review": ready,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity": False,
+                "eligible_for_structural_write": False,
+                "requires_operator_approval": ready,
+                "next_gate": (
+                    "operator_record_existing_replay_artifact_recording_review_ticket"
+                    if ready
+                    else "/terminus/snn-language-sequence/plasticity-sleep-policy/"
+                    "review-scheduler/due-cycle-bounded-replay-selection-proposal"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def snn_sleep_phase_separation_proposal(
+        self,
+        *,
+        due_cycle_selection_proposal: Mapping[str, Any],
+        cycle_acknowledgment_preflight: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Separate NREM-like replay nomination from REM-like stabilization review."""
+
+        selection_proposal = dict(due_cycle_selection_proposal)
+        selection = selection_proposal.get("selection") if isinstance(
+            selection_proposal.get("selection"), Mapping
+        ) else {}
+        selection_gate = selection_proposal.get("promotion_gate") if isinstance(
+            selection_proposal.get("promotion_gate"), Mapping
+        ) else {}
+        selected_candidates = [
+            dict(item)
+            for item in list(selection.get("candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        selected = selected_candidates[0] if len(selected_candidates) == 1 else {}
+        selected_context_id = str(selected.get("replay_evaluation_context_id") or "")
+        selected_context = (
+            self.verified_snn_replay_evaluation_context(selected_context_id)
+            if selected_context_id
+            else None
+        )
+        selection_provenance = selection_proposal.get("provenance_evidence") if isinstance(
+            selection_proposal.get("provenance_evidence"), Mapping
+        ) else {}
+        acknowledgment_preflight = dict(cycle_acknowledgment_preflight or {})
+        acknowledgment_gate = acknowledgment_preflight.get("promotion_gate") if isinstance(
+            acknowledgment_preflight.get("promotion_gate"), Mapping
+        ) else {}
+        nrem_ready = bool(
+            selection_proposal.get("surface")
+            == "snn_due_cycle_bounded_replay_selection_proposal.v1"
+            and selection_proposal.get("ready")
+            and selection_proposal.get("owned_by_hecsn")
+            and selection_proposal.get("advisory")
+            and selection_proposal.get("isolated")
+            and selection_proposal.get("executable") is False
+            and selection_proposal.get("executes_suggested_endpoint") is False
+            and selection_proposal.get("records_replay_artifact") is False
+            and selection_proposal.get("runs_live_replay") is False
+            and selection_proposal.get("writes_checkpoint") is False
+            and selection_proposal.get("applies_plasticity") is False
+            and selection_proposal.get("mutates_transition_memory") is False
+            and selection_proposal.get("mutates_runtime_state") is False
+            and int(selection.get("candidate_count", 0) or 0) == 1
+            and len(selected_candidates) == 1
+            and selected_context is not None
+            and str(selected.get("replay_evaluation_context_hash") or "")
+            == str(selected_context.get("evidence_hash") or "")
+            and bool(selection.get("scheduler_installation_id"))
+            and bool(selection.get("scheduler_installation_evidence_hash"))
+            and bool(selection.get("acknowledged_review_due_at"))
+        )
+        rem_ready = bool(
+            acknowledgment_preflight.get("surface")
+            == "snn_sleep_plasticity_review_scheduler_cycle_acknowledgment_preflight.v1"
+            and acknowledgment_preflight.get("ready")
+            and acknowledgment_preflight.get("owned_by_hecsn")
+            and acknowledgment_preflight.get("executable") is False
+            and acknowledgment_preflight.get("records_replay_artifact") is False
+            and acknowledgment_preflight.get("runs_live_replay") is False
+            and acknowledgment_preflight.get("applies_plasticity") is False
+            and acknowledgment_preflight.get("mutates_runtime_state") is False
+        )
+        proposal_hash = self._sha256_json(
+            {
+                "nrem_ready": nrem_ready,
+                "rem_ready": rem_ready,
+                "source_due_cycle_bounded_replay_selection_proposal_hash": (
+                    selection_provenance.get(
+                        "due_cycle_bounded_replay_selection_proposal_hash"
+                    )
+                ),
+                "selected_context_id": selected_context_id or None,
+                "selected_context_hash": selected.get(
+                    "replay_evaluation_context_hash"
+                ),
+                "scheduler_installation_id": selection.get(
+                    "scheduler_installation_id"
+                ),
+                "scheduler_installation_evidence_hash": selection.get(
+                    "scheduler_installation_evidence_hash"
+                ),
+                "acknowledged_review_due_at": selection.get(
+                    "acknowledged_review_due_at"
+                ),
+                "source_cycle_acknowledgment_preflight_hash": (
+                    (acknowledgment_preflight.get("provenance_evidence") or {}).get(
+                        "cycle_acknowledgment_preflight_hash"
+                    )
+                    if isinstance(acknowledgment_preflight.get("provenance_evidence"), Mapping)
+                    else None
+                ),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_sleep_phase_separation_proposal",
+            "surface": "snn_sleep_phase_separation_proposal.v1",
+            "available": True,
+            "ready": nrem_ready or rem_ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_sleep_phase_separation_proposal",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "provenance_evidence": {
+                "sleep_phase_separation_proposal_id": (
+                    f"snn-sleep-phase-separation-{proposal_hash[:16]}"
+                ),
+                "sleep_phase_separation_proposal_hash": proposal_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+            },
+            "nrem_like_replay_nomination": {
+                "phase": "nrem_like_replay_nomination",
+                "ready": nrem_ready,
+                "candidate_count": int(selection.get("candidate_count", 0) or 0),
+                "scheduler_installation_id": selection.get("scheduler_installation_id"),
+                "acknowledged_review_due_at": selection.get(
+                    "acknowledged_review_due_at"
+                ),
+                "next_gate": selection_gate.get("next_gate"),
+                "eligible_for_operator_replay_context_inspection": nrem_ready,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_plasticity": False,
+            },
+            "rem_like_stabilization_review": {
+                "phase": "rem_like_stabilization_review",
+                "ready": rem_ready,
+                "next_gate": acknowledgment_gate.get("next_gate"),
+                "eligible_for_operator_cycle_acknowledgment": bool(
+                    acknowledgment_gate.get("eligible_for_operator_cycle_acknowledgment")
+                ),
+                "eligible_for_homeostatic_stabilization_review": rem_ready,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_plasticity": False,
+                "status": (
+                    "ready_for_rem_like_stabilization_review"
+                    if rem_ready
+                    else "waiting_for_due_cycle_review_ticket"
+                ),
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_phase_specific_sleep_review"
+                    if nrem_ready or rem_ready
+                    else "waiting_for_due_cycle_phase_evidence"
+                ),
+                "eligible_for_nrem_like_replay_nomination_review": nrem_ready,
+                "eligible_for_rem_like_stabilization_review": rem_ready,
+                "eligible_for_endpoint_execution": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_artifact_recording": False,
+                "eligible_for_plasticity": False,
+            },
+        }
+
+    def snn_rem_like_homeostatic_stabilization_preflight(
+        self,
+        *,
+        sleep_phase_separation_proposal: Mapping[str, Any],
+        transition_memory_state: Mapping[str, Any],
+        maintenance_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Prepare REM-like stabilization review without applying maintenance."""
+
+        phase = dict(sleep_phase_separation_proposal)
+        rem_review = (
+            phase.get("rem_like_stabilization_review")
+            if isinstance(phase.get("rem_like_stabilization_review"), Mapping)
+            else {}
+        )
+        nrem_review = (
+            phase.get("nrem_like_replay_nomination")
+            if isinstance(phase.get("nrem_like_replay_nomination"), Mapping)
+            else {}
+        )
+        state = dict(transition_memory_state)
+        policy = dict(maintenance_policy or {})
+        sparse_transition_weight_count = max(
+            0,
+            int(state.get("sparse_transition_weight_count", 0) or 0),
+        )
+        homeostatic_maintenance_count = max(
+            0,
+            int(state.get("homeostatic_maintenance_count", 0) or 0),
+        )
+        regeneration_count = max(0, int(state.get("regeneration_count", 0) or 0))
+        try:
+            decay_factor = float(policy.get("decay_factor", 0.98))
+            prune_below = float(policy.get("prune_below", 0.005))
+            max_outgoing_row_mass = float(policy.get("max_outgoing_row_mass", 1.0))
+        except (TypeError, ValueError):
+            decay_factor = float("nan")
+            prune_below = float("nan")
+            max_outgoing_row_mass = float("nan")
+        maintenance_parameters_bounded = (
+            0.0 < decay_factor <= 1.0
+            and 0.0 <= prune_below <= 0.25
+            and 0.0 < max_outgoing_row_mass <= 4.0
+        )
+        post_growth_maintenance_due = bool(
+            sparse_transition_weight_count > 0
+            and regeneration_count > homeostatic_maintenance_count
+        )
+        required = {
+            "phase_surface_available": phase.get("surface")
+            == "snn_sleep_phase_separation_proposal.v1",
+            "phase_owned_by_hecsn": bool(phase.get("owned_by_hecsn")),
+            "phase_advisory": bool(phase.get("advisory")),
+            "phase_isolated": bool(phase.get("isolated")),
+            "phase_non_executable": phase.get("executable") is False,
+            "rem_like_stabilization_review_ready": bool(rem_review.get("ready")),
+            "nrem_like_replay_nomination_reviewed": bool(nrem_review.get("ready")),
+            "transition_memory_present": sparse_transition_weight_count > 0,
+            "post_growth_homeostatic_maintenance_due": post_growth_maintenance_due,
+            "maintenance_parameters_bounded": maintenance_parameters_bounded,
+            "endpoint_execution_blocked": phase.get("executes_suggested_endpoint") is False,
+            "live_replay_blocked": phase.get("runs_live_replay") is False,
+            "artifact_recording_blocked": phase.get("records_replay_artifact") is False,
+            "checkpoint_write_blocked": phase.get("writes_checkpoint") is False,
+            "plasticity_blocked": phase.get("applies_plasticity") is False,
+            "transition_memory_mutation_blocked": phase.get("mutates_transition_memory")
+            is False,
+            "runtime_mutation_blocked": phase.get("mutates_runtime_state") is False,
+        }
+        ready = all(required.values())
+        review_plan = {
+            "review_action": (
+                "operator_review_transition_memory_homeostatic_maintenance"
+                if ready
+                else "wait_for_rem_like_stabilization_evidence"
+            ),
+            "suggested_endpoint": (
+                "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance"
+                if ready
+                else None
+            ),
+            "expected_state_revision": int(self._runtime_state.state_revision),
+            "decay_factor": decay_factor if maintenance_parameters_bounded else None,
+            "prune_below": prune_below if maintenance_parameters_bounded else None,
+            "max_outgoing_row_mass": (
+                max_outgoing_row_mass if maintenance_parameters_bounded else None
+            ),
+            "requires_operator_confirmation": True,
+        }
+        preflight_hash = self._sha256_json(
+            {
+                "ready": ready,
+                "phase_hash": (
+                    (phase.get("provenance_evidence") or {}).get(
+                        "sleep_phase_separation_proposal_hash"
+                    )
+                    if isinstance(phase.get("provenance_evidence"), Mapping)
+                    else None
+                ),
+                "transition_memory": {
+                    "sparse_transition_weight_count": sparse_transition_weight_count,
+                    "homeostatic_maintenance_count": homeostatic_maintenance_count,
+                    "regeneration_count": regeneration_count,
+                },
+                "runtime_state_revision": int(self._runtime_state.state_revision),
+                "endpoint_identity": (
+                    "/terminus/snn-language-sequence/plasticity-homeostatic-maintenance"
+                ),
+                "review_plan": review_plan,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_rem_like_homeostatic_stabilization_preflight",
+            "surface": "snn_rem_like_homeostatic_stabilization_preflight.v1",
+            "available": True,
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "source": "replay_controller.snn_rem_like_homeostatic_stabilization_preflight",
+            "advisory": True,
+            "isolated": True,
+            "executable": False,
+            "registers_os_timer": False,
+            "starts_background_worker": False,
+            "executes_suggested_endpoint": False,
+            "records_replay_artifact": False,
+            "runs_live_replay": False,
+            "issues_regeneration_permit": False,
+            "writes_checkpoint": False,
+            "applies_plasticity": False,
+            "mutates_transition_memory": False,
+            "mutates_runtime_state": False,
+            "provenance_evidence": {
+                "rem_like_homeostatic_stabilization_preflight_id": (
+                    f"snn-rem-like-homeostatic-stabilization-{preflight_hash[:16]}"
+                ),
+                "rem_like_homeostatic_stabilization_preflight_hash": preflight_hash,
+                "hash_algorithm": "sha256",
+                "canonicalization": "json-sort-keys-compact-v1",
+            },
+            "transition_memory_review": {
+                "sparse_transition_weight_count": sparse_transition_weight_count,
+                "homeostatic_maintenance_count": homeostatic_maintenance_count,
+                "regeneration_count": regeneration_count,
+                "post_growth_homeostatic_maintenance_due": post_growth_maintenance_due,
+            },
+            "review_plan": review_plan,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_homeostatic_maintenance_review"
+                    if ready
+                    else "waiting_for_rem_like_stabilization_evidence"
+                ),
+                "eligible_for_operator_homeostatic_maintenance_review": ready,
+                "eligible_for_endpoint_execution": False,
+                "eligible_for_checkpoint_write": False,
+                "eligible_for_plasticity": False,
+                "required_evidence": required,
             },
         }
 
