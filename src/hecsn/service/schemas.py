@@ -272,6 +272,17 @@ class SNNLanguageReadoutDraftRequest(BaseModel):
     max_draft_terms: int = Field(6, ge=1, le=12)
 
 
+class SNNLanguageReadoutEmissionRequest(BaseModel):
+    readout_draft: dict[str, Any] = Field(..., min_length=1)
+
+
+class SNNLanguageReadoutEmissionReviewRequest(BaseModel):
+    readout_emission: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
 class SNNLanguageReadoutRolloutCandidateRequest(BaseModel):
     prediction_report: dict[str, Any] = Field(..., min_length=1)
     readout_vocabulary_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=32)
@@ -605,6 +616,27 @@ class StructuralPlasticityIsolatedEvaluationRequest(BaseModel):
     pre_snapshot: dict[str, Any] = Field(..., min_length=1)
     post_snapshot: dict[str, Any] = Field(..., min_length=1)
     rollback_policy: dict[str, Any] | None = None
+
+
+class StructuralMutationDesignRequest(BaseModel):
+    isolated_evaluation: dict[str, Any] = Field(..., min_length=1)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    max_total_edge_delta: int = Field(16, ge=1, le=64)
+
+
+class StructuralMutationPreflightRequest(BaseModel):
+    structural_mutation_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1)
+
+
+class StructuralMutationApplicationRequest(BaseModel):
+    structural_mutation_preflight: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
 
 
 class CheckpointSaveRequest(BaseModel):

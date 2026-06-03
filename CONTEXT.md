@@ -202,6 +202,21 @@ _Avoid_: applying rollout growth directly, accepting stale preflight revisions, 
 **SNN Language Transition Memory Prediction Evaluation** — the read-only gate that compares baseline sparse next-code prediction with persistent-memory-assisted prediction across grounded evaluation windows. It measures mismatch deltas, influence count, improved/worsened sequence counts, and persistent weight coverage before a readout draft can be treated as useful evidence.
 _Avoid_: claiming persistent memory helps because it exists, using one influenced prediction as utility proof, or treating evaluation as training
 
+**SNN Language Readout Emission** — the operator-visible bounded language output derived from a ready SNN Language Readout Draft. It binds emitted labels/text to the draft, readout trajectory hash, sparse prediction hash, transition-memory evaluation hash, and persistent transition-weight hash while staying read-only: it cannot promote facts/actions, become a cognition substrate, write checkpoints, apply plasticity, or claim freeform language generation.
+_Avoid_: displaying blocked drafts as output, treating emitted labels as truth, hiding freeform decoding behind readout terminology, or using emission as plasticity consent
+
+**SNN Language Readout Emission Review** — the operator-confirmed display-history record for a ready SNN Language Readout Emission. It records that bounded SNN output was reviewed, with emission/prediction/trajectory/transition-memory hashes and operator evidence, but remains separate from replay memory, plasticity consent, fact promotion, action authority, and cognition-substrate evidence.
+_Avoid_: treating display acknowledgment as learning, replay priority, truth, action approval, or permission to mutate transition memory
+
+**SNN Language Readout Emission Review History** — the operator-facing read-only inspection surface for reviewed SNN Language Readout Emissions. It may display the already-reviewed bounded text and labels with their provenance hashes, but it returns only emission-review events and cannot expose draft ledger events, rollout events, replay targets, prediction reports, transition-memory evaluations, or any mutation authority.
+_Avoid_: using display history as replay memory, training data, action/fact approval, a broad ledger export, or a source of unreviewed generated text
+
+**SNN Emission Replay Evaluation Policy** — the read-only selector that compares reviewed SNN Language Readout Emissions against internal SNN Language Readout Evidence Ledger rows. A reviewed emission can become a replay-evaluation policy candidate only when prediction, transition-memory evaluation, persistent-weight, label, and grounding evidence match an existing HECSN-owned sparse readout evidence row; display text is reduced to hashes and is not a replay source.
+_Avoid_: replaying from text history alone, accepting reviewed labels without matching sparse evidence, recording replay memory from policy output, or treating policy readiness as replay/plasticity permission
+
+**SNN Readout Emission Review History Evidence** — the compact Runtime Truth visibility summary for reviewed bounded SNN language emissions. It reports review counts, unique emission/trajectory/transition-memory counts, latest hashes, and the next operator-inspection gate without exposing raw text/labels or becoming a ledger writer, replay source, plasticity signal, fact/action authority, checkpoint command, or cognition-substrate claim.
+_Avoid_: exposing display text inside status, treating a reviewed emission as replay memory, applying plasticity from review history, or using compact Runtime Truth evidence as a substitute for the dedicated emission-review ledger
+
 **SNN Language Evaluated Prediction Provenance** — the canonical-hash binding between a sparse next-code prediction, the training window, current readout slots, persistent transition-memory weights, and the transition-memory evaluation window that tested it. A readout draft may be review-ready only when its prediction hash appears in the evaluation's memory-backed prediction hashes and the training/current/memory hashes match.
 _Avoid_: replaying a passing evaluation for an unrelated prediction, accepting hand-authored summary booleans, or treating provenance as optional metadata
 
@@ -318,8 +333,17 @@ _Avoid_: using status as the structural-plasticity artifact, hiding rollback/run
 **Isolated Structural Plasticity Evaluation** — a read-only comparison of pre/post structural snapshots after a bounded growth/prune trial outside the live runtime, available through `/terminus/subcortical-structural-plasticity/evaluate`. It reports edge deltas, spike-health delta, Runtime Truth delta, CUDA/device consistency, and rollback evidence; even when ready for operator review, it still cannot authorize structural mutation by itself.
 _Avoid_: calling concept observation, binding, grow/prune, or structural refresh from a readiness artifact
 
-**Structural Evaluation Snapshot Binding** — the hash-bound identity evidence for an Isolated Structural Plasticity Evaluation. It records canonical pre/post snapshot hashes, optional state revisions, revision-order validity, and whether a nonzero structural delta exists, while omitting raw snapshots from compact promotion evidence.
-_Avoid_: reviewing unbound snapshots, treating identical snapshots as growth/prune evidence, or exposing raw structural state in compact status
+**Structural Evaluation Snapshot Binding** — the hash-bound identity evidence for an Isolated Structural Plasticity Evaluation. It records canonical pre/post snapshot hashes, optional state revisions, revision-order validity, whether a nonzero structural delta exists, and whether rollback evidence is bound to the exact pre-snapshot hash, while omitting raw snapshots from compact promotion evidence.
+_Avoid_: reviewing unbound snapshots, treating identical snapshots as growth/prune evidence, accepting rollback evidence for a different pre-state, or exposing raw structural state in compact status
+
+**Structural Mutation Design** — the operator-confirmed read-only design after Isolated Structural Plasticity Evaluation. It binds the evaluation, pre/post snapshot hashes, rollback pre-snapshot hash, bounded edge delta, and operator confirmation into a design hash for later preflight review; it does not call growth/prune code, write checkpoints, or mutate topology.
+_Avoid_: treating design readiness as mutation authority, accepting unbound evaluation evidence, or skipping the checkpoint-backed preflight gate
+
+**Structural Mutation Preflight** — the read-only checkpoint gate after Structural Mutation Design. It recomputes the design hash, checks the expected runtime revision, requires a rollback checkpoint path and future restore verification, and still blocks direct structural mutation until the Structural Mutation Application executor receives explicit operator confirmation.
+_Avoid_: treating preflight readiness as consent, writing checkpoints during preflight, or calling growth/prune before the application executor
+
+**Structural Mutation Application** — the checkpoint-backed command path where a reviewed Structural Mutation Preflight may finally call HECSN-owned structural capacity refresh. It requires current Runtime State revision, bound design hash evidence, explicit operator confirmation, a restorable pre-mutation checkpoint, an observed concept-store structural delta, and a verified committed checkpoint; it does not load external checkpoints, use external SNN implementations as dependencies, or bypass rollback.
+_Avoid_: claiming success on no-op refresh, importing reference model code as a runtime dependency, or creating a second unverified structural write path
 
 **Path Retirement Gate** — the rule that a runtime path should be removed when it adds complexity without improving liveness, grounding, efficiency, or evidence quality. Legacy paths may exist only as short-lived migration scaffolding while replacement evidence is gathered; after the active Subcortex path exists, compatibility code is deleted rather than kept dormant. Negative regression tests and retirement notes may remain as boundary evidence, but runtime aliases, mocks, dormant compatibility APIs, and old extension points should not.
 

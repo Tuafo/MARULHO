@@ -51,6 +51,8 @@ from .schemas import (
     SNNLanguagePlasticityReplayEvaluationRequest,
     SNNLanguagePlasticityReplayExperimentRequest,
     SNNLanguageReadoutDraftRequest,
+    SNNLanguageReadoutEmissionRequest,
+    SNNLanguageReadoutEmissionReviewRequest,
     SNNLanguageReadoutLedgerRecordRequest,
     SNNLanguageReadoutPlasticityPreflightRequest,
     SNNLanguageReadoutPlasticityReplayBridgeRequest,
@@ -96,6 +98,9 @@ from .schemas import (
     SNNLanguageTrainerDryRunRequest,
     SNNLanguageTrainerEvaluationRequest,
     StructuralPlasticityIsolatedEvaluationRequest,
+    StructuralMutationApplicationRequest,
+    StructuralMutationDesignRequest,
+    StructuralMutationPreflightRequest,
     StatusResponse,
     TerminusConfigureRequest,
     TerminusRuntimeResponse,
@@ -416,6 +421,35 @@ def create_app(
             transition_memory_evaluation=request.transition_memory_evaluation,
             max_draft_terms=request.max_draft_terms,
         )
+
+    @app.post("/terminus/snn-language-sequence/readout-emission")
+    def terminus_snn_language_readout_emission(request: SNNLanguageReadoutEmissionRequest) -> dict[str, Any]:
+        return runtime.snn_language_readout_emission(
+            readout_draft=request.readout_draft,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-emission/operator-review")
+    def terminus_snn_language_readout_emission_operator_review(
+        request: SNNLanguageReadoutEmissionReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_emission_review_record(
+            readout_emission=request.readout_emission,
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+        )
+
+    @app.get("/terminus/snn-language-sequence/readout-emission/operator-review/history")
+    def terminus_snn_language_readout_emission_operator_review_history(
+        limit: int = Query(20, ge=0, le=128),
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_emission_review_history(limit=limit)
+
+    @app.get("/terminus/snn-language-sequence/readout-emission/operator-review/replay-evaluation-policy")
+    def terminus_snn_language_readout_emission_operator_review_replay_evaluation_policy(
+        limit: int = Query(12, ge=0, le=128),
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_emission_replay_evaluation_policy(limit=limit)
 
     @app.post("/terminus/snn-language-sequence/readout-rollout-candidate")
     def terminus_snn_language_readout_rollout_candidate(
@@ -1222,6 +1256,39 @@ def create_app(
             pre_snapshot=request.pre_snapshot,
             post_snapshot=request.post_snapshot,
             rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/subcortical-structural-plasticity/mutation-design")
+    def terminus_subcortical_structural_mutation_design(
+        request: StructuralMutationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.subcortical_structural_mutation_design(
+            isolated_evaluation=request.isolated_evaluation,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            max_total_edge_delta=request.max_total_edge_delta,
+        )
+
+    @app.post("/terminus/subcortical-structural-plasticity/mutation-preflight")
+    def terminus_subcortical_structural_mutation_preflight(
+        request: StructuralMutationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.subcortical_structural_mutation_preflight(
+            structural_mutation_design=request.structural_mutation_design,
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+        )
+
+    @app.post("/terminus/subcortical-structural-plasticity/mutation-application")
+    def terminus_subcortical_structural_mutation_application(
+        request: StructuralMutationApplicationRequest,
+    ) -> dict[str, Any]:
+        return runtime.subcortical_structural_mutation_application(
+            structural_mutation_preflight=request.structural_mutation_preflight,
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            checkpoint_path=request.checkpoint_path,
         )
 
     @app.get("/terminus/replay-plan", response_model=ReplayPlanResponse)

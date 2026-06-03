@@ -88,6 +88,51 @@ def _ready_rollout_replay_evaluation() -> dict[str, object]:
     }
 
 
+def _ready_emission() -> dict[str, object]:
+    emission_hash = _sha256_json({"emission": "memory pressure"})
+    trajectory_hash = _sha256_json({"trajectory": "memory pressure"})
+    prediction_hash = _sha256_json({"prediction": "memory pressure"})
+    evaluation_hash = _sha256_json({"evaluation": "memory pressure"})
+    weights_hash = _sha256_json({"weights": "memory pressure"})
+    return {
+        "surface": "snn_language_readout_emission.v1",
+        "ready": True,
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": True,
+        "decodes_text": True,
+        "generation_scope": "operator_visible_bounded_snn_readout_emission",
+        "freeform_language_generation": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "writes_checkpoint": False,
+        "promotes_fact": False,
+        "promotes_action": False,
+        "cognition_substrate": False,
+        "language_output": {
+            "text": "memory pressure",
+            "labels": ["memory pressure"],
+            "term_count": 1,
+            "max_terms": 12,
+        },
+        "emission_hash": emission_hash,
+        "emission_binding": {
+            "trajectory_hash": trajectory_hash,
+            "prediction_hash": prediction_hash,
+            "transition_memory_evaluation_hash": evaluation_hash,
+            "persistent_transition_weights_hash": weights_hash,
+        },
+        "promotion_gate": {
+            "eligible_for_operator_display": True,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+        },
+    }
+
+
 def _ready_draft_for(
     prediction_hash: str,
     evaluation_hash: str,
@@ -204,6 +249,245 @@ def test_readout_ledger_blocks_unready_or_unconfirmed_draft() -> None:
     assert unconfirmed["accepted"] is False
     assert unconfirmed["promotion_gate"]["required_evidence"]["confirmation"] is False
     assert ledger.snapshot()["summary"]["event_count"] == 0
+    assert runtime_state.dirty_state is False
+
+
+def test_readout_ledger_records_ready_emission_review_separately_from_replay_memory() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+
+    result = ledger.record_readout_emission_review(
+        readout_emission=_ready_emission(),
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    duplicate = ledger.record_readout_emission_review(
+        readout_emission=_ready_emission(),
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    snapshot = ledger.snapshot(limit=4)
+
+    assert result["accepted"] is True
+    assert result["surface"] == "snn_language_readout_emission_review_record.v1"
+    assert result["mutates_runtime_state"] is True
+    assert result["promotion_gate"]["eligible_for_operator_display_history"] is True
+    assert result["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert result["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert result["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert result["promotion_gate"]["eligible_for_action"] is False
+    assert duplicate["accepted"] is True
+    assert duplicate["duplicate"] is True
+    assert duplicate["mutates_runtime_state"] is False
+    assert snapshot["summary"]["emission_review_event_count"] == 1
+    assert snapshot["summary"]["event_count"] == 0
+    assert snapshot["summary"]["rollout_event_count"] == 0
+    assert snapshot["emission_review_events"][0]["text"] == "memory pressure"
+    assert snapshot["emission_review_events"][0]["eligible_for_replay_memory"] is False
+    assert runtime_state.state_revision == 0
+    assert runtime_state.dirty_state is True
+
+
+def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surface() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_readout_emission_review(
+        readout_emission=_ready_emission(),
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    history = ledger.emission_review_history(limit=1)
+    empty = ledger.emission_review_history(limit=0)
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert history["surface"] == "snn_language_readout_emission_review_history.v1"
+    assert history["executable"] is False
+    assert history["mutates_runtime_state"] is False
+    assert history["records_ledger_event"] is False
+    assert history["generates_text"] is False
+    assert history["decodes_text"] is False
+    assert history["exposes_reviewed_bounded_text"] is True
+    assert history["summary"]["emission_review_event_count"] == 1
+    assert history["summary"]["returned_emission_review_event_count"] == 1
+    assert len(history["emission_review_events"]) == 1
+    reviewed = history["emission_review_events"][0]
+    assert reviewed["text"] == "memory pressure"
+    assert reviewed["labels"] == ["memory pressure"]
+    assert reviewed["eligible_for_replay_memory"] is False
+    assert reviewed["eligible_for_live_replay"] is False
+    assert reviewed["eligible_for_plasticity_application"] is False
+    assert reviewed["eligible_for_fact_promotion"] is False
+    assert reviewed["eligible_for_action"] is False
+    assert history["promotion_gate"]["eligible_for_operator_display_history_inspection"] is True
+    assert history["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert history["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert history["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert history["promotion_gate"]["eligible_for_action"] is False
+    assert "events" not in history
+    assert "rollout_events" not in history
+    assert "prediction_report" not in reviewed
+    assert "transition_memory_evaluation" not in reviewed
+    assert empty["summary"]["returned_emission_review_event_count"] == 0
+    assert empty["emission_review_events"] == []
+    assert empty["promotion_gate"]["eligible_for_operator_display_history_inspection"] is False
+
+
+def test_readout_ledger_emission_review_replay_policy_requires_internal_readout_match() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_readout_emission_review(
+        readout_emission=_ready_emission(),
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    policy = ledger.emission_review_replay_evaluation_policy(limit=4)
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert policy["surface"] == "snn_language_readout_emission_replay_evaluation_policy.v1"
+    assert policy["candidate_count"] == 0
+    assert policy["unmatched_emission_review_count"] == 1
+    assert policy["internal_readout_evidence_count"] == 0
+    assert policy["promotion_gate"]["eligible_for_operator_replay_evaluation_policy_review"] is False
+    assert policy["promotion_gate"]["required_evidence"]["reviewed_emission_available"] is True
+    assert policy["promotion_gate"]["required_evidence"]["matching_internal_readout_evidence_available"] is False
+    assert policy["promotion_gate"]["required_evidence"]["display_text_not_used_as_replay_source"] is True
+    assert policy["generates_text"] is False
+    assert policy["decodes_text"] is False
+    assert policy["exposes_reviewed_bounded_text"] is False
+    assert policy["records_ledger_event"] is False
+    assert policy["runs_replay"] is False
+    assert policy["applies_plasticity"] is False
+    assert policy["mutates_runtime_state"] is False
+    assert policy["eligible_for_replay_memory"] is False
+    assert "text" not in policy["unmatched_emission_reviews"][0]
+    assert "events" not in policy
+    assert "rollout_events" not in policy
+
+
+def test_readout_ledger_emission_review_replay_policy_selects_matched_sparse_readout_evidence() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    emission = _ready_emission()
+    binding = emission["emission_binding"]  # type: ignore[index]
+    assert isinstance(binding, dict)
+    ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            str(binding["prediction_hash"]),
+            str(binding["transition_memory_evaluation_hash"]),
+            str(binding["persistent_transition_weights_hash"]),
+            ["memory pressure"],
+        ),
+        expected_state_revision=0,
+        operator_id="operator-readout",
+        confirmation=True,
+    )
+    ledger.record_readout_emission_review(
+        readout_emission=emission,
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+
+    policy = ledger.emission_review_replay_evaluation_policy(limit=4)
+
+    assert runtime_state.dirty_state is False
+    assert policy["candidate_count"] == 1
+    assert policy["ready_candidate_count"] == 1
+    assert policy["unmatched_emission_review_count"] == 0
+    assert policy["internal_readout_evidence_count"] == 1
+    candidate = policy["candidates"][0]
+    assert candidate["emission_hash"] == emission["emission_hash"]
+    assert candidate["prediction_hash"] == binding["prediction_hash"]
+    assert candidate["transition_memory_evaluation_hash"] == binding["transition_memory_evaluation_hash"]
+    assert candidate["persistent_transition_weights_hash"] == binding["persistent_transition_weights_hash"]
+    assert candidate["label_count"] == 1
+    assert candidate["all_labels_grounded"] is True
+    assert candidate["eligible_for_replay_evaluation_policy_review"] is True
+    assert candidate["eligible_for_replay_memory"] is False
+    assert candidate["eligible_for_live_replay"] is False
+    assert candidate["eligible_for_plasticity_application"] is False
+    assert candidate["eligible_for_fact_promotion"] is False
+    assert candidate["eligible_for_action"] is False
+    assert "text" not in candidate
+    assert "labels" not in candidate
+    assert policy["promotion_gate"]["eligible_for_operator_replay_evaluation_policy_review"] is True
+    assert policy["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert policy["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert policy["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert policy["promotion_gate"]["eligible_for_action"] is False
+
+
+def test_readout_ledger_blocks_unready_or_unconfirmed_emission_review() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    unready = _ready_emission()
+    promotion_gate = dict(unready["promotion_gate"])  # type: ignore[index]
+    promotion_gate["eligible_for_operator_display"] = False
+    unready["ready"] = False
+    unready["promotion_gate"] = promotion_gate
+
+    result = ledger.record_readout_emission_review(
+        readout_emission=unready,
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    unconfirmed = ledger.record_readout_emission_review(
+        readout_emission=_ready_emission(),
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=False,
+    )
+
+    assert result["accepted"] is False
+    assert result["promotion_gate"]["required_evidence"]["emission_ready"] is False
+    assert result["promotion_gate"]["eligible_for_operator_display_history"] is False
+    assert unconfirmed["accepted"] is False
+    assert unconfirmed["promotion_gate"]["required_evidence"]["confirmation"] is False
+    assert runtime_state.state_revision == 0
     assert runtime_state.dirty_state is False
 
 

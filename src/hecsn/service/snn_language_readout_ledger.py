@@ -297,12 +297,453 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
+    def record_readout_emission_review(
+        self,
+        *,
+        readout_emission: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Record operator review of bounded SNN language output without promoting it."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            emission = dict(readout_emission)
+            gate = emission.get("promotion_gate") if isinstance(emission.get("promotion_gate"), Mapping) else {}
+            binding = emission.get("emission_binding") if isinstance(emission.get("emission_binding"), Mapping) else {}
+            output = emission.get("language_output") if isinstance(emission.get("language_output"), Mapping) else {}
+            labels = [str(value) for value in list(output.get("labels") or []) if str(value)][:12]
+            required_evidence = {
+                "expected_revision_current": int(expected_state_revision) == before_revision,
+                "confirmation": bool(confirmation),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "emission_surface": emission.get("surface") == "snn_language_readout_emission.v1",
+                "emission_ready": bool(emission.get("ready")),
+                "operator_display_ready": bool(gate.get("eligible_for_operator_display")),
+                "emission_owned_by_hecsn": bool(emission.get("owned_by_hecsn")),
+                "external_dependency_absent": not bool(emission.get("external_dependency")),
+                "external_checkpoint_absent": not bool(emission.get("loads_external_checkpoint")),
+                "freeform_language_generation_absent": not bool(
+                    emission.get("freeform_language_generation")
+                ),
+                "runtime_mutation_absent": not bool(emission.get("mutates_runtime_state")),
+                "plasticity_absent": not bool(emission.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(emission.get("writes_checkpoint")),
+                "fact_promotion_absent": not bool(emission.get("promotes_fact"))
+                and not bool(gate.get("eligible_for_fact_promotion")),
+                "action_promotion_absent": not bool(emission.get("promotes_action"))
+                and not bool(gate.get("eligible_for_action")),
+                "cognition_substrate_absent": not bool(emission.get("cognition_substrate"))
+                and not bool(gate.get("eligible_for_cognition_substrate")),
+                "output_text_available": bool(str(output.get("text") or "").strip()),
+                "output_label_count_bounded": 0 < len(labels) <= 12,
+                "emission_hash_available": len(str(emission.get("emission_hash") or "")) == 64,
+                "trajectory_hash_bound": len(str(binding.get("trajectory_hash") or "")) == 64,
+                "prediction_hash_bound": len(str(binding.get("prediction_hash") or "")) == 64,
+                "transition_memory_evaluation_hash_bound": len(
+                    str(binding.get("transition_memory_evaluation_hash") or "")
+                )
+                == 64,
+                "persistent_transition_weights_hash_bound": len(
+                    str(binding.get("persistent_transition_weights_hash") or "")
+                )
+                == 64,
+            }
+            accepted = all(required_evidence.values())
+            if not accepted:
+                return self._blocked_emission_review(before_revision, required_evidence)
+
+            state = self._normalized_state()
+            event = self._emission_review_event(
+                emission=emission,
+                operator_id=str(operator_id).strip(),
+                state_revision=before_revision,
+            )
+            existing_hashes = {
+                str(item.get("emission_review_hash") or "")
+                for item in state["emission_review_events"]
+            }
+            duplicate = event["emission_review_hash"] in existing_hashes
+            if not duplicate:
+                state["emission_review_events"].appendleft(deepcopy(event))
+                state["total_emission_review_count"] = int(
+                    state.get("total_emission_review_count", 0) or 0
+                ) + 1
+                state["last_emission_reviewed_at"] = event["reviewed_at"]
+                self._store_state(state)
+                self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": "terminus_snn_language_readout_emission_review_record",
+                "surface": "snn_language_readout_emission_review_record.v1",
+                "accepted": True,
+                "duplicate": duplicate,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": not duplicate,
+                "writes_checkpoint": False,
+                "requires_operator_approval": True,
+                "operator_id": str(operator_id).strip(),
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "recorded_event": event,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": "recorded" if not duplicate else "duplicate_already_recorded",
+                    "eligible_for_operator_display_history": True,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required_evidence,
+                },
+            }
+
+    def emission_review_history(
+        self,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Inspect reviewed bounded SNN emissions without widening the ledger."""
+
+        with self._lock:
+            state = self._normalized_state()
+            count = max(0, min(int(limit), self._limit))
+            events = list(state["emission_review_events"])[:count] if count > 0 else []
+            reviewed_events: list[dict[str, Any]] = []
+            unique_emission_hashes: set[str] = set()
+            unique_trajectory_hashes: set[str] = set()
+            unique_transition_hashes: set[str] = set()
+            for index, event in enumerate(events):
+                emission_hash = str(event.get("emission_hash") or "")
+                trajectory_hash = str(event.get("trajectory_hash") or "")
+                transition_hash = str(
+                    event.get("persistent_transition_weights_hash") or ""
+                )
+                if emission_hash:
+                    unique_emission_hashes.add(emission_hash)
+                if trajectory_hash:
+                    unique_trajectory_hashes.add(trajectory_hash)
+                if transition_hash:
+                    unique_transition_hashes.add(transition_hash)
+                labels = [
+                    str(value)
+                    for value in list(event.get("labels") or [])
+                    if str(value)
+                ]
+                text = str(event.get("text") or "")
+                reviewed_events.append(
+                    {
+                        "history_index": index,
+                        "emission_review_hash": event.get("emission_review_hash"),
+                        "emission_review_id": event.get("emission_review_id"),
+                        "reviewed_at": event.get("reviewed_at"),
+                        "state_revision": event.get("state_revision"),
+                        "operator_id": event.get("operator_id"),
+                        "emission_hash": emission_hash,
+                        "trajectory_hash": trajectory_hash,
+                        "prediction_hash": event.get("prediction_hash"),
+                        "transition_memory_evaluation_hash": event.get(
+                            "transition_memory_evaluation_hash"
+                        ),
+                        "persistent_transition_weights_hash": transition_hash,
+                        "text": text,
+                        "labels": labels,
+                        "text_hash": self._sha256_json({"text": text, "labels": labels}),
+                        "label_count": len(labels),
+                        "text_length": len(text),
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                    }
+                )
+
+            available = bool(reviewed_events)
+            return {
+                "artifact_kind": "terminus_snn_language_readout_emission_review_history",
+                "surface": "snn_language_readout_emission_review_history.v1",
+                "source": "service.snn_language_readout_ledger.emission_review_history",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "exposes_reviewed_bounded_text": True,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "limit": count,
+                "summary": {
+                    "emission_review_event_count": len(state["emission_review_events"]),
+                    "returned_emission_review_event_count": len(reviewed_events),
+                    "total_emission_review_count": int(
+                        state.get(
+                            "total_emission_review_count",
+                            len(state["emission_review_events"]),
+                        )
+                        or 0
+                    ),
+                    "unique_emission_count": len(unique_emission_hashes),
+                    "unique_trajectory_count": len(unique_trajectory_hashes),
+                    "unique_transition_memory_count": len(unique_transition_hashes),
+                    "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+                },
+                "emission_review_events": reviewed_events,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_operator_display_history_inspection"
+                        if available
+                        else "blocked_missing_reviewed_snn_language_emission"
+                    ),
+                    "eligible_for_operator_display_history_inspection": available,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "operator_review_snn_emission_history_to_replay_evaluation_policy"
+                        if available
+                        else "snn_language_readout_emission_review_record.v1"
+                    ),
+                    "required_evidence": {
+                        "reviewed_emission_available": available,
+                        "bounded_display_text_available": any(
+                            bool(str(item.get("text") or "").strip())
+                            for item in reviewed_events
+                        ),
+                        "broader_ledger_events_absent": True,
+                        "runtime_mutation_absent": True,
+                        "endpoint_execution_absent": True,
+                        "ledger_recording_absent": True,
+                        "checkpoint_write_absent": True,
+                        "replay_memory_promotion_absent": True,
+                        "plasticity_application_absent": True,
+                        "fact_promotion_absent": True,
+                        "action_promotion_absent": True,
+                        "cognition_substrate_absent": True,
+                    },
+                },
+            }
+
+    def emission_review_replay_evaluation_policy(
+        self,
+        *,
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        """Select reviewed emissions for replay review only when sparse evidence matches."""
+
+        with self._lock:
+            state = self._normalized_state()
+            count = max(0, min(int(limit), self._limit))
+            review_events = (
+                list(state["emission_review_events"])[:count] if count > 0 else []
+            )
+            readout_events = [dict(item) for item in list(state["events"])]
+            readout_by_binding: dict[tuple[str, str, str, tuple[str, ...]], dict[str, Any]] = {}
+            for event in readout_events:
+                labels = tuple(str(value) for value in list(event.get("labels") or []))
+                key = (
+                    str(event.get("prediction_hash") or ""),
+                    str(event.get("transition_memory_evaluation_hash") or ""),
+                    str(event.get("persistent_transition_weights_hash") or ""),
+                    labels,
+                )
+                if all(key[:3]) and labels:
+                    readout_by_binding.setdefault(key, dict(event))
+
+            candidates: list[dict[str, Any]] = []
+            unmatched_reviews: list[dict[str, Any]] = []
+            for index, review in enumerate(review_events):
+                labels = tuple(str(value) for value in list(review.get("labels") or []))
+                key = (
+                    str(review.get("prediction_hash") or ""),
+                    str(review.get("transition_memory_evaluation_hash") or ""),
+                    str(review.get("persistent_transition_weights_hash") or ""),
+                    labels,
+                )
+                readout = readout_by_binding.get(key)
+                if readout is None:
+                    unmatched_reviews.append(
+                        {
+                            "history_index": index,
+                            "emission_review_hash": review.get("emission_review_hash"),
+                            "emission_hash": review.get("emission_hash"),
+                            "prediction_hash": review.get("prediction_hash"),
+                            "transition_memory_evaluation_hash": review.get(
+                                "transition_memory_evaluation_hash"
+                            ),
+                            "persistent_transition_weights_hash": review.get(
+                                "persistent_transition_weights_hash"
+                            ),
+                            "label_count": len(labels),
+                            "reason": "missing_matching_internal_readout_evidence",
+                        }
+                    )
+                    continue
+                label_grounding = [
+                    bool(value) for value in list(readout.get("label_grounding") or [])
+                ]
+                grounded = bool(label_grounding) and all(label_grounding)
+                text = str(review.get("text") or "")
+                candidate_material = {
+                    "emission_review_hash": review.get("emission_review_hash"),
+                    "emission_hash": review.get("emission_hash"),
+                    "readout_evidence_hash": readout.get("readout_evidence_hash"),
+                    "prediction_hash": review.get("prediction_hash"),
+                    "transition_memory_evaluation_hash": review.get(
+                        "transition_memory_evaluation_hash"
+                    ),
+                    "persistent_transition_weights_hash": review.get(
+                        "persistent_transition_weights_hash"
+                    ),
+                    "labels": list(labels),
+                    "grounded": grounded,
+                }
+                candidates.append(
+                    {
+                        "rank": len(candidates) + 1,
+                        "emission_review_hash": review.get("emission_review_hash"),
+                        "emission_hash": review.get("emission_hash"),
+                        "readout_evidence_hash": readout.get("readout_evidence_hash"),
+                        "readout_evidence_id": readout.get("readout_evidence_id"),
+                        "prediction_hash": review.get("prediction_hash"),
+                        "transition_memory_evaluation_hash": review.get(
+                            "transition_memory_evaluation_hash"
+                        ),
+                        "persistent_transition_weights_hash": review.get(
+                            "persistent_transition_weights_hash"
+                        ),
+                        "label_count": len(labels),
+                        "label_hash": self._sha256_json(list(labels)),
+                        "text_hash": self._sha256_json(
+                            {"text": text, "labels": list(labels)}
+                        ),
+                        "all_labels_grounded": grounded,
+                        "candidate_hash": self._sha256_json(candidate_material),
+                        "source_history_index": index,
+                        "eligible_for_replay_evaluation_policy_review": grounded,
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                    }
+                )
+
+            ready_candidates = [
+                candidate
+                for candidate in candidates
+                if bool(candidate.get("eligible_for_replay_evaluation_policy_review"))
+            ]
+            ready = bool(ready_candidates)
+            return {
+                "artifact_kind": "terminus_snn_language_readout_emission_replay_evaluation_policy",
+                "surface": "snn_language_readout_emission_replay_evaluation_policy.v1",
+                "source": "service.snn_language_readout_ledger.emission_review_replay_evaluation_policy",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "exposes_reviewed_bounded_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "limit": count,
+                "candidate_count": len(candidates),
+                "ready_candidate_count": len(ready_candidates),
+                "unmatched_emission_review_count": len(unmatched_reviews),
+                "internal_readout_evidence_count": len(readout_events),
+                "candidates": candidates,
+                "unmatched_emission_reviews": unmatched_reviews,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_operator_replay_evaluation_policy_review"
+                        if ready
+                        else "blocked_missing_internal_readout_evidence"
+                    ),
+                    "eligible_for_operator_replay_evaluation_policy_review": ready,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "operator_review_snn_emission_replay_evaluation_design"
+                        if ready
+                        else "snn_language_readout_evidence_ledger_record.v1"
+                    ),
+                    "required_evidence": {
+                        "reviewed_emission_available": bool(review_events),
+                        "matching_internal_readout_evidence_available": ready,
+                        "display_text_not_used_as_replay_source": True,
+                        "all_labels_grounded": all(
+                            bool(candidate.get("all_labels_grounded"))
+                            for candidate in candidates
+                        )
+                        if candidates
+                        else False,
+                        "runtime_mutation_absent": True,
+                        "endpoint_execution_absent": True,
+                        "ledger_recording_absent": True,
+                        "checkpoint_write_absent": True,
+                        "replay_memory_promotion_absent": True,
+                        "plasticity_application_absent": True,
+                        "fact_promotion_absent": True,
+                        "action_promotion_absent": True,
+                        "cognition_substrate_absent": True,
+                    },
+                },
+            }
+
     def snapshot(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
             state = self._normalized_state()
             count = max(0, int(limit))
             events = list(state["events"])[:count] if count > 0 else []
             rollout_events = list(state["rollout_events"])[:count] if count > 0 else []
+            emission_review_events = (
+                list(state["emission_review_events"])[:count] if count > 0 else []
+            )
             prediction_hashes = {
                 str(item.get("prediction_hash") or "")
                 for item in state["events"]
@@ -325,17 +766,25 @@ class SNNLanguageReadoutEvidenceLedger:
                 "summary": {
                     "event_count": len(state["events"]),
                     "rollout_event_count": len(state["rollout_events"]),
+                    "emission_review_event_count": len(state["emission_review_events"]),
                     "total_recorded_count": int(state.get("total_recorded_count", 0) or 0),
                     "total_rollout_recorded_count": int(
                         state.get("total_rollout_recorded_count", 0) or 0
+                    ),
+                    "total_emission_review_count": int(
+                        state.get("total_emission_review_count", 0) or 0
                     ),
                     "unique_prediction_count": len(prediction_hashes),
                     "unique_transition_memory_count": len(transition_memory_hashes),
                     "last_recorded_at": state.get("last_recorded_at"),
                     "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
+                    "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
                 },
                 "events": [deepcopy(item) for item in events],
                 "rollout_events": [deepcopy(item) for item in rollout_events],
+                "emission_review_events": [
+                    deepcopy(item) for item in emission_review_events
+                ],
             }
 
     def replay_priority(self, *, limit: int = 12) -> dict[str, Any]:
@@ -4038,6 +4487,39 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
+    def _blocked_emission_review(
+        self,
+        before_revision: int,
+        required_evidence: Mapping[str, bool],
+    ) -> dict[str, Any]:
+        return {
+            "artifact_kind": "terminus_snn_language_readout_emission_review_record",
+            "surface": "snn_language_readout_emission_review_record.v1",
+            "accepted": False,
+            "duplicate": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "before": {"state_revision": before_revision},
+            "after": self._runtime_state.mutation_summary(),
+            "promotion_gate": {
+                "status": "blocked_missing_review_ready_readout_emission",
+                "eligible_for_operator_display_history": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": dict(required_evidence),
+            },
+        }
+
     def _ledger_event(
         self,
         *,
@@ -4092,6 +4574,52 @@ class SNNLanguageReadoutEvidenceLedger:
             "generation_scope": draft.get("generation_scope"),
             "freeform_language_generation": False,
             "eligible_for_cognition_substrate": False,
+            "material_hash_algorithm": "sha256_canonical_json",
+        }
+
+    def _emission_review_event(
+        self,
+        *,
+        emission: Mapping[str, Any],
+        operator_id: str,
+        state_revision: int,
+    ) -> dict[str, Any]:
+        output = emission.get("language_output") if isinstance(emission.get("language_output"), Mapping) else {}
+        binding = emission.get("emission_binding") if isinstance(emission.get("emission_binding"), Mapping) else {}
+        labels = [str(value) for value in list(output.get("labels") or []) if str(value)][:12]
+        text = str(output.get("text") or "").strip()
+        material = {
+            "emission_hash": emission.get("emission_hash"),
+            "text": text,
+            "labels": labels,
+            "trajectory_hash": binding.get("trajectory_hash"),
+            "prediction_hash": binding.get("prediction_hash"),
+            "transition_memory_evaluation_hash": binding.get("transition_memory_evaluation_hash"),
+            "persistent_transition_weights_hash": binding.get("persistent_transition_weights_hash"),
+            "state_revision": int(state_revision),
+        }
+        review_hash = self._sha256_json(material)
+        return {
+            "emission_review_hash": review_hash,
+            "emission_review_id": f"snn-readout-emission-review:{review_hash[:16]}",
+            "reviewed_at": datetime.now(timezone.utc).isoformat(),
+            "state_revision": int(state_revision),
+            "operator_id": operator_id,
+            "emission_hash": material["emission_hash"],
+            "trajectory_hash": material["trajectory_hash"],
+            "prediction_hash": material["prediction_hash"],
+            "transition_memory_evaluation_hash": material["transition_memory_evaluation_hash"],
+            "persistent_transition_weights_hash": material["persistent_transition_weights_hash"],
+            "text": text,
+            "labels": labels,
+            "term_count": len(labels),
+            "generation_scope": emission.get("generation_scope"),
+            "freeform_language_generation": False,
+            "eligible_for_replay_memory": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
             "material_hash_algorithm": "sha256_canonical_json",
         }
 
@@ -4305,6 +4833,7 @@ class SNNLanguageReadoutEvidenceLedger:
         state = self._ledger_state()
         raw_events = list(state.get("events") or [])
         raw_rollout_events = list(state.get("rollout_events") or [])
+        raw_emission_review_events = list(state.get("emission_review_events") or [])
         events = deque(
             (deepcopy(dict(item)) for item in raw_events if isinstance(item, Mapping)),
             maxlen=self._limit,
@@ -4313,15 +4842,28 @@ class SNNLanguageReadoutEvidenceLedger:
             (deepcopy(dict(item)) for item in raw_rollout_events if isinstance(item, Mapping)),
             maxlen=self._limit,
         )
+        emission_review_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_emission_review_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
         return {
             "events": events,
             "rollout_events": rollout_events,
+            "emission_review_events": emission_review_events,
             "total_recorded_count": int(state.get("total_recorded_count", len(events)) or 0),
             "total_rollout_recorded_count": int(
                 state.get("total_rollout_recorded_count", len(rollout_events)) or 0
             ),
+            "total_emission_review_count": int(
+                state.get("total_emission_review_count", len(emission_review_events)) or 0
+            ),
             "last_recorded_at": state.get("last_recorded_at"),
             "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
+            "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
         }
 
     def _known_readout_evidence_hashes(self) -> set[str]:
@@ -4345,12 +4887,20 @@ class SNNLanguageReadoutEvidenceLedger:
             deepcopy(item)
             for item in list(normalized.get("rollout_events") or [])[: self._limit]
         ]
+        state["emission_review_events"] = [
+            deepcopy(item)
+            for item in list(normalized.get("emission_review_events") or [])[: self._limit]
+        ]
         state["total_recorded_count"] = int(normalized.get("total_recorded_count", 0) or 0)
         state["total_rollout_recorded_count"] = int(
             normalized.get("total_rollout_recorded_count", 0) or 0
         )
+        state["total_emission_review_count"] = int(
+            normalized.get("total_emission_review_count", 0) or 0
+        )
         state["last_recorded_at"] = normalized.get("last_recorded_at")
         state["last_rollout_recorded_at"] = normalized.get("last_rollout_recorded_at")
+        state["last_emission_reviewed_at"] = normalized.get("last_emission_reviewed_at")
 
     @staticmethod
     def _sha256_json(value: Any) -> str:

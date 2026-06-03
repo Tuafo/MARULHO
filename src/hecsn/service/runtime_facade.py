@@ -80,6 +80,18 @@ class RuntimeFacade:
     def snn_language_readout_draft(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_readout_draft(**kwargs)
 
+    def snn_language_readout_emission(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_readout_emission(**kwargs)
+
+    def snn_language_readout_emission_review_record(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.record_readout_emission_review(**kwargs)
+
+    def snn_language_readout_emission_review_history(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.emission_review_history(**kwargs)
+
+    def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
+
     def snn_language_readout_rollout_candidate(self, **kwargs: Any) -> dict[str, Any]:
         state = dict(self.snn_language_plasticity_runtime_state())
         state["transition_memory_state_source"] = (
@@ -835,6 +847,15 @@ class RuntimeFacade:
 
     def subcortical_structural_plasticity_isolated_evaluation(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.subcortical_structural_plasticity_isolated_evaluation(**kwargs)
+
+    def subcortical_structural_mutation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_structural_mutation_design(**kwargs)
+
+    def subcortical_structural_mutation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.subcortical_structural_mutation_preflight(**kwargs)
+
+    def subcortical_structural_mutation_application(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._structural_mutation_executor.apply_subcortical_structural_mutation(**kwargs)
 
     def checkpoint_list(self) -> list[dict[str, Any]]:
         return self._root._runtime_persistence.checkpoint_list()

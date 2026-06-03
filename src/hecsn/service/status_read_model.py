@@ -34,10 +34,13 @@ from hecsn.semantics import (
     build_snn_language_training_readiness_surface,
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
+    build_subcortical_structural_mutation_design,
+    build_subcortical_structural_mutation_preflight,
     build_subcortical_structural_plasticity_surface,
     build_spike_language_plasticity_application_design,
     build_spike_language_plasticity_pressure,
     build_spike_language_plasticity_shadow_delta,
+    build_snn_language_readout_emission,
     build_snn_language_transition_memory_sleep_policy,
     build_snn_language_transition_memory_prediction_evaluation,
     build_snn_language_transition_memory_regeneration_proposal,
@@ -699,6 +702,9 @@ class StatusReadModel:
         snn_readout_rollout_consolidation_path = (
             self._snn_readout_rollout_consolidation_path()
         )
+        snn_readout_emission_review_history = (
+            self._snn_readout_emission_review_history()
+        )
         snn_readout_applied_synapse_provenance = (
             self._snn_readout_applied_synapse_provenance()
         )
@@ -847,6 +853,9 @@ class StatusReadModel:
                 "snn_readout_rollout_consolidation_path": (
                     snn_readout_rollout_consolidation_path
                 ),
+                "snn_readout_emission_review_history": (
+                    snn_readout_emission_review_history
+                ),
                 "snn_readout_applied_synapse_provenance": (
                     snn_readout_applied_synapse_provenance
                 ),
@@ -857,6 +866,122 @@ class StatusReadModel:
                 "snn_due_cycle_bounded_replay_selection_gate": (
                     snn_due_cycle_bounded_replay_selection_gate
                 ),
+            },
+        }
+
+    def _snn_readout_emission_review_history(self) -> dict[str, Any]:
+        """Summarize reviewed bounded SNN emissions without exposing text or mutating."""
+
+        state = (
+            self._readout_ledger_state_fn()
+            if self._readout_ledger_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        events = [
+            dict(item)
+            for item in list(state.get("emission_review_events") or [])
+            if isinstance(item, Mapping)
+        ]
+        emission_hashes = sorted(
+            {
+                str(item.get("emission_hash") or "")
+                for item in events
+                if str(item.get("emission_hash") or "")
+            }
+        )
+        trajectory_hashes = sorted(
+            {
+                str(item.get("trajectory_hash") or "")
+                for item in events
+                if str(item.get("trajectory_hash") or "")
+            }
+        )
+        transition_hashes = sorted(
+            {
+                str(item.get("persistent_transition_weights_hash") or "")
+                for item in events
+                if str(item.get("persistent_transition_weights_hash") or "")
+            }
+        )
+        latest = events[0] if events else {}
+        review_available = bool(events)
+        promotion_status = (
+            "ready_for_operator_display_history_inspection"
+            if review_available
+            else "waiting_for_reviewed_snn_language_emission"
+        )
+        return {
+            "surface": "snn_readout_emission_review_history_evidence.v1",
+            "artifact_kind": "terminus_snn_readout_emission_review_history_evidence",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "writes_checkpoint": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "exposes_raw_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "emission_review_event_count": len(events),
+            "total_emission_review_count": int(
+                state.get("total_emission_review_count", len(events)) or 0
+            ),
+            "unique_emission_count": len(emission_hashes),
+            "unique_trajectory_count": len(trajectory_hashes),
+            "unique_transition_memory_count": len(transition_hashes),
+            "latest_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+            "latest_emission_review_hash": latest.get("emission_review_hash"),
+            "latest_emission_hash": latest.get("emission_hash"),
+            "latest_trajectory_hash": latest.get("trajectory_hash"),
+            "latest_transition_memory_hash": latest.get(
+                "persistent_transition_weights_hash"
+            ),
+            "next_gate": (
+                "GET /terminus/snn-language-sequence/readout-emission/operator-review/history"
+                if review_available
+                else "snn_language_readout_emission_review_record.v1"
+            ),
+            "promotion_status": promotion_status,
+            "eligible_for_operator_display_history_inspection": review_available,
+            "eligible_for_replay_memory": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": promotion_status,
+                "eligible_for_operator_display_history_inspection": review_available,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "reviewed_emission_available": review_available,
+                    "raw_text_exposure_absent": True,
+                    "runtime_mutation_absent": True,
+                    "endpoint_execution_absent": True,
+                    "ledger_recording_absent": True,
+                    "checkpoint_write_absent": True,
+                    "freeform_language_generation_absent": True,
+                    "replay_memory_promotion_absent": True,
+                    "plasticity_application_absent": True,
+                    "fact_promotion_absent": True,
+                    "action_promotion_absent": True,
+                },
             },
         }
 
@@ -2005,6 +2130,47 @@ class StatusReadModel:
             ),
         )
 
+    def subcortical_structural_mutation_design(
+        self,
+        isolated_evaluation: Mapping[str, Any],
+        *,
+        operator_id: str | None = None,
+        confirmation: bool = False,
+        max_total_edge_delta: int = 16,
+    ) -> dict[str, Any]:
+        """Build read-only structural mutation design evidence."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_subcortical_structural_mutation_design(
+                isolated_evaluation,
+                operator_id=operator_id,
+                confirmation=confirmation,
+                max_total_edge_delta=max_total_edge_delta,
+            ),
+        )
+
+    def subcortical_structural_mutation_preflight(
+        self,
+        structural_mutation_design: Mapping[str, Any],
+        *,
+        expected_state_revision: int,
+        checkpoint_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Build read-only checkpoint preflight for a structural mutation design."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_subcortical_structural_mutation_preflight(
+                structural_mutation_design,
+                expected_state_revision=expected_state_revision,
+                current_state_revision=int(self._runtime_state.state_revision),
+                checkpoint_path=checkpoint_path,
+            ),
+        )
+
     def snn_language_training_readiness(
         self,
         heldout_evaluation: Mapping[str, Any],
@@ -2163,6 +2329,18 @@ class StatusReadModel:
                 transition_memory_evaluation,
                 max_draft_terms=max_draft_terms,
             ),
+        )
+
+    def snn_language_readout_emission(
+        self,
+        readout_draft: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Build an operator-visible bounded SNN readout emission without mutation."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: build_snn_language_readout_emission(readout_draft),
         )
 
     def snn_language_readout_rollout_candidate(

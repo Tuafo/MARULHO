@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 from functools import partial
 from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -382,6 +383,64 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             "replay_targets",
         ):
             self.assertNotIn(forbidden_key, status_consolidation_path)
+        status_emission_review_history = status_truth["evidence"][
+            "snn_readout_emission_review_history"
+        ]
+        terminus_emission_review_history = terminus_truth["evidence"][
+            "snn_readout_emission_review_history"
+        ]
+        self.assertEqual(
+            status_emission_review_history["artifact_kind"],
+            "terminus_snn_readout_emission_review_history_evidence",
+        )
+        self.assertEqual(
+            status_emission_review_history["surface"],
+            "snn_readout_emission_review_history_evidence.v1",
+        )
+        self.assertTrue(status_emission_review_history["owned_by_hecsn"])
+        self.assertFalse(status_emission_review_history["external_dependency"])
+        self.assertTrue(status_emission_review_history["advisory"])
+        self.assertFalse(status_emission_review_history["executable"])
+        self.assertFalse(status_emission_review_history["calls_endpoint"])
+        self.assertFalse(status_emission_review_history["records_ledger_event"])
+        self.assertFalse(status_emission_review_history["runs_replay"])
+        self.assertFalse(status_emission_review_history["writes_checkpoint"])
+        self.assertFalse(status_emission_review_history["generates_text"])
+        self.assertFalse(status_emission_review_history["decodes_text"])
+        self.assertFalse(status_emission_review_history["exposes_raw_text"])
+        self.assertFalse(status_emission_review_history["freeform_language_generation"])
+        self.assertFalse(status_emission_review_history["applies_plasticity"])
+        self.assertFalse(status_emission_review_history["mutates_runtime_state"])
+        self.assertFalse(status_emission_review_history["eligible_for_replay_memory"])
+        self.assertFalse(status_emission_review_history["eligible_for_live_replay"])
+        self.assertFalse(
+            status_emission_review_history["eligible_for_plasticity_application"]
+        )
+        self.assertFalse(status_emission_review_history["eligible_for_fact_promotion"])
+        self.assertFalse(status_emission_review_history["eligible_for_action"])
+        self.assertEqual(
+            terminus_emission_review_history["artifact_kind"],
+            status_emission_review_history["artifact_kind"],
+        )
+        self.assertEqual(
+            terminus_emission_review_history["surface"],
+            status_emission_review_history["surface"],
+        )
+        self.assertEqual(
+            terminus_emission_review_history["emission_review_event_count"],
+            status_emission_review_history["emission_review_event_count"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "language_output",
+            "emission_review_events",
+        ):
+            self.assertNotIn(forbidden_key, status_emission_review_history)
         status_applied_provenance = status_truth["evidence"][
             "snn_readout_applied_synapse_provenance"
         ]
@@ -488,6 +547,32 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "device_evidence": {"device": "cpu", "source": "service_api_readout_draft"},
                         "transition_memory_evaluation": transition_memory_evaluation,
                         "max_draft_terms": 4,
+                    },
+                )
+                emission_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission",
+                    json={"readout_draft": response.json()},
+                )
+                emission_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review",
+                    json={
+                        "readout_emission": emission_response.json(),
+                        "expected_state_revision": status_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
+                emission_review_history_response = client.get(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review/history",
+                    params={"limit": 4},
+                )
+                blocked_emission_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review",
+                    json={
+                        "readout_emission": emission_response.json(),
+                        "expected_state_revision": status_response.json()["state_revision"],
+                        "operator_id": "operator-test",
+                        "confirmation": False,
                     },
                 )
                 rollout_response = client.post(
@@ -663,6 +748,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "max_draft_terms": 4,
                     },
                 )
+                pending_emission_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission",
+                    json={"readout_draft": pending_evaluation_response.json()},
+                )
                 blocked_record_response = client.post(
                     "/terminus/snn-language-sequence/readout-ledger/record",
                     json={
@@ -680,6 +769,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "operator_id": "operator-test",
                         "confirmation": True,
                     },
+                )
+                emission_replay_policy_response = client.get(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review/replay-evaluation-policy",
+                    params={"limit": 4},
                 )
                 ledger_response = client.get("/terminus/snn-language-sequence/readout-ledger")
                 replay_priority_response = client.get(
@@ -877,6 +970,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(emission_response.status_code, 200)
+        self.assertEqual(emission_review_response.status_code, 200)
+        self.assertEqual(emission_review_history_response.status_code, 200)
+        self.assertEqual(blocked_emission_review_response.status_code, 200)
         self.assertEqual(rollout_response.status_code, 200)
         self.assertEqual(rollout_replay_evaluation_response.status_code, 200)
         self.assertEqual(rollout_record_response.status_code, 200)
@@ -894,8 +991,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(rollout_regeneration_application_preflight_response.status_code, 200)
         self.assertEqual(rollout_regeneration_application_response.status_code, 200)
         self.assertEqual(pending_evaluation_response.status_code, 200)
+        self.assertEqual(pending_emission_response.status_code, 200)
         self.assertEqual(blocked_record_response.status_code, 200)
         self.assertEqual(record_response.status_code, 200)
+        self.assertEqual(emission_replay_policy_response.status_code, 200)
         self.assertEqual(ledger_response.status_code, 200)
         self.assertEqual(replay_priority_response.status_code, 200)
         self.assertEqual(rehearsal_evaluation_response.status_code, 200)
@@ -922,9 +1021,15 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(restored_ledger_response.status_code, 200)
         self.assertEqual(restored_replay_priority_response.status_code, 200)
         body = response.json()
+        emission = emission_response.json()
+        emission_review = emission_review_response.json()
+        emission_review_history = emission_review_history_response.json()
+        blocked_emission_review = blocked_emission_review_response.json()
         pending_evaluation_body = pending_evaluation_response.json()
+        pending_emission = pending_emission_response.json()
         blocked_record = blocked_record_response.json()
         record = record_response.json()
+        emission_replay_policy = emission_replay_policy_response.json()
         ledger = ledger_response.json()
         replay_priority = replay_priority_response.json()
         rehearsal_evaluation = rehearsal_evaluation_response.json()
@@ -985,6 +1090,171 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertTrue(body["transition_memory_evaluation_evidence"]["review_ready"])
         self.assertTrue(body["promotion_gate"]["eligible_for_bounded_readout_generation"])
         self.assertFalse(body["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertEqual(emission["surface"], "snn_language_readout_emission.v1")
+        self.assertTrue(emission["ready"])
+        self.assertTrue(emission["generates_text"])
+        self.assertTrue(emission["decodes_text"])
+        self.assertFalse(emission["freeform_language_generation"])
+        self.assertFalse(emission["mutates_runtime_state"])
+        self.assertFalse(emission["promotes_fact"])
+        self.assertFalse(emission["promotes_action"])
+        self.assertFalse(emission["cognition_substrate"])
+        self.assertEqual(emission["language_output"]["text"], body["draft"]["text"])
+        self.assertIn("memory pressure", emission["language_output"]["text"])
+        self.assertTrue(emission["promotion_gate"]["eligible_for_operator_display"])
+        self.assertFalse(
+            emission["promotion_gate"]["eligible_for_freeform_language_generation"]
+        )
+        self.assertEqual(
+            emission["emission_binding"]["transition_memory_evaluation_hash"],
+            transition_memory_evaluation["provenance_evidence"]["evaluation_hash"],
+        )
+        self.assertEqual(
+            emission["emission_binding"]["trajectory_hash"],
+            body["readout_trajectory_evidence"]["provenance_evidence"]["trajectory_hash"],
+        )
+        self.assertEqual(
+            emission_review["surface"],
+            "snn_language_readout_emission_review_record.v1",
+        )
+        self.assertTrue(emission_review["accepted"])
+        self.assertTrue(emission_review["mutates_runtime_state"])
+        self.assertFalse(emission_review["generates_text"])
+        self.assertFalse(emission_review["decodes_text"])
+        self.assertFalse(
+            emission_review["promotion_gate"]["eligible_for_replay_memory"]
+        )
+        self.assertFalse(
+            emission_review["promotion_gate"]["eligible_for_plasticity_application"]
+        )
+        self.assertFalse(
+            emission_review["promotion_gate"]["eligible_for_fact_promotion"]
+        )
+        self.assertFalse(emission_review["promotion_gate"]["eligible_for_action"])
+        self.assertEqual(
+            emission_review["recorded_event"]["emission_hash"],
+            emission["emission_hash"],
+        )
+        self.assertEqual(
+            emission_review["ledger_summary"]["emission_review_event_count"],
+            1,
+        )
+        self.assertEqual(
+            emission_review_history["surface"],
+            "snn_language_readout_emission_review_history.v1",
+        )
+        self.assertFalse(emission_review_history["executable"])
+        self.assertFalse(emission_review_history["records_ledger_event"])
+        self.assertFalse(emission_review_history["mutates_runtime_state"])
+        self.assertFalse(emission_review_history["generates_text"])
+        self.assertFalse(emission_review_history["decodes_text"])
+        self.assertTrue(emission_review_history["exposes_reviewed_bounded_text"])
+        self.assertEqual(
+            emission_review_history["summary"]["returned_emission_review_event_count"],
+            1,
+        )
+        self.assertEqual(
+            emission_review_history["emission_review_events"][0]["text"],
+            emission["language_output"]["text"],
+        )
+        self.assertEqual(
+            emission_review_history["emission_review_events"][0]["labels"],
+            emission["language_output"]["labels"],
+        )
+        self.assertFalse(
+            emission_review_history["emission_review_events"][0][
+                "eligible_for_replay_memory"
+            ]
+        )
+        self.assertFalse(
+            emission_review_history["emission_review_events"][0][
+                "eligible_for_plasticity_application"
+            ]
+        )
+        self.assertFalse(
+            emission_review_history["emission_review_events"][0][
+                "eligible_for_fact_promotion"
+            ]
+        )
+        self.assertFalse(
+            emission_review_history["emission_review_events"][0]["eligible_for_action"]
+        )
+        self.assertFalse(
+            emission_review_history["promotion_gate"]["eligible_for_replay_memory"]
+        )
+        self.assertFalse(
+            emission_review_history["promotion_gate"][
+                "eligible_for_plasticity_application"
+            ]
+        )
+        self.assertFalse(
+            emission_review_history["promotion_gate"]["eligible_for_fact_promotion"]
+        )
+        self.assertFalse(emission_review_history["promotion_gate"]["eligible_for_action"])
+        self.assertNotIn("events", emission_review_history)
+        self.assertNotIn("rollout_events", emission_review_history)
+        self.assertNotIn("replay_targets", emission_review_history)
+        self.assertNotIn(
+            "prediction_report",
+            emission_review_history["emission_review_events"][0],
+        )
+        self.assertNotIn(
+            "transition_memory_evaluation",
+            emission_review_history["emission_review_events"][0],
+        )
+        self.assertEqual(
+            emission_replay_policy["surface"],
+            "snn_language_readout_emission_replay_evaluation_policy.v1",
+        )
+        self.assertFalse(emission_replay_policy["executable"])
+        self.assertFalse(emission_replay_policy["records_ledger_event"])
+        self.assertFalse(emission_replay_policy["runs_replay"])
+        self.assertFalse(emission_replay_policy["generates_text"])
+        self.assertFalse(emission_replay_policy["decodes_text"])
+        self.assertFalse(emission_replay_policy["exposes_reviewed_bounded_text"])
+        self.assertFalse(emission_replay_policy["mutates_runtime_state"])
+        self.assertFalse(emission_replay_policy["eligible_for_replay_memory"])
+        self.assertFalse(emission_replay_policy["eligible_for_live_replay"])
+        self.assertFalse(emission_replay_policy["eligible_for_plasticity_application"])
+        self.assertFalse(emission_replay_policy["eligible_for_fact_promotion"])
+        self.assertFalse(emission_replay_policy["eligible_for_action"])
+        self.assertEqual(emission_replay_policy["candidate_count"], 1)
+        self.assertEqual(emission_replay_policy["ready_candidate_count"], 1)
+        self.assertEqual(emission_replay_policy["unmatched_emission_review_count"], 0)
+        self.assertEqual(
+            emission_replay_policy["candidates"][0]["readout_evidence_hash"],
+            record["recorded_event"]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            emission_replay_policy["candidates"][0]["emission_hash"],
+            emission["emission_hash"],
+        )
+        self.assertTrue(
+            emission_replay_policy["candidates"][0][
+                "eligible_for_replay_evaluation_policy_review"
+            ]
+        )
+        self.assertFalse(
+            emission_replay_policy["candidates"][0]["eligible_for_replay_memory"]
+        )
+        self.assertNotIn("text", emission_replay_policy["candidates"][0])
+        self.assertNotIn("labels", emission_replay_policy["candidates"][0])
+        self.assertNotIn("events", emission_replay_policy)
+        self.assertNotIn("rollout_events", emission_replay_policy)
+        self.assertFalse(blocked_emission_review["accepted"])
+        self.assertFalse(
+            blocked_emission_review["promotion_gate"]["required_evidence"][
+                "confirmation"
+            ]
+        )
+        self.assertFalse(pending_emission["ready"])
+        self.assertFalse(pending_emission["generates_text"])
+        self.assertEqual(pending_emission["language_output"]["text"], "")
+        self.assertFalse(
+            pending_emission["promotion_gate"]["required_evidence"][
+                "draft_bounded_generation_ready"
+            ]
+        )
         self.assertEqual(rollout["surface"], "snn_language_readout_rollout_candidate.v1")
         self.assertTrue(rollout["generates_text"])
         self.assertFalse(rollout["freeform_language_generation"])
@@ -4094,6 +4364,34 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 trace_dir=root / "traces",
             )
             runtime = app.state.hecsn_runtime
+            pre_snapshot = {
+                "current_state_revision": 5,
+                "binding_topology": {
+                    "edges_added_total": 1,
+                    "edges_removed_total": 0,
+                    "growth_events": 1,
+                    "prune_events": 0,
+                },
+                "device_evidence": {
+                    "binding_devices": {"binding_state_device": "cuda:0"},
+                    "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+                },
+                "spike_health": {
+                    "silent_fraction": 0.20,
+                    "saturated_fraction": 0.05,
+                    "stale_fraction": 0.25,
+                },
+                "runtime_truth": {"verdict": "degraded"},
+            }
+            pre_snapshot_hash = hashlib.sha256(
+                json.dumps(
+                    pre_snapshot,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
             with TestClient(app) as client:
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
@@ -4101,25 +4399,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 evaluation_response = client.post(
                     "/terminus/subcortical-structural-plasticity/evaluate",
                     json={
-                        "pre_snapshot": {
-                            "current_state_revision": 5,
-                            "binding_topology": {
-                                "edges_added_total": 1,
-                                "edges_removed_total": 0,
-                                "growth_events": 1,
-                                "prune_events": 0,
-                            },
-                            "device_evidence": {
-                                "binding_devices": {"binding_state_device": "cuda:0"},
-                                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
-                            },
-                            "spike_health": {
-                                "silent_fraction": 0.20,
-                                "saturated_fraction": 0.05,
-                                "stale_fraction": 0.25,
-                            },
-                            "runtime_truth": {"verdict": "degraded"},
-                        },
+                        "pre_snapshot": pre_snapshot,
                         "post_snapshot": {
                             "current_state_revision": 6,
                             "binding_topology": {
@@ -4139,7 +4419,36 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             },
                             "runtime_truth": {"verdict": "alive"},
                         },
-                        "rollback_policy": {"available": True, "snapshot_id": "pre-structural-eval"},
+                        "rollback_policy": {
+                            "available": True,
+                            "snapshot_id": "pre-structural-eval",
+                            "pre_snapshot_hash": pre_snapshot_hash,
+                        },
+                    },
+                )
+                design_response = client.post(
+                    "/terminus/subcortical-structural-plasticity/mutation-design",
+                    json={
+                        "isolated_evaluation": evaluation_response.json(),
+                        "operator_id": "operator-structural-design",
+                        "confirmation": True,
+                    },
+                )
+                preflight_response = client.post(
+                    "/terminus/subcortical-structural-plasticity/mutation-preflight",
+                    json={
+                        "structural_mutation_design": design_response.json(),
+                        "expected_state_revision": before_revision,
+                        "checkpoint_path": str(root / "pre_structural_mutation.pt"),
+                    },
+                )
+                blocked_application_response = client.post(
+                    "/terminus/subcortical-structural-plasticity/mutation-application",
+                    json={
+                        "structural_mutation_preflight": preflight_response.json(),
+                        "expected_state_revision": before_revision,
+                        "operator_id": "operator-structural-design",
+                        "confirmation": False,
                     },
                 )
                 after_revision = runtime.status()["state_revision"]
@@ -4148,8 +4457,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(evaluation_response.status_code, 200)
+        self.assertEqual(design_response.status_code, 200)
+        self.assertEqual(preflight_response.status_code, 200)
+        self.assertEqual(blocked_application_response.status_code, 200)
         body = response.json()
         evaluation = evaluation_response.json()
+        design = design_response.json()
+        preflight = preflight_response.json()
+        blocked_application = blocked_application_response.json()
         self.assertEqual(body["schema_version"], 1)
         self.assertEqual(body["artifact_kind"], "terminus_subcortical_structural_plasticity_gate_plan")
         self.assertEqual(body["surface"], "subcortical_structural_plasticity.v1")
@@ -4191,8 +4506,58 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(evaluation["snapshot_binding"]["post_state_revision"], 6)
         self.assertTrue(evaluation["snapshot_binding"]["state_revision_order_valid"])
         self.assertFalse(evaluation["snapshot_binding"]["raw_snapshots_exposed"])
+        self.assertTrue(evaluation["rollback_evidence"]["bound_to_pre_snapshot"])
+        self.assertTrue(evaluation["rollback_evidence"]["pre_snapshot_hash_match"])
         self.assertTrue(evaluation["promotion_gate"]["requires_bound_snapshot_hashes"])
         self.assertTrue(evaluation["promotion_gate"]["requires_nonzero_structural_delta"])
+        self.assertTrue(evaluation["promotion_gate"]["requires_rollback_pre_snapshot_binding"])
+        self.assertEqual(design["artifact_kind"], "terminus_subcortical_structural_mutation_design")
+        self.assertEqual(design["surface"], "subcortical_structural_mutation_design.v1")
+        self.assertFalse(design["executable"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["writes_checkpoint"])
+        self.assertFalse(design["calls_growth_or_prune"])
+        self.assertFalse(design["applies_structural_mutation"])
+        self.assertTrue(design["evaluation_binding"]["rollback_bound_to_pre_snapshot"])
+        self.assertEqual(
+            design["promotion_gate"]["status"],
+            "ready_for_structural_mutation_preflight_review",
+        )
+        self.assertFalse(design["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(
+            design["promotion_gate"]["eligible_for_structural_mutation_preflight_review"]
+        )
+        self.assertEqual(preflight["artifact_kind"], "terminus_subcortical_structural_mutation_preflight")
+        self.assertEqual(preflight["surface"], "subcortical_structural_mutation_preflight.v1")
+        self.assertFalse(preflight["executable"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["writes_checkpoint"])
+        self.assertFalse(preflight["calls_growth_or_prune"])
+        self.assertFalse(preflight["applies_structural_mutation"])
+        self.assertTrue(preflight["design_binding"]["design_hash_recomputed_match"])
+        self.assertTrue(
+            preflight["checkpoint_transaction_requirements"]["expected_state_revision_current"]
+        )
+        self.assertTrue(
+            preflight["checkpoint_transaction_requirements"]["checkpoint_path_available"]
+        )
+        self.assertEqual(
+            preflight["promotion_gate"]["status"],
+            "ready_for_operator_structural_mutation_execution_review",
+        )
+        self.assertFalse(preflight["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(preflight["promotion_gate"]["eligible_for_operator_execution_review"])
+        self.assertEqual(
+            blocked_application["surface"],
+            "subcortical_structural_mutation_application.v1",
+        )
+        self.assertFalse(blocked_application["accepted"])
+        self.assertFalse(blocked_application["writes_checkpoint"])
+        self.assertFalse(blocked_application["calls_growth_or_prune"])
+        self.assertFalse(blocked_application["applies_structural_mutation"])
+        self.assertFalse(
+            blocked_application["promotion_gate"]["required_evidence"]["confirmation"]
+        )
         self.assertEqual(before_revision, after_revision)
         self.assertEqual(before_history, after_history)
 

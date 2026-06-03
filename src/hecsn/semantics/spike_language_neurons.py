@@ -1045,6 +1045,151 @@ def generate_snn_language_readout_draft(
     }
 
 
+def build_snn_language_readout_emission(
+    readout_draft: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Promote a ready bounded SNN readout draft into operator-visible language output."""
+
+    draft = dict(readout_draft or {})
+    draft_payload = draft.get("draft") if isinstance(draft.get("draft"), Mapping) else {}
+    gate = draft.get("promotion_gate") if isinstance(draft.get("promotion_gate"), Mapping) else {}
+    trajectory = (
+        draft.get("readout_trajectory_evidence")
+        if isinstance(draft.get("readout_trajectory_evidence"), Mapping)
+        else {}
+    )
+    trajectory_gate = (
+        trajectory.get("promotion_gate")
+        if isinstance(trajectory.get("promotion_gate"), Mapping)
+        else {}
+    )
+    trajectory_provenance = (
+        trajectory.get("provenance_evidence")
+        if isinstance(trajectory.get("provenance_evidence"), Mapping)
+        else {}
+    )
+    transition_evaluation = (
+        draft.get("transition_memory_evaluation_evidence")
+        if isinstance(draft.get("transition_memory_evaluation_evidence"), Mapping)
+        else {}
+    )
+    labels = [
+        _text(label)
+        for label in list(draft_payload.get("labels") or [])
+        if _text(label)
+    ][:12]
+    text = _text(draft_payload.get("text"))
+    if not text and labels:
+        text = " ".join(labels)
+    draft_hash = _sha256_json(
+        {
+            "surface": draft.get("surface"),
+            "text": text,
+            "labels": labels,
+            "trajectory_hash": trajectory_provenance.get("trajectory_hash"),
+            "prediction_hash": transition_evaluation.get("prediction_hash"),
+            "transition_memory_evaluation_hash": transition_evaluation.get(
+                "transition_memory_evaluation_hash"
+            ),
+            "persistent_transition_weights_hash": transition_evaluation.get(
+                "persistent_transition_weights_hash"
+            ),
+        }
+    )
+    required = {
+        "draft_surface_available": draft.get("surface") == "snn_language_readout_draft.v1",
+        "draft_owned_by_hecsn": bool(draft.get("owned_by_hecsn")),
+        "draft_external_dependency_absent": not bool(draft.get("external_dependency")),
+        "draft_loads_external_checkpoint_absent": not bool(draft.get("loads_external_checkpoint")),
+        "draft_mutation_absent": not bool(draft.get("mutates_runtime_state")),
+        "draft_freeform_generation_absent": not bool(draft.get("freeform_language_generation")),
+        "draft_bounded_generation_ready": bool(
+            gate.get("eligible_for_bounded_readout_generation")
+        ),
+        "draft_cognition_promotion_absent": not bool(gate.get("eligible_for_cognition_substrate")),
+        "draft_fact_promotion_absent": not bool(gate.get("eligible_for_fact_promotion")),
+        "draft_action_promotion_absent": not bool(gate.get("eligible_for_action")),
+        "trajectory_surface_available": trajectory.get("surface")
+        == "snn_language_readout_trajectory_evidence.v1",
+        "trajectory_bounded": bool(trajectory.get("bounded_output")),
+        "trajectory_freeform_generation_absent": not bool(
+            trajectory.get("freeform_language_generation")
+        ),
+        "trajectory_mutation_absent": not bool(trajectory.get("mutates_runtime_state")),
+        "trajectory_gate_ready": bool(
+            trajectory_gate.get("eligible_for_bounded_snn_language_readout")
+        ),
+        "transition_memory_evaluation_ready": bool(transition_evaluation.get("review_ready")),
+        "transition_memory_provenance_match": bool(transition_evaluation.get("provenance_match")),
+        "output_text_available": bool(text),
+        "output_label_count_bounded": 0 < len(labels) <= 12,
+    }
+    ready = all(required.values())
+    return {
+        "artifact_kind": "terminus_snn_language_readout_emission",
+        "surface": "snn_language_readout_emission.v1",
+        "available": bool(text),
+        "ready": ready,
+        "status": "ready_for_operator_display"
+        if ready
+        else "blocked_missing_snn_language_readout_emission_evidence",
+        "source": "semantics.spike_language_neurons.readout_emission",
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": ready,
+        "decodes_text": ready,
+        "generation_scope": "operator_visible_bounded_snn_readout_emission",
+        "freeform_language_generation": False,
+        "trains_runtime_model": False,
+        "returns_trained_weights": False,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "writes_checkpoint": False,
+        "promotes_fact": False,
+        "promotes_action": False,
+        "cognition_substrate": False,
+        "language_output": {
+            "text": text if ready else "",
+            "labels": labels if ready else [],
+            "term_count": len(labels) if ready else 0,
+            "max_terms": 12,
+        },
+        "emission_hash": draft_hash,
+        "emission_binding": {
+            "draft_surface": draft.get("surface"),
+            "draft_hash": draft_hash,
+            "trajectory_hash": trajectory_provenance.get("trajectory_hash"),
+            "prediction_hash": transition_evaluation.get("prediction_hash"),
+            "transition_memory_evaluation_hash": transition_evaluation.get(
+                "transition_memory_evaluation_hash"
+            ),
+            "persistent_transition_weights_hash": transition_evaluation.get(
+                "persistent_transition_weights_hash"
+            ),
+            "hash_algorithm": "sha256_canonical_json",
+        },
+        "readout_trajectory_evidence": dict(trajectory),
+        "transition_memory_evaluation_evidence": dict(transition_evaluation),
+        "promotion_gate": {
+            "status": "ready_for_operator_display"
+            if ready
+            else "blocked_missing_snn_language_readout_emission_evidence",
+            "eligible_for_operator_display": ready,
+            "eligible_for_bounded_readout_generation": ready,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "requires_operator_review": ready,
+            "next_gate": "operator_review_snn_language_output"
+            if ready
+            else "collect_ready_snn_language_readout_draft",
+            "required_evidence": required,
+        },
+    }
+
+
 def rollout_snn_language_readout_candidate(
     prediction_report: Mapping[str, Any],
     readout_vocabulary_slots: Sequence[Mapping[str, Any]],
@@ -3242,6 +3387,7 @@ __all__ = [
     "run_spike_language_plasticity_replay_experiment",
     "run_spike_language_plasticity_trial",
     "generate_snn_language_readout_draft",
+    "build_snn_language_readout_emission",
     "rollout_snn_language_readout_candidate",
     "build_snn_language_transition_memory_prediction_evaluation",
     "predict_spike_language_sequence",

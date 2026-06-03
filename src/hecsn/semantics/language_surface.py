@@ -921,8 +921,11 @@ def evaluate_subcortical_structural_plasticity_isolated(
     device_evidence = _isolated_structural_device_evidence(pre_snapshot, post_snapshot)
     spike_health_delta = _isolated_spike_health_delta(pre_snapshot, post_snapshot)
     runtime_truth_delta = _isolated_runtime_truth_delta(pre_snapshot, post_snapshot)
-    rollback_evidence = _isolated_rollback_evidence(rollback_policy or {})
     snapshot_binding = _isolated_structural_snapshot_binding(pre_snapshot, post_snapshot)
+    rollback_evidence = _isolated_rollback_evidence(
+        rollback_policy or {},
+        pre_snapshot_hash=str(snapshot_binding["pre_snapshot_hash"]),
+    )
 
     bounded_delta = (
         structural_delta["edges_added_delta"] >= 0
@@ -939,6 +942,7 @@ def evaluate_subcortical_structural_plasticity_isolated(
         and spike_health_delta["improved_or_stable"]
         and runtime_truth_delta["improved_or_stable"]
         and rollback_evidence["available"]
+        and rollback_evidence["bound_to_pre_snapshot"]
     )
     promotion_status = "ready_for_operator_review" if ready_for_review else "blocked_evidence_incomplete"
     return {
@@ -974,6 +978,7 @@ def evaluate_subcortical_structural_plasticity_isolated(
             "requires_device_evidence": True,
             "requires_bound_snapshot_hashes": True,
             "requires_nonzero_structural_delta": True,
+            "requires_rollback_pre_snapshot_binding": True,
         },
         "success_evidence": [
             "pre_mutation_structural_snapshot",
@@ -995,10 +1000,301 @@ def evaluate_subcortical_structural_plasticity_isolated(
             "requires_device_evidence": True,
             "requires_bound_snapshot_hashes": True,
             "requires_nonzero_structural_delta": True,
+            "requires_rollback_pre_snapshot_binding": True,
         },
         "limitations": [
             "Evaluation only; it compares snapshots and never calls growth, pruning, or binding mutation code.",
             "Ready-for-review status does not authorize runtime structural mutation.",
+        ],
+    }
+
+
+def build_subcortical_structural_mutation_design(
+    isolated_evaluation: Mapping[str, Any],
+    *,
+    operator_id: str | None = None,
+    confirmation: bool = False,
+    max_total_edge_delta: int = 16,
+) -> dict[str, Any]:
+    """Build a read-only structural mutation design from bound isolated evidence."""
+
+    evaluation = dict(isolated_evaluation or {})
+    gate = evaluation.get("promotion_gate") if isinstance(evaluation.get("promotion_gate"), Mapping) else {}
+    structural_delta = (
+        evaluation.get("structural_delta")
+        if isinstance(evaluation.get("structural_delta"), Mapping)
+        else {}
+    )
+    snapshot_binding = (
+        evaluation.get("snapshot_binding")
+        if isinstance(evaluation.get("snapshot_binding"), Mapping)
+        else {}
+    )
+    rollback = (
+        evaluation.get("rollback_evidence")
+        if isinstance(evaluation.get("rollback_evidence"), Mapping)
+        else {}
+    )
+    device = (
+        evaluation.get("device_evidence")
+        if isinstance(evaluation.get("device_evidence"), Mapping)
+        else {}
+    )
+    spike_delta = (
+        evaluation.get("spike_health_delta")
+        if isinstance(evaluation.get("spike_health_delta"), Mapping)
+        else {}
+    )
+    truth_delta = (
+        evaluation.get("runtime_truth_delta")
+        if isinstance(evaluation.get("runtime_truth_delta"), Mapping)
+        else {}
+    )
+
+    bounded_edge_delta = int(_float(structural_delta.get("total_edge_delta"), 0.0)) <= int(max_total_edge_delta)
+    required_evidence = {
+        "isolated_evaluation_surface_available": evaluation.get("surface")
+        == "subcortical_structural_plasticity_isolated_evaluation.v1",
+        "isolated_evaluation_ready": gate.get("status") == "ready_for_operator_review",
+        "snapshot_hashes_bound": bool(snapshot_binding.get("snapshot_hashes_distinct")),
+        "structural_delta_present": bool(snapshot_binding.get("structural_delta_present")),
+        "rollback_bound_to_pre_snapshot": bool(rollback.get("bound_to_pre_snapshot")),
+        "device_evidence_consistent": bool(device.get("consistent")),
+        "spike_health_improved_or_stable": bool(spike_delta.get("improved_or_stable")),
+        "runtime_truth_improved_or_stable": bool(truth_delta.get("improved_or_stable")),
+        "bounded_total_edge_delta": bounded_edge_delta,
+        "operator_confirmation": bool(confirmation),
+        "operator_id_available": bool(_text(operator_id)),
+    }
+    ready = all(bool(value) for value in required_evidence.values())
+    design_material = {
+        "surface": evaluation.get("surface"),
+        "pre_snapshot_hash": snapshot_binding.get("pre_snapshot_hash"),
+        "post_snapshot_hash": snapshot_binding.get("post_snapshot_hash"),
+        "pre_state_revision": snapshot_binding.get("pre_state_revision"),
+        "post_state_revision": snapshot_binding.get("post_state_revision"),
+        "structural_delta": dict(structural_delta),
+        "rollback_snapshot_id": rollback.get("snapshot_id"),
+        "rollback_pre_snapshot_hash": rollback.get("pre_snapshot_hash"),
+        "max_total_edge_delta": int(max_total_edge_delta),
+        "operator_id": _text(operator_id),
+        "confirmation": bool(confirmation),
+    }
+    design_hash = _sha256_json(design_material)
+    return {
+        "schema_version": 1,
+        "artifact_kind": "terminus_subcortical_structural_mutation_design",
+        "surface": "subcortical_structural_mutation_design.v1",
+        "available": True,
+        "review_role": "operator_structural_mutation_design_review_only",
+        "source": "semantics.subcortical_structural_mutation_design",
+        "grounded": True,
+        "advisory": True,
+        "executable": False,
+        "mutates_runtime_state": False,
+        "writes_checkpoint": False,
+        "calls_growth_or_prune": False,
+        "applies_structural_mutation": False,
+        "structural_mutation_design_hash": design_hash,
+        "hash_algorithm": "sha256_canonical_json",
+        "evaluation_binding": {
+            "evaluation_surface": evaluation.get("surface"),
+            "evaluation_artifact_kind": evaluation.get("artifact_kind"),
+            "pre_snapshot_hash": snapshot_binding.get("pre_snapshot_hash"),
+            "post_snapshot_hash": snapshot_binding.get("post_snapshot_hash"),
+            "pre_state_revision": snapshot_binding.get("pre_state_revision"),
+            "post_state_revision": snapshot_binding.get("post_state_revision"),
+            "rollback_snapshot_id": rollback.get("snapshot_id"),
+            "rollback_pre_snapshot_hash": rollback.get("pre_snapshot_hash"),
+            "rollback_bound_to_pre_snapshot": bool(rollback.get("bound_to_pre_snapshot")),
+        },
+        "structural_mutation_design": {
+            "edges_added_delta": int(_float(structural_delta.get("edges_added_delta"), 0.0)),
+            "edges_removed_delta": int(_float(structural_delta.get("edges_removed_delta"), 0.0)),
+            "growth_events_delta": int(_float(structural_delta.get("growth_events_delta"), 0.0)),
+            "prune_events_delta": int(_float(structural_delta.get("prune_events_delta"), 0.0)),
+            "total_edge_delta": int(_float(structural_delta.get("total_edge_delta"), 0.0)),
+            "max_total_edge_delta": int(max_total_edge_delta),
+            "bounded": bool(structural_delta.get("bounded")) and bounded_edge_delta,
+            "runtime_update_applied": False,
+            "checkpoint_written": False,
+            "growth_or_prune_called": False,
+        },
+        "operator_review": {
+            "operator_id": _text(operator_id) or None,
+            "confirmation": bool(confirmation),
+        },
+        "promotion_gate": {
+            "status": "ready_for_structural_mutation_preflight_review"
+            if ready
+            else "blocked_missing_structural_mutation_design_evidence",
+            "next_gate": "subcortical_structural_mutation_preflight.v1"
+            if ready
+            else "collect_bound_structural_mutation_design_evidence",
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_structural_mutation": False,
+            "eligible_for_structural_mutation_preflight_review": ready,
+            "requires_operator_approval": True,
+            "requires_checkpoint_transaction": True,
+            "requires_rollback_pre_snapshot_binding": True,
+            "required_evidence": required_evidence,
+        },
+        "safety_invariants": {
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_structural_mutation": False,
+            "requires_operator_approval": True,
+            "requires_checkpoint_transaction": True,
+            "requires_preflight": True,
+            "requires_rollback_pre_snapshot_binding": True,
+        },
+        "limitations": [
+            "Design only; it does not call growth, pruning, binding mutation, checkpoint save, or checkpoint restore.",
+            "Ready design can only feed a separate checkpoint-backed preflight review.",
+        ],
+    }
+
+
+def build_subcortical_structural_mutation_preflight(
+    structural_mutation_design: Mapping[str, Any],
+    *,
+    expected_state_revision: int,
+    current_state_revision: int,
+    checkpoint_path: str | None = None,
+) -> dict[str, Any]:
+    """Review structural mutation design before a future checkpoint-backed write."""
+
+    design = dict(structural_mutation_design or {})
+    binding = (
+        design.get("evaluation_binding")
+        if isinstance(design.get("evaluation_binding"), Mapping)
+        else {}
+    )
+    mutation = (
+        design.get("structural_mutation_design")
+        if isinstance(design.get("structural_mutation_design"), Mapping)
+        else {}
+    )
+    operator = (
+        design.get("operator_review")
+        if isinstance(design.get("operator_review"), Mapping)
+        else {}
+    )
+    gate = design.get("promotion_gate") if isinstance(design.get("promotion_gate"), Mapping) else {}
+    design_material = {
+        "surface": binding.get("evaluation_surface"),
+        "pre_snapshot_hash": binding.get("pre_snapshot_hash"),
+        "post_snapshot_hash": binding.get("post_snapshot_hash"),
+        "pre_state_revision": binding.get("pre_state_revision"),
+        "post_state_revision": binding.get("post_state_revision"),
+        "structural_delta": {
+            "edges_added_delta": mutation.get("edges_added_delta"),
+            "edges_removed_delta": mutation.get("edges_removed_delta"),
+            "growth_events_delta": mutation.get("growth_events_delta"),
+            "prune_events_delta": mutation.get("prune_events_delta"),
+            "total_edge_delta": mutation.get("total_edge_delta"),
+            "bounded_edge_delta_limit": mutation.get("max_total_edge_delta"),
+            "bounded": mutation.get("bounded"),
+        },
+        "rollback_snapshot_id": binding.get("rollback_snapshot_id"),
+        "rollback_pre_snapshot_hash": binding.get("rollback_pre_snapshot_hash"),
+        "max_total_edge_delta": mutation.get("max_total_edge_delta"),
+        "operator_id": _text(operator.get("operator_id")),
+        "confirmation": bool(operator.get("confirmation")),
+    }
+    recomputed_design_hash = _sha256_json(design_material)
+    supplied_design_hash = str(design.get("structural_mutation_design_hash") or "")
+    checkpoint = _text(checkpoint_path)
+    required_evidence = {
+        "design_surface_available": design.get("surface") == "subcortical_structural_mutation_design.v1",
+        "design_artifact_kind_available": design.get("artifact_kind")
+        == "terminus_subcortical_structural_mutation_design",
+        "design_hash_available": len(supplied_design_hash) == 64,
+        "design_hash_recomputed_match": recomputed_design_hash == supplied_design_hash,
+        "design_gate_ready": gate.get("status") == "ready_for_structural_mutation_preflight_review",
+        "design_blocks_direct_mutation": not bool(gate.get("eligible_for_structural_mutation"))
+        and not bool(design.get("applies_structural_mutation")),
+        "rollback_bound_to_pre_snapshot": bool(binding.get("rollback_bound_to_pre_snapshot")),
+        "checkpoint_path_available": bool(checkpoint),
+        "expected_state_revision_current": int(expected_state_revision) == int(current_state_revision),
+        "design_bounded": bool(mutation.get("bounded")),
+        "design_did_not_write_checkpoint": not bool(design.get("writes_checkpoint"))
+        and not bool(mutation.get("checkpoint_written")),
+        "design_did_not_mutate_runtime": not bool(design.get("mutates_runtime_state"))
+        and not bool(mutation.get("runtime_update_applied")),
+    }
+    ready = all(bool(value) for value in required_evidence.values())
+    preflight_material = {
+        "structural_mutation_design_hash": supplied_design_hash,
+        "expected_state_revision": int(expected_state_revision),
+        "current_state_revision": int(current_state_revision),
+        "checkpoint_path": checkpoint or None,
+        "required_evidence": required_evidence,
+    }
+    preflight_hash = _sha256_json(preflight_material)
+    return {
+        "schema_version": 1,
+        "artifact_kind": "terminus_subcortical_structural_mutation_preflight",
+        "surface": "subcortical_structural_mutation_preflight.v1",
+        "available": True,
+        "review_role": "operator_structural_mutation_preflight_review_only",
+        "source": "semantics.subcortical_structural_mutation_preflight",
+        "grounded": True,
+        "advisory": True,
+        "executable": False,
+        "mutates_runtime_state": False,
+        "writes_checkpoint": False,
+        "calls_growth_or_prune": False,
+        "applies_structural_mutation": False,
+        "structural_mutation_preflight_hash": preflight_hash,
+        "hash_algorithm": "sha256_canonical_json",
+        "design_binding": {
+            "structural_mutation_design_hash": supplied_design_hash,
+            "recomputed_design_hash": recomputed_design_hash,
+            "design_hash_recomputed_match": recomputed_design_hash == supplied_design_hash,
+            "pre_snapshot_hash": binding.get("pre_snapshot_hash"),
+            "post_snapshot_hash": binding.get("post_snapshot_hash"),
+            "rollback_snapshot_id": binding.get("rollback_snapshot_id"),
+            "rollback_pre_snapshot_hash": binding.get("rollback_pre_snapshot_hash"),
+        },
+        "checkpoint_transaction_requirements": {
+            "expected_state_revision": int(expected_state_revision),
+            "current_state_revision": int(current_state_revision),
+            "expected_state_revision_current": int(expected_state_revision) == int(current_state_revision),
+            "checkpoint_path": checkpoint or None,
+            "checkpoint_path_available": bool(checkpoint),
+            "pre_mutation_checkpoint_required": True,
+            "restore_verification_required": True,
+            "commit_transaction_required": True,
+        },
+        "promotion_gate": {
+            "status": "ready_for_operator_structural_mutation_execution_review"
+            if ready
+            else "blocked_missing_structural_mutation_preflight_evidence",
+            "next_gate": "operator_confirmed_checkpoint_backed_structural_mutation_executor"
+            if ready
+            else "collect_structural_mutation_preflight_evidence",
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_structural_mutation": False,
+            "eligible_for_operator_execution_review": ready,
+            "requires_operator_approval": True,
+            "requires_checkpoint_transaction": True,
+            "requires_restore_verification": True,
+            "required_evidence": required_evidence,
+        },
+        "safety_invariants": {
+            "eligible_for_action": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_structural_mutation": False,
+            "requires_operator_approval": True,
+            "requires_checkpoint_transaction": True,
+            "requires_restore_verification": True,
+        },
+        "limitations": [
+            "Preflight only; it verifies design and checkpoint requirements without saving checkpoints or mutating topology.",
+            "Execution remains blocked until a separate operator-confirmed checkpoint-backed executor exists.",
         ],
     }
 
@@ -1862,13 +2158,28 @@ def _sha256_json(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _isolated_rollback_evidence(rollback_policy: Mapping[str, Any]) -> dict[str, Any]:
+def _isolated_rollback_evidence(
+    rollback_policy: Mapping[str, Any],
+    *,
+    pre_snapshot_hash: str | None = None,
+) -> dict[str, Any]:
     available = bool(rollback_policy.get("available") or rollback_policy.get("reversible"))
+    rollback_hash = (
+        rollback_policy.get("pre_snapshot_hash")
+        or rollback_policy.get("rollback_snapshot_hash")
+        or rollback_policy.get("snapshot_hash")
+    )
+    rollback_hash_text = str(rollback_hash) if rollback_hash is not None else None
+    hash_match = bool(pre_snapshot_hash and rollback_hash_text == pre_snapshot_hash)
     return {
         "available": available,
         "reversible": available,
         "snapshot_id": rollback_policy.get("snapshot_id"),
         "ledger_id": rollback_policy.get("ledger_id"),
+        "pre_snapshot_hash": rollback_hash_text,
+        "expected_pre_snapshot_hash": pre_snapshot_hash,
+        "pre_snapshot_hash_match": hash_match,
+        "bound_to_pre_snapshot": available and hash_match,
     }
 
 

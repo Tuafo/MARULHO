@@ -8,6 +8,8 @@ unchanged public behavior remains in test_service_manager.py and test_service_ap
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 import time
 import unittest
@@ -2071,20 +2073,33 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         """Structural grow/prune evaluation compares snapshots without mutation."""
         model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
         rev_before = runtime_state.state_revision
+        pre_snapshot = {
+            "current_state_revision": 3,
+            "binding_topology": {"edges_added_total": 1, "edges_removed_total": 0},
+            "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+            "spike_health": {"silent_fraction": 0.2, "saturated_fraction": 0.1},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 4,
+            "binding_topology": {"edges_added_total": 2, "edges_removed_total": 1},
+            "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+            "spike_health": {"silent_fraction": 0.1, "saturated_fraction": 0.05},
+            "runtime_truth": {"verdict": "alive"},
+        }
+        pre_snapshot_hash = hashlib.sha256(
+            json.dumps(pre_snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
         report = model.subcortical_structural_plasticity_isolated_evaluation(
-            {
-                "binding_topology": {"edges_added_total": 1, "edges_removed_total": 0},
-                "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
-                "spike_health": {"silent_fraction": 0.2, "saturated_fraction": 0.1},
-                "runtime_truth": {"verdict": "degraded"},
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={
+                "available": True,
+                "snapshot_id": "pre-grow-prune",
+                "pre_snapshot_hash": pre_snapshot_hash,
             },
-            {
-                "binding_topology": {"edges_added_total": 2, "edges_removed_total": 1},
-                "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
-                "spike_health": {"silent_fraction": 0.1, "saturated_fraction": 0.05},
-                "runtime_truth": {"verdict": "alive"},
-            },
-            rollback_policy={"available": True, "snapshot_id": "pre-grow-prune"},
         )
         rev_after = runtime_state.state_revision
 
@@ -2093,7 +2108,109 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(report["executable"])
         self.assertFalse(report["mutates_runtime_state"])
         self.assertFalse(report["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(report["rollback_evidence"]["bound_to_pre_snapshot"])
         self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
+
+    def test_structural_mutation_design_does_not_advance_revision(self) -> None:
+        """Structural mutation design is read-only and waits for preflight."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        pre_snapshot = {
+            "current_state_revision": 5,
+            "binding_topology": {"edges_added_total": 1, "edges_removed_total": 0},
+            "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+            "spike_health": {"silent_fraction": 0.2, "saturated_fraction": 0.1},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 6,
+            "binding_topology": {"edges_added_total": 2, "edges_removed_total": 1},
+            "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+            "spike_health": {"silent_fraction": 0.1, "saturated_fraction": 0.05},
+            "runtime_truth": {"verdict": "alive"},
+        }
+        pre_snapshot_hash = hashlib.sha256(
+            json.dumps(pre_snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        evaluation = model.subcortical_structural_plasticity_isolated_evaluation(
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={
+                "available": True,
+                "snapshot_id": "pre-grow-prune",
+                "pre_snapshot_hash": pre_snapshot_hash,
+            },
+        )
+        rev_before = runtime_state.state_revision
+
+        design = model.subcortical_structural_mutation_design(
+            evaluation,
+            operator_id="operator-structural-design",
+            confirmation=True,
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertEqual(design["surface"], "subcortical_structural_mutation_design.v1")
+        self.assertFalse(design["executable"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["writes_checkpoint"])
+        self.assertFalse(design["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(
+            design["promotion_gate"]["eligible_for_structural_mutation_preflight_review"]
+        )
+
+    def test_structural_mutation_preflight_does_not_advance_revision(self) -> None:
+        """Structural mutation preflight verifies design and checkpoint evidence only."""
+        model, _, _, runtime_state, _ = _build_read_model_with_living_loop()
+        pre_snapshot = {
+            "current_state_revision": 7,
+            "binding_topology": {"edges_added_total": 1, "edges_removed_total": 0},
+            "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+            "spike_health": {"silent_fraction": 0.2, "saturated_fraction": 0.1},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 8,
+            "binding_topology": {"edges_added_total": 2, "edges_removed_total": 1},
+            "device_evidence": {"binding_devices": {"binding_state_device": "cuda:0"}},
+            "spike_health": {"silent_fraction": 0.1, "saturated_fraction": 0.05},
+            "runtime_truth": {"verdict": "alive"},
+        }
+        pre_snapshot_hash = hashlib.sha256(
+            json.dumps(pre_snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        evaluation = model.subcortical_structural_plasticity_isolated_evaluation(
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={
+                "available": True,
+                "snapshot_id": "pre-grow-prune",
+                "pre_snapshot_hash": pre_snapshot_hash,
+            },
+        )
+        design = model.subcortical_structural_mutation_design(
+            evaluation,
+            operator_id="operator-structural-design",
+            confirmation=True,
+        )
+        rev_before = runtime_state.state_revision
+
+        preflight = model.subcortical_structural_mutation_preflight(
+            design,
+            expected_state_revision=rev_before,
+            checkpoint_path="checkpoint://pre-structural-mutation",
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertEqual(preflight["surface"], "subcortical_structural_mutation_preflight.v1")
+        self.assertFalse(preflight["executable"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["writes_checkpoint"])
+        self.assertFalse(preflight["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(preflight["promotion_gate"]["eligible_for_operator_execution_review"])
 
     def test_cognitive_signal_state_returns_cached_on_lock_contention(self) -> None:
         """When the lock is held, cognitive_signal_state() returns cached data."""
@@ -2983,6 +3100,60 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "replay_targets",
         ):
             self.assertNotIn(forbidden_key, consolidation_path)
+        self.assertIn("snn_readout_emission_review_history", truth["evidence"])
+        emission_review_history = truth["evidence"][
+            "snn_readout_emission_review_history"
+        ]
+        self.assertEqual(
+            emission_review_history["artifact_kind"],
+            "terminus_snn_readout_emission_review_history_evidence",
+        )
+        self.assertEqual(
+            emission_review_history["surface"],
+            "snn_readout_emission_review_history_evidence.v1",
+        )
+        self.assertTrue(emission_review_history["owned_by_hecsn"])
+        self.assertFalse(emission_review_history["external_dependency"])
+        self.assertTrue(emission_review_history["advisory"])
+        self.assertFalse(emission_review_history["executable"])
+        self.assertFalse(emission_review_history["calls_endpoint"])
+        self.assertFalse(emission_review_history["records_ledger_event"])
+        self.assertFalse(emission_review_history["runs_replay"])
+        self.assertFalse(emission_review_history["writes_checkpoint"])
+        self.assertFalse(emission_review_history["generates_text"])
+        self.assertFalse(emission_review_history["decodes_text"])
+        self.assertFalse(emission_review_history["exposes_raw_text"])
+        self.assertFalse(emission_review_history["freeform_language_generation"])
+        self.assertFalse(emission_review_history["applies_plasticity"])
+        self.assertFalse(emission_review_history["mutates_runtime_state"])
+        self.assertEqual(emission_review_history["emission_review_event_count"], 0)
+        self.assertEqual(
+            emission_review_history["promotion_status"],
+            "waiting_for_reviewed_snn_language_emission",
+        )
+        self.assertFalse(
+            emission_review_history[
+                "eligible_for_operator_display_history_inspection"
+            ]
+        )
+        self.assertFalse(emission_review_history["eligible_for_replay_memory"])
+        self.assertFalse(emission_review_history["eligible_for_live_replay"])
+        self.assertFalse(
+            emission_review_history["eligible_for_plasticity_application"]
+        )
+        self.assertFalse(emission_review_history["eligible_for_fact_promotion"])
+        self.assertFalse(emission_review_history["eligible_for_action"])
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "language_output",
+            "emission_review_events",
+        ):
+            self.assertNotIn(forbidden_key, emission_review_history)
         self.assertIn("snn_readout_applied_synapse_provenance", truth["evidence"])
         applied_provenance = truth["evidence"]["snn_readout_applied_synapse_provenance"]
         self.assertEqual(
@@ -3175,6 +3346,102 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(path["generates_text"])
         self.assertFalse(path["applies_plasticity"])
         self.assertFalse(path["mutates_runtime_state"])
+
+    def test_runtime_truth_emission_review_history_reports_reviewed_output_without_exposing_text(
+        self,
+    ) -> None:
+        ledger_state = {
+            "emission_review_events": [
+                {
+                    "emission_review_hash": "review-hash",
+                    "emission_hash": "emission-hash",
+                    "trajectory_hash": "trajectory-hash",
+                    "persistent_transition_weights_hash": "transition-hash",
+                    "reviewed_at": "2026-06-02T00:00:00+00:00",
+                    "text": "do not expose this bounded display text",
+                    "labels": ["memory pressure"],
+                }
+            ],
+            "total_emission_review_count": 1,
+            "last_emission_reviewed_at": "2026-06-02T00:00:00+00:00",
+        }
+        model, _, _, runtime_state = _build_read_model(
+            readout_ledger_state_fn=lambda: deepcopy(ledger_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        history = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_emission_review_history"
+        ]
+        terminus_history = model.terminus_status()["runtime_truth"]["evidence"][
+            "snn_readout_emission_review_history"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(history["emission_review_event_count"], 1)
+        self.assertEqual(history["total_emission_review_count"], 1)
+        self.assertEqual(history["unique_emission_count"], 1)
+        self.assertEqual(history["unique_trajectory_count"], 1)
+        self.assertEqual(history["unique_transition_memory_count"], 1)
+        self.assertEqual(history["latest_emission_review_hash"], "review-hash")
+        self.assertEqual(history["latest_emission_hash"], "emission-hash")
+        self.assertEqual(history["latest_trajectory_hash"], "trajectory-hash")
+        self.assertEqual(history["latest_transition_memory_hash"], "transition-hash")
+        self.assertEqual(
+            history["promotion_status"],
+            "ready_for_operator_display_history_inspection",
+        )
+        self.assertTrue(
+            history["eligible_for_operator_display_history_inspection"]
+        )
+        self.assertFalse(history["generates_text"])
+        self.assertFalse(history["decodes_text"])
+        self.assertFalse(history["exposes_raw_text"])
+        self.assertFalse(history["calls_endpoint"])
+        self.assertFalse(history["records_ledger_event"])
+        self.assertFalse(history["runs_replay"])
+        self.assertFalse(history["writes_checkpoint"])
+        self.assertFalse(history["applies_plasticity"])
+        self.assertFalse(history["mutates_runtime_state"])
+        self.assertFalse(history["eligible_for_replay_memory"])
+        self.assertFalse(history["eligible_for_live_replay"])
+        self.assertFalse(history["eligible_for_plasticity_application"])
+        self.assertFalse(history["eligible_for_fact_promotion"])
+        self.assertFalse(history["eligible_for_action"])
+        self.assertTrue(
+            history["promotion_gate"]["required_evidence"][
+                "freeform_language_generation_absent"
+            ]
+        )
+        self.assertTrue(
+            history["promotion_gate"]["required_evidence"][
+                "reviewed_emission_available"
+            ]
+        )
+        self.assertTrue(
+            history["promotion_gate"]["required_evidence"]["raw_text_exposure_absent"]
+        )
+        self.assertEqual(
+            terminus_history["latest_emission_review_hash"],
+            history["latest_emission_review_hash"],
+        )
+        self.assertEqual(
+            terminus_history["emission_review_event_count"],
+            history["emission_review_event_count"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "language_output",
+            "emission_review_events",
+        ):
+            self.assertNotIn(forbidden_key, history)
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):

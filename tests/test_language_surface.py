@@ -14,6 +14,7 @@ from hecsn.semantics import (
     build_snn_language_transition_memory_prediction_evaluation,
     build_snn_language_transition_memory_sleep_policy,
     build_snn_language_transition_memory_regeneration_proposal,
+    build_snn_language_readout_emission,
     build_snn_language_readout_trajectory_evidence,
     evaluate_spike_language_adapter_heldout,
     evaluate_spike_language_plasticity_live_application_preflight,
@@ -35,6 +36,8 @@ from hecsn.semantics import (
     build_subcortical_deliberation_surface,
     build_subcortical_self_repair_evaluation_surface,
     build_subcortical_self_repair_surface,
+    build_subcortical_structural_mutation_design,
+    build_subcortical_structural_mutation_preflight,
     build_subcortical_structural_plasticity_surface,
     evaluate_subcortical_structural_plasticity_isolated,
 )
@@ -708,6 +711,8 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             {"device": "cpu", "source": "readout_draft_fixture"},
             transition_memory_evaluation,
         )
+        emission = build_snn_language_readout_emission(draft)
+        pending_emission = build_snn_language_readout_emission(pending_evaluation_draft)
 
         self.assertEqual(draft["artifact_kind"], "terminus_snn_language_readout_draft")
         self.assertEqual(draft["surface"], "snn_language_readout_draft.v1")
@@ -788,6 +793,46 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         )
         self.assertFalse(
             blocked_external_draft["promotion_gate"]["required_evidence"]["external_dependency_absent"]
+        )
+        self.assertEqual(emission["artifact_kind"], "terminus_snn_language_readout_emission")
+        self.assertEqual(emission["surface"], "snn_language_readout_emission.v1")
+        self.assertTrue(emission["ready"])
+        self.assertTrue(emission["generates_text"])
+        self.assertTrue(emission["decodes_text"])
+        self.assertEqual(
+            emission["generation_scope"],
+            "operator_visible_bounded_snn_readout_emission",
+        )
+        self.assertFalse(emission["freeform_language_generation"])
+        self.assertFalse(emission["mutates_runtime_state"])
+        self.assertFalse(emission["applies_plasticity"])
+        self.assertFalse(emission["writes_checkpoint"])
+        self.assertFalse(emission["promotes_fact"])
+        self.assertFalse(emission["promotes_action"])
+        self.assertFalse(emission["cognition_substrate"])
+        self.assertEqual(emission["language_output"]["text"], draft["draft"]["text"])
+        self.assertIn("memory pressure", emission["language_output"]["text"])
+        self.assertEqual(len(emission["emission_hash"]), 64)
+        self.assertEqual(
+            emission["emission_binding"]["transition_memory_evaluation_hash"],
+            transition_memory_evaluation["provenance_evidence"]["evaluation_hash"],
+        )
+        self.assertEqual(
+            emission["emission_binding"]["trajectory_hash"],
+            draft["readout_trajectory_evidence"]["provenance_evidence"]["trajectory_hash"],
+        )
+        self.assertTrue(emission["promotion_gate"]["eligible_for_operator_display"])
+        self.assertFalse(
+            emission["promotion_gate"]["eligible_for_freeform_language_generation"]
+        )
+        self.assertFalse(emission["promotion_gate"]["eligible_for_cognition_substrate"])
+        self.assertFalse(pending_emission["ready"])
+        self.assertFalse(pending_emission["generates_text"])
+        self.assertEqual(pending_emission["language_output"]["text"], "")
+        self.assertFalse(
+            pending_emission["promotion_gate"]["required_evidence"][
+                "draft_bounded_generation_ready"
+            ]
         )
         stale_evaluation = build_snn_language_transition_memory_prediction_evaluation(
             [
@@ -2384,38 +2429,50 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertEqual(binding_case["intent"], "evaluate_binding_topology_stability")
 
     def test_structural_plasticity_isolated_evaluator_reports_deltas_without_mutation(self) -> None:
+        pre_snapshot = {
+            "current_state_revision": 10,
+            "binding_topology": {
+                "edges_added_total": 4,
+                "edges_removed_total": 1,
+                "growth_events": 1,
+                "prune_events": 0,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.20, "saturated_fraction": 0.05, "stale_fraction": 0.30},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 11,
+            "binding_topology": {
+                "edges_added_total": 5,
+                "edges_removed_total": 2,
+                "growth_events": 2,
+                "prune_events": 1,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
+            "runtime_truth": {"verdict": "alive"},
+        }
+        pre_snapshot_hash = hashlib.sha256(
+            json.dumps(pre_snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+
         report = evaluate_subcortical_structural_plasticity_isolated(
-            {
-                "current_state_revision": 10,
-                "binding_topology": {
-                    "edges_added_total": 4,
-                    "edges_removed_total": 1,
-                    "growth_events": 1,
-                    "prune_events": 0,
-                },
-                "device_evidence": {
-                    "binding_devices": {"binding_state_device": "cuda:0"},
-                    "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
-                },
-                "spike_health": {"silent_fraction": 0.20, "saturated_fraction": 0.05, "stale_fraction": 0.30},
-                "runtime_truth": {"verdict": "degraded"},
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={
+                "available": True,
+                "snapshot_id": "pre-structural-eval",
+                "pre_snapshot_hash": pre_snapshot_hash,
             },
-            {
-                "current_state_revision": 11,
-                "binding_topology": {
-                    "edges_added_total": 5,
-                    "edges_removed_total": 2,
-                    "growth_events": 2,
-                    "prune_events": 1,
-                },
-                "device_evidence": {
-                    "binding_devices": {"binding_state_device": "cuda:0"},
-                    "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
-                },
-                "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
-                "runtime_truth": {"verdict": "alive"},
-            },
-            rollback_policy={"available": True, "snapshot_id": "pre-structural-eval"},
         )
 
         self.assertEqual(report["artifact_kind"], "terminus_subcortical_structural_plasticity_isolated_evaluation")
@@ -2428,6 +2485,8 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertTrue(report["spike_health_delta"]["improved_or_stable"])
         self.assertTrue(report["runtime_truth_delta"]["improved_or_stable"])
         self.assertTrue(report["rollback_evidence"]["available"])
+        self.assertTrue(report["rollback_evidence"]["bound_to_pre_snapshot"])
+        self.assertTrue(report["rollback_evidence"]["pre_snapshot_hash_match"])
         self.assertEqual(report["snapshot_binding"]["hash_algorithm"], "sha256_canonical_json")
         self.assertEqual(len(report["snapshot_binding"]["pre_snapshot_hash"]), 64)
         self.assertEqual(len(report["snapshot_binding"]["post_snapshot_hash"]), 64)
@@ -2440,6 +2499,7 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertIn("pre_post_snapshot_hash_binding", report["success_evidence"])
         self.assertTrue(report["promotion_gate"]["requires_bound_snapshot_hashes"])
         self.assertTrue(report["promotion_gate"]["requires_nonzero_structural_delta"])
+        self.assertTrue(report["promotion_gate"]["requires_rollback_pre_snapshot_binding"])
         self.assertEqual(report["promotion_gate"]["status"], "ready_for_operator_review")
 
     def test_structural_plasticity_isolated_evaluator_blocks_identical_snapshots(self) -> None:
@@ -2469,6 +2529,225 @@ class SubcorticalStructuralPlasticitySurfaceTests(unittest.TestCase):
         self.assertFalse(report["snapshot_binding"]["structural_delta_present"])
         self.assertEqual(report["promotion_gate"]["status"], "blocked_evidence_incomplete")
         self.assertFalse(report["promotion_gate"]["eligible_for_structural_mutation"])
+
+    def test_structural_plasticity_isolated_evaluator_blocks_unbound_rollback(self) -> None:
+        pre_snapshot = {
+            "current_state_revision": 20,
+            "binding_topology": {
+                "edges_added_total": 4,
+                "edges_removed_total": 1,
+                "growth_events": 1,
+                "prune_events": 0,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.20, "saturated_fraction": 0.05, "stale_fraction": 0.30},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 21,
+            "binding_topology": {
+                "edges_added_total": 5,
+                "edges_removed_total": 2,
+                "growth_events": 2,
+                "prune_events": 1,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
+            "runtime_truth": {"verdict": "alive"},
+        }
+
+        report = evaluate_subcortical_structural_plasticity_isolated(
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={"available": True, "snapshot_id": "pre-structural-eval"},
+        )
+
+        self.assertTrue(report["rollback_evidence"]["available"])
+        self.assertFalse(report["rollback_evidence"]["bound_to_pre_snapshot"])
+        self.assertFalse(report["rollback_evidence"]["pre_snapshot_hash_match"])
+        self.assertEqual(report["promotion_gate"]["status"], "blocked_evidence_incomplete")
+
+    def test_structural_mutation_design_requires_bound_evaluation_and_operator_confirmation(self) -> None:
+        pre_snapshot = {
+            "current_state_revision": 30,
+            "binding_topology": {
+                "edges_added_total": 4,
+                "edges_removed_total": 1,
+                "growth_events": 1,
+                "prune_events": 0,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.20, "saturated_fraction": 0.05, "stale_fraction": 0.30},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 31,
+            "binding_topology": {
+                "edges_added_total": 5,
+                "edges_removed_total": 2,
+                "growth_events": 2,
+                "prune_events": 1,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
+            "runtime_truth": {"verdict": "alive"},
+        }
+        pre_snapshot_hash = hashlib.sha256(
+            json.dumps(pre_snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        evaluation = evaluate_subcortical_structural_plasticity_isolated(
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={
+                "available": True,
+                "snapshot_id": "pre-structural-design",
+                "pre_snapshot_hash": pre_snapshot_hash,
+            },
+        )
+
+        design = build_subcortical_structural_mutation_design(
+            evaluation,
+            operator_id="operator-structural-design",
+            confirmation=True,
+        )
+        blocked = build_subcortical_structural_mutation_design(
+            evaluation,
+            operator_id="operator-structural-design",
+            confirmation=False,
+        )
+
+        self.assertEqual(design["artifact_kind"], "terminus_subcortical_structural_mutation_design")
+        self.assertEqual(design["surface"], "subcortical_structural_mutation_design.v1")
+        self.assertFalse(design["executable"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["writes_checkpoint"])
+        self.assertFalse(design["calls_growth_or_prune"])
+        self.assertFalse(design["applies_structural_mutation"])
+        self.assertEqual(len(design["structural_mutation_design_hash"]), 64)
+        self.assertTrue(design["evaluation_binding"]["rollback_bound_to_pre_snapshot"])
+        self.assertEqual(design["structural_mutation_design"]["total_edge_delta"], 2)
+        self.assertFalse(design["structural_mutation_design"]["runtime_update_applied"])
+        self.assertFalse(design["structural_mutation_design"]["checkpoint_written"])
+        self.assertEqual(
+            design["promotion_gate"]["status"],
+            "ready_for_structural_mutation_preflight_review",
+        )
+        self.assertFalse(design["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(
+            design["promotion_gate"]["eligible_for_structural_mutation_preflight_review"]
+        )
+        self.assertEqual(
+            blocked["promotion_gate"]["status"],
+            "blocked_missing_structural_mutation_design_evidence",
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"]["operator_confirmation"]
+        )
+
+    def test_structural_mutation_preflight_requires_design_hash_revision_and_checkpoint(self) -> None:
+        pre_snapshot = {
+            "current_state_revision": 40,
+            "binding_topology": {
+                "edges_added_total": 4,
+                "edges_removed_total": 1,
+                "growth_events": 1,
+                "prune_events": 0,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.20, "saturated_fraction": 0.05, "stale_fraction": 0.30},
+            "runtime_truth": {"verdict": "degraded"},
+        }
+        post_snapshot = {
+            "current_state_revision": 41,
+            "binding_topology": {
+                "edges_added_total": 5,
+                "edges_removed_total": 2,
+                "growth_events": 2,
+                "prune_events": 1,
+            },
+            "device_evidence": {
+                "binding_devices": {"binding_state_device": "cuda:0"},
+                "local_plasticity_devices": {"input_eligibility_device": "cuda:0"},
+            },
+            "spike_health": {"silent_fraction": 0.10, "saturated_fraction": 0.02, "stale_fraction": 0.20},
+            "runtime_truth": {"verdict": "alive"},
+        }
+        pre_snapshot_hash = hashlib.sha256(
+            json.dumps(pre_snapshot, ensure_ascii=True, sort_keys=True, separators=(",", ":"), default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        evaluation = evaluate_subcortical_structural_plasticity_isolated(
+            pre_snapshot,
+            post_snapshot,
+            rollback_policy={
+                "available": True,
+                "snapshot_id": "pre-structural-design",
+                "pre_snapshot_hash": pre_snapshot_hash,
+            },
+        )
+        design = build_subcortical_structural_mutation_design(
+            evaluation,
+            operator_id="operator-structural-design",
+            confirmation=True,
+        )
+
+        preflight = build_subcortical_structural_mutation_preflight(
+            design,
+            expected_state_revision=7,
+            current_state_revision=7,
+            checkpoint_path="checkpoint://pre-structural-mutation",
+        )
+        stale = build_subcortical_structural_mutation_preflight(
+            design,
+            expected_state_revision=6,
+            current_state_revision=7,
+            checkpoint_path="checkpoint://pre-structural-mutation",
+        )
+
+        self.assertEqual(preflight["artifact_kind"], "terminus_subcortical_structural_mutation_preflight")
+        self.assertEqual(preflight["surface"], "subcortical_structural_mutation_preflight.v1")
+        self.assertFalse(preflight["executable"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["writes_checkpoint"])
+        self.assertFalse(preflight["calls_growth_or_prune"])
+        self.assertFalse(preflight["applies_structural_mutation"])
+        self.assertEqual(len(preflight["structural_mutation_preflight_hash"]), 64)
+        self.assertTrue(preflight["design_binding"]["design_hash_recomputed_match"])
+        self.assertTrue(
+            preflight["checkpoint_transaction_requirements"]["expected_state_revision_current"]
+        )
+        self.assertTrue(preflight["checkpoint_transaction_requirements"]["checkpoint_path_available"])
+        self.assertEqual(
+            preflight["promotion_gate"]["status"],
+            "ready_for_operator_structural_mutation_execution_review",
+        )
+        self.assertFalse(preflight["promotion_gate"]["eligible_for_structural_mutation"])
+        self.assertTrue(preflight["promotion_gate"]["eligible_for_operator_execution_review"])
+        self.assertEqual(
+            stale["promotion_gate"]["status"],
+            "blocked_missing_structural_mutation_preflight_evidence",
+        )
+        self.assertFalse(
+            stale["promotion_gate"]["required_evidence"]["expected_state_revision_current"]
+        )
 
 
 if __name__ == "__main__":

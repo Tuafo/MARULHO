@@ -54,6 +54,7 @@ from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesDependen
 from hecsn.service.sensory_runtime import SensoryRuntimeCore
 from hecsn.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
 from hecsn.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
+from hecsn.service.structural_mutation_executor import StructuralMutationExecutor
 from hecsn.service.autonomy_planner import AutonomyPlanner
 from hecsn.service.status_runtime import RuntimeStatusCore
 from hecsn.service.status_read_model import StatusReadModel
@@ -283,6 +284,19 @@ class HECSNServiceManager:
                 operation=operation,
             ),
         )
+        self._structural_mutation_executor = StructuralMutationExecutor(
+            lock=self._lock,
+            runtime_state=self._runtime_state,
+            concept_store=lambda: self._concept_store,
+            save_checkpoint=lambda path: self._runtime_persistence.save_checkpoint(path, publish=False),
+            checkpoint_path=lambda: self._checkpoint_path,
+            verify_checkpoint=lambda path: bool(load_trainer_checkpoint(path)),
+            verify_checkpoint_snapshot=self._verify_concept_store_checkpoint_snapshot,
+            publish_committed_checkpoint=lambda path, operation: self._runtime_persistence.publish_current_checkpoint(
+                path,
+                operation=operation,
+            ),
+        )
         self._snn_language_readout_ledger = SNNLanguageReadoutEvidenceLedger(
             lock=self._lock,
             runtime_state=self._runtime_state,
@@ -312,6 +326,27 @@ class HECSNServiceManager:
         )
         return (
             dict(saved_language_state) == dict(expected_language_state)
+            and int(metadata.get("state_revision", -1)) == int(expected_revision)
+        )
+
+    @staticmethod
+    def _verify_concept_store_checkpoint_snapshot(
+        path: Path,
+        expected_concept_state: Mapping[str, Any],
+        expected_revision: int,
+    ) -> bool:
+        try:
+            _trainer, metadata = load_trainer_checkpoint(path)
+        except Exception:
+            return False
+        service_state = metadata.get("service_state") if isinstance(metadata.get("service_state"), Mapping) else {}
+        saved_concept_state = (
+            service_state.get("concept_store")
+            if isinstance(service_state.get("concept_store"), Mapping)
+            else {}
+        )
+        return (
+            dict(saved_concept_state) == dict(expected_concept_state)
             and int(metadata.get("state_revision", -1)) == int(expected_revision)
         )
 
