@@ -92,6 +92,201 @@ class RuntimeFacade:
     def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
 
+    def snn_language_readout_emission_replay_evaluation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_design(**kwargs)
+
+    def snn_language_readout_emission_replay_context_review(self, **kwargs: Any) -> dict[str, Any]:
+        design = dict(kwargs.pop("emission_replay_evaluation_design"))
+        observed_slots = [
+            item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            for item in list(kwargs.pop("observed_readout_slots"))
+        ]
+        prediction_report = dict(kwargs.pop("prediction_report"))
+        operator_id = str(kwargs.pop("operator_id", "") or "").strip()
+        confirmation = bool(kwargs.pop("confirmation", False))
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        seeds = [
+            dict(seed)
+            for seed in list(design.get("selected_replay_context_seeds") or [])
+            if isinstance(seed, Mapping)
+        ]
+        provenance = (
+            prediction_report.get("provenance_evidence")
+            if isinstance(prediction_report.get("provenance_evidence"), Mapping)
+            else {}
+        )
+        prediction_hash = str(provenance.get("prediction_hash") or "")
+        design_payload = (
+            design.get("emission_replay_evaluation_design")
+            if isinstance(design.get("emission_replay_evaluation_design"), Mapping)
+            else {}
+        )
+        matched_seed = next(
+            (
+                seed
+                for seed in seeds
+                if bool(seed.get("eligible_for_replay_context_review"))
+                and str(seed.get("prediction_hash") or "") == prediction_hash
+            ),
+            None,
+        )
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_readout_emission_replay_evaluation_design.v1",
+            "design_gate_ready": bool(
+                gate.get("eligible_for_operator_replay_context_review")
+            ),
+            "design_does_not_record_replay_context": (
+                design.get("records_ledger_event") is False
+                and bool(design_payload.get("records_replay_context")) is False
+            ),
+            "prediction_report_surface_available": prediction_report.get("surface")
+            == "snn_language_sequence_prediction_probe.v1",
+            "prediction_hash_available": bool(prediction_hash),
+            "prediction_hash_matches_design_seed": matched_seed is not None,
+            "observed_readout_slots_available": bool(observed_slots),
+            "operator_id_available": bool(operator_id),
+            "operator_confirmation": confirmation,
+        }
+        ready = all(required.values())
+
+        def blocked() -> dict[str, Any]:
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_readout_emission_replay_context_review"
+                ),
+                "surface": "snn_language_readout_emission_replay_context_review.v1",
+                "accepted": False,
+                "ready": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "records_replay_context": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "exposes_reviewed_bounded_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "review": {
+                    "operator_id": operator_id or None,
+                    "prediction_hash": prediction_hash or None,
+                    "matched_design_seed_hash": (
+                        matched_seed.get("replay_context_seed_hash")
+                        if matched_seed
+                        else None
+                    ),
+                    "replay_evaluation_context_id": None,
+                    "replay_evaluation_context_hash": None,
+                },
+                "promotion_gate": {
+                    "status": "blocked_missing_emission_replay_context_review_evidence",
+                    "eligible_for_replay_context_recording": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required,
+                },
+            }
+
+        if not ready:
+            return blocked()
+
+        mismatch = self._root._status_read_model.snn_language_sequence_mismatch_probe(
+            prediction_report=prediction_report,
+            observed_readout_slots=observed_slots,
+            device_evidence=kwargs.pop("device_evidence", None),
+        )
+        pressure = self._root._status_read_model.snn_language_plasticity_pressure(
+            mismatch_report=mismatch,
+            runtime_truth_delta=kwargs.pop("runtime_truth_delta", None),
+            rollback_policy=kwargs.pop("rollback_policy", None),
+        )
+        context = self._root._replay_controller.record_snn_replay_evaluation_context(
+            mismatch_report=mismatch,
+            pressure_report=pressure,
+        )
+        review_material = {
+            "design_hash": design_payload.get("design_hash"),
+            "seed_hash": matched_seed.get("replay_context_seed_hash")
+            if matched_seed
+            else None,
+            "prediction_hash": prediction_hash,
+            "replay_evaluation_context_hash": context.get("evidence_hash"),
+            "operator_id": operator_id,
+        }
+        review_hash = self._root._snn_language_readout_ledger._sha256_json(
+            review_material
+        )
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_readout_emission_replay_context_review"
+            ),
+            "surface": "snn_language_readout_emission_replay_context_review.v1",
+            "accepted": True,
+            "ready": True,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "records_replay_context": True,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "exposes_reviewed_bounded_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": True,
+            "eligible_for_replay_memory": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "review": {
+                "review_hash": review_hash,
+                "operator_id": operator_id,
+                "prediction_hash": prediction_hash,
+                "matched_design_seed_hash": matched_seed.get("replay_context_seed_hash"),
+                "readout_evidence_hash": matched_seed.get("readout_evidence_hash"),
+                "emission_hash": matched_seed.get("emission_hash"),
+                "replay_evaluation_context_id": context.get(
+                    "replay_evaluation_context_id"
+                ),
+                "replay_evaluation_context_hash": context.get("evidence_hash"),
+                "mismatch_hash": context.get("mismatch_hash"),
+                "pressure_hash": context.get("pressure_hash"),
+            },
+            "promotion_gate": {
+                "status": "replay_evaluation_context_recorded_for_operator_review",
+                "eligible_for_replay_context_recording": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "/terminus/snn-language-sequence/"
+                    "replay-consolidation-priority-queue"
+                ),
+                "required_evidence": required,
+            },
+        }
+
     def snn_language_readout_rollout_candidate(self, **kwargs: Any) -> dict[str, Any]:
         state = dict(self.snn_language_plasticity_runtime_state())
         state["transition_memory_state_source"] = (

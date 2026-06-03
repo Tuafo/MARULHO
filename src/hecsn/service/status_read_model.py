@@ -705,6 +705,9 @@ class StatusReadModel:
         snn_readout_emission_review_history = (
             self._snn_readout_emission_review_history()
         )
+        snn_readout_emission_replay_design_path = (
+            self._snn_readout_emission_replay_design_path()
+        )
         snn_readout_applied_synapse_provenance = (
             self._snn_readout_applied_synapse_provenance()
         )
@@ -856,6 +859,9 @@ class StatusReadModel:
                 "snn_readout_emission_review_history": (
                     snn_readout_emission_review_history
                 ),
+                "snn_readout_emission_replay_design_path": (
+                    snn_readout_emission_replay_design_path
+                ),
                 "snn_readout_applied_synapse_provenance": (
                     snn_readout_applied_synapse_provenance
                 ),
@@ -866,6 +872,192 @@ class StatusReadModel:
                 "snn_due_cycle_bounded_replay_selection_gate": (
                     snn_due_cycle_bounded_replay_selection_gate
                 ),
+            },
+        }
+
+    def _snn_readout_emission_replay_design_path(self) -> dict[str, Any]:
+        """Summarize reviewed-emission replay-design readiness without text."""
+
+        state = (
+            self._readout_ledger_state_fn()
+            if self._readout_ledger_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        readout_events = [
+            dict(item)
+            for item in list(state.get("events") or [])
+            if isinstance(item, Mapping)
+        ]
+        review_events = [
+            dict(item)
+            for item in list(state.get("emission_review_events") or [])
+            if isinstance(item, Mapping)
+        ]
+        readout_by_binding: dict[
+            tuple[str, str, str, tuple[str, ...]], dict[str, Any]
+        ] = {}
+        for event in readout_events:
+            labels = tuple(str(value) for value in list(event.get("labels") or []))
+            key = (
+                str(event.get("prediction_hash") or ""),
+                str(event.get("transition_memory_evaluation_hash") or ""),
+                str(event.get("persistent_transition_weights_hash") or ""),
+                labels,
+            )
+            if all(key[:3]) and labels:
+                readout_by_binding.setdefault(key, event)
+
+        matched: list[dict[str, Any]] = []
+        unmatched_count = 0
+        for review in review_events:
+            labels = tuple(str(value) for value in list(review.get("labels") or []))
+            key = (
+                str(review.get("prediction_hash") or ""),
+                str(review.get("transition_memory_evaluation_hash") or ""),
+                str(review.get("persistent_transition_weights_hash") or ""),
+                labels,
+            )
+            readout = readout_by_binding.get(key)
+            if readout is None:
+                unmatched_count += 1
+                continue
+            grounding = [
+                bool(value) for value in list(readout.get("label_grounding") or [])
+            ]
+            grounded = bool(grounding) and all(grounding)
+            label_hash = hashlib.sha256(
+                json.dumps(
+                    list(labels),
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+            ).hexdigest()
+            matched.append(
+                {
+                    "emission_review_hash": review.get("emission_review_hash"),
+                    "emission_hash": review.get("emission_hash"),
+                    "readout_evidence_hash": readout.get("readout_evidence_hash"),
+                    "prediction_hash": review.get("prediction_hash"),
+                    "transition_memory_evaluation_hash": review.get(
+                        "transition_memory_evaluation_hash"
+                    ),
+                    "persistent_transition_weights_hash": review.get(
+                        "persistent_transition_weights_hash"
+                    ),
+                    "label_hash": label_hash,
+                    "grounded": grounded,
+                }
+            )
+
+        grounded_count = sum(1 for item in matched if bool(item.get("grounded")))
+        ready = grounded_count > 0
+        latest = matched[0] if matched else {}
+        promotion_status = (
+            "ready_for_emission_replay_evaluation_design_review"
+            if ready
+            else (
+                "waiting_for_matching_internal_readout_evidence"
+                if review_events
+                else "waiting_for_reviewed_snn_language_emission"
+            )
+        )
+        return {
+            "surface": "snn_readout_emission_replay_design_path_evidence.v1",
+            "artifact_kind": (
+                "terminus_snn_readout_emission_replay_design_path_evidence"
+            ),
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "records_replay_context": False,
+            "runs_replay": False,
+            "writes_checkpoint": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "exposes_raw_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "emission_review_event_count": len(review_events),
+            "internal_readout_evidence_count": len(readout_events),
+            "policy_candidate_count": len(matched),
+            "design_seed_candidate_count": grounded_count,
+            "unmatched_emission_review_count": unmatched_count,
+            "latest_emission_review_hash": latest.get("emission_review_hash"),
+            "latest_emission_hash": latest.get("emission_hash"),
+            "latest_readout_evidence_hash": latest.get("readout_evidence_hash"),
+            "latest_prediction_hash": latest.get("prediction_hash"),
+            "latest_transition_memory_evaluation_hash": latest.get(
+                "transition_memory_evaluation_hash"
+            ),
+            "latest_persistent_transition_weights_hash": latest.get(
+                "persistent_transition_weights_hash"
+            ),
+            "latest_label_hash": latest.get("label_hash"),
+            "requires_device_review_evidence": True,
+            "requires_server_computed_mismatch_probe": True,
+            "requires_server_computed_plasticity_pressure": True,
+            "next_gate": (
+                "POST /terminus/snn-language-sequence/readout-emission/"
+                "operator-review/replay-evaluation-design"
+                if ready
+                else (
+                    "GET /terminus/snn-language-sequence/readout-emission/"
+                    "operator-review/replay-evaluation-policy"
+                    if review_events
+                    else "snn_language_readout_emission_review_record.v1"
+                )
+            ),
+            "promotion_status": promotion_status,
+            "eligible_for_emission_replay_evaluation_design_review": ready,
+            "eligible_for_operator_replay_context_review": False,
+            "eligible_for_replay_context_recording": False,
+            "eligible_for_replay_memory": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": promotion_status,
+                "eligible_for_emission_replay_evaluation_design_review": ready,
+                "eligible_for_operator_replay_context_review": False,
+                "eligible_for_replay_context_recording": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "reviewed_emission_available": bool(review_events),
+                    "matching_internal_readout_evidence_available": bool(matched),
+                    "grounded_design_seed_available": ready,
+                    "device_review_evidence_required": True,
+                    "server_computed_mismatch_probe_required": True,
+                    "server_computed_plasticity_pressure_required": True,
+                    "raw_text_exposure_absent": True,
+                    "runtime_mutation_absent": True,
+                    "endpoint_execution_absent": True,
+                    "ledger_recording_absent": True,
+                    "replay_context_recording_absent": True,
+                    "checkpoint_write_absent": True,
+                    "replay_memory_promotion_absent": True,
+                    "plasticity_application_absent": True,
+                    "fact_promotion_absent": True,
+                    "action_promotion_absent": True,
+                },
             },
         }
 

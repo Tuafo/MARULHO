@@ -441,6 +441,82 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             "emission_review_events",
         ):
             self.assertNotIn(forbidden_key, status_emission_review_history)
+        status_emission_replay_design_path = status_truth["evidence"][
+            "snn_readout_emission_replay_design_path"
+        ]
+        terminus_emission_replay_design_path = terminus_truth["evidence"][
+            "snn_readout_emission_replay_design_path"
+        ]
+        self.assertEqual(
+            status_emission_replay_design_path["artifact_kind"],
+            "terminus_snn_readout_emission_replay_design_path_evidence",
+        )
+        self.assertEqual(
+            status_emission_replay_design_path["surface"],
+            "snn_readout_emission_replay_design_path_evidence.v1",
+        )
+        self.assertTrue(status_emission_replay_design_path["owned_by_hecsn"])
+        self.assertFalse(status_emission_replay_design_path["external_dependency"])
+        self.assertTrue(status_emission_replay_design_path["advisory"])
+        self.assertFalse(status_emission_replay_design_path["executable"])
+        self.assertFalse(status_emission_replay_design_path["calls_endpoint"])
+        self.assertFalse(status_emission_replay_design_path["records_ledger_event"])
+        self.assertFalse(status_emission_replay_design_path["records_replay_context"])
+        self.assertFalse(status_emission_replay_design_path["runs_replay"])
+        self.assertFalse(status_emission_replay_design_path["writes_checkpoint"])
+        self.assertFalse(status_emission_replay_design_path["generates_text"])
+        self.assertFalse(status_emission_replay_design_path["decodes_text"])
+        self.assertFalse(status_emission_replay_design_path["exposes_raw_text"])
+        self.assertFalse(status_emission_replay_design_path["applies_plasticity"])
+        self.assertFalse(status_emission_replay_design_path["mutates_runtime_state"])
+        self.assertFalse(
+            status_emission_replay_design_path[
+                "eligible_for_emission_replay_evaluation_design_review"
+            ]
+        )
+        self.assertFalse(
+            status_emission_replay_design_path[
+                "eligible_for_operator_replay_context_review"
+            ]
+        )
+        self.assertFalse(
+            status_emission_replay_design_path["eligible_for_replay_context_recording"]
+        )
+        self.assertTrue(
+            status_emission_replay_design_path["requires_device_review_evidence"]
+        )
+        self.assertFalse(status_emission_replay_design_path["eligible_for_replay_memory"])
+        self.assertFalse(status_emission_replay_design_path["eligible_for_live_replay"])
+        self.assertFalse(
+            status_emission_replay_design_path["eligible_for_plasticity_application"]
+        )
+        self.assertFalse(status_emission_replay_design_path["eligible_for_fact_promotion"])
+        self.assertFalse(status_emission_replay_design_path["eligible_for_action"])
+        self.assertEqual(
+            terminus_emission_replay_design_path["artifact_kind"],
+            status_emission_replay_design_path["artifact_kind"],
+        )
+        self.assertEqual(
+            terminus_emission_replay_design_path["surface"],
+            status_emission_replay_design_path["surface"],
+        )
+        self.assertEqual(
+            terminus_emission_replay_design_path["design_seed_candidate_count"],
+            status_emission_replay_design_path["design_seed_candidate_count"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "language_output",
+            "emission_review_events",
+            "selected_replay_context_seeds",
+            "events",
+        ):
+            self.assertNotIn(forbidden_key, status_emission_replay_design_path)
         status_applied_provenance = status_truth["evidence"][
             "snn_readout_applied_synapse_provenance"
         ]
@@ -774,6 +850,77 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     "/terminus/snn-language-sequence/readout-emission/operator-review/replay-evaluation-policy",
                     params={"limit": 4},
                 )
+                emission_replay_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review/replay-evaluation-design",
+                    json={
+                        "emission_replay_evaluation_policy": emission_replay_policy_response.json(),
+                        "design_policy": {"max_candidates": 1, "min_ready_candidates": 1},
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api_emission_replay_design",
+                        },
+                    },
+                )
+                blocked_emission_replay_context_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review/replay-context-review",
+                    json={
+                        "emission_replay_evaluation_design": emission_replay_design_response.json(),
+                        "prediction_report": prediction_report,
+                        "observed_readout_slots": [
+                            {
+                                "label": "novel mismatch alpha",
+                                "pressure_band": "high",
+                                "grounded": True,
+                            }
+                        ],
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api_emission_replay_context",
+                        },
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {
+                            "available": True,
+                            "snapshot_id": "service-api-emission-replay-context",
+                        },
+                        "operator_id": "operator-test",
+                        "confirmation": False,
+                    },
+                )
+                emission_replay_context_response = client.post(
+                    "/terminus/snn-language-sequence/readout-emission/operator-review/replay-context-review",
+                    json={
+                        "emission_replay_evaluation_design": emission_replay_design_response.json(),
+                        "prediction_report": prediction_report,
+                        "observed_readout_slots": [
+                            {
+                                "label": "novel mismatch alpha",
+                                "pressure_band": "high",
+                                "grounded": True,
+                            },
+                            {
+                                "label": "novel mismatch beta",
+                                "pressure_band": "high",
+                                "grounded": True,
+                            },
+                            {
+                                "label": "novel mismatch gamma",
+                                "pressure_band": "high",
+                                "grounded": True,
+                            },
+                        ],
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api_emission_replay_context",
+                        },
+                        "runtime_truth_delta": {"improved_or_stable": True},
+                        "rollback_policy": {
+                            "available": True,
+                            "snapshot_id": "service-api-emission-replay-context",
+                        },
+                        "operator_id": "operator-test",
+                        "confirmation": True,
+                    },
+                )
                 ledger_response = client.get("/terminus/snn-language-sequence/readout-ledger")
                 replay_priority_response = client.get(
                     "/terminus/snn-language-sequence/readout-ledger/replay-priority"
@@ -995,6 +1142,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(blocked_record_response.status_code, 200)
         self.assertEqual(record_response.status_code, 200)
         self.assertEqual(emission_replay_policy_response.status_code, 200)
+        self.assertEqual(emission_replay_design_response.status_code, 200)
+        self.assertEqual(blocked_emission_replay_context_response.status_code, 200)
+        self.assertEqual(emission_replay_context_response.status_code, 200)
         self.assertEqual(ledger_response.status_code, 200)
         self.assertEqual(replay_priority_response.status_code, 200)
         self.assertEqual(rehearsal_evaluation_response.status_code, 200)
@@ -1030,6 +1180,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         blocked_record = blocked_record_response.json()
         record = record_response.json()
         emission_replay_policy = emission_replay_policy_response.json()
+        emission_replay_design = emission_replay_design_response.json()
+        blocked_emission_replay_context = blocked_emission_replay_context_response.json()
+        emission_replay_context = emission_replay_context_response.json()
         ledger = ledger_response.json()
         replay_priority = replay_priority_response.json()
         rehearsal_evaluation = rehearsal_evaluation_response.json()
@@ -1241,6 +1394,121 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("labels", emission_replay_policy["candidates"][0])
         self.assertNotIn("events", emission_replay_policy)
         self.assertNotIn("rollout_events", emission_replay_policy)
+        self.assertEqual(
+            emission_replay_design["surface"],
+            "snn_language_readout_emission_replay_evaluation_design.v1",
+        )
+        self.assertFalse(emission_replay_design["executable"])
+        self.assertFalse(emission_replay_design["records_ledger_event"])
+        self.assertFalse(emission_replay_design["runs_replay"])
+        self.assertFalse(emission_replay_design["generates_text"])
+        self.assertFalse(emission_replay_design["decodes_text"])
+        self.assertFalse(emission_replay_design["exposes_reviewed_bounded_text"])
+        self.assertFalse(emission_replay_design["mutates_runtime_state"])
+        self.assertFalse(emission_replay_design["eligible_for_replay_memory"])
+        self.assertEqual(
+            emission_replay_design["emission_replay_evaluation_design"][
+                "selected_seed_count"
+            ],
+            1,
+        )
+        self.assertFalse(
+            emission_replay_design["emission_replay_evaluation_design"][
+                "records_replay_context"
+            ]
+        )
+        self.assertEqual(
+            emission_replay_design["selected_replay_context_seeds"][0][
+                "readout_evidence_hash"
+            ],
+            record["recorded_event"]["readout_evidence_hash"],
+        )
+        self.assertTrue(
+            emission_replay_design["selected_replay_context_seeds"][0][
+                "internal_readout_ledger_match"
+            ]
+        )
+        self.assertTrue(
+            emission_replay_design["selected_replay_context_seeds"][0][
+                "eligible_for_replay_context_review"
+            ]
+        )
+        self.assertFalse(
+            emission_replay_design["selected_replay_context_seeds"][0][
+                "eligible_for_replay_memory"
+            ]
+        )
+        self.assertNotIn("text", emission_replay_design["selected_replay_context_seeds"][0])
+        self.assertNotIn("labels", emission_replay_design["selected_replay_context_seeds"][0])
+        self.assertFalse(
+            emission_replay_design["replay_context_review_requirements"][
+                "accepts_display_text"
+            ]
+        )
+        self.assertFalse(
+            emission_replay_design["promotion_gate"]["eligible_for_replay_context_recording"]
+        )
+        self.assertFalse(
+            emission_replay_design["promotion_gate"]["eligible_for_plasticity_application"]
+        )
+        self.assertEqual(
+            emission_replay_design["promotion_gate"]["next_gate"],
+            "/terminus/snn-language-sequence/replay-evaluation-context",
+        )
+        self.assertEqual(
+            blocked_emission_replay_context["surface"],
+            "snn_language_readout_emission_replay_context_review.v1",
+        )
+        self.assertFalse(blocked_emission_replay_context["accepted"])
+        self.assertFalse(blocked_emission_replay_context["records_replay_context"])
+        self.assertFalse(blocked_emission_replay_context["mutates_runtime_state"])
+        self.assertFalse(
+            blocked_emission_replay_context["promotion_gate"]["required_evidence"][
+                "operator_confirmation"
+            ]
+        )
+        self.assertEqual(
+            emission_replay_context["surface"],
+            "snn_language_readout_emission_replay_context_review.v1",
+        )
+        self.assertTrue(emission_replay_context["accepted"])
+        self.assertTrue(emission_replay_context["records_replay_context"])
+        self.assertFalse(emission_replay_context["records_ledger_event"])
+        self.assertFalse(emission_replay_context["runs_replay"])
+        self.assertFalse(emission_replay_context["writes_checkpoint"])
+        self.assertFalse(emission_replay_context["generates_text"])
+        self.assertFalse(emission_replay_context["decodes_text"])
+        self.assertFalse(emission_replay_context["exposes_reviewed_bounded_text"])
+        self.assertFalse(emission_replay_context["applies_plasticity"])
+        self.assertTrue(emission_replay_context["mutates_runtime_state"])
+        self.assertFalse(emission_replay_context["eligible_for_replay_memory"])
+        self.assertFalse(emission_replay_context["eligible_for_live_replay"])
+        self.assertFalse(emission_replay_context["eligible_for_plasticity_application"])
+        self.assertFalse(emission_replay_context["eligible_for_fact_promotion"])
+        self.assertFalse(emission_replay_context["eligible_for_action"])
+        self.assertEqual(
+            emission_replay_context["review"]["prediction_hash"],
+            prediction_report["provenance_evidence"]["prediction_hash"],
+        )
+        self.assertEqual(
+            emission_replay_context["review"]["readout_evidence_hash"],
+            record["recorded_event"]["readout_evidence_hash"],
+        )
+        self.assertIsNotNone(
+            emission_replay_context["review"]["replay_evaluation_context_id"]
+        )
+        self.assertIsNotNone(
+            emission_replay_context["review"]["replay_evaluation_context_hash"]
+        )
+        self.assertFalse(
+            emission_replay_context["promotion_gate"][
+                "eligible_for_replay_context_recording"
+            ]
+        )
+        self.assertEqual(
+            emission_replay_context["promotion_gate"]["next_gate"],
+            "/terminus/snn-language-sequence/replay-consolidation-priority-queue",
+        )
         self.assertFalse(blocked_emission_review["accepted"])
         self.assertFalse(
             blocked_emission_review["promotion_gate"]["required_evidence"][

@@ -283,6 +283,25 @@ class SNNLanguageReadoutEmissionReviewRequest(BaseModel):
     confirmation: bool = False
 
 
+class SNNLanguageReadoutEmissionReplayEvaluationDesignRequest(BaseModel):
+    emission_replay_evaluation_policy: dict[str, Any] = Field(..., min_length=1)
+    design_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
+    emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
+    prediction_report: dict[str, Any] = Field(..., min_length=1)
+    observed_readout_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(
+        ..., min_length=1, max_length=16
+    )
+    device_evidence: dict[str, Any] | None = None
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
 class SNNLanguageReadoutRolloutCandidateRequest(BaseModel):
     prediction_report: dict[str, Any] = Field(..., min_length=1)
     readout_vocabulary_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(..., min_length=1, max_length=32)

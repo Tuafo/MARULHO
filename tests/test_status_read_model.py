@@ -3154,6 +3154,77 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "emission_review_events",
         ):
             self.assertNotIn(forbidden_key, emission_review_history)
+        self.assertIn("snn_readout_emission_replay_design_path", truth["evidence"])
+        emission_replay_design_path = truth["evidence"][
+            "snn_readout_emission_replay_design_path"
+        ]
+        self.assertEqual(
+            emission_replay_design_path["artifact_kind"],
+            "terminus_snn_readout_emission_replay_design_path_evidence",
+        )
+        self.assertEqual(
+            emission_replay_design_path["surface"],
+            "snn_readout_emission_replay_design_path_evidence.v1",
+        )
+        self.assertTrue(emission_replay_design_path["owned_by_hecsn"])
+        self.assertFalse(emission_replay_design_path["external_dependency"])
+        self.assertTrue(emission_replay_design_path["advisory"])
+        self.assertFalse(emission_replay_design_path["executable"])
+        self.assertFalse(emission_replay_design_path["calls_endpoint"])
+        self.assertFalse(emission_replay_design_path["records_ledger_event"])
+        self.assertFalse(emission_replay_design_path["records_replay_context"])
+        self.assertFalse(emission_replay_design_path["runs_replay"])
+        self.assertFalse(emission_replay_design_path["writes_checkpoint"])
+        self.assertFalse(emission_replay_design_path["generates_text"])
+        self.assertFalse(emission_replay_design_path["decodes_text"])
+        self.assertFalse(emission_replay_design_path["exposes_raw_text"])
+        self.assertFalse(emission_replay_design_path["applies_plasticity"])
+        self.assertFalse(emission_replay_design_path["mutates_runtime_state"])
+        self.assertEqual(emission_replay_design_path["emission_review_event_count"], 0)
+        self.assertEqual(emission_replay_design_path["policy_candidate_count"], 0)
+        self.assertEqual(emission_replay_design_path["design_seed_candidate_count"], 0)
+        self.assertEqual(
+            emission_replay_design_path["promotion_status"],
+            "waiting_for_reviewed_snn_language_emission",
+        )
+        self.assertFalse(
+            emission_replay_design_path[
+                "eligible_for_emission_replay_evaluation_design_review"
+            ]
+        )
+        self.assertFalse(
+            emission_replay_design_path["eligible_for_operator_replay_context_review"]
+        )
+        self.assertFalse(
+            emission_replay_design_path["eligible_for_replay_context_recording"]
+        )
+        self.assertTrue(emission_replay_design_path["requires_device_review_evidence"])
+        self.assertTrue(
+            emission_replay_design_path["requires_server_computed_mismatch_probe"]
+        )
+        self.assertTrue(
+            emission_replay_design_path["requires_server_computed_plasticity_pressure"]
+        )
+        self.assertFalse(emission_replay_design_path["eligible_for_replay_memory"])
+        self.assertFalse(emission_replay_design_path["eligible_for_live_replay"])
+        self.assertFalse(
+            emission_replay_design_path["eligible_for_plasticity_application"]
+        )
+        self.assertFalse(emission_replay_design_path["eligible_for_fact_promotion"])
+        self.assertFalse(emission_replay_design_path["eligible_for_action"])
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "language_output",
+            "emission_review_events",
+            "selected_replay_context_seeds",
+            "events",
+        ):
+            self.assertNotIn(forbidden_key, emission_replay_design_path)
         self.assertIn("snn_readout_applied_synapse_provenance", truth["evidence"])
         applied_provenance = truth["evidence"]["snn_readout_applied_synapse_provenance"]
         self.assertEqual(
@@ -3442,6 +3513,120 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "emission_review_events",
         ):
             self.assertNotIn(forbidden_key, history)
+
+    def test_runtime_truth_emission_replay_design_path_reports_hash_only_candidates(
+        self,
+    ) -> None:
+        ledger_state = {
+            "events": [
+                {
+                    "readout_evidence_hash": "readout-hash",
+                    "readout_evidence_id": "readout-id",
+                    "prediction_hash": "prediction-hash",
+                    "transition_memory_evaluation_hash": "evaluation-hash",
+                    "persistent_transition_weights_hash": "weights-hash",
+                    "labels": ["memory pressure"],
+                    "label_grounding": [True],
+                }
+            ],
+            "emission_review_events": [
+                {
+                    "emission_review_hash": "review-hash",
+                    "emission_hash": "emission-hash",
+                    "prediction_hash": "prediction-hash",
+                    "transition_memory_evaluation_hash": "evaluation-hash",
+                    "persistent_transition_weights_hash": "weights-hash",
+                    "reviewed_at": "2026-06-03T00:00:00+00:00",
+                    "text": "do not expose this bounded display text",
+                    "labels": ["memory pressure"],
+                }
+            ],
+            "total_emission_review_count": 1,
+            "last_emission_reviewed_at": "2026-06-03T00:00:00+00:00",
+        }
+        model, _, _, runtime_state = _build_read_model(
+            readout_ledger_state_fn=lambda: deepcopy(ledger_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        path = model.status()["runtime_truth"]["evidence"][
+            "snn_readout_emission_replay_design_path"
+        ]
+        terminus_path = model.terminus_status()["runtime_truth"]["evidence"][
+            "snn_readout_emission_replay_design_path"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(path["emission_review_event_count"], 1)
+        self.assertEqual(path["internal_readout_evidence_count"], 1)
+        self.assertEqual(path["policy_candidate_count"], 1)
+        self.assertEqual(path["design_seed_candidate_count"], 1)
+        self.assertEqual(path["unmatched_emission_review_count"], 0)
+        self.assertEqual(path["latest_emission_review_hash"], "review-hash")
+        self.assertEqual(path["latest_emission_hash"], "emission-hash")
+        self.assertEqual(path["latest_readout_evidence_hash"], "readout-hash")
+        self.assertEqual(path["latest_prediction_hash"], "prediction-hash")
+        self.assertEqual(
+            path["latest_transition_memory_evaluation_hash"],
+            "evaluation-hash",
+        )
+        self.assertEqual(
+            path["latest_persistent_transition_weights_hash"],
+            "weights-hash",
+        )
+        self.assertEqual(
+            path["promotion_status"],
+            "ready_for_emission_replay_evaluation_design_review",
+        )
+        self.assertTrue(
+            path["eligible_for_emission_replay_evaluation_design_review"]
+        )
+        self.assertFalse(path["eligible_for_operator_replay_context_review"])
+        self.assertFalse(path["eligible_for_replay_context_recording"])
+        self.assertTrue(path["requires_device_review_evidence"])
+        self.assertTrue(path["requires_server_computed_mismatch_probe"])
+        self.assertTrue(path["requires_server_computed_plasticity_pressure"])
+        self.assertFalse(path["records_replay_context"])
+        self.assertFalse(path["runs_replay"])
+        self.assertFalse(path["records_ledger_event"])
+        self.assertFalse(path["generates_text"])
+        self.assertFalse(path["decodes_text"])
+        self.assertFalse(path["exposes_raw_text"])
+        self.assertFalse(path["eligible_for_replay_memory"])
+        self.assertFalse(path["eligible_for_live_replay"])
+        self.assertFalse(path["eligible_for_plasticity_application"])
+        self.assertFalse(path["eligible_for_fact_promotion"])
+        self.assertFalse(path["eligible_for_action"])
+        self.assertEqual(
+            path["next_gate"],
+            (
+                "POST /terminus/snn-language-sequence/readout-emission/operator-review/"
+                "replay-evaluation-design"
+            ),
+        )
+        self.assertEqual(
+            terminus_path["design_seed_candidate_count"],
+            path["design_seed_candidate_count"],
+        )
+        self.assertEqual(
+            terminus_path["latest_readout_evidence_hash"],
+            path["latest_readout_evidence_hash"],
+        )
+        for forbidden_key in (
+            "rollout",
+            "labels",
+            "text",
+            "prediction_report",
+            "transition_memory_evaluation",
+            "candidate",
+            "language_output",
+            "emission_review_events",
+            "selected_replay_context_seeds",
+            "events",
+        ):
+            self.assertNotIn(forbidden_key, path)
 
 
 class StatusReadModelSensoryPreviewReadonlyTests(unittest.TestCase):

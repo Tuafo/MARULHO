@@ -735,6 +735,240 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
+    def emission_review_replay_evaluation_design(
+        self,
+        emission_replay_evaluation_policy: Mapping[str, Any],
+        *,
+        design_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design review inputs for replay evaluation without recording replay memory."""
+
+        policy = dict(emission_replay_evaluation_policy)
+        gate = (
+            policy.get("promotion_gate")
+            if isinstance(policy.get("promotion_gate"), Mapping)
+            else {}
+        )
+        policy_config = dict(design_policy or {})
+        max_candidates = max(
+            1,
+            min(
+                int(
+                    policy_config.get(
+                        "max_candidates",
+                        policy.get("ready_candidate_count", 1),
+                    )
+                    or 1
+                ),
+                16,
+            ),
+        )
+        min_ready_candidates = max(
+            1,
+            min(
+                int(policy_config.get("min_ready_candidates", 1) or 1),
+                max_candidates,
+            ),
+        )
+        device = dict(device_evidence or {})
+        device_available = bool(device.get("device") or device.get("backend"))
+        with self._lock:
+            state = self._normalized_state()
+            readout_by_hash = {
+                str(event.get("readout_evidence_hash") or ""): dict(event)
+                for event in list(state["events"])
+                if str(event.get("readout_evidence_hash") or "")
+            }
+            candidates = [
+                dict(candidate)
+                for candidate in list(policy.get("candidates") or [])
+                if isinstance(candidate, Mapping)
+                and bool(candidate.get("eligible_for_replay_evaluation_policy_review"))
+            ][:max_candidates]
+            selected: list[dict[str, Any]] = []
+            for index, candidate in enumerate(candidates):
+                readout_hash = str(candidate.get("readout_evidence_hash") or "")
+                readout = readout_by_hash.get(readout_hash, {})
+                ledger_match = bool(readout) and all(
+                    str(candidate.get(key) or "") == str(readout.get(key) or "")
+                    for key in (
+                        "prediction_hash",
+                        "transition_memory_evaluation_hash",
+                        "persistent_transition_weights_hash",
+                    )
+                )
+                seed_material = {
+                    "emission_review_hash": candidate.get("emission_review_hash"),
+                    "emission_hash": candidate.get("emission_hash"),
+                    "readout_evidence_hash": readout_hash,
+                    "prediction_hash": candidate.get("prediction_hash"),
+                    "transition_memory_evaluation_hash": candidate.get(
+                        "transition_memory_evaluation_hash"
+                    ),
+                    "persistent_transition_weights_hash": candidate.get(
+                        "persistent_transition_weights_hash"
+                    ),
+                    "label_hash": candidate.get("label_hash"),
+                    "text_hash": candidate.get("text_hash"),
+                    "all_labels_grounded": bool(candidate.get("all_labels_grounded")),
+                    "ledger_match": ledger_match,
+                }
+                selected.append(
+                    {
+                        "rank": index + 1,
+                        "emission_review_hash": candidate.get("emission_review_hash"),
+                        "emission_hash": candidate.get("emission_hash"),
+                        "readout_evidence_hash": readout_hash,
+                        "readout_evidence_id": candidate.get("readout_evidence_id"),
+                        "prediction_hash": candidate.get("prediction_hash"),
+                        "transition_memory_evaluation_hash": candidate.get(
+                            "transition_memory_evaluation_hash"
+                        ),
+                        "persistent_transition_weights_hash": candidate.get(
+                            "persistent_transition_weights_hash"
+                        ),
+                        "label_hash": candidate.get("label_hash"),
+                        "text_hash": candidate.get("text_hash"),
+                        "all_labels_grounded": bool(candidate.get("all_labels_grounded")),
+                        "internal_readout_ledger_match": ledger_match,
+                        "replay_context_seed_hash": self._sha256_json(seed_material),
+                        "eligible_for_replay_context_review": ledger_match
+                        and bool(candidate.get("all_labels_grounded")),
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                    }
+                )
+            ready_seed_count = sum(
+                1
+                for seed in selected
+                if bool(seed.get("eligible_for_replay_context_review"))
+            )
+            required = {
+                "policy_surface_available": policy.get("surface")
+                == "snn_language_readout_emission_replay_evaluation_policy.v1",
+                "policy_gate_ready": bool(
+                    gate.get("eligible_for_operator_replay_evaluation_policy_review")
+                ),
+                "policy_is_read_only": not bool(policy.get("mutates_runtime_state"))
+                and not bool(policy.get("records_ledger_event"))
+                and not bool(policy.get("runs_replay")),
+                "policy_does_not_expose_text": not bool(
+                    policy.get("exposes_reviewed_bounded_text")
+                ),
+                "candidate_seed_available": bool(selected),
+                "minimum_ready_candidate_count_met": ready_seed_count
+                >= min_ready_candidates,
+                "selected_candidates_still_in_internal_readout_ledger": all(
+                    bool(seed.get("internal_readout_ledger_match")) for seed in selected
+                )
+                if selected
+                else False,
+                "selected_candidates_grounded": all(
+                    bool(seed.get("all_labels_grounded")) for seed in selected
+                )
+                if selected
+                else False,
+                "device_review_evidence_available": device_available,
+                "display_text_not_used_as_replay_source": True,
+                "runtime_mutation_absent": True,
+                "replay_execution_absent": True,
+                "ledger_recording_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            ready = all(required.values())
+            design_hash = self._sha256_json(
+                {
+                    "policy_surface": policy.get("surface"),
+                    "selected_seed_hashes": [
+                        seed.get("replay_context_seed_hash") for seed in selected
+                    ],
+                    "max_candidates": max_candidates,
+                    "min_ready_candidates": min_ready_candidates,
+                    "device_evidence_hash": self._sha256_json(device) if device else None,
+                }
+            )
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_readout_emission_replay_evaluation_design"
+                ),
+                "surface": "snn_language_readout_emission_replay_evaluation_design.v1",
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "emission_review_replay_evaluation_design"
+                ),
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "exposes_reviewed_bounded_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "emission_replay_evaluation_design": {
+                    "design_hash": design_hash,
+                    "selected_seed_count": len(selected),
+                    "ready_seed_count": ready_seed_count,
+                    "max_candidates": max_candidates,
+                    "min_ready_candidates": min_ready_candidates,
+                    "device_review_evidence_available": device_available,
+                    "execution_allowed": False,
+                    "records_replay_context": False,
+                },
+                "selected_replay_context_seeds": selected,
+                "replay_context_review_requirements": {
+                    "target_endpoint": "/terminus/snn-language-sequence/replay-evaluation-context",
+                    "requires_server_computed_mismatch_probe": True,
+                    "requires_server_computed_plasticity_pressure": True,
+                    "requires_prediction_report_reconstruction": True,
+                    "requires_observed_readout_slots": True,
+                    "accepts_display_text": False,
+                    "accepts_labels_as_replay_window": False,
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_operator_replay_context_review"
+                        if ready
+                        else "blocked_missing_emission_replay_design_evidence"
+                    ),
+                    "eligible_for_operator_replay_context_review": ready,
+                    "eligible_for_replay_context_recording": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "/terminus/snn-language-sequence/replay-evaluation-context"
+                        if ready
+                        else "snn_language_readout_emission_replay_evaluation_policy.v1"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
     def snapshot(self, *, limit: int = 20) -> dict[str, Any]:
         with self._lock:
             state = self._normalized_state()

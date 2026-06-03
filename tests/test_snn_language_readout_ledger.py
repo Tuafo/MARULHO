@@ -454,6 +454,119 @@ def test_readout_ledger_emission_review_replay_policy_selects_matched_sparse_rea
     assert policy["promotion_gate"]["eligible_for_action"] is False
 
 
+def test_readout_ledger_emission_replay_design_requires_device_review_evidence() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    emission = _ready_emission()
+    binding = emission["emission_binding"]  # type: ignore[index]
+    assert isinstance(binding, dict)
+    ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            str(binding["prediction_hash"]),
+            str(binding["transition_memory_evaluation_hash"]),
+            str(binding["persistent_transition_weights_hash"]),
+            ["memory pressure"],
+        ),
+        expected_state_revision=0,
+        operator_id="operator-readout",
+        confirmation=True,
+    )
+    ledger.record_readout_emission_review(
+        readout_emission=emission,
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    policy = ledger.emission_review_replay_evaluation_policy(limit=4)
+    design = ledger.emission_review_replay_evaluation_design(policy)
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert design["surface"] == "snn_language_readout_emission_replay_evaluation_design.v1"
+    assert design["selected_replay_context_seeds"][0]["internal_readout_ledger_match"] is True
+    assert design["promotion_gate"]["eligible_for_operator_replay_context_review"] is False
+    assert design["promotion_gate"]["required_evidence"]["device_review_evidence_available"] is False
+    assert design["records_ledger_event"] is False
+    assert design["runs_replay"] is False
+    assert design["mutates_runtime_state"] is False
+    assert design["eligible_for_replay_memory"] is False
+    assert "text" not in design["selected_replay_context_seeds"][0]
+    assert "labels" not in design["selected_replay_context_seeds"][0]
+
+
+def test_readout_ledger_emission_replay_design_builds_hash_only_replay_context_seed() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    emission = _ready_emission()
+    binding = emission["emission_binding"]  # type: ignore[index]
+    assert isinstance(binding, dict)
+    record = ledger.record_readout_draft(
+        readout_draft=_ready_draft_for(
+            str(binding["prediction_hash"]),
+            str(binding["transition_memory_evaluation_hash"]),
+            str(binding["persistent_transition_weights_hash"]),
+            ["memory pressure"],
+        ),
+        expected_state_revision=0,
+        operator_id="operator-readout",
+        confirmation=True,
+    )
+    ledger.record_readout_emission_review(
+        readout_emission=emission,
+        expected_state_revision=0,
+        operator_id="operator-emission",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+
+    policy = ledger.emission_review_replay_evaluation_policy(limit=4)
+    design = ledger.emission_review_replay_evaluation_design(
+        policy,
+        design_policy={"max_candidates": 1, "min_ready_candidates": 1},
+        device_evidence={"device": "cuda:0", "source": "test_emission_replay_design"},
+    )
+
+    assert runtime_state.dirty_state is False
+    assert design["emission_replay_evaluation_design"]["selected_seed_count"] == 1
+    assert design["emission_replay_evaluation_design"]["ready_seed_count"] == 1
+    assert design["emission_replay_evaluation_design"]["records_replay_context"] is False
+    seed = design["selected_replay_context_seeds"][0]
+    assert seed["readout_evidence_hash"] == record["recorded_event"]["readout_evidence_hash"]
+    assert seed["emission_hash"] == emission["emission_hash"]
+    assert seed["internal_readout_ledger_match"] is True
+    assert seed["eligible_for_replay_context_review"] is True
+    assert seed["eligible_for_replay_memory"] is False
+    assert seed["eligible_for_live_replay"] is False
+    assert seed["eligible_for_plasticity_application"] is False
+    assert "replay_context_seed_hash" in seed
+    assert "text" not in seed
+    assert "labels" not in seed
+    assert design["replay_context_review_requirements"]["accepts_display_text"] is False
+    assert design["replay_context_review_requirements"]["accepts_labels_as_replay_window"] is False
+    assert design["promotion_gate"]["eligible_for_operator_replay_context_review"] is True
+    assert design["promotion_gate"]["eligible_for_replay_context_recording"] is False
+    assert design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert design["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert design["promotion_gate"]["next_gate"] == (
+        "/terminus/snn-language-sequence/replay-evaluation-context"
+    )
+
+
 def test_readout_ledger_blocks_unready_or_unconfirmed_emission_review() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)

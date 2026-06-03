@@ -52,6 +52,8 @@ from .schemas import (
     SNNLanguagePlasticityReplayExperimentRequest,
     SNNLanguageReadoutDraftRequest,
     SNNLanguageReadoutEmissionRequest,
+    SNNLanguageReadoutEmissionReplayContextReviewRequest,
+    SNNLanguageReadoutEmissionReplayEvaluationDesignRequest,
     SNNLanguageReadoutEmissionReviewRequest,
     SNNLanguageReadoutLedgerRecordRequest,
     SNNLanguageReadoutPlasticityPreflightRequest,
@@ -450,6 +452,34 @@ def create_app(
         limit: int = Query(12, ge=0, le=128),
     ) -> dict[str, Any]:
         return runtime.snn_language_readout_emission_replay_evaluation_policy(limit=limit)
+
+    @app.post("/terminus/snn-language-sequence/readout-emission/operator-review/replay-evaluation-design")
+    def terminus_snn_language_readout_emission_operator_review_replay_evaluation_design(
+        request: SNNLanguageReadoutEmissionReplayEvaluationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_readout_emission_replay_evaluation_design(
+            emission_replay_evaluation_policy=request.emission_replay_evaluation_policy,
+            design_policy=request.design_policy,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-emission/operator-review/replay-context-review")
+    def terminus_snn_language_readout_emission_operator_review_replay_context_review(
+        request: SNNLanguageReadoutEmissionReplayContextReviewRequest,
+    ) -> dict[str, Any]:
+        try:
+            return runtime.snn_language_readout_emission_replay_context_review(
+                emission_replay_evaluation_design=request.emission_replay_evaluation_design,
+                prediction_report=request.prediction_report,
+                observed_readout_slots=request.observed_readout_slots,
+                device_evidence=request.device_evidence,
+                runtime_truth_delta=request.runtime_truth_delta,
+                rollback_policy=request.rollback_policy,
+                operator_id=request.operator_id,
+                confirmation=request.confirmation,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/terminus/snn-language-sequence/readout-rollout-candidate")
     def terminus_snn_language_readout_rollout_candidate(
