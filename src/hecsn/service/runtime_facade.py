@@ -7,6 +7,11 @@ from hecsn.service.reporting import ServiceReporter
 from hecsn.service.replay_dataset_bundle import ReplayDatasetPackager
 from hecsn.service.runtime_evidence import RuntimeEvidenceReporter
 
+_SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
+_SNN_LANGUAGE_NEURON_COUNT = 64
+_SNN_LANGUAGE_SPARSE_EDGE_BUDGET = 256
+_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
+
 
 class RuntimeFacade:
     """Operator-facing runtime interface over Service Manager deep modules.
@@ -440,6 +445,18 @@ class RuntimeFacade:
             if isinstance(review.get("permit_request_preview"), Mapping)
             else {}
         )
+        language_capacity = self._snn_language_capacity_state(review)
+        language_neuron_count = int(language_capacity["language_neuron_count"])
+        regeneration_design = (
+            preview.get("regeneration_design")
+            if isinstance(preview.get("regeneration_design"), Mapping)
+            else {}
+        )
+        candidates = [
+            dict(item)
+            for item in list(regeneration_design.get("candidate_synapses") or [])
+            if isinstance(item, Mapping)
+        ]
         before_revision = int(self._root._runtime_state.state_revision)
         restore_validation_not_mismatched = (
             self._applied_replay_lineage_restore_validation_not_mismatched()
@@ -459,8 +476,14 @@ class RuntimeFacade:
                 preview.get("permit_issued")
             ),
             "replay_artifact_id_available": bool(str(preview.get("replay_artifact_id") or "")),
-            "regeneration_design_available": isinstance(preview.get("regeneration_design"), Mapping)
-            and bool(preview.get("regeneration_design")),
+            "regeneration_design_available": bool(regeneration_design),
+            "regeneration_design_indices_canonical": all(
+                0 <= int(item.get("pre_index", -1)) < language_neuron_count
+                and 0 <= int(item.get("post_index", -1)) < language_neuron_count
+                for item in candidates
+            ),
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "language_capacity_state_dynamic_limits_applied": True,
             "applied_replay_lineage_restore_validation_not_mismatched": (
                 restore_validation_not_mismatched
             ),
@@ -483,6 +506,7 @@ class RuntimeFacade:
                 "returns_trained_weights": False,
                 "issues_regeneration_permit": False,
                 "executor_ready": False,
+                "language_capacity": language_capacity,
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": int(self._root._runtime_state.state_revision)},
                 "promotion_gate": {
@@ -522,6 +546,7 @@ class RuntimeFacade:
                 "returns_trained_weights": False,
                 "issues_regeneration_permit": False,
                 "executor_ready": False,
+                "language_capacity": language_capacity,
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": int(self._root._runtime_state.state_revision)},
                 "promotion_gate": {
@@ -559,7 +584,8 @@ class RuntimeFacade:
                 "rollout_regeneration_replay_artifact_review_hash"
             ),
             "replay_evidence": permit,
-            "regeneration_design": dict(preview.get("regeneration_design") or {}),
+            "language_capacity": language_capacity,
+            "regeneration_design": dict(regeneration_design),
             "before": {"state_revision": before_revision},
             "after": {
                 "state_revision": int(self._root._runtime_state.state_revision),
@@ -597,6 +623,13 @@ class RuntimeFacade:
             if isinstance(request.get("regeneration_design"), Mapping)
             else {}
         )
+        language_capacity = self._snn_language_capacity_state(request)
+        language_neuron_count = int(language_capacity["language_neuron_count"])
+        candidates = [
+            dict(item)
+            for item in list(design.get("candidate_synapses") or [])
+            if isinstance(item, Mapping)
+        ]
         before_revision = int(self._root._runtime_state.state_revision)
         checkpoint = str(checkpoint_path or "").strip()
         request_required = (
@@ -616,6 +649,13 @@ class RuntimeFacade:
             "permit_ready": bool(permit.get("ready")),
             "permit_owned_by_hecsn": bool(permit.get("owned_by_hecsn")),
             "regeneration_design_available": bool(design),
+            "regeneration_design_indices_canonical": all(
+                0 <= int(item.get("pre_index", -1)) < language_neuron_count
+                and 0 <= int(item.get("post_index", -1)) < language_neuron_count
+                for item in candidates
+            ),
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "language_capacity_state_dynamic_limits_applied": True,
             "permit_request_does_not_apply_plasticity": not bool(request.get("applies_plasticity")),
             "permit_request_does_not_checkpoint": not bool(request.get("checkpoint_written")),
             "applied_replay_lineage_restore_validation_not_mismatched": (
@@ -642,6 +682,7 @@ class RuntimeFacade:
             "applies_plasticity": False,
             "mutates_runtime_state": False,
             "replay_evidence": dict(permit),
+            "language_capacity": language_capacity,
             "regeneration_design": dict(design),
             "promotion_gate": {
                 "status": "ready_for_operator_review"
@@ -667,6 +708,7 @@ class RuntimeFacade:
             "executor_called": False,
             "expected_state_revision": int(expected_state_revision),
             "checkpoint_path": checkpoint or None,
+            "language_capacity": language_capacity,
             "regeneration_proposal": proposal,
             "before": {"state_revision": before_revision},
             "after": {"state_revision": int(self._root._runtime_state.state_revision)},
@@ -706,6 +748,19 @@ class RuntimeFacade:
             if isinstance(preflight.get("regeneration_proposal"), Mapping)
             else {}
         )
+        language_capacity = self._snn_language_capacity_state(preflight)
+        proposal_language_capacity = self._snn_language_capacity_state(proposal)
+        language_neuron_count = int(language_capacity["language_neuron_count"])
+        design = (
+            proposal.get("regeneration_design")
+            if isinstance(proposal.get("regeneration_design"), Mapping)
+            else {}
+        )
+        candidates = [
+            dict(item)
+            for item in list(design.get("candidate_synapses") or [])
+            if isinstance(item, Mapping)
+        ]
         preflight_checkpoint = str(preflight.get("checkpoint_path") or "").strip()
         requested_checkpoint = str(checkpoint_path or "").strip()
         effective_checkpoint = requested_checkpoint or preflight_checkpoint
@@ -736,6 +791,25 @@ class RuntimeFacade:
             "proposal_does_not_load_external_checkpoint": not bool(
                 proposal.get("loads_external_checkpoint")
             ),
+            "regeneration_design_available": bool(design),
+            "regeneration_design_indices_canonical": all(
+                0 <= int(item.get("pre_index", -1)) < language_neuron_count
+                and 0 <= int(item.get("post_index", -1)) < language_neuron_count
+                for item in candidates
+            ),
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "proposal_language_capacity_state_available": bool(
+                proposal_language_capacity["present"]
+            ),
+            "proposal_language_capacity_matches_preflight": (
+                int(proposal_language_capacity["language_neuron_count"])
+                == int(language_capacity["language_neuron_count"])
+                and int(proposal_language_capacity["sparse_edge_budget"])
+                == int(language_capacity["sparse_edge_budget"])
+                and int(proposal_language_capacity["outgoing_fanout_budget"])
+                == int(language_capacity["outgoing_fanout_budget"])
+            ),
+            "language_capacity_state_dynamic_limits_applied": True,
         }
         if not all(required.values()):
             return {
@@ -757,6 +831,8 @@ class RuntimeFacade:
                 "writes_checkpoint": False,
                 "executor_called": False,
                 "checkpoint_path": effective_checkpoint or None,
+                "language_capacity": language_capacity,
+                "proposal_language_capacity": proposal_language_capacity,
                 "before": {"state_revision": before_revision},
                 "after": {"state_revision": int(self._root._runtime_state.state_revision)},
                 "promotion_gate": {
@@ -806,6 +882,8 @@ class RuntimeFacade:
             "writes_checkpoint": writes_checkpoint,
             "executor_called": True,
             "checkpoint_path": effective_checkpoint,
+            "language_capacity": language_capacity,
+            "proposal_language_capacity": proposal_language_capacity,
             "executor_result": executor_result,
             "before": {"state_revision": before_revision},
             "after": {"state_revision": int(self._root._runtime_state.state_revision)},
@@ -873,6 +951,41 @@ class RuntimeFacade:
         **kwargs: Any,
     ) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_capacity_resize_compatibility_audit(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_resize_plan(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_resize_plan(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_resize_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_resize_preflight(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_resize_transaction_proposal(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_resize_transaction_proposal(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_resize_executor_readiness_audit(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_resize_executor_readiness_audit(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_layout_migration(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_dense_readout_layout_migration(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_tensor_materialization_readiness(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_tensor_materialization_readiness(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_tensor_materialization(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_dense_readout_tensor_materialization(
             **kwargs
         )
 
@@ -1216,3 +1329,53 @@ class RuntimeFacade:
 
     def run_grounding_probe(self) -> dict[str, Any]:
         return ServiceReporter.run_grounding_probe(self._root)
+
+    @classmethod
+    def _snn_language_capacity_state(cls, state: Mapping[str, Any]) -> dict[str, Any]:
+        raw = (
+            state.get("language_capacity")
+            if isinstance(state.get("language_capacity"), Mapping)
+            else {}
+        )
+        present = bool(raw)
+        return {
+            "surface": _SNN_LANGUAGE_CAPACITY_SURFACE,
+            "raw_surface": str(raw.get("surface") or "") if present else None,
+            "present": present,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "language_neuron_count": cls._positive_capacity_int(
+                raw.get("language_neuron_count"),
+                default=_SNN_LANGUAGE_NEURON_COUNT,
+                minimum=_SNN_LANGUAGE_NEURON_COUNT,
+            ),
+            "sparse_edge_budget": cls._positive_capacity_int(
+                raw.get("sparse_edge_budget"),
+                default=_SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                minimum=_SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+            ),
+            "outgoing_fanout_budget": cls._positive_capacity_int(
+                raw.get("outgoing_fanout_budget"),
+                default=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
+                minimum=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
+            ),
+            "dynamic_capacity_enabled": False,
+            "capacity_expansion_count": cls._positive_capacity_int(
+                raw.get("capacity_expansion_count"),
+                default=0,
+                minimum=0,
+            ),
+        }
+
+    @staticmethod
+    def _positive_capacity_int(
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+    ) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = int(default)
+        return max(int(minimum), normalized)

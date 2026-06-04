@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+import torch
+
 from hecsn.service.runtime_state import RuntimeState
 
 _LANGUAGE_NEURON_COUNT = 64
@@ -13,6 +15,7 @@ _MAX_OUTGOING_FANOUT = 16
 _MAX_SPARSE_TRANSITION_EDGES = 256
 _MAX_OUTGOING_ROW_MASS = 1.0
 _LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
+_DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
 
 
 class SNNLanguagePlasticityApplicationExecutor:
@@ -219,6 +222,429 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "after": {"state_revision": after_revision, **self._runtime_state.mutation_summary()},
             }
 
+    def apply_dense_readout_layout_migration(
+        self,
+        *,
+        dense_readout_resize_transaction_proposal: Mapping[str, Any],
+        dense_readout_resize_executor_readiness_audit: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        checkpoint_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist dense readout layout migration evidence without tensor allocation."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            proposal = dict(dense_readout_resize_transaction_proposal)
+            audit = dict(dense_readout_resize_executor_readiness_audit)
+            recipe = (
+                proposal.get("transaction_recipe")
+                if isinstance(proposal.get("transaction_recipe"), Mapping)
+                else {}
+            )
+            gate = (
+                audit.get("promotion_gate")
+                if isinstance(audit.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_audit = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            current_shape = self._shape_pair(recipe.get("current_dense_readout_shape"))
+            target_shape = self._shape_pair(recipe.get("target_dense_readout_shape"))
+            preserved_window = self._shape_pair(recipe.get("preserved_dense_window"))
+            target_neurons = int(target_shape[0]) if target_shape else _LANGUAGE_NEURON_COUNT
+            zero_fill_cells = int(
+                recipe.get("zero_initialized_new_dense_cell_count", 0) or 0
+            )
+            shape_growth_requested = bool(
+                current_shape
+                and target_shape
+                and target_shape[0] >= current_shape[0]
+                and target_shape[1] >= current_shape[1]
+                and target_shape != current_shape
+            )
+            required = {
+                "confirmation": bool(confirmation),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "transaction_surface_available": proposal.get("surface")
+                == "snn_language_dense_readout_resize_transaction_proposal.v1",
+                "transaction_owned_by_hecsn": bool(proposal.get("owned_by_hecsn")),
+                "transaction_hash_available": bool(
+                    proposal.get("dense_readout_resize_transaction_proposal_hash")
+                ),
+                "audit_surface_available": audit.get("surface")
+                == "snn_language_dense_readout_resize_executor_readiness_audit.v1",
+                "audit_owned_by_hecsn": bool(audit.get("owned_by_hecsn")),
+                "layout_state_available": bool(
+                    required_audit.get("dense_readout_layout_state_available")
+                ),
+                "layout_matches_transaction": bool(
+                    required_audit.get("dense_readout_layout_matches_transaction")
+                ),
+                "layout_metadata_not_applied": bool(
+                    required_audit.get("dense_readout_layout_metadata_not_applied")
+                ),
+                "layout_owner_available": bool(
+                    required_audit.get("dense_readout_tensor_owner_available")
+                ),
+                "checkpoint_restore_verified": bool(
+                    required_audit.get("transaction_checkpoint_restore_verified")
+                ),
+                "cuda_relayout_evidence_available": bool(
+                    required_audit.get("transaction_cuda_relayout_verified")
+                ),
+                "shape_invariants_available": bool(
+                    required_audit.get("transaction_shape_invariants_available")
+                ),
+                "shape_growth_requested": shape_growth_requested,
+                "preserved_window_matches_current_shape": preserved_window
+                == current_shape,
+                "zero_fill_region_available": zero_fill_cells > 0,
+                "tensor_weight_materialization_absent": not bool(
+                    required_audit.get("dense_readout_tensor_weight_owner_available")
+                ),
+                "no_text_generation": not bool(proposal.get("generates_text"))
+                and not bool(audit.get("generates_text")),
+                "no_external_checkpoint": not bool(
+                    proposal.get("loads_external_checkpoint")
+                )
+                and not bool(audit.get("loads_external_checkpoint")),
+            }
+            if not all(required.values()):
+                return self._blocked_dense_layout_migration(
+                    reason="blocked_missing_dense_readout_layout_migration_evidence",
+                    before_revision=before_revision,
+                    required_evidence=required,
+                )
+
+            checkpoint_state = deepcopy(self._language_plasticity_state())
+            before_dirty_state = bool(self._runtime_state.dirty_state)
+            checkpoint = self._save_checkpoint(checkpoint_path)
+            checkpoint_file = Path(str(checkpoint.get("path") or self._checkpoint_path()))
+            checkpoint_verified = self._verify_checkpoint_transaction(
+                checkpoint_file,
+                checkpoint_state,
+                before_revision,
+            )
+            if not checkpoint_verified:
+                return self._blocked_dense_layout_migration(
+                    reason="checkpoint_save_missing",
+                    before_revision=before_revision,
+                    required_evidence={
+                        **required,
+                        "pre_layout_migration_checkpoint_saved": checkpoint_file.exists(),
+                        "pre_layout_migration_checkpoint_restore_verified": checkpoint_verified,
+                    },
+                )
+
+            state = self._language_plasticity_state()
+            layout = state.setdefault("dense_readout_layout", {})
+            migration = {
+                "applied": True,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "operator_id": str(operator_id or "").strip(),
+                "checkpoint_path": str(checkpoint_file),
+                "current_dense_readout_shape": current_shape,
+                "target_dense_readout_shape": target_shape,
+                "preserved_dense_window": preserved_window,
+                "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                "target_language_neuron_count": target_neurons,
+                "transaction_hash": proposal.get(
+                    "dense_readout_resize_transaction_proposal_hash"
+                ),
+                "plan_hash": proposal.get("dense_readout_resize_plan_hash"),
+                "materializes_dense_tensor_weights": False,
+                "requires_tensor_weight_executor": True,
+            }
+            layout.update(
+                {
+                    "surface": _DENSE_READOUT_LAYOUT_SURFACE,
+                    "target_language_neuron_count": target_neurons,
+                    "target_dense_readout_shape": target_shape,
+                    "preserved_dense_window": preserved_window,
+                    "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                    "requires_cuda_relayout": True,
+                    "checkpoint_required_before_resize": True,
+                    "layout_migration": deepcopy(migration),
+                    "layout_migration_count": int(
+                        layout.get("layout_migration_count", 0) or 0
+                    )
+                    + 1,
+                    "dense_resize_applied": False,
+                    "dynamic_dense_readout_enabled": False,
+                    "migration_status": "layout_migration_applied_tensor_resize_pending",
+                }
+            )
+            recent = list(layout.get("recent_layout_migrations") or [])
+            layout["recent_layout_migrations"] = [*recent, deepcopy(migration)][-8:]
+            committed_checkpoint_file = self._committed_checkpoint_path(
+                checkpoint_file,
+                "dense_readout_layout_migration",
+            )
+            migration["committed_checkpoint_path"] = str(committed_checkpoint_file)
+            layout["layout_migration"] = deepcopy(migration)
+            layout["recent_layout_migrations"][-1] = deepcopy(migration)
+            state["last_checkpoint_path"] = str(committed_checkpoint_file)
+            self._runtime_state.mark_mutated()
+            commit = self._commit_mutation(
+                committed_checkpoint_file=committed_checkpoint_file,
+                operation="dense_readout_layout_migration",
+                before_state=checkpoint_state,
+                before_revision=before_revision,
+                before_dirty_state=before_dirty_state,
+            )
+            if not commit["committed"]:
+                return self._blocked_dense_layout_migration(
+                    reason="post_layout_migration_checkpoint_commit_failed",
+                    before_revision=before_revision,
+                    required_evidence={**required, **commit},
+                )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_layout_migration",
+                "surface": "snn_language_dense_readout_layout_migration.v1",
+                "accepted": True,
+                "status": "layout_migration_applied_tensor_resize_pending",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": True,
+                "writes_checkpoint": True,
+                "resizes_network": False,
+                "materializes_dense_tensor_weights": False,
+                "checkpoint_transaction": {
+                    "pre_layout_migration_checkpoint_saved": True,
+                    "checkpoint_path": str(checkpoint_file),
+                    "committed_checkpoint_path": commit["committed_checkpoint_path"],
+                    "staged_committed_checkpoint_path": str(committed_checkpoint_file),
+                    "post_layout_migration_checkpoint_saved": True,
+                    "post_layout_migration_checkpoint_restore_verified": True,
+                    "current_checkpoint_manifest": commit["current_checkpoint_manifest"],
+                    "restore_verified": checkpoint_verified,
+                },
+                "dense_readout_layout_migration": deepcopy(migration),
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+            }
+
+    def apply_dense_readout_tensor_materialization(
+        self,
+        *,
+        dense_readout_tensor_materialization_readiness: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        checkpoint_path: str | None = None,
+        requested_device: str | None = None,
+    ) -> dict[str, Any]:
+        """Materialize a dense readout tensor from owned SNN language weights."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            readiness = dict(dense_readout_tensor_materialization_readiness)
+            gate = (
+                readiness.get("promotion_gate")
+                if isinstance(readiness.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_readiness = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            target_shape = self._shape_pair(readiness.get("target_dense_readout_shape"))
+            preserved_window = self._shape_pair(readiness.get("preserved_dense_window"))
+            zero_fill_cells = int(
+                readiness.get("zero_initialized_new_dense_cell_count", 0) or 0
+            )
+            device = self._resolve_tensor_device(requested_device)
+            required = {
+                "confirmation": bool(confirmation),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "expected_revision_current": int(expected_state_revision) == before_revision,
+                "readiness_surface_available": readiness.get("surface")
+                == "snn_language_dense_readout_tensor_materialization_readiness.v1",
+                "readiness_owned_by_hecsn": bool(readiness.get("owned_by_hecsn")),
+                "readiness_gate_ready": bool(readiness.get("ready")),
+                "readiness_not_executable": not bool(readiness.get("executable")),
+                "readiness_does_not_mutate": not bool(readiness.get("mutates_runtime_state")),
+                "layout_migration_committed": bool(
+                    required_readiness.get("layout_migration_checkpoint_committed")
+                ),
+                "layout_state_matches_migration": bool(
+                    required_readiness.get("layout_state_matches_migration")
+                ),
+                "dense_resize_not_yet_applied": bool(
+                    required_readiness.get("dense_resize_not_yet_applied")
+                ),
+                "target_shape_available": len(target_shape) == 2,
+                "preserved_window_available": len(preserved_window) == 2,
+                "zero_fill_region_available": zero_fill_cells > 0,
+                "requested_device_available": bool(str(device)),
+                "requested_cuda_available_when_requested": (
+                    device.type != "cuda" or torch.cuda.is_available()
+                ),
+                "no_text_generation": not bool(readiness.get("generates_text")),
+                "no_external_checkpoint": not bool(readiness.get("loads_external_checkpoint")),
+                "no_training": not bool(readiness.get("trains_runtime_model")),
+            }
+            if not all(required.values()):
+                return self._blocked_dense_tensor_materialization(
+                    reason="blocked_missing_dense_readout_tensor_materialization_evidence",
+                    before_revision=before_revision,
+                    required_evidence=required,
+                )
+
+            checkpoint_state = deepcopy(self._language_plasticity_state())
+            before_dirty_state = bool(self._runtime_state.dirty_state)
+            checkpoint = self._save_checkpoint(checkpoint_path)
+            checkpoint_file = Path(str(checkpoint.get("path") or self._checkpoint_path()))
+            checkpoint_verified = self._verify_checkpoint_transaction(
+                checkpoint_file,
+                checkpoint_state,
+                before_revision,
+            )
+            if not checkpoint_verified:
+                return self._blocked_dense_tensor_materialization(
+                    reason="checkpoint_save_missing",
+                    before_revision=before_revision,
+                    required_evidence={
+                        **required,
+                        "pre_tensor_materialization_checkpoint_saved": checkpoint_file.exists(),
+                        "pre_tensor_materialization_checkpoint_restore_verified": checkpoint_verified,
+                    },
+                )
+
+            state = self._language_plasticity_state()
+            previous_tensor = state.get("dense_readout_weights")
+            target = torch.zeros(tuple(target_shape), dtype=torch.float32, device=device)
+            preserved_source = "sparse_transition_weights"
+            copied_nonzero_count = 0
+            if isinstance(previous_tensor, torch.Tensor):
+                source = previous_tensor.detach().to(device=device, dtype=torch.float32)
+                rows = min(int(preserved_window[0]), int(source.shape[0]), target.shape[0])
+                cols = min(int(preserved_window[1]), int(source.shape[1]), target.shape[1])
+                if rows > 0 and cols > 0:
+                    target[:rows, :cols] = source[:rows, :cols]
+                    copied_nonzero_count = int(torch.count_nonzero(target[:rows, :cols]).item())
+                preserved_source = "existing_dense_readout_weights"
+            else:
+                for key, value in dict(state.get("sparse_transition_weights") or {}).items():
+                    try:
+                        pre_text, post_text = str(key).split(":", maxsplit=1)
+                        pre_index = int(pre_text)
+                        post_index = int(post_text)
+                        weight = float(value)
+                    except (TypeError, ValueError):
+                        continue
+                    if 0 <= pre_index < target.shape[0] and 0 <= post_index < target.shape[1]:
+                        target[pre_index, post_index] = weight
+                copied_nonzero_count = int(torch.count_nonzero(target).item())
+
+            layout = state.setdefault("dense_readout_layout", {})
+            committed_checkpoint_file = self._committed_checkpoint_path(
+                checkpoint_file,
+                "dense_readout_tensor_materialization",
+            )
+            materialization = {
+                "applied": True,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "operator_id": str(operator_id or "").strip(),
+                "checkpoint_path": str(checkpoint_file),
+                "committed_checkpoint_path": str(committed_checkpoint_file),
+                "requested_device": str(requested_device or ""),
+                "actual_device": str(target.device),
+                "tensor_is_cuda": bool(target.is_cuda),
+                "target_dense_readout_shape": target_shape,
+                "preserved_dense_window": preserved_window,
+                "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                "preserved_source": preserved_source,
+                "copied_nonzero_weight_count": copied_nonzero_count,
+                "materializes_dense_tensor_weights": True,
+                "generates_text": False,
+                "trains_runtime_model": False,
+            }
+            state["dense_readout_weights"] = target
+            layout.update(
+                {
+                    "surface": _DENSE_READOUT_LAYOUT_SURFACE,
+                    "target_language_neuron_count": int(target_shape[0]),
+                    "target_dense_readout_shape": target_shape,
+                    "preserved_dense_window": preserved_window,
+                    "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                    "requires_cuda_relayout": False,
+                    "checkpoint_required_before_resize": False,
+                    "tensor_materialization": deepcopy(materialization),
+                    "tensor_materialization_count": int(
+                        layout.get("tensor_materialization_count", 0) or 0
+                    )
+                    + 1,
+                    "dense_resize_applied": True,
+                    "dynamic_dense_readout_enabled": True,
+                    "migration_status": "dense_readout_tensor_materialized",
+                }
+            )
+            recent = list(layout.get("recent_tensor_materializations") or [])
+            layout["recent_tensor_materializations"] = [
+                *recent,
+                deepcopy(materialization),
+            ][-8:]
+            state["last_checkpoint_path"] = str(committed_checkpoint_file)
+            self._runtime_state.mark_mutated()
+            commit = self._commit_mutation(
+                committed_checkpoint_file=committed_checkpoint_file,
+                operation="dense_readout_tensor_materialization",
+                before_state=checkpoint_state,
+                before_revision=before_revision,
+                before_dirty_state=before_dirty_state,
+            )
+            if not commit["committed"]:
+                return self._blocked_dense_tensor_materialization(
+                    reason="post_tensor_materialization_checkpoint_commit_failed",
+                    before_revision=before_revision,
+                    required_evidence={**required, **commit},
+                )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_tensor_materialization",
+                "surface": "snn_language_dense_readout_tensor_materialization.v1",
+                "accepted": True,
+                "status": "dense_readout_tensor_materialized",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": True,
+                "writes_checkpoint": True,
+                "resizes_network": True,
+                "materializes_dense_tensor_weights": True,
+                "checkpoint_transaction": {
+                    "pre_tensor_materialization_checkpoint_saved": True,
+                    "checkpoint_path": str(checkpoint_file),
+                    "committed_checkpoint_path": commit["committed_checkpoint_path"],
+                    "staged_committed_checkpoint_path": str(committed_checkpoint_file),
+                    "post_tensor_materialization_checkpoint_saved": True,
+                    "post_tensor_materialization_checkpoint_restore_verified": True,
+                    "current_checkpoint_manifest": commit["current_checkpoint_manifest"],
+                    "restore_verified": checkpoint_verified,
+                },
+                "dense_readout_tensor_materialization": deepcopy(materialization),
+                "dense_readout_tensor": self._dense_tensor_summary(target),
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+            }
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             state = deepcopy(self._language_plasticity_state())
@@ -227,11 +653,15 @@ class SNNLanguagePlasticityApplicationExecutor:
             regeneration = dict(state.get("synapse_regeneration") or {})
             live_application = dict(state.get("live_application") or {})
             capacity = self._language_capacity_state(state)
+            dense_layout = self._dense_readout_layout_state(state, capacity)
+            dense_tensor = state.get("dense_readout_weights")
             return {
                 "surface": "snn_language_plasticity_runtime_state.v1",
                 "owned_by_hecsn": True,
                 "external_dependency": False,
                 "language_capacity": deepcopy(capacity),
+                "dense_readout_layout": deepcopy(dense_layout),
+                "dense_readout_tensor": self._dense_tensor_summary(dense_tensor),
                 "language_neuron_count": capacity["language_neuron_count"],
                 "sparse_edge_budget": capacity["sparse_edge_budget"],
                 "outgoing_fanout_budget": capacity["outgoing_fanout_budget"],
@@ -289,6 +719,80 @@ class SNNLanguagePlasticityApplicationExecutor:
             "resizes_network": False,
             "adds_neurons": False,
             "adds_layers": False,
+        }
+
+    @classmethod
+    def _dense_readout_layout_state(
+        cls,
+        state: Mapping[str, Any],
+        capacity: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        raw = (
+            state.get("dense_readout_layout")
+            if isinstance(state.get("dense_readout_layout"), Mapping)
+            else {}
+        )
+        target_neurons = cls._positive_capacity_int(
+            raw.get("target_language_neuron_count"),
+            default=int(capacity.get("language_neuron_count", _LANGUAGE_NEURON_COUNT)),
+            minimum=_LANGUAGE_NEURON_COUNT,
+        )
+        layout_migration = (
+            raw.get("layout_migration")
+            if isinstance(raw.get("layout_migration"), Mapping)
+            else {}
+        )
+        tensor_materialization = (
+            raw.get("tensor_materialization")
+            if isinstance(raw.get("tensor_materialization"), Mapping)
+            else {}
+        )
+        current_shape = [
+            _LANGUAGE_NEURON_COUNT,
+            _LANGUAGE_NEURON_COUNT,
+        ]
+        target_shape = [target_neurons, target_neurons]
+        dense_resize_applied = bool(raw.get("dense_resize_applied"))
+        layout_migration_applied = bool(layout_migration.get("applied"))
+        tensor_materialization_applied = bool(tensor_materialization.get("applied"))
+        return {
+            "surface": _DENSE_READOUT_LAYOUT_SURFACE,
+            "raw_surface": str(raw.get("surface") or "") if raw else None,
+            "present": bool(raw),
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "current_dense_readout_shape": current_shape,
+            "target_dense_readout_shape": target_shape,
+            "preserved_dense_window": current_shape,
+            "zero_initialized_new_dense_cell_count": max(
+                0,
+                int(target_neurons * target_neurons)
+                - int(_LANGUAGE_NEURON_COUNT * _LANGUAGE_NEURON_COUNT),
+            ),
+            "target_language_neuron_count": target_neurons,
+            "requires_cuda_relayout": target_neurons > _LANGUAGE_NEURON_COUNT
+            and not tensor_materialization_applied,
+            "checkpoint_required_before_resize": not dense_resize_applied,
+            "layout_migration_applied": layout_migration_applied,
+            "tensor_materialization_applied": tensor_materialization_applied,
+            "dense_resize_applied": dense_resize_applied,
+            "dynamic_dense_readout_enabled": dense_resize_applied,
+            "migration_status": "layout_metadata_only_resize_pending"
+            if target_neurons > _LANGUAGE_NEURON_COUNT and not layout_migration_applied
+            else str(
+                raw.get(
+                    "migration_status",
+                    "dense_readout_tensor_materialized"
+                    if tensor_materialization_applied
+                    else "layout_migration_applied_tensor_resize_pending"
+                    if layout_migration_applied
+                    else "fixed_dense_layout",
+                )
+            ),
+            "layout_migration": deepcopy(dict(layout_migration)),
+            "tensor_materialization": deepcopy(dict(tensor_materialization)),
+            "resizes_network": False,
+            "writes_checkpoint": False,
         }
 
     @staticmethod
@@ -848,6 +1352,44 @@ class SNNLanguagePlasticityApplicationExecutor:
             f"{rollback_checkpoint_file.stem}.{operation}.committed{suffix}"
         )
 
+    @staticmethod
+    def _shape_pair(value: Any) -> list[int]:
+        try:
+            raw = list(value or [])
+            first = int(raw[0])
+            second = int(raw[1])
+        except (TypeError, ValueError, IndexError):
+            return []
+        if first <= 0 or second <= 0:
+            return []
+        return [first, second]
+
+    @staticmethod
+    def _resolve_tensor_device(requested_device: str | None) -> torch.device:
+        if requested_device:
+            return torch.device(str(requested_device))
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    @staticmethod
+    def _dense_tensor_summary(value: Any) -> dict[str, Any]:
+        if not isinstance(value, torch.Tensor):
+            return {
+                "available": False,
+                "shape": [],
+                "device": None,
+                "is_cuda": False,
+                "dtype": None,
+                "nonzero_count": 0,
+            }
+        return {
+            "available": True,
+            "shape": [int(item) for item in list(value.shape)],
+            "device": str(value.device),
+            "is_cuda": bool(value.is_cuda),
+            "dtype": str(value.dtype),
+            "nonzero_count": int(torch.count_nonzero(value).item()),
+        }
+
     def _validate_structural_candidates(
         self,
         *,
@@ -976,4 +1518,79 @@ class SNNLanguagePlasticityApplicationExecutor:
             },
             "before": {"state_revision": before_revision},
             "after": {"state_revision": before_revision, **self._runtime_state.mutation_summary()},
+        }
+
+    def _blocked_dense_layout_migration(
+        self,
+        *,
+        reason: str,
+        before_revision: int,
+        required_evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_layout_migration",
+            "surface": "snn_language_dense_readout_layout_migration.v1",
+            "accepted": False,
+            "status": "blocked",
+            "reason": reason,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "materializes_dense_tensor_weights": False,
+            "promotion_gate": {
+                "status": "blocked_missing_dense_readout_layout_migration_evidence",
+                "eligible_for_dense_readout_layout_migration": False,
+                "eligible_for_dense_readout_tensor_materialization": False,
+                "required_evidence": dict(required_evidence),
+            },
+            "before": {"state_revision": before_revision},
+            "after": {
+                "state_revision": before_revision,
+                **self._runtime_state.mutation_summary(),
+            },
+        }
+
+    def _blocked_dense_tensor_materialization(
+        self,
+        *,
+        reason: str,
+        before_revision: int,
+        required_evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_tensor_materialization",
+            "surface": "snn_language_dense_readout_tensor_materialization.v1",
+            "accepted": False,
+            "status": "blocked",
+            "reason": reason,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "materializes_dense_tensor_weights": False,
+            "promotion_gate": {
+                "status": "blocked_missing_dense_readout_tensor_materialization_evidence",
+                "eligible_for_dense_readout_tensor_materialization": False,
+                "eligible_for_network_resize": False,
+                "eligible_for_language_generation": False,
+                "required_evidence": dict(required_evidence),
+            },
+            "before": {"state_revision": before_revision},
+            "after": {
+                "state_revision": before_revision,
+                **self._runtime_state.mutation_summary(),
+            },
         }

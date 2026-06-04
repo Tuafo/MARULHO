@@ -2082,6 +2082,9 @@ class SNNLanguageReadoutEvidenceLedger:
             str(key): float(value)
             for key, value in dict(memory.get("sparse_transition_weights") or {}).items()
         }
+        language_capacity = self._language_capacity_state(memory)
+        language_neuron_count = int(language_capacity["language_neuron_count"])
+        sparse_edge_budget = int(language_capacity["sparse_edge_budget"])
         bounded_synapses = [
             dict(item)
             for item in list(report.get("bounded_synapses") or [])
@@ -2215,9 +2218,11 @@ class SNNLanguageReadoutEvidenceLedger:
             and len(set(coordinate_pairs)) == len(coordinate_pairs),
             "synapse_coordinates_canonical": bool(coordinate_pairs)
             and all(
-                0 <= source < _LANGUAGE_NEURON_COUNT and 0 <= target < _LANGUAGE_NEURON_COUNT
+                0 <= source < language_neuron_count and 0 <= target < language_neuron_count
                 for source, target in coordinate_pairs
             ),
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "language_capacity_state_dynamic_limits_applied": True,
             "shadow_tensor_shape_exact": list(shadow.get("tensor_shape") or [])
             == [_LANGUAGE_NEURON_COUNT, _LANGUAGE_NEURON_COUNT],
             "requested_cuda_honored": bool(device.get("requested_cuda_honored")),
@@ -2231,7 +2236,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "outgoing_row_mass_bounded": max(row_mass.values(), default=0.0)
             <= _MAX_OUTGOING_ROW_MASS,
             "outgoing_fanout_bounded": max(fanout.values(), default=0) <= _MAX_OUTGOING_FANOUT,
-            "global_sparse_edge_budget_bounded": len(simulated) <= _MAX_SPARSE_TRANSITION_EDGES,
+            "global_sparse_edge_budget_bounded": len(simulated) <= sparse_edge_budget,
         }
         ready = all(required.values())
         preflight_hash = self._sha256_json(
@@ -2286,8 +2291,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 "checkpoint_transaction_required_before_live_application": True,
             },
             "topology_evidence": {
+                "language_capacity": language_capacity,
                 "existing_sparse_synapse_count": len(weights),
                 "simulated_sparse_synapse_count": len(simulated),
+                "sparse_edge_budget": sparse_edge_budget,
                 "candidate_synapse_count": len(bounded_synapses),
                 "unique_candidate_synapse_count": len(set(coordinate_pairs)),
                 "growth_candidate_count": len(set(growth_candidates)),
@@ -2383,6 +2390,8 @@ class SNNLanguageReadoutEvidenceLedger:
             str(key): float(value)
             for key, value in dict(memory.get("sparse_transition_weights") or {}).items()
         }
+        language_capacity = self._language_capacity_state(memory)
+        sparse_edge_budget = int(language_capacity["sparse_edge_budget"])
         transition_memory_snapshot_hash = self._sha256_json(weights)
         runtime_snapshot = self._runtime_state.snapshot()
         raw_candidates = [
@@ -2451,16 +2460,19 @@ class SNNLanguageReadoutEvidenceLedger:
             }
         )
         topology_budget_evidence = {
+            "sparse_edge_budget": sparse_edge_budget,
             "existing_sparse_synapse_count": len(weights),
             "simulated_sparse_synapse_count": len(simulated),
             "growth_candidate_count": len(growth_candidates),
             "unique_growth_candidate_count": len(set(candidate_keys)),
             "prune_candidate_count": 0,
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "language_capacity_state_dynamic_limits_applied": True,
             "candidate_count_bounded": 0 < len(growth_candidates) <= _MAX_STRUCTURAL_EDGES_PER_EVENT,
             "outgoing_row_mass_bounded": max(row_mass.values(), default=0.0)
             <= _MAX_OUTGOING_ROW_MASS,
             "outgoing_fanout_bounded": max(fanout.values(), default=0) <= _MAX_OUTGOING_FANOUT,
-            "global_sparse_edge_budget_bounded": len(simulated) <= _MAX_SPARSE_TRANSITION_EDGES,
+            "global_sparse_edge_budget_bounded": len(simulated) <= sparse_edge_budget,
             "structural_mutation_ledger_write_applied": False,
         }
         integrity_evidence = {
@@ -2599,6 +2611,10 @@ class SNNLanguageReadoutEvidenceLedger:
             "candidate_synapses_absent_from_runtime": runtime_memory_evidence[
                 "candidate_synapses_absent_from_runtime"
             ],
+            "topology_sparse_edge_budget_matches_capacity": int(
+                topology.get("sparse_edge_budget", sparse_edge_budget) or sparse_edge_budget
+            )
+            == sparse_edge_budget,
             **{
                 key: value
                 for key, value in topology_budget_evidence.items()
@@ -2606,6 +2622,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 not in {
                     "existing_sparse_synapse_count",
                     "simulated_sparse_synapse_count",
+                    "sparse_edge_budget",
                     "growth_candidate_count",
                     "unique_growth_candidate_count",
                     "prune_candidate_count",
@@ -2707,6 +2724,7 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         language_capacity = self._language_capacity_state(runtime_memory)
         language_neuron_count = int(language_capacity["language_neuron_count"])
+        sparse_edge_budget = int(language_capacity["sparse_edge_budget"])
         raw_candidates = [
             dict(item)
             for item in list(developmental.get("growth_candidates") or [])
@@ -2892,10 +2910,16 @@ class SNNLanguageReadoutEvidenceLedger:
             "topology_global_edge_budget_bounded": bool(
                 topology.get("global_sparse_edge_budget_bounded")
             ),
+            "topology_sparse_edge_budget_matches_capacity": int(
+                topology.get("sparse_edge_budget", sparse_edge_budget) or sparse_edge_budget
+            )
+            == sparse_edge_budget,
             "topology_budgets_passed": bool(topology.get("candidate_count_bounded"))
             and bool(topology.get("outgoing_row_mass_bounded"))
             and bool(topology.get("outgoing_fanout_bounded"))
-            and bool(topology.get("global_sparse_edge_budget_bounded")),
+            and bool(topology.get("global_sparse_edge_budget_bounded"))
+            and int(topology.get("sparse_edge_budget", sparse_edge_budget) or sparse_edge_budget)
+            == sparse_edge_budget,
             "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
             "plasticity_application_absent": not bool(review.get("applies_plasticity")),
             "regeneration_permit_absent": "permit_id" not in developmental,
@@ -2979,6 +3003,8 @@ class SNNLanguageReadoutEvidenceLedger:
             for item in list(design.get("candidate_synapses") or [])
             if isinstance(item, Mapping)
         ]
+        language_capacity = self._language_capacity_state(adapter)
+        language_neuron_count = int(language_capacity["language_neuron_count"])
         blocked_replay = (
             adapter.get("blocked_replay_evidence")
             if isinstance(adapter.get("blocked_replay_evidence"), Mapping)
@@ -3065,10 +3091,12 @@ class SNNLanguageReadoutEvidenceLedger:
             "regeneration_design_candidate_count_bounded": 0 < len(candidates)
             <= _MAX_STRUCTURAL_EDGES_PER_EVENT,
             "regeneration_design_indices_canonical": all(
-                0 <= int(item.get("pre_index", -1)) < _LANGUAGE_NEURON_COUNT
-                and 0 <= int(item.get("post_index", -1)) < _LANGUAGE_NEURON_COUNT
+                0 <= int(item.get("pre_index", -1)) < language_neuron_count
+                and 0 <= int(item.get("post_index", -1)) < language_neuron_count
                 for item in candidates
             ),
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "language_capacity_state_dynamic_limits_applied": True,
             "regeneration_design_weights_bounded": all(
                 0.0 < float(item.get("initial_weight", 0.0) or 0.0) <= 0.25
                 for item in candidates
@@ -3117,6 +3145,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "snn_transition_memory_replay_artifact_hash": replay.get("evidence_hash"),
             "regeneration_design_hash": design_hash,
             "rollout_regeneration_replay_artifact_review_hash": review_hash,
+            "language_capacity": language_capacity,
             "regeneration_design": deepcopy(replay_bound_design),
             "replay_mismatch_evidence": {
                 "mismatch_score": replay_mismatch_score,

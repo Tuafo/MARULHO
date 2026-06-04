@@ -31,6 +31,7 @@ _SNN_LANGUAGE_NEURON_COUNT = 64
 _SNN_LANGUAGE_SPARSE_EDGE_BUDGET = 256
 _SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
 _SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
+_SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
 
 from hecsn.semantics import (
     attach_cognitive_signal_language_surface,
@@ -717,8 +718,19 @@ class StatusReadModel:
             self._snn_readout_applied_synapse_provenance()
         )
         snn_language_capacity_pressure = self._snn_language_capacity_pressure()
+        snn_language_dense_readout_layout_state = (
+            self._snn_language_dense_readout_layout_state(
+                snn_language_capacity_pressure
+            )
+        )
         snn_language_capacity_fixed_boundaries = (
             self._snn_language_capacity_fixed_boundaries()
+        )
+        snn_language_dense_readout_resize_plan = (
+            self._snn_language_dense_readout_resize_plan(
+                snn_language_capacity_pressure,
+                snn_language_capacity_fixed_boundaries,
+            )
         )
         snn_applied_replay_lineage_restore_validation = (
             self._snn_applied_replay_lineage_restore_validation()
@@ -878,8 +890,14 @@ class StatusReadModel:
                     snn_readout_applied_synapse_provenance
                 ),
                 "snn_language_capacity_pressure": snn_language_capacity_pressure,
+                "snn_language_dense_readout_layout_state": (
+                    snn_language_dense_readout_layout_state
+                ),
                 "snn_language_capacity_fixed_boundaries": (
                     snn_language_capacity_fixed_boundaries
+                ),
+                "snn_language_dense_readout_resize_plan": (
+                    snn_language_dense_readout_resize_plan
                 ),
                 "snn_applied_replay_lineage_restore_validation": (
                     snn_applied_replay_lineage_restore_validation
@@ -1124,6 +1142,269 @@ class StatusReadModel:
             },
         }
 
+    def _snn_language_dense_readout_layout_state(
+        self,
+        capacity_pressure: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Expose durable dense readout layout metadata without resizing."""
+
+        state = (
+            self._language_plasticity_state_fn()
+            if self._language_plasticity_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        raw = (
+            state.get("dense_readout_layout")
+            if isinstance(state.get("dense_readout_layout"), Mapping)
+            else {}
+        )
+        capacity = (
+            capacity_pressure.get("language_capacity")
+            if isinstance(capacity_pressure.get("language_capacity"), Mapping)
+            else {}
+        )
+        target_neurons = self._positive_capacity_int(
+            raw.get("target_language_neuron_count"),
+            default=int(
+                capacity.get("language_neuron_count", _SNN_LANGUAGE_NEURON_COUNT)
+            ),
+            minimum=_SNN_LANGUAGE_NEURON_COUNT,
+        )
+        layout_migration = (
+            raw.get("layout_migration")
+            if isinstance(raw.get("layout_migration"), Mapping)
+            else {}
+        )
+        tensor_materialization = (
+            raw.get("tensor_materialization")
+            if isinstance(raw.get("tensor_materialization"), Mapping)
+            else {}
+        )
+        current_shape = [_SNN_LANGUAGE_NEURON_COUNT, _SNN_LANGUAGE_NEURON_COUNT]
+        target_shape = [target_neurons, target_neurons]
+        dense_resize_applied = bool(raw.get("dense_resize_applied"))
+        layout_migration_applied = bool(layout_migration.get("applied"))
+        tensor_materialization_applied = bool(tensor_materialization.get("applied"))
+        zero_fill_cells = max(
+            0,
+            int(target_neurons * target_neurons)
+            - int(_SNN_LANGUAGE_NEURON_COUNT * _SNN_LANGUAGE_NEURON_COUNT),
+        )
+        layout_hash = self._sha256_json(
+            {
+                "surface": _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE,
+                "current_dense_readout_shape": current_shape,
+                "target_dense_readout_shape": target_shape,
+                "target_language_neuron_count": target_neurons,
+                "zero_initialized_new_dense_cell_count": zero_fill_cells,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_layout_state",
+            "surface": _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE,
+            "layout_state_hash": layout_hash,
+            "raw_surface": str(raw.get("surface") or "") if raw else None,
+            "present": bool(raw),
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+            "current_dense_readout_shape": current_shape,
+            "target_dense_readout_shape": target_shape,
+            "preserved_dense_window": current_shape,
+            "zero_initialized_new_dense_cell_count": zero_fill_cells,
+            "target_language_neuron_count": target_neurons,
+            "requires_cuda_relayout": target_neurons > _SNN_LANGUAGE_NEURON_COUNT
+            and not tensor_materialization_applied,
+            "checkpoint_required_before_resize": not dense_resize_applied,
+            "layout_migration_applied": layout_migration_applied,
+            "tensor_materialization_applied": tensor_materialization_applied,
+            "dense_resize_applied": dense_resize_applied,
+            "dynamic_dense_readout_enabled": dense_resize_applied,
+            "migration_status": "layout_metadata_only_resize_pending"
+            if target_neurons > _SNN_LANGUAGE_NEURON_COUNT
+            and not layout_migration_applied
+            else str(
+                raw.get(
+                    "migration_status",
+                    "dense_readout_tensor_materialized"
+                    if tensor_materialization_applied
+                    else "layout_migration_applied_tensor_resize_pending"
+                    if layout_migration_applied
+                    else "fixed_dense_layout",
+                )
+            ),
+            "layout_migration": deepcopy(dict(layout_migration)),
+            "tensor_materialization": deepcopy(dict(tensor_materialization)),
+            "promotion_gate": {
+                "status": "dense_readout_layout_resize_pending"
+                if target_neurons > _SNN_LANGUAGE_NEURON_COUNT
+                and not layout_migration_applied
+                else "dense_readout_tensor_materialized"
+                if tensor_materialization_applied
+                else "dense_readout_layout_migration_applied_tensor_resize_pending"
+                if layout_migration_applied
+                else "fixed_dense_readout_layout_observed",
+                "eligible_for_dense_readout_resize_plan": target_neurons
+                > _SNN_LANGUAGE_NEURON_COUNT,
+                "eligible_for_dense_readout_resize_executor": False,
+                "eligible_for_network_resize": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "layout_owned_by_hecsn": True,
+                    "capacity_state_present": bool(capacity.get("present")),
+                    "target_shape_matches_capacity": target_neurons
+                    >= int(
+                        capacity.get(
+                            "language_neuron_count",
+                            _SNN_LANGUAGE_NEURON_COUNT,
+                        )
+                        or _SNN_LANGUAGE_NEURON_COUNT
+                    ),
+                    "runtime_mutation_absent": True,
+                    "network_resize_absent": True,
+                    "checkpoint_write_absent": True,
+                },
+            },
+        }
+
+    def _snn_language_dense_readout_resize_plan(
+        self,
+        capacity_pressure: Mapping[str, Any],
+        fixed_boundaries: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Describe the remaining dense readout relayout without resizing."""
+
+        pressure = dict(capacity_pressure)
+        capacity_state = (
+            pressure.get("language_capacity")
+            if isinstance(pressure.get("language_capacity"), Mapping)
+            else {}
+        )
+        boundaries = [
+            dict(item)
+            for item in list(fixed_boundaries.get("boundary_inventory") or [])
+            if isinstance(item, Mapping)
+        ]
+        dense_boundary_ids = [
+            str(item.get("boundary_id") or "")
+            for item in boundaries
+            if not bool(item.get("dynamic_capacity_aware"))
+            and str(item.get("boundary_kind") or "") in {"index_validator", "tensor_shape"}
+        ]
+        current_neurons = int(
+            pressure.get("current_language_neuron_count", _SNN_LANGUAGE_NEURON_COUNT)
+            or _SNN_LANGUAGE_NEURON_COUNT
+        )
+        target_neurons = max(
+            _SNN_LANGUAGE_NEURON_COUNT + 1,
+            int(capacity_state.get("language_neuron_count", 0) or 0),
+            _SNN_LANGUAGE_NEURON_COUNT * 2,
+        )
+        current_shape = [_SNN_LANGUAGE_NEURON_COUNT, _SNN_LANGUAGE_NEURON_COUNT]
+        target_shape = [target_neurons, target_neurons]
+        preserved_window = [
+            min(_SNN_LANGUAGE_NEURON_COUNT, target_neurons),
+            min(_SNN_LANGUAGE_NEURON_COUNT, target_neurons),
+        ]
+        zero_fill_cells = max(
+            0,
+            int(target_neurons * target_neurons)
+            - int(preserved_window[0] * preserved_window[1]),
+        )
+        required = {
+            "capacity_pressure_surface_available": pressure.get("surface")
+            == "snn_language_capacity_pressure_evidence.v1",
+            "capacity_pressure_owned_by_hecsn": bool(pressure.get("owned_by_hecsn")),
+            "capacity_state_durable": bool(
+                capacity_state.get("present")
+                and capacity_state.get("raw_surface") == _SNN_LANGUAGE_CAPACITY_SURFACE
+            ),
+            "dense_fixed_boundaries_present": bool(dense_boundary_ids),
+            "target_shape_exceeds_current_dense_shape": target_neurons
+            > _SNN_LANGUAGE_NEURON_COUNT,
+            "preserve_existing_dense_window": True,
+            "zero_initialize_new_dense_region": True,
+            "requires_cuda_relayout_executor": True,
+            "requires_checkpoint_snapshot": True,
+            "executor_available": False,
+            "runtime_mutation_absent": True,
+            "network_resize_absent": True,
+            "checkpoint_write_absent": True,
+        }
+        plan_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_readout_resize_plan.v1",
+                "dense_boundary_ids": dense_boundary_ids,
+                "current_shape": current_shape,
+                "target_shape": target_shape,
+                "preserved_window": preserved_window,
+                "zero_fill_cells": zero_fill_cells,
+            }
+        )
+        ready = all(required.values())
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_resize_plan",
+            "surface": "snn_language_dense_readout_resize_plan.v1",
+            "available": bool(pressure),
+            "ready": ready,
+            "advisory": True,
+            "executable": False,
+            "source": "status_read_model.snn_language_dense_readout_resize_plan",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+            "returns_trained_weights": False,
+            "dense_readout_resize_plan_hash": plan_hash,
+            "dense_boundary_ids": dense_boundary_ids,
+            "current_dense_readout_shape": current_shape,
+            "target_dense_readout_shape": target_shape,
+            "preserved_dense_window": preserved_window,
+            "zero_initialized_new_dense_cell_count": zero_fill_cells,
+            "copy_policy": {
+                "preserve_existing_dense_values": True,
+                "preserve_existing_index_semantics": True,
+                "zero_initialize_added_rows": True,
+                "zero_initialize_added_columns": True,
+                "requires_cuda_relayout_review": True,
+                "requires_checkpoint_restore_validation": True,
+            },
+            "promotion_gate": {
+                "status": "blocked_missing_dense_readout_resize_executor",
+                "eligible_for_operator_dense_readout_resize_plan_review": bool(
+                    dense_boundary_ids
+                ),
+                "eligible_for_dense_readout_resize_executor": False,
+                "eligible_for_network_resize": False,
+                "eligible_for_neuron_growth": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_action": False,
+                "next_gate": "implement_checkpoint_backed_cuda_dense_readout_resize_executor",
+                "required_evidence": required,
+            },
+        }
+
     @staticmethod
     def _snn_language_capacity_boundary_inventory(
         *,
@@ -1157,6 +1438,38 @@ class StatusReadModel:
                 "boundary_kind": "index_validator",
             },
             {
+                "boundary_id": "snn_language_readout_ledger.regeneration_replay_artifact_sparse_index_validators",
+                "owner": "snn_language_readout_ledger",
+                "capacity_state_aware": True,
+                "minimum_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "index_validator",
+            },
+            {
+                "boundary_id": "runtime_facade.regeneration_permit_request_sparse_index_validators",
+                "owner": "runtime_facade",
+                "capacity_state_aware": True,
+                "minimum_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "index_validator",
+            },
+            {
+                "boundary_id": "runtime_facade.regeneration_application_preflight_sparse_index_validators",
+                "owner": "runtime_facade",
+                "capacity_state_aware": True,
+                "minimum_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "index_validator",
+            },
+            {
+                "boundary_id": "runtime_facade.regeneration_application_sparse_index_validators",
+                "owner": "runtime_facade",
+                "capacity_state_aware": True,
+                "minimum_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "index_validator",
+            },
+            {
                 "boundary_id": "snn_language_readout_ledger.cuda_dense_tensor_shapes",
                 "owner": "snn_language_readout_ledger",
                 "fixed_tensor_shape": [
@@ -1177,8 +1490,9 @@ class StatusReadModel:
             {
                 "boundary_id": "snn_language_readout_ledger.sparse_edge_budget",
                 "owner": "snn_language_readout_ledger",
-                "fixed_sparse_edge_budget": _SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
-                "dynamic_capacity_aware": False,
+                "capacity_state_aware": True,
+                "minimum_sparse_edge_budget": _SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                "dynamic_capacity_aware": True,
                 "boundary_kind": "sparse_budget",
             },
             {
@@ -3815,6 +4129,800 @@ class StatusReadModel:
                     "next_gate": "replace_fixed_capacity_runtime_boundaries"
                     if not ready
                     else "operator_confirmed_checkpoint_backed_capacity_resize_executor",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_resize_plan(
+        self,
+        capacity_pressure: Mapping[str, Any],
+        *,
+        fixed_boundaries: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Expose dense readout relayout requirements without resizing."""
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=lambda: self._snn_language_dense_readout_resize_plan(
+                capacity_pressure,
+                fixed_boundaries,
+            ),
+        )
+
+    def snn_language_dense_readout_resize_preflight(
+        self,
+        dense_readout_resize_plan: Mapping[str, Any],
+        *,
+        expected_state_revision: int,
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight dense readout relayout evidence without resizing."""
+
+        def _snapshot() -> dict[str, Any]:
+            plan = dict(dense_readout_resize_plan)
+            gate = (
+                plan.get("promotion_gate")
+                if isinstance(plan.get("promotion_gate"), Mapping)
+                else {}
+            )
+            checkpoint = dict(checkpoint_transaction or {})
+            device = dict(device_evidence or {})
+            before_revision = int(self._runtime_state.state_revision)
+            current_shape = [
+                int(value)
+                for value in list(plan.get("current_dense_readout_shape") or [])
+                if isinstance(value, int)
+            ][:2]
+            target_shape = [
+                int(value)
+                for value in list(plan.get("target_dense_readout_shape") or [])
+                if isinstance(value, int)
+            ][:2]
+            preserved_window = [
+                int(value)
+                for value in list(plan.get("preserved_dense_window") or [])
+                if isinstance(value, int)
+            ][:2]
+            zero_fill_cells = int(
+                plan.get("zero_initialized_new_dense_cell_count", 0) or 0
+            )
+            plan_hash = str(plan.get("dense_readout_resize_plan_hash") or "")
+            recomputed_plan_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_readout_resize_plan.v1",
+                    "dense_boundary_ids": list(plan.get("dense_boundary_ids") or []),
+                    "current_shape": current_shape,
+                    "target_shape": target_shape,
+                    "preserved_window": preserved_window,
+                    "zero_fill_cells": zero_fill_cells,
+                }
+            )
+            requested_device = str(device.get("device") or "").lower()
+            cuda_relayout = requested_device.startswith("cuda") and bool(
+                device.get("requested_cuda_honored", True)
+            )
+            checkpoint_restore_verified = bool(
+                checkpoint.get("restore_verified")
+                or checkpoint.get("pre_resize_checkpoint_restore_verified")
+                or checkpoint.get("pre_expansion_checkpoint_restore_verified")
+                or checkpoint.get("pre_update_checkpoint_restore_verified")
+            )
+            checkpoint_saved = bool(
+                checkpoint.get("pre_resize_checkpoint_saved")
+                or checkpoint.get("pre_expansion_checkpoint_saved")
+                or checkpoint.get("pre_update_checkpoint_saved")
+                or checkpoint.get("checkpoint_saved")
+            )
+            required = {
+                "plan_surface_available": plan.get("surface")
+                == "snn_language_dense_readout_resize_plan.v1",
+                "plan_owned_by_hecsn": bool(plan.get("owned_by_hecsn")),
+                "plan_advisory": bool(plan.get("advisory")),
+                "plan_not_executable": not bool(plan.get("executable")),
+                "plan_gate_reviewable": bool(
+                    gate.get("eligible_for_operator_dense_readout_resize_plan_review")
+                ),
+                "plan_hash_available": bool(plan_hash),
+                "plan_hash_recomputed_match": recomputed_plan_hash == plan_hash,
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "checkpoint_transaction_available": bool(checkpoint),
+                "checkpoint_path_available": bool(
+                    str(checkpoint.get("checkpoint_path") or "").strip()
+                ),
+                "checkpoint_snapshot_saved": checkpoint_saved,
+                "checkpoint_restore_verified": checkpoint_restore_verified,
+                "device_evidence_available": bool(device),
+                "cuda_relayout_evidence_available": cuda_relayout,
+                "dense_shape_growth_requested": len(target_shape) == 2
+                and len(current_shape) == 2
+                and target_shape[0] > current_shape[0]
+                and target_shape[1] > current_shape[1],
+                "preserved_window_matches_current_shape": preserved_window == current_shape,
+                "zero_fill_region_available": zero_fill_cells > 0,
+                "executor_available": False,
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_resize_preflight",
+                "surface": "snn_language_dense_readout_resize_preflight.v1",
+                "available": bool(plan),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_resize_preflight",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_layers": False,
+                "returns_trained_weights": False,
+                "dense_readout_resize_plan_hash": plan_hash,
+                "recomputed_dense_readout_resize_plan_hash": recomputed_plan_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "before": {"state_revision": before_revision},
+                "after": {"state_revision": int(self._runtime_state.state_revision)},
+                "checkpoint_evidence": {
+                    "checkpoint_path": checkpoint.get("checkpoint_path"),
+                    "snapshot_id": checkpoint.get("snapshot_id"),
+                    "checkpoint_snapshot_saved": checkpoint_saved,
+                    "checkpoint_restore_verified": checkpoint_restore_verified,
+                },
+                "device_evidence": {
+                    "requested_device": device.get("device"),
+                    "cuda_relayout_evidence_available": cuda_relayout,
+                    "requested_cuda_honored": bool(
+                        device.get("requested_cuda_honored", cuda_relayout)
+                    ),
+                },
+                "dense_readout_relayout": {
+                    "current_dense_readout_shape": current_shape,
+                    "target_dense_readout_shape": target_shape,
+                    "preserved_dense_window": preserved_window,
+                    "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                },
+                "promotion_gate": {
+                    "status": "blocked_missing_dense_readout_resize_executor",
+                    "eligible_for_dense_readout_resize_executor": False,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "next_gate": "implement_checkpoint_backed_cuda_dense_readout_resize_executor",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_resize_transaction_proposal(
+        self,
+        dense_readout_resize_preflight: Mapping[str, Any],
+        *,
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool = False,
+    ) -> dict[str, Any]:
+        """Describe a checkpoint-backed dense readout resize transaction."""
+
+        def _snapshot() -> dict[str, Any]:
+            preflight = dict(dense_readout_resize_preflight)
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_preflight = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            relayout = (
+                preflight.get("dense_readout_relayout")
+                if isinstance(preflight.get("dense_readout_relayout"), Mapping)
+                else {}
+            )
+            checkpoint = (
+                preflight.get("checkpoint_evidence")
+                if isinstance(preflight.get("checkpoint_evidence"), Mapping)
+                else {}
+            )
+            device = (
+                preflight.get("device_evidence")
+                if isinstance(preflight.get("device_evidence"), Mapping)
+                else {}
+            )
+            before_revision = int(self._runtime_state.state_revision)
+            plan_hash = str(preflight.get("dense_readout_resize_plan_hash") or "")
+            current_shape = list(relayout.get("current_dense_readout_shape") or [])
+            target_shape = list(relayout.get("target_dense_readout_shape") or [])
+            preserved_window = list(relayout.get("preserved_dense_window") or [])
+            zero_fill_cells = int(
+                relayout.get("zero_initialized_new_dense_cell_count", 0) or 0
+            )
+            proposal_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_readout_resize_transaction_proposal.v1",
+                    "preflight_surface": preflight.get("surface"),
+                    "plan_hash": plan_hash,
+                    "current_shape": current_shape,
+                    "target_shape": target_shape,
+                    "preserved_window": preserved_window,
+                    "zero_fill_cells": zero_fill_cells,
+                    "checkpoint_path": checkpoint.get("checkpoint_path"),
+                    "requested_device": device.get("requested_device"),
+                    "operator_id": str(operator_id or "").strip(),
+                }
+            )
+            preflight_expected_revision = int(
+                preflight.get("expected_state_revision", -1)
+            )
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_dense_readout_resize_preflight.v1",
+                "preflight_owned_by_hecsn": bool(preflight.get("owned_by_hecsn")),
+                "preflight_advisory": bool(preflight.get("advisory")),
+                "preflight_not_executable": not bool(preflight.get("executable")),
+                "preflight_does_not_mutate": not bool(
+                    preflight.get("mutates_runtime_state")
+                ),
+                "preflight_does_not_write_checkpoint": not bool(
+                    preflight.get("writes_checkpoint")
+                ),
+                "preflight_plan_hash_available": bool(plan_hash),
+                "preflight_hash_recomputed_match": bool(
+                    required_preflight.get("plan_hash_recomputed_match")
+                ),
+                "preflight_checkpoint_snapshot_saved": bool(
+                    required_preflight.get("checkpoint_snapshot_saved")
+                ),
+                "preflight_checkpoint_restore_verified": bool(
+                    required_preflight.get("checkpoint_restore_verified")
+                ),
+                "preflight_cuda_relayout_evidence_available": bool(
+                    required_preflight.get("cuda_relayout_evidence_available")
+                ),
+                "preflight_shape_growth_requested": bool(
+                    required_preflight.get("dense_shape_growth_requested")
+                ),
+                "preflight_preserved_window_matches_current_shape": bool(
+                    required_preflight.get("preserved_window_matches_current_shape")
+                ),
+                "preflight_zero_fill_region_available": bool(
+                    required_preflight.get("zero_fill_region_available")
+                ),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "expected_revision_matches_preflight": preflight_expected_revision
+                == int(expected_state_revision),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "confirmation": bool(confirmation),
+                "executor_available": False,
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_resize_transaction_proposal",
+                "surface": "snn_language_dense_readout_resize_transaction_proposal.v1",
+                "available": bool(preflight),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_resize_transaction_proposal",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_layers": False,
+                "returns_trained_weights": False,
+                "dense_readout_resize_transaction_proposal_hash": proposal_hash,
+                "dense_readout_resize_plan_hash": plan_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "operator_id": str(operator_id or "").strip() or None,
+                "before": {"state_revision": before_revision},
+                "after": {"state_revision": int(self._runtime_state.state_revision)},
+                "transaction_recipe": {
+                    "checkpoint_path": checkpoint.get("checkpoint_path"),
+                    "requested_device": device.get("requested_device"),
+                    "current_dense_readout_shape": current_shape,
+                    "target_dense_readout_shape": target_shape,
+                    "preserved_dense_window": preserved_window,
+                    "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                    "steps": [
+                        "load_checkpoint_verified_dense_readout_state",
+                        "allocate_target_dense_readout_tensor_on_cuda",
+                        "copy_preserved_dense_window",
+                        "zero_initialize_added_rows_and_columns",
+                        "verify_shape_and_copy_invariants",
+                        "persist_capacity_boundary_migration_evidence",
+                    ],
+                },
+                "rollback_evidence": {
+                    "checkpoint_path": checkpoint.get("checkpoint_path"),
+                    "snapshot_id": checkpoint.get("snapshot_id"),
+                    "restore_verified": bool(
+                        checkpoint.get("checkpoint_restore_verified")
+                    ),
+                    "rollback_required_before_executor": True,
+                },
+                "promotion_gate": {
+                    "status": "blocked_missing_dense_readout_resize_executor",
+                    "eligible_for_dense_readout_resize_executor": False,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "next_gate": "implement_checkpoint_backed_cuda_dense_readout_resize_executor",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_resize_executor_readiness_audit(
+        self,
+        dense_readout_resize_transaction_proposal: Mapping[str, Any],
+        *,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Audit missing dense readout resize executor capabilities."""
+
+        def _snapshot() -> dict[str, Any]:
+            proposal = dict(dense_readout_resize_transaction_proposal)
+            gate = (
+                proposal.get("promotion_gate")
+                if isinstance(proposal.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_proposal = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            recipe = (
+                proposal.get("transaction_recipe")
+                if isinstance(proposal.get("transaction_recipe"), Mapping)
+                else {}
+            )
+            capabilities = dict(executor_capabilities or {})
+            capacity_pressure = self._snn_language_capacity_pressure()
+            dense_layout_state = self._snn_language_dense_readout_layout_state(
+                capacity_pressure
+            )
+            recipe_current_shape = list(
+                recipe.get("current_dense_readout_shape") or []
+            )
+            recipe_target_shape = list(recipe.get("target_dense_readout_shape") or [])
+            recipe_preserved_window = list(recipe.get("preserved_dense_window") or [])
+            recipe_zero_fill_cells = int(
+                recipe.get("zero_initialized_new_dense_cell_count", 0) or 0
+            )
+            layout_state_available = (
+                dense_layout_state.get("surface")
+                == _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE
+                and bool(dense_layout_state.get("owned_by_hecsn"))
+            )
+            layout_matches_transaction = (
+                list(dense_layout_state.get("current_dense_readout_shape") or [])
+                == recipe_current_shape
+                and list(dense_layout_state.get("target_dense_readout_shape") or [])
+                == recipe_target_shape
+                and list(dense_layout_state.get("preserved_dense_window") or [])
+                == recipe_preserved_window
+                and int(
+                    dense_layout_state.get(
+                        "zero_initialized_new_dense_cell_count", -1
+                    )
+                    or 0
+                )
+                == recipe_zero_fill_cells
+            )
+            layout_metadata_not_applied = not bool(
+                dense_layout_state.get("dense_resize_applied")
+            ) and not bool(dense_layout_state.get("resizes_network"))
+            boundary_inventory = self._snn_language_capacity_boundary_inventory(
+                proposed_language_neuron_count=int(
+                    recipe_target_shape[0] if recipe_target_shape else 0
+                )
+                if recipe_target_shape
+                else None
+            )
+            remaining_dense_boundaries = [
+                dict(item)
+                for item in boundary_inventory
+                if not bool(item.get("dynamic_capacity_aware"))
+                and str(item.get("boundary_kind") or "") in {"index_validator", "tensor_shape"}
+            ]
+            required = {
+                "transaction_surface_available": proposal.get("surface")
+                == "snn_language_dense_readout_resize_transaction_proposal.v1",
+                "transaction_owned_by_hecsn": bool(proposal.get("owned_by_hecsn")),
+                "transaction_advisory": bool(proposal.get("advisory")),
+                "transaction_not_executable": not bool(proposal.get("executable")),
+                "transaction_does_not_mutate": not bool(
+                    proposal.get("mutates_runtime_state")
+                ),
+                "transaction_does_not_write_checkpoint": not bool(
+                    proposal.get("writes_checkpoint")
+                ),
+                "transaction_plan_hash_available": bool(
+                    proposal.get("dense_readout_resize_plan_hash")
+                ),
+                "transaction_operator_confirmed": bool(
+                    required_proposal.get("confirmation")
+                ),
+                "transaction_checkpoint_restore_verified": bool(
+                    required_proposal.get("preflight_checkpoint_restore_verified")
+                ),
+                "transaction_cuda_relayout_verified": bool(
+                    required_proposal.get("preflight_cuda_relayout_evidence_available")
+                ),
+                "transaction_shape_invariants_available": bool(
+                    required_proposal.get("preflight_shape_growth_requested")
+                    and required_proposal.get(
+                        "preflight_preserved_window_matches_current_shape"
+                    )
+                    and required_proposal.get("preflight_zero_fill_region_available")
+                ),
+                "dense_readout_layout_state_available": layout_state_available,
+                "dense_readout_layout_matches_transaction": layout_matches_transaction,
+                "dense_readout_layout_metadata_not_applied": layout_metadata_not_applied,
+                "dense_readout_tensor_owner_available": layout_state_available,
+                "dense_readout_tensor_weight_owner_available": bool(
+                    capabilities.get("dense_readout_tensor_weight_owner_available")
+                ),
+                "cuda_allocator_available": bool(
+                    capabilities.get("cuda_allocator_available")
+                ),
+                "checkpoint_writer_available": bool(
+                    capabilities.get("checkpoint_writer_available")
+                ),
+                "migration_ledger_writer_available": bool(
+                    capabilities.get("migration_ledger_writer_available")
+                ),
+                "post_resize_boundary_marker_available": bool(
+                    capabilities.get("post_resize_boundary_marker_available")
+                ),
+                "dense_boundary_migration_tests_available": bool(
+                    capabilities.get("dense_boundary_migration_tests_available")
+                ),
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            missing_capabilities = [
+                key
+                for key in (
+                    "dense_readout_tensor_weight_owner_available",
+                    "cuda_allocator_available",
+                    "checkpoint_writer_available",
+                    "migration_ledger_writer_available",
+                    "post_resize_boundary_marker_available",
+                    "dense_boundary_migration_tests_available",
+                )
+                if not required[key]
+            ]
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_resize_executor_readiness_audit",
+                "surface": "snn_language_dense_readout_resize_executor_readiness_audit.v1",
+                "available": bool(proposal),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_resize_executor_readiness_audit",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_layers": False,
+                "returns_trained_weights": False,
+                "dense_readout_resize_transaction_proposal_hash": proposal.get(
+                    "dense_readout_resize_transaction_proposal_hash"
+                ),
+                "dense_readout_resize_plan_hash": proposal.get(
+                    "dense_readout_resize_plan_hash"
+                ),
+                "remaining_dense_boundary_count": len(remaining_dense_boundaries),
+                "remaining_dense_boundary_ids": [
+                    item["boundary_id"] for item in remaining_dense_boundaries
+                ],
+                "dense_readout_layout_state": dense_layout_state,
+                "missing_executor_capabilities": missing_capabilities,
+                "executor_capability_evidence": {
+                    "provided": bool(capabilities),
+                    "dense_readout_layout_state_available": required[
+                        "dense_readout_layout_state_available"
+                    ],
+                    "dense_readout_layout_matches_transaction": required[
+                        "dense_readout_layout_matches_transaction"
+                    ],
+                    "dense_readout_layout_metadata_not_applied": required[
+                        "dense_readout_layout_metadata_not_applied"
+                    ],
+                    "dense_readout_tensor_owner_available": required[
+                        "dense_readout_tensor_owner_available"
+                    ],
+                    "dense_readout_tensor_weight_owner_available": required[
+                        "dense_readout_tensor_weight_owner_available"
+                    ],
+                    "cuda_allocator_available": required["cuda_allocator_available"],
+                    "checkpoint_writer_available": required[
+                        "checkpoint_writer_available"
+                    ],
+                    "migration_ledger_writer_available": required[
+                        "migration_ledger_writer_available"
+                    ],
+                    "post_resize_boundary_marker_available": required[
+                        "post_resize_boundary_marker_available"
+                    ],
+                    "dense_boundary_migration_tests_available": required[
+                        "dense_boundary_migration_tests_available"
+                    ],
+                },
+                "promotion_gate": {
+                    "status": "ready_for_checkpoint_backed_dense_readout_resize_executor"
+                    if ready
+                    else "blocked_missing_dense_readout_resize_executor_capabilities",
+                    "eligible_for_dense_readout_resize_executor": ready,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "next_gate": "checkpoint_backed_cuda_dense_readout_resize_executor"
+                    if ready
+                    else "implement_dense_readout_tensor_owner_cuda_allocator_and_migration_ledger",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_tensor_materialization_readiness(
+        self,
+        dense_readout_layout_migration: Mapping[str, Any],
+        *,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Audit the remaining CUDA tensor materialization requirements."""
+
+        def _snapshot() -> dict[str, Any]:
+            migration_result = dict(dense_readout_layout_migration)
+            migration = (
+                migration_result.get("dense_readout_layout_migration")
+                if isinstance(
+                    migration_result.get("dense_readout_layout_migration"),
+                    Mapping,
+                )
+                else {}
+            )
+            checkpoint = (
+                migration_result.get("checkpoint_transaction")
+                if isinstance(migration_result.get("checkpoint_transaction"), Mapping)
+                else {}
+            )
+            capabilities = dict(executor_capabilities or {})
+            capacity_pressure = self._snn_language_capacity_pressure()
+            dense_layout_state = self._snn_language_dense_readout_layout_state(
+                capacity_pressure
+            )
+            target_shape = list(migration.get("target_dense_readout_shape") or [])
+            preserved_window = list(migration.get("preserved_dense_window") or [])
+            zero_fill_cells = int(
+                migration.get("zero_initialized_new_dense_cell_count", 0) or 0
+            )
+            layout_migration = (
+                dense_layout_state.get("layout_migration")
+                if isinstance(dense_layout_state.get("layout_migration"), Mapping)
+                else {}
+            )
+            layout_matches_migration = (
+                bool(dense_layout_state.get("layout_migration_applied"))
+                and list(dense_layout_state.get("target_dense_readout_shape") or [])
+                == target_shape
+                and list(dense_layout_state.get("preserved_dense_window") or [])
+                == preserved_window
+                and int(
+                    dense_layout_state.get(
+                        "zero_initialized_new_dense_cell_count", -1
+                    )
+                    or 0
+                )
+                == zero_fill_cells
+                and str(layout_migration.get("transaction_hash") or "")
+                == str(migration.get("transaction_hash") or "")
+            )
+            required = {
+                "layout_migration_surface_available": migration_result.get("surface")
+                == "snn_language_dense_readout_layout_migration.v1",
+                "layout_migration_accepted": bool(migration_result.get("accepted")),
+                "layout_migration_owned_by_hecsn": bool(
+                    migration_result.get("owned_by_hecsn")
+                ),
+                "layout_migration_checkpoint_committed": bool(
+                    checkpoint.get("post_layout_migration_checkpoint_saved")
+                    and checkpoint.get(
+                        "post_layout_migration_checkpoint_restore_verified"
+                    )
+                    and checkpoint.get("committed_checkpoint_path")
+                ),
+                "layout_migration_did_not_materialize_weights": not bool(
+                    migration_result.get("materializes_dense_tensor_weights")
+                ),
+                "layout_state_available": dense_layout_state.get("surface")
+                == _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE,
+                "layout_state_migration_applied": bool(
+                    dense_layout_state.get("layout_migration_applied")
+                ),
+                "layout_state_matches_migration": layout_matches_migration,
+                "dense_resize_not_yet_applied": not bool(
+                    dense_layout_state.get("dense_resize_applied")
+                ),
+                "target_shape_available": len(target_shape) == 2
+                and int(target_shape[0] or 0) > 0
+                and int(target_shape[1] or 0) > 0,
+                "preserved_window_available": len(preserved_window) == 2
+                and int(preserved_window[0] or 0) > 0
+                and int(preserved_window[1] or 0) > 0,
+                "zero_fill_region_available": zero_fill_cells > 0,
+                "dense_readout_tensor_weight_owner_available": bool(
+                    capabilities.get("dense_readout_tensor_weight_owner_available")
+                ),
+                "cuda_allocator_available": bool(
+                    capabilities.get("cuda_allocator_available")
+                ),
+                "preserved_window_copy_kernel_available": bool(
+                    capabilities.get("preserved_window_copy_kernel_available")
+                ),
+                "zero_fill_kernel_available": bool(
+                    capabilities.get("zero_fill_kernel_available")
+                ),
+                "checkpoint_writer_available": bool(
+                    capabilities.get("checkpoint_writer_available")
+                ),
+                "migration_ledger_writer_available": bool(
+                    capabilities.get("migration_ledger_writer_available")
+                ),
+                "post_resize_boundary_marker_available": bool(
+                    capabilities.get("post_resize_boundary_marker_available")
+                ),
+                "dense_boundary_migration_tests_available": bool(
+                    capabilities.get("dense_boundary_migration_tests_available")
+                ),
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+                "checkpoint_write_absent": True,
+                "language_generation_absent": True,
+            }
+            missing_capabilities = [
+                key
+                for key in (
+                    "dense_readout_tensor_weight_owner_available",
+                    "cuda_allocator_available",
+                    "preserved_window_copy_kernel_available",
+                    "zero_fill_kernel_available",
+                    "checkpoint_writer_available",
+                    "migration_ledger_writer_available",
+                    "post_resize_boundary_marker_available",
+                    "dense_boundary_migration_tests_available",
+                )
+                if not required[key]
+            ]
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_tensor_materialization_readiness",
+                "surface": "snn_language_dense_readout_tensor_materialization_readiness.v1",
+                "available": bool(migration_result),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_tensor_materialization_readiness",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "materializes_dense_tensor_weights": False,
+                "dense_readout_layout_state": dense_layout_state,
+                "dense_readout_layout_migration": dict(migration),
+                "target_dense_readout_shape": target_shape,
+                "preserved_dense_window": preserved_window,
+                "zero_initialized_new_dense_cell_count": zero_fill_cells,
+                "missing_executor_capabilities": missing_capabilities,
+                "executor_capability_evidence": {
+                    "provided": bool(capabilities),
+                    "dense_readout_tensor_weight_owner_available": required[
+                        "dense_readout_tensor_weight_owner_available"
+                    ],
+                    "cuda_allocator_available": required["cuda_allocator_available"],
+                    "preserved_window_copy_kernel_available": required[
+                        "preserved_window_copy_kernel_available"
+                    ],
+                    "zero_fill_kernel_available": required[
+                        "zero_fill_kernel_available"
+                    ],
+                    "checkpoint_writer_available": required[
+                        "checkpoint_writer_available"
+                    ],
+                    "migration_ledger_writer_available": required[
+                        "migration_ledger_writer_available"
+                    ],
+                    "post_resize_boundary_marker_available": required[
+                        "post_resize_boundary_marker_available"
+                    ],
+                    "dense_boundary_migration_tests_available": required[
+                        "dense_boundary_migration_tests_available"
+                    ],
+                },
+                "promotion_gate": {
+                    "status": "ready_for_checkpoint_backed_cuda_tensor_materialization_executor"
+                    if ready
+                    else "blocked_missing_dense_readout_tensor_materialization_evidence",
+                    "eligible_for_dense_readout_tensor_materialization_executor": ready,
+                    "eligible_for_dense_readout_layout_migration": False,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "checkpoint_backed_cuda_dense_readout_tensor_materialization_executor"
+                    if ready
+                    else "implement_cuda_allocator_copy_zero_fill_checkpoint_and_migration_tests",
                     "required_evidence": required,
                 },
             }

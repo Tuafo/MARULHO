@@ -537,6 +537,59 @@ class SNNLanguageCapacityResizeCompatibilityAuditRequest(BaseModel):
     language_capacity_state: dict[str, Any] | None = None
 
 
+class SNNLanguageDenseReadoutResizePlanRequest(BaseModel):
+    capacity_pressure: dict[str, Any] = Field(..., min_length=1)
+    fixed_boundaries: dict[str, Any] = Field(..., min_length=1)
+
+
+class SNNLanguageDenseReadoutResizePreflightRequest(BaseModel):
+    dense_readout_resize_plan: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_transaction: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutResizeTransactionProposalRequest(BaseModel):
+    dense_readout_resize_preflight: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNLanguageDenseReadoutResizeExecutorReadinessAuditRequest(BaseModel):
+    dense_readout_resize_transaction_proposal: dict[str, Any] = Field(..., min_length=1)
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutLayoutMigrationRequest(BaseModel):
+    dense_readout_resize_transaction_proposal: dict[str, Any] = Field(..., min_length=1)
+    dense_readout_resize_executor_readiness_audit: dict[str, Any] = Field(
+        ...,
+        min_length=1,
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+
+
+class SNNLanguageDenseReadoutTensorMaterializationReadinessRequest(BaseModel):
+    dense_readout_layout_migration: dict[str, Any] = Field(..., min_length=1)
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutTensorMaterializationRequest(BaseModel):
+    dense_readout_tensor_materialization_readiness: dict[str, Any] = Field(
+        ...,
+        min_length=1,
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+    requested_device: str | None = Field(None, min_length=1, max_length=64)
+
+
 class SNNLanguageTransitionMemoryHomeostaticMaintenanceRequest(BaseModel):
     expected_state_revision: int = Field(..., ge=0)
     operator_id: str = Field(..., min_length=1, max_length=160)

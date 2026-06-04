@@ -289,6 +289,20 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertFalse(capacity_state["resizes_network"])
             self.assertFalse(capacity_state["adds_neurons"])
             self.assertFalse(capacity_state["adds_layers"])
+            dense_layout = service_state["snn_language_plasticity"][
+                "dense_readout_layout"
+            ]
+            self.assertEqual(
+                dense_layout["surface"],
+                "snn_language_dense_readout_layout_state.v1",
+            )
+            self.assertTrue(dense_layout["owned_by_hecsn"])
+            self.assertEqual(dense_layout["current_dense_readout_shape"], [64, 64])
+            self.assertEqual(dense_layout["target_dense_readout_shape"], [64, 64])
+            self.assertEqual(dense_layout["preserved_dense_window"], [64, 64])
+            self.assertFalse(dense_layout["requires_cuda_relayout"])
+            self.assertFalse(dense_layout["dense_resize_applied"])
+            self.assertFalse(dense_layout["resizes_network"])
             self.assertEqual(
                 service_state["snn_language_plasticity"]["synapse_provenance_by_key"]["1:2"][
                     "source_metadata_hash"

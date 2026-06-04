@@ -21,6 +21,7 @@ DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 CURRENT_CHECKPOINT_MANIFEST = "hecsn_current_checkpoint.json"
 _SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
+_SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE = "snn_language_dense_readout_layout_state.v1"
 _SNN_LANGUAGE_NEURON_COUNT = 64
 _SNN_LANGUAGE_SPARSE_EDGE_BUDGET = 256
 _SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
@@ -222,6 +223,10 @@ class RuntimePersistence:
         state["language_capacity"] = cls._snn_language_capacity_checkpoint_state(
             state
         )
+        state["dense_readout_layout"] = cls._snn_language_dense_readout_layout_checkpoint_state(
+            state,
+            state["language_capacity"],
+        )
         return state
 
     @classmethod
@@ -262,6 +267,80 @@ class RuntimePersistence:
             "resizes_network": False,
             "adds_neurons": False,
             "adds_layers": False,
+            "writes_checkpoint": False,
+        }
+
+    @classmethod
+    def _snn_language_dense_readout_layout_checkpoint_state(
+        cls,
+        plasticity_state: Mapping[str, Any],
+        capacity_state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        raw = (
+            plasticity_state.get("dense_readout_layout")
+            if isinstance(plasticity_state.get("dense_readout_layout"), Mapping)
+            else {}
+        )
+        target_neurons = cls._positive_capacity_int(
+            raw.get("target_language_neuron_count"),
+            default=int(
+                capacity_state.get("language_neuron_count", _SNN_LANGUAGE_NEURON_COUNT)
+            ),
+            minimum=_SNN_LANGUAGE_NEURON_COUNT,
+        )
+        layout_migration = (
+            raw.get("layout_migration")
+            if isinstance(raw.get("layout_migration"), Mapping)
+            else {}
+        )
+        tensor_materialization = (
+            raw.get("tensor_materialization")
+            if isinstance(raw.get("tensor_materialization"), Mapping)
+            else {}
+        )
+        current_shape = [_SNN_LANGUAGE_NEURON_COUNT, _SNN_LANGUAGE_NEURON_COUNT]
+        target_shape = [target_neurons, target_neurons]
+        dense_resize_applied = bool(raw.get("dense_resize_applied"))
+        layout_migration_applied = bool(layout_migration.get("applied"))
+        tensor_materialization_applied = bool(tensor_materialization.get("applied"))
+        return {
+            "surface": _SNN_LANGUAGE_DENSE_READOUT_LAYOUT_SURFACE,
+            "raw_surface": str(raw.get("surface") or "") if raw else None,
+            "present": bool(raw),
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "current_dense_readout_shape": current_shape,
+            "target_dense_readout_shape": target_shape,
+            "preserved_dense_window": current_shape,
+            "zero_initialized_new_dense_cell_count": max(
+                0,
+                int(target_neurons * target_neurons)
+                - int(_SNN_LANGUAGE_NEURON_COUNT * _SNN_LANGUAGE_NEURON_COUNT),
+            ),
+            "target_language_neuron_count": target_neurons,
+            "requires_cuda_relayout": target_neurons > _SNN_LANGUAGE_NEURON_COUNT
+            and not tensor_materialization_applied,
+            "checkpoint_required_before_resize": not dense_resize_applied,
+            "layout_migration_applied": layout_migration_applied,
+            "tensor_materialization_applied": tensor_materialization_applied,
+            "dense_resize_applied": dense_resize_applied,
+            "dynamic_dense_readout_enabled": dense_resize_applied,
+            "migration_status": "layout_metadata_only_resize_pending"
+            if target_neurons > _SNN_LANGUAGE_NEURON_COUNT
+            and not layout_migration_applied
+            else str(
+                raw.get(
+                    "migration_status",
+                    "dense_readout_tensor_materialized"
+                    if tensor_materialization_applied
+                    else "layout_migration_applied_tensor_resize_pending"
+                    if layout_migration_applied
+                    else "fixed_dense_layout",
+                )
+            ),
+            "layout_migration": deepcopy(dict(layout_migration)),
+            "tensor_materialization": deepcopy(dict(tensor_materialization)),
+            "resizes_network": False,
             "writes_checkpoint": False,
         }
 

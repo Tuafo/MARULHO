@@ -22,6 +22,22 @@ def _sha256_json(value: object) -> str:
     ).hexdigest()
 
 
+def _language_capacity(
+    *,
+    language_neuron_count: int = 64,
+    sparse_edge_budget: int = 256,
+    outgoing_fanout_budget: int = 16,
+    capacity_expansion_count: int = 0,
+) -> dict[str, object]:
+    return {
+        "surface": "snn_language_capacity_state.v1",
+        "language_neuron_count": language_neuron_count,
+        "sparse_edge_budget": sparse_edge_budget,
+        "outgoing_fanout_budget": outgoing_fanout_budget,
+        "capacity_expansion_count": capacity_expansion_count,
+    }
+
+
 def _ready_rollout_replay_evaluation() -> dict[str, object]:
     return {
         "surface": "snn_language_readout_rollout_replay_evaluation.v1",
@@ -1197,31 +1213,46 @@ def test_readout_ledger_rollout_consolidation_shadow_application_preflight_verif
     preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
+        transition_memory_state={
+            "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": _language_capacity(),
+        },
     )
     repeat = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
+        transition_memory_state={
+            "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": _language_capacity(),
+        },
     )
     growth = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {}},
+        transition_memory_state={
+            "sparse_transition_weights": {},
+            "language_capacity": _language_capacity(sparse_edge_budget=512, capacity_expansion_count=1),
+        },
     )
     tampered_shadow = deepcopy(shadow)
     tampered_shadow["bounded_synapses"][0]["target_index"] = 63
     tampered = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         tampered_shadow,
-        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
+        transition_memory_state={
+            "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": _language_capacity(),
+        },
     )
     tampered_design = deepcopy(design)
     tampered_design["rollout_consolidation_design_material"]["max_weight_delta"] = 0.25
     design_tampered = ledger.rollout_consolidation_shadow_application_preflight(
         tampered_design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
+        transition_memory_state={
+            "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": _language_capacity(),
+        },
     )
     duplicate_shadow = deepcopy(shadow)
     duplicate_shadow["bounded_synapses"].append(deepcopy(duplicate_shadow["bounded_synapses"][0]))
@@ -1230,7 +1261,10 @@ def test_readout_ledger_rollout_consolidation_shadow_application_preflight_verif
     duplicate = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         duplicate_shadow,
-        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
+        transition_memory_state={
+            "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": _language_capacity(),
+        },
     )
     after = runtime_state.snapshot()
 
@@ -1259,7 +1293,23 @@ def test_readout_ledger_rollout_consolidation_shadow_application_preflight_verif
     assert preflight["promotion_gate"]["eligible_for_plasticity_application"] is False
     assert preflight["topology_evidence"]["topology_keyset_unchanged"] is True
     assert preflight["topology_evidence"]["growth_candidate_count"] == 0
+    assert preflight["topology_evidence"]["sparse_edge_budget"] == 256
+    assert preflight["topology_evidence"]["language_capacity"]["sparse_edge_budget"] == 256
+    assert (
+        preflight["promotion_gate"]["required_evidence"][
+            "language_capacity_state_available"
+        ]
+        is True
+    )
+    assert (
+        preflight["promotion_gate"]["required_evidence"][
+            "language_capacity_state_dynamic_limits_applied"
+        ]
+        is True
+    )
     assert preflight["rollback_evidence"]["checkpoint_restore_verified"] is False
+    assert growth["topology_evidence"]["sparse_edge_budget"] == 512
+    assert growth["topology_evidence"]["language_capacity"]["sparse_edge_budget"] == 512
     assert growth["promotion_gate"]["required_evidence"]["topology_keyset_unchanged"] is False
     assert growth["promotion_gate"]["eligible_for_structural_growth_review"] is True
     assert growth["promotion_gate"][
@@ -1303,15 +1353,25 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         device_evidence={"device": "cpu", "source": "test"},
     )
     first_synapse = _first_rollout_synapse(design)
+    expanded_capacity = _language_capacity(
+        sparse_edge_budget=512,
+        capacity_expansion_count=1,
+    )
     growth_preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {}},
+        transition_memory_state={
+            "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
+        },
     )
     existing_preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {first_synapse: 0.1}},
+        transition_memory_state={
+            "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": expanded_capacity,
+        },
     )
     before = runtime_state.snapshot()
 
@@ -1322,6 +1382,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
         },
     )
     repeat = ledger.rollout_developmental_plasticity_review(
@@ -1331,6 +1392,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
         },
     )
     no_growth = ledger.rollout_developmental_plasticity_review(
@@ -1340,6 +1402,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {first_synapse: 0.1},
+            "language_capacity": expanded_capacity,
         },
     )
     tampered_design = deepcopy(design)
@@ -1351,6 +1414,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
         },
     )
     tampered_preflight = deepcopy(growth_preflight)
@@ -1362,6 +1426,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
         },
     )
     signed_preflight_tampered = deepcopy(growth_preflight)
@@ -1375,6 +1440,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
         },
     )
     missing_hash_design = deepcopy(design)
@@ -1394,6 +1460,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": expanded_capacity,
         },
     )
     after = runtime_state.snapshot()
@@ -1407,6 +1474,11 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
     assert review["applies_plasticity"] is False
     assert review["mutates_runtime_state"] is False
     assert review["returns_trained_weights"] is False
+    assert review["runtime_memory_evidence"]["language_capacity"]["sparse_edge_budget"] == 512
+    assert review["topology_budget_evidence"]["sparse_edge_budget"] == 512
+    assert review["promotion_gate"]["required_evidence"]["language_capacity_state_available"] is True
+    assert review["promotion_gate"]["required_evidence"]["language_capacity_state_dynamic_limits_applied"] is True
+    assert review["promotion_gate"]["required_evidence"]["topology_sparse_edge_budget_matches_capacity"] is True
     assert review["developmental_plasticity_review"]["growth_candidate_count"] == 1
     assert review["developmental_plasticity_review"]["growth_candidates"][0]["synapse"] == first_synapse
     growth_candidate = review["developmental_plasticity_review"]["growth_candidates"][0]
@@ -1480,7 +1552,10 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     growth_preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {}},
+        transition_memory_state={
+            "sparse_transition_weights": {},
+            "language_capacity": _language_capacity(),
+        },
     )
     review = ledger.rollout_developmental_plasticity_review(
         design,
@@ -1489,6 +1564,7 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": _language_capacity(),
         },
     )
     blocked_review = deepcopy(review)
@@ -1643,6 +1719,47 @@ def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices
     assert adapter["integrity_evidence"]["language_capacity_state_dynamic_limits_applied"] is True
     assert adapter["language_capacity"]["language_neuron_count"] == 128
     assert adapter["regeneration_design"]["candidate_synapses"][0]["synapse"] == "65:66"
+    replay_material = {
+        "recorded_state_revision": runtime_state.state_revision,
+        "operator_id": "operator-test",
+        "confirmation": True,
+        "mismatch_hash": "mismatch-hash-1",
+        "mismatch_score": 0.9,
+        "pressure_hash": "pressure-hash-1",
+        "pressure_score": 0.7,
+        "replay_window_hash": "window-hash-1",
+        "replay_window_size": 4,
+        "internal_ledger_backed": True,
+        "artifact_proposal_hash": "artifact-proposal-hash-1",
+        "replay_evaluation_context_id": "context-1",
+        "replay_evaluation_context_hash": "context-hash-1",
+        "review_ticket_id": "ticket-1",
+        "review_ticket_hash": "ticket-hash-1",
+        "readout_evidence_hashes": ["readout-hash-1"],
+    }
+    replay = {
+        **replay_material,
+        "surface": "snn_transition_memory_replay_artifact.v1",
+        "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
+        "owned_by_hecsn": True,
+        "ready": True,
+        "evidence_hash": _sha256_json(replay_material),
+        "replay_artifact_id": "artifact-1",
+        "replay_window_id": "window-1",
+    }
+
+    replay_review = ledger.rollout_regeneration_replay_artifact_review(
+        adapter,
+        replay,
+    )
+
+    assert replay_review["promotion_gate"]["eligible_for_operator_rollout_regeneration_replay_artifact_review"] is True
+    replay_required = replay_review["promotion_gate"]["required_evidence"]
+    assert replay_required["regeneration_design_indices_canonical"] is True
+    assert replay_required["language_capacity_state_available"] is True
+    assert replay_required["language_capacity_state_dynamic_limits_applied"] is True
+    assert replay_review["language_capacity"]["language_neuron_count"] == 128
+    assert replay_review["regeneration_design"]["candidate_synapses"][0]["synapse"] == "65:66"
 
 
 def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay_without_permit() -> None:
@@ -1676,7 +1793,10 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
     growth_preflight = ledger.rollout_consolidation_shadow_application_preflight(
         design,
         shadow,
-        transition_memory_state={"sparse_transition_weights": {}},
+        transition_memory_state={
+            "sparse_transition_weights": {},
+            "language_capacity": _language_capacity(),
+        },
     )
     developmental = ledger.rollout_developmental_plasticity_review(
         design,
@@ -1685,6 +1805,7 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
             "surface": "snn_language_plasticity_runtime_state.v1",
             "owned_by_hecsn": True,
             "sparse_transition_weights": {},
+            "language_capacity": _language_capacity(),
         },
     )
     adapter = ledger.rollout_regeneration_proposal_adapter(developmental)
@@ -1791,6 +1912,13 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
         "applies_plasticity": False,
         "mutates_runtime_state": False,
         "rollout_regeneration_replay_artifact_review_hash": "review-hash-1",
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 32,
+            "capacity_expansion_count": 1,
+        },
         "permit_request_preview": {
             "replay_artifact_id": "artifact-1",
             "regeneration_design": {
@@ -1801,9 +1929,9 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
                 "candidate_count": 1,
                 "candidate_synapses": [
                     {
-                        "pre_index": 0,
-                        "post_index": 1,
-                        "synapse": "0:1",
+                        "pre_index": 65,
+                        "post_index": 66,
+                        "synapse": "65:66",
                         "initial_weight": 0.02,
                         "locality_distance": 1,
                     }
@@ -1849,6 +1977,10 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
     assert accepted["issues_regeneration_permit"] is True
     assert accepted["executor_ready"] is False
     assert accepted["applies_plasticity"] is False
+    assert accepted["language_capacity"]["language_neuron_count"] == 128
+    assert accepted["promotion_gate"]["required_evidence"]["regeneration_design_indices_canonical"] is True
+    assert accepted["promotion_gate"]["required_evidence"]["language_capacity_state_available"] is True
+    assert accepted["promotion_gate"]["required_evidence"]["language_capacity_state_dynamic_limits_applied"] is True
     assert accepted["replay_evidence"]["permit_id"] == "permit-1"
     assert accepted["before"]["state_revision"] == accepted["after"]["state_revision"]
     assert accepted["after"]["dirty_state"] is True
@@ -1882,6 +2014,13 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
         "applies_plasticity": False,
         "mutates_runtime_state": True,
         "checkpoint_written": False,
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 16,
+            "capacity_expansion_count": 1,
+        },
         "replay_evidence": {
             "permit_id": "permit-1",
             "ready": True,
@@ -1895,9 +2034,9 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
             "candidate_count": 1,
             "candidate_synapses": [
                 {
-                    "pre_index": 0,
-                    "post_index": 1,
-                    "synapse": "0:1",
+                    "pre_index": 65,
+                    "post_index": 66,
+                    "synapse": "65:66",
                     "initial_weight": 0.02,
                     "locality_distance": 1,
                 }
@@ -1935,10 +2074,30 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
     assert ready["writes_checkpoint"] is False
     assert ready["applies_plasticity"] is False
     assert ready["mutates_runtime_state"] is False
+    assert ready["language_capacity"]["language_neuron_count"] == 128
     assert ready["regeneration_proposal"]["available"] is True
+    assert ready["regeneration_proposal"]["language_capacity"]["language_neuron_count"] == 128
     assert ready["regeneration_proposal"]["promotion_gate"]["status"] == "ready_for_operator_review"
     assert ready["promotion_gate"]["eligible_for_checkpoint_backed_regeneration_executor"] is True
     assert ready["promotion_gate"]["eligible_for_regeneration_application"] is False
+    assert (
+        ready["promotion_gate"]["required_evidence"][
+            "regeneration_design_indices_canonical"
+        ]
+        is True
+    )
+    assert (
+        ready["promotion_gate"]["required_evidence"][
+            "language_capacity_state_available"
+        ]
+        is True
+    )
+    assert (
+        ready["promotion_gate"]["required_evidence"][
+            "language_capacity_state_dynamic_limits_applied"
+        ]
+        is True
+    )
     assert mismatched_restore["ready"] is False
     assert mismatched_restore["promotion_gate"]["required_evidence"][
         "applied_replay_lineage_restore_validation_not_mismatched"
@@ -1950,7 +2109,16 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
 ) -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
-    language_state = {"sparse_transition_weights": {"1:2": 0.9}}
+    language_state = {
+        "sparse_transition_weights": {"1:2": 0.9},
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 16,
+            "capacity_expansion_count": 1,
+        },
+    }
 
     def save_checkpoint(path: str | None) -> dict[str, str]:
         target = Path(path or tmp_path / "rollout-regeneration.pt")
@@ -1982,12 +2150,26 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
         "executor_called": False,
         "expected_state_revision": runtime_state.state_revision,
         "checkpoint_path": checkpoint_path,
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 16,
+            "capacity_expansion_count": 1,
+        },
         "regeneration_proposal": {
             "available": True,
             "ready": True,
             "owned_by_hecsn": True,
             "generates_text": False,
             "loads_external_checkpoint": False,
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 16,
+                "capacity_expansion_count": 1,
+            },
             "promotion_gate": {"status": "ready_for_operator_review"},
             "replay_evidence": {
                 "available": True,
@@ -2007,11 +2189,11 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
                 "mismatch_score": 0.9,
                 "candidate_synapses": [
                     {
-                        "pre_index": 1,
-                        "post_index": 3,
+                        "pre_index": 65,
+                        "post_index": 66,
                         "initial_weight": 0.1,
-                        "locality_distance": 2,
-                        "source_synapse_id": "snn-rollout-local:1:3:0",
+                        "locality_distance": 1,
+                        "source_synapse_id": "snn-rollout-local:65:66:0",
                         "source_trace_index": 0,
                         "source_rollout_step_index": 10,
                         "target_rollout_step_index": 20,
@@ -2039,16 +2221,23 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
     assert result["writes_checkpoint"] is True
     assert result["applies_plasticity"] is True
     assert result["mutates_runtime_state"] is True
+    assert result["language_capacity"]["language_neuron_count"] == 128
+    assert result["proposal_language_capacity"]["language_neuron_count"] == 128
+    assert result["promotion_gate"]["required_evidence"]["regeneration_design_indices_canonical"] is True
+    assert result["promotion_gate"]["required_evidence"]["language_capacity_state_available"] is True
+    assert result["promotion_gate"]["required_evidence"]["proposal_language_capacity_state_available"] is True
+    assert result["promotion_gate"]["required_evidence"]["proposal_language_capacity_matches_preflight"] is True
+    assert result["promotion_gate"]["required_evidence"]["language_capacity_state_dynamic_limits_applied"] is True
     assert result["executor_result"]["surface"] == "snn_language_transition_memory_regeneration.v1"
-    assert abs(language_state["sparse_transition_weights"]["1:3"] - 0.1) < 1e-9
+    assert abs(language_state["sparse_transition_weights"]["65:66"] - 0.1) < 1e-9
     local_edge = result["executor_result"]["regeneration"]["regenerated_synapses"][0][
         "local_edge_provenance"
     ]
-    assert local_edge["source_synapse_id"] == "snn-rollout-local:1:3:0"
+    assert local_edge["source_synapse_id"] == "snn-rollout-local:65:66:0"
     assert local_edge["source_rollout_step_index"] == 10
     assert local_edge["target_rollout_step_index"] == 20
     assert local_edge["source_active_indices_hash"] == "source-active-hash-1"
-    assert language_state["synapse_provenance_by_key"]["1:3"][
+    assert language_state["synapse_provenance_by_key"]["65:66"][
         "local_edge_provenance"
     ] == local_edge
     assert runtime_state.state_revision == 1

@@ -151,6 +151,96 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 )
+                dense_readout_resize_plan_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-resize-plan",
+                    json={
+                        "capacity_pressure": status_response.json()["runtime_truth"][
+                            "evidence"
+                        ]["snn_language_capacity_pressure"],
+                        "fixed_boundaries": status_response.json()["runtime_truth"][
+                            "evidence"
+                        ]["snn_language_capacity_fixed_boundaries"],
+                    },
+                )
+                dense_readout_resize_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-resize-preflight",
+                    json={
+                        "dense_readout_resize_plan": dense_readout_resize_plan_response.json(),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "checkpoint_transaction": {
+                            "checkpoint_path": str(root / "dense-readout.pt"),
+                            "snapshot_id": "service-api-dense-readout",
+                            "pre_resize_checkpoint_saved": True,
+                            "pre_resize_checkpoint_restore_verified": True,
+                        },
+                        "device_evidence": {
+                            "device": "cuda:0",
+                            "source": "service_api",
+                            "requested_cuda_honored": True,
+                        },
+                    },
+                )
+                dense_readout_resize_transaction_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-resize-transaction-proposal",
+                    json={
+                        "dense_readout_resize_preflight": dense_readout_resize_preflight_response.json(),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                    },
+                )
+                dense_readout_resize_readiness_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-resize-executor-readiness-audit",
+                    json={
+                        "dense_readout_resize_transaction_proposal": (
+                            dense_readout_resize_transaction_response.json()
+                        )
+                    },
+                )
+                dense_readout_layout_migration_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-layout-migration",
+                    json={
+                        "dense_readout_resize_transaction_proposal": (
+                            dense_readout_resize_transaction_response.json()
+                        ),
+                        "dense_readout_resize_executor_readiness_audit": (
+                            dense_readout_resize_readiness_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "dense-layout.pt"),
+                    },
+                )
+                dense_readout_tensor_materialization_readiness_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-tensor-materialization-readiness",
+                    json={
+                        "dense_readout_layout_migration": (
+                            dense_readout_layout_migration_response.json()
+                        )
+                    },
+                )
+                dense_readout_tensor_materialization_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-tensor-materialization",
+                    json={
+                        "dense_readout_tensor_materialization_readiness": (
+                            dense_readout_tensor_materialization_readiness_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "dense-tensor.pt"),
+                        "requested_device": "cpu",
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
@@ -158,11 +248,32 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(capacity_expansion_response.status_code, 200)
         self.assertEqual(capacity_preflight_response.status_code, 200)
         self.assertEqual(capacity_compatibility_response.status_code, 200)
+        self.assertEqual(dense_readout_resize_plan_response.status_code, 200)
+        self.assertEqual(dense_readout_resize_preflight_response.status_code, 200)
+        self.assertEqual(dense_readout_resize_transaction_response.status_code, 200)
+        self.assertEqual(dense_readout_resize_readiness_response.status_code, 200)
+        self.assertEqual(dense_readout_layout_migration_response.status_code, 200)
+        self.assertEqual(
+            dense_readout_tensor_materialization_readiness_response.status_code,
+            200,
+        )
+        self.assertEqual(dense_readout_tensor_materialization_response.status_code, 200)
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
         capacity_expansion_design = capacity_expansion_response.json()
         capacity_preflight = capacity_preflight_response.json()
         capacity_compatibility = capacity_compatibility_response.json()
+        dense_readout_resize_plan = dense_readout_resize_plan_response.json()
+        dense_readout_resize_preflight = dense_readout_resize_preflight_response.json()
+        dense_readout_resize_transaction = dense_readout_resize_transaction_response.json()
+        dense_readout_resize_readiness = dense_readout_resize_readiness_response.json()
+        dense_readout_layout_migration = dense_readout_layout_migration_response.json()
+        dense_readout_tensor_materialization_readiness = (
+            dense_readout_tensor_materialization_readiness_response.json()
+        )
+        dense_readout_tensor_materialization = (
+            dense_readout_tensor_materialization_response.json()
+        )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
         self.assertEqual(status_truth["recommended_action"], "configure_terminus_sources")
@@ -200,6 +311,137 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(capacity_compatibility["mutates_runtime_state"])
         self.assertFalse(capacity_compatibility["writes_checkpoint"])
         self.assertFalse(capacity_compatibility["resizes_network"])
+        self.assertEqual(
+            dense_readout_resize_plan["surface"],
+            "snn_language_dense_readout_resize_plan.v1",
+        )
+        self.assertTrue(dense_readout_resize_plan["advisory"])
+        self.assertFalse(dense_readout_resize_plan["executable"])
+        self.assertFalse(dense_readout_resize_plan["mutates_runtime_state"])
+        self.assertFalse(dense_readout_resize_plan["writes_checkpoint"])
+        self.assertFalse(dense_readout_resize_plan["resizes_network"])
+        self.assertEqual(
+            dense_readout_resize_plan["target_dense_readout_shape"],
+            [128, 128],
+        )
+        self.assertFalse(
+            dense_readout_resize_plan["promotion_gate"][
+                "eligible_for_dense_readout_resize_executor"
+            ]
+        )
+        self.assertEqual(
+            dense_readout_resize_preflight["surface"],
+            "snn_language_dense_readout_resize_preflight.v1",
+        )
+        self.assertFalse(dense_readout_resize_preflight["ready"])
+        self.assertFalse(dense_readout_resize_preflight["executable"])
+        self.assertFalse(dense_readout_resize_preflight["mutates_runtime_state"])
+        self.assertFalse(dense_readout_resize_preflight["writes_checkpoint"])
+        self.assertFalse(dense_readout_resize_preflight["resizes_network"])
+        self.assertEqual(
+            dense_readout_resize_preflight["dense_readout_resize_plan_hash"],
+            dense_readout_resize_plan["dense_readout_resize_plan_hash"],
+        )
+        self.assertTrue(
+            dense_readout_resize_preflight["promotion_gate"]["required_evidence"][
+                "cuda_relayout_evidence_available"
+            ]
+        )
+        self.assertFalse(
+            dense_readout_resize_preflight["promotion_gate"][
+                "eligible_for_dense_readout_resize_executor"
+            ]
+        )
+        self.assertEqual(
+            dense_readout_resize_transaction["surface"],
+            "snn_language_dense_readout_resize_transaction_proposal.v1",
+        )
+        self.assertFalse(dense_readout_resize_transaction["ready"])
+        self.assertFalse(dense_readout_resize_transaction["executable"])
+        self.assertFalse(dense_readout_resize_transaction["mutates_runtime_state"])
+        self.assertFalse(dense_readout_resize_transaction["writes_checkpoint"])
+        self.assertFalse(dense_readout_resize_transaction["resizes_network"])
+        self.assertEqual(
+            dense_readout_resize_transaction["dense_readout_resize_plan_hash"],
+            dense_readout_resize_plan["dense_readout_resize_plan_hash"],
+        )
+        self.assertIn(
+            "allocate_target_dense_readout_tensor_on_cuda",
+            dense_readout_resize_transaction["transaction_recipe"]["steps"],
+        )
+        self.assertFalse(
+            dense_readout_resize_transaction["promotion_gate"][
+                "eligible_for_dense_readout_resize_executor"
+            ]
+        )
+        self.assertEqual(
+            dense_readout_resize_readiness["surface"],
+            "snn_language_dense_readout_resize_executor_readiness_audit.v1",
+        )
+        self.assertFalse(dense_readout_resize_readiness["executable"])
+        self.assertFalse(dense_readout_resize_readiness["mutates_runtime_state"])
+        self.assertFalse(dense_readout_resize_readiness["writes_checkpoint"])
+        self.assertFalse(dense_readout_resize_readiness["resizes_network"])
+        self.assertEqual(
+            dense_readout_resize_readiness["remaining_dense_boundary_count"],
+            2,
+        )
+        self.assertTrue(
+            dense_readout_resize_readiness["promotion_gate"]["required_evidence"][
+                "dense_readout_layout_state_available"
+            ]
+        )
+        self.assertTrue(
+            dense_readout_resize_readiness["promotion_gate"]["required_evidence"][
+                "dense_readout_tensor_owner_available"
+            ]
+        )
+        self.assertIn(
+            "dense_readout_tensor_weight_owner_available",
+            dense_readout_resize_readiness["missing_executor_capabilities"],
+        )
+        self.assertNotIn(
+            "dense_readout_tensor_owner_available",
+            dense_readout_resize_readiness["missing_executor_capabilities"],
+        )
+        self.assertEqual(
+            dense_readout_layout_migration["surface"],
+            "snn_language_dense_readout_layout_migration.v1",
+        )
+        self.assertFalse(dense_readout_layout_migration["accepted"])
+        self.assertFalse(dense_readout_layout_migration["mutates_runtime_state"])
+        self.assertFalse(dense_readout_layout_migration["writes_checkpoint"])
+        self.assertFalse(dense_readout_layout_migration["resizes_network"])
+        self.assertFalse(
+            dense_readout_layout_migration["materializes_dense_tensor_weights"]
+        )
+        self.assertEqual(
+            dense_readout_tensor_materialization_readiness["surface"],
+            "snn_language_dense_readout_tensor_materialization_readiness.v1",
+        )
+        self.assertFalse(dense_readout_tensor_materialization_readiness["ready"])
+        self.assertFalse(dense_readout_tensor_materialization_readiness["executable"])
+        self.assertFalse(
+            dense_readout_tensor_materialization_readiness["mutates_runtime_state"]
+        )
+        self.assertFalse(dense_readout_tensor_materialization_readiness["writes_checkpoint"])
+        self.assertFalse(dense_readout_tensor_materialization_readiness["resizes_network"])
+        self.assertFalse(
+            dense_readout_tensor_materialization_readiness[
+                "materializes_dense_tensor_weights"
+            ]
+        )
+        self.assertEqual(
+            dense_readout_tensor_materialization["surface"],
+            "snn_language_dense_readout_tensor_materialization.v1",
+        )
+        self.assertFalse(dense_readout_tensor_materialization["accepted"])
+        self.assertFalse(dense_readout_tensor_materialization["mutates_runtime_state"])
+        self.assertFalse(dense_readout_tensor_materialization["writes_checkpoint"])
+        self.assertFalse(dense_readout_tensor_materialization["resizes_network"])
+        self.assertFalse(
+            dense_readout_tensor_materialization["materializes_dense_tensor_weights"]
+        )
         self.assertFalse(capacity_compatibility["adds_neurons"])
         self.assertFalse(
             capacity_compatibility["promotion_gate"][

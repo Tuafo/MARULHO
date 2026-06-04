@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from threading import RLock
 
+import torch
+
 from hecsn.service.runtime_state import RuntimeState
 from hecsn.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
 
@@ -42,6 +44,67 @@ def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _dense_readout_transaction() -> dict[str, object]:
+    return {
+        "surface": "snn_language_dense_readout_resize_transaction_proposal.v1",
+        "owned_by_hecsn": True,
+        "generates_text": False,
+        "loads_external_checkpoint": False,
+        "dense_readout_resize_transaction_proposal_hash": "sha256:dense-transaction",
+        "dense_readout_resize_plan_hash": "sha256:dense-plan",
+        "transaction_recipe": {
+            "current_dense_readout_shape": [64, 64],
+            "target_dense_readout_shape": [128, 128],
+            "preserved_dense_window": [64, 64],
+            "zero_initialized_new_dense_cell_count": 12288,
+        },
+    }
+
+
+def _dense_readout_readiness_audit() -> dict[str, object]:
+    return {
+        "surface": "snn_language_dense_readout_resize_executor_readiness_audit.v1",
+        "owned_by_hecsn": True,
+        "generates_text": False,
+        "loads_external_checkpoint": False,
+        "promotion_gate": {
+            "required_evidence": {
+                "dense_readout_layout_state_available": True,
+                "dense_readout_layout_matches_transaction": True,
+                "dense_readout_layout_metadata_not_applied": True,
+                "dense_readout_tensor_owner_available": True,
+                "transaction_checkpoint_restore_verified": True,
+                "transaction_cuda_relayout_verified": True,
+                "transaction_shape_invariants_available": True,
+                "dense_readout_tensor_weight_owner_available": False,
+            }
+        },
+    }
+
+
+def _dense_readout_tensor_materialization_readiness() -> dict[str, object]:
+    return {
+        "surface": "snn_language_dense_readout_tensor_materialization_readiness.v1",
+        "ready": True,
+        "owned_by_hecsn": True,
+        "executable": False,
+        "mutates_runtime_state": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "trains_runtime_model": False,
+        "target_dense_readout_shape": [128, 128],
+        "preserved_dense_window": [64, 64],
+        "zero_initialized_new_dense_cell_count": 12288,
+        "promotion_gate": {
+            "required_evidence": {
+                "layout_migration_checkpoint_committed": True,
+                "layout_state_matches_migration": True,
+                "dense_resize_not_yet_applied": True,
+            }
+        },
+    }
+
+
 def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -73,6 +136,231 @@ def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> N
     assert snapshot["language_capacity"]["dynamic_capacity_enabled"] is False
     assert snapshot["language_capacity"]["resizes_network"] is False
     assert snapshot["language_capacity"]["adds_neurons"] is False
+    assert (
+        snapshot["dense_readout_layout"]["surface"]
+        == "snn_language_dense_readout_layout_state.v1"
+    )
+    assert snapshot["dense_readout_layout"]["target_dense_readout_shape"] == [128, 128]
+    assert snapshot["dense_readout_layout"]["preserved_dense_window"] == [64, 64]
+    assert snapshot["dense_readout_layout"]["requires_cuda_relayout"] is True
+    assert snapshot["dense_readout_layout"]["layout_migration_applied"] is False
+    assert snapshot["dense_readout_layout"]["dense_resize_applied"] is False
+    assert snapshot["dense_readout_layout"]["resizes_network"] is False
+    assert snapshot["dense_readout_tensor"]["available"] is False
+
+
+def test_dense_readout_layout_migration_persists_checkpointed_resize_evidence(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 32,
+        },
+        "sparse_transition_weights": {"1:2": 0.5},
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "dense-layout.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "dense-layout.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_layout_migration(
+        dense_readout_resize_transaction_proposal=_dense_readout_transaction(),
+        dense_readout_resize_executor_readiness_audit=_dense_readout_readiness_audit(),
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "dense-layout.pt"),
+    )
+    snapshot = executor.snapshot()
+
+    assert result["accepted"] is True
+    assert result["surface"] == "snn_language_dense_readout_layout_migration.v1"
+    assert result["mutates_runtime_state"] is True
+    assert result["writes_checkpoint"] is True
+    assert result["resizes_network"] is False
+    assert result["materializes_dense_tensor_weights"] is False
+    assert result["checkpoint_transaction"]["restore_verified"] is True
+    assert result["dense_readout_layout_migration"]["target_dense_readout_shape"] == [
+        128,
+        128,
+    ]
+    assert result["dense_readout_layout_migration"][
+        "materializes_dense_tensor_weights"
+    ] is False
+    assert language_state["sparse_transition_weights"] == {"1:2": 0.5}
+    assert language_state["dense_readout_layout"]["layout_migration"]["applied"] is True
+    assert language_state["dense_readout_layout"]["dense_resize_applied"] is False
+    assert (
+        language_state["dense_readout_layout"]["migration_status"]
+        == "layout_migration_applied_tensor_resize_pending"
+    )
+    assert snapshot["dense_readout_layout"]["layout_migration_applied"] is True
+    assert snapshot["dense_readout_layout"]["dense_resize_applied"] is False
+    assert runtime_state.state_revision == 1
+
+
+def test_dense_readout_layout_migration_blocks_when_tensor_materialization_claimed(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "language_capacity": {"language_neuron_count": 128},
+        "sparse_transition_weights": {"1:2": 0.5},
+    }
+    checkpoint_calls = []
+    audit = _dense_readout_readiness_audit()
+    audit["promotion_gate"]["required_evidence"][
+        "dense_readout_tensor_weight_owner_available"
+    ] = True
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "dense-layout.pt")},
+        checkpoint_path=lambda: tmp_path / "dense-layout.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_layout_migration(
+        dense_readout_resize_transaction_proposal=_dense_readout_transaction(),
+        dense_readout_resize_executor_readiness_audit=audit,
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+    )
+
+    assert result["accepted"] is False
+    assert result["promotion_gate"]["required_evidence"][
+        "tensor_weight_materialization_absent"
+    ] is False
+    assert checkpoint_calls == []
+    assert "dense_readout_layout" not in language_state
+    assert runtime_state.state_revision == 0
+
+
+def test_dense_readout_tensor_materialization_projects_sparse_weights_to_dense_tensor(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    layout_migration = {
+        "applied": True,
+        "target_dense_readout_shape": [128, 128],
+        "preserved_dense_window": [64, 64],
+        "zero_initialized_new_dense_cell_count": 12288,
+    }
+    language_state = {
+        "language_capacity": {"language_neuron_count": 128},
+        "dense_readout_layout": {
+            "surface": "snn_language_dense_readout_layout_state.v1",
+            "target_language_neuron_count": 128,
+            "layout_migration": layout_migration,
+            "dense_resize_applied": False,
+        },
+        "sparse_transition_weights": {"1:2": 0.5, "65:66": 0.25},
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "dense-tensor.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "dense-tensor.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_tensor_materialization(
+        dense_readout_tensor_materialization_readiness=(
+            _dense_readout_tensor_materialization_readiness()
+        ),
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "dense-tensor.pt"),
+        requested_device="cpu",
+    )
+    tensor = language_state["dense_readout_weights"]
+    snapshot = executor.snapshot()
+
+    assert result["accepted"] is True
+    assert result["surface"] == "snn_language_dense_readout_tensor_materialization.v1"
+    assert result["materializes_dense_tensor_weights"] is True
+    assert result["resizes_network"] is True
+    assert result["generates_text"] is False
+    assert isinstance(tensor, torch.Tensor)
+    assert list(tensor.shape) == [128, 128]
+    assert str(tensor.device) == "cpu"
+    assert float(tensor[1, 2].item()) == 0.5
+    assert float(tensor[65, 66].item()) == 0.25
+    assert language_state["dense_readout_layout"]["dense_resize_applied"] is True
+    assert (
+        language_state["dense_readout_layout"]["migration_status"]
+        == "dense_readout_tensor_materialized"
+    )
+    assert snapshot["dense_readout_tensor"]["available"] is True
+    assert snapshot["dense_readout_tensor"]["shape"] == [128, 128]
+    assert snapshot["dense_readout_tensor"]["nonzero_count"] == 2
+    assert runtime_state.state_revision == 1
+
+
+def test_dense_readout_tensor_materialization_blocks_unavailable_cuda_before_checkpoint(
+    tmp_path: Path,
+) -> None:
+    if torch.cuda.is_available():
+        return
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {"sparse_transition_weights": {"1:2": 0.5}}
+    checkpoint_calls = []
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "dense-tensor.pt")},
+        checkpoint_path=lambda: tmp_path / "dense-tensor.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_tensor_materialization(
+        dense_readout_tensor_materialization_readiness=(
+            _dense_readout_tensor_materialization_readiness()
+        ),
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        requested_device="cuda",
+    )
+
+    assert result["accepted"] is False
+    assert result["promotion_gate"]["required_evidence"][
+        "requested_cuda_available_when_requested"
+    ] is False
+    assert checkpoint_calls == []
+    assert "dense_readout_weights" not in language_state
+    assert runtime_state.state_revision == 0
 
 
 def test_homeostatic_maintenance_normalizes_rows_and_persists_prune_ledger(tmp_path: Path) -> None:

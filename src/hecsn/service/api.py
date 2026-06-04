@@ -47,6 +47,13 @@ from .schemas import (
     SNNLanguageCapacityExpansionDesignRequest,
     SNNLanguageCapacityExpansionPreflightRequest,
     SNNLanguageCapacityResizeCompatibilityAuditRequest,
+    SNNLanguageDenseReadoutLayoutMigrationRequest,
+    SNNLanguageDenseReadoutResizeExecutorReadinessAuditRequest,
+    SNNLanguageDenseReadoutResizePreflightRequest,
+    SNNLanguageDenseReadoutResizePlanRequest,
+    SNNLanguageDenseReadoutTensorMaterializationRequest,
+    SNNLanguageDenseReadoutTensorMaterializationReadinessRequest,
+    SNNLanguageDenseReadoutResizeTransactionProposalRequest,
     SNNLanguagePlasticityLiveApplicationPreflightRequest,
     SNNLanguagePlasticityLiveApplicationRequest,
     SNNLanguagePlasticityLiveApplicationReadinessRequest,
@@ -894,6 +901,89 @@ def create_app(
         return runtime.snn_language_capacity_resize_compatibility_audit(
             capacity_expansion_preflight=request.capacity_expansion_preflight,
             language_capacity_state=request.language_capacity_state,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-resize-plan")
+    def terminus_snn_language_dense_readout_resize_plan(
+        request: SNNLanguageDenseReadoutResizePlanRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_resize_plan(
+            capacity_pressure=request.capacity_pressure,
+            fixed_boundaries=request.fixed_boundaries,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-resize-preflight")
+    def terminus_snn_language_dense_readout_resize_preflight(
+        request: SNNLanguageDenseReadoutResizePreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_resize_preflight(
+            dense_readout_resize_plan=request.dense_readout_resize_plan,
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_transaction=request.checkpoint_transaction,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-resize-transaction-proposal")
+    def terminus_snn_language_dense_readout_resize_transaction_proposal(
+        request: SNNLanguageDenseReadoutResizeTransactionProposalRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_resize_transaction_proposal(
+            dense_readout_resize_preflight=request.dense_readout_resize_preflight,
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-resize-executor-readiness-audit")
+    def terminus_snn_language_dense_readout_resize_executor_readiness_audit(
+        request: SNNLanguageDenseReadoutResizeExecutorReadinessAuditRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_resize_executor_readiness_audit(
+            dense_readout_resize_transaction_proposal=(
+                request.dense_readout_resize_transaction_proposal
+            ),
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-layout-migration")
+    def terminus_snn_language_dense_readout_layout_migration(
+        request: SNNLanguageDenseReadoutLayoutMigrationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_layout_migration(
+            dense_readout_resize_transaction_proposal=(
+                request.dense_readout_resize_transaction_proposal
+            ),
+            dense_readout_resize_executor_readiness_audit=(
+                request.dense_readout_resize_executor_readiness_audit
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            checkpoint_path=request.checkpoint_path,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-tensor-materialization-readiness")
+    def terminus_snn_language_dense_readout_tensor_materialization_readiness(
+        request: SNNLanguageDenseReadoutTensorMaterializationReadinessRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_tensor_materialization_readiness(
+            dense_readout_layout_migration=request.dense_readout_layout_migration,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-tensor-materialization")
+    def terminus_snn_language_dense_readout_tensor_materialization(
+        request: SNNLanguageDenseReadoutTensorMaterializationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_tensor_materialization(
+            dense_readout_tensor_materialization_readiness=(
+                request.dense_readout_tensor_materialization_readiness
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            checkpoint_path=request.checkpoint_path,
+            requested_device=request.requested_device,
         )
 
     @app.post("/terminus/snn-language-sequence/plasticity-homeostatic-maintenance")

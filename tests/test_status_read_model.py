@@ -3294,6 +3294,25 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(
             capacity_pressure["eligible_for_capacity_expansion_design_review"]
         )
+        self.assertIn("snn_language_dense_readout_layout_state", truth["evidence"])
+        dense_layout = truth["evidence"]["snn_language_dense_readout_layout_state"]
+        self.assertEqual(
+            dense_layout["artifact_kind"],
+            "terminus_snn_language_dense_readout_layout_state",
+        )
+        self.assertEqual(
+            dense_layout["surface"],
+            "snn_language_dense_readout_layout_state.v1",
+        )
+        self.assertTrue(dense_layout["advisory"])
+        self.assertFalse(dense_layout["executable"])
+        self.assertFalse(dense_layout["mutates_runtime_state"])
+        self.assertFalse(dense_layout["writes_checkpoint"])
+        self.assertFalse(dense_layout["resizes_network"])
+        self.assertEqual(dense_layout["current_dense_readout_shape"], [64, 64])
+        self.assertEqual(dense_layout["target_dense_readout_shape"], [64, 64])
+        self.assertEqual(dense_layout["preserved_dense_window"], [64, 64])
+        self.assertFalse(dense_layout["requires_cuda_relayout"])
         self.assertIn("snn_language_capacity_fixed_boundaries", truth["evidence"])
         capacity_boundaries = truth["evidence"][
             "snn_language_capacity_fixed_boundaries"
@@ -3312,10 +3331,10 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(capacity_boundaries["writes_checkpoint"])
         self.assertFalse(capacity_boundaries["resizes_network"])
         self.assertFalse(capacity_boundaries["adds_neurons"])
-        self.assertEqual(capacity_boundaries["fixed_boundary_count"], 3)
+        self.assertEqual(capacity_boundaries["fixed_boundary_count"], 2)
         self.assertEqual(
             capacity_boundaries["dynamic_capacity_aware_boundary_count"],
-            3,
+            8,
         )
         self.assertTrue(
             capacity_boundaries["capacity_resize_blocked_by_fixed_boundaries"]
@@ -3328,6 +3347,42 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(
             capacity_boundaries["promotion_gate"]["required_evidence"][
                 "all_runtime_boundaries_dynamic_capacity_aware"
+            ]
+        )
+        self.assertIn("snn_language_dense_readout_resize_plan", truth["evidence"])
+        dense_resize = truth["evidence"]["snn_language_dense_readout_resize_plan"]
+        self.assertEqual(
+            dense_resize["artifact_kind"],
+            "terminus_snn_language_dense_readout_resize_plan",
+        )
+        self.assertEqual(
+            dense_resize["surface"],
+            "snn_language_dense_readout_resize_plan.v1",
+        )
+        self.assertTrue(dense_resize["advisory"])
+        self.assertFalse(dense_resize["executable"])
+        self.assertFalse(dense_resize["mutates_runtime_state"])
+        self.assertFalse(dense_resize["writes_checkpoint"])
+        self.assertFalse(dense_resize["resizes_network"])
+        self.assertEqual(dense_resize["current_dense_readout_shape"], [64, 64])
+        self.assertEqual(dense_resize["target_dense_readout_shape"], [128, 128])
+        self.assertEqual(dense_resize["preserved_dense_window"], [64, 64])
+        self.assertEqual(
+            dense_resize["zero_initialized_new_dense_cell_count"],
+            128 * 128 - 64 * 64,
+        )
+        self.assertIn(
+            "snn_language_readout_ledger.dense_readout_index_validators",
+            dense_resize["dense_boundary_ids"],
+        )
+        self.assertIn(
+            "snn_language_readout_ledger.cuda_dense_tensor_shapes",
+            dense_resize["dense_boundary_ids"],
+        )
+        self.assertFalse(dense_resize["promotion_gate"]["required_evidence"]["executor_available"])
+        self.assertFalse(
+            dense_resize["promotion_gate"][
+                "eligible_for_dense_readout_resize_executor"
             ]
         )
         restore_validation = truth["evidence"][
@@ -3503,9 +3558,9 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         rev_before = runtime_state.state_revision
         runtime_state.mark_clean()
 
-        evidence = model.status()["runtime_truth"]["evidence"][
-            "snn_language_capacity_pressure"
-        ]
+        truth_evidence = model.status()["runtime_truth"]["evidence"]
+        evidence = truth_evidence["snn_language_capacity_pressure"]
+        dense_layout = truth_evidence["snn_language_dense_readout_layout_state"]
 
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
@@ -3574,9 +3629,9 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         rev_before = runtime_state.state_revision
         runtime_state.mark_clean()
 
-        evidence = model.status()["runtime_truth"]["evidence"][
-            "snn_language_capacity_pressure"
-        ]
+        truth_evidence = model.status()["runtime_truth"]["evidence"]
+        evidence = truth_evidence["snn_language_capacity_pressure"]
+        dense_layout = truth_evidence["snn_language_dense_readout_layout_state"]
 
         self.assertEqual(runtime_state.state_revision, rev_before)
         self.assertFalse(runtime_state.dirty_state)
@@ -3597,6 +3652,16 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertTrue(evidence["eligible_for_capacity_expansion_design_review"])
         self.assertFalse(evidence["eligible_for_network_resize"])
         self.assertFalse(evidence["eligible_for_neuron_growth"])
+        self.assertEqual(dense_layout["target_language_neuron_count"], 128)
+        self.assertEqual(dense_layout["current_dense_readout_shape"], [64, 64])
+        self.assertEqual(dense_layout["target_dense_readout_shape"], [128, 128])
+        self.assertEqual(dense_layout["preserved_dense_window"], [64, 64])
+        self.assertTrue(dense_layout["requires_cuda_relayout"])
+        self.assertFalse(dense_layout["dense_resize_applied"])
+        self.assertEqual(
+            dense_layout["migration_status"],
+            "layout_metadata_only_resize_pending",
+        )
 
     def test_snn_language_capacity_expansion_design_is_read_only_checkpoint_backed_plan(
         self,
@@ -3782,14 +3847,34 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             compatibility["capacity_target"]["proposed_sparse_edge_budget"],
             512,
         )
-        self.assertEqual(compatibility["fixed_boundary_count"], 3)
-        self.assertEqual(compatibility["incompatible_boundary_count"], 3)
+        self.assertEqual(compatibility["fixed_boundary_count"], 2)
+        self.assertEqual(compatibility["incompatible_boundary_count"], 2)
         self.assertIn(
             "snn_language_readout_ledger.dense_readout_index_validators",
             compatibility["incompatible_boundary_ids"],
         )
         self.assertNotIn(
             "snn_language_readout_ledger.regeneration_adapter_sparse_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "snn_language_readout_ledger.regeneration_replay_artifact_sparse_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "runtime_facade.regeneration_permit_request_sparse_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "runtime_facade.regeneration_application_preflight_sparse_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "runtime_facade.regeneration_application_sparse_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "snn_language_readout_ledger.sparse_edge_budget",
             compatibility["incompatible_boundary_ids"],
         )
         self.assertNotIn(
@@ -3824,6 +3909,506 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
                 "design_hash_recomputed_match"
             ]
         )
+
+    def test_snn_language_dense_readout_resize_preflight_requires_checkpoint_and_cuda(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(14)
+            for target in range(16)
+        }
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": {key: {"source": "unit"} for key in weights},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        runtime_truth_evidence = model.status()["runtime_truth"]["evidence"]
+        dense_plan = model.snn_language_dense_readout_resize_plan(
+            runtime_truth_evidence["snn_language_capacity_pressure"],
+            fixed_boundaries=runtime_truth_evidence[
+                "snn_language_capacity_fixed_boundaries"
+            ],
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        preflight = model.snn_language_dense_readout_resize_preflight(
+            dense_plan,
+            expected_state_revision=rev_before,
+            checkpoint_transaction={
+                "checkpoint_path": "dense-readout-resize.pt",
+                "snapshot_id": "dense-resize-snapshot",
+                "pre_resize_checkpoint_saved": True,
+                "pre_resize_checkpoint_restore_verified": True,
+            },
+            device_evidence={
+                "device": "cuda:0",
+                "source": "unit",
+                "requested_cuda_honored": True,
+            },
+        )
+        blocked = model.snn_language_dense_readout_resize_preflight(
+            dense_plan,
+            expected_state_revision=rev_before + 1,
+            checkpoint_transaction={},
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            preflight["surface"],
+            "snn_language_dense_readout_resize_preflight.v1",
+        )
+        self.assertEqual(
+            preflight["artifact_kind"],
+            "terminus_snn_language_dense_readout_resize_preflight",
+        )
+        self.assertFalse(preflight["ready"])
+        self.assertFalse(preflight["executable"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["writes_checkpoint"])
+        self.assertFalse(preflight["resizes_network"])
+        self.assertEqual(
+            preflight["dense_readout_resize_plan_hash"],
+            dense_plan["dense_readout_resize_plan_hash"],
+        )
+        self.assertEqual(
+            preflight["recomputed_dense_readout_resize_plan_hash"],
+            dense_plan["dense_readout_resize_plan_hash"],
+        )
+        self.assertEqual(
+            preflight["dense_readout_relayout"]["target_dense_readout_shape"],
+            [128, 128],
+        )
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "checkpoint_snapshot_saved"
+            ]
+        )
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "checkpoint_restore_verified"
+            ]
+        )
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "cuda_relayout_evidence_available"
+            ]
+        )
+        self.assertFalse(
+            preflight["promotion_gate"]["required_evidence"]["executor_available"]
+        )
+        self.assertFalse(
+            preflight["promotion_gate"]["eligible_for_dense_readout_resize_executor"]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "expected_revision_current"
+            ]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "checkpoint_transaction_available"
+            ]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "cuda_relayout_evidence_available"
+            ]
+        )
+
+    def test_snn_language_dense_readout_resize_transaction_proposal_is_read_only(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(14)
+            for target in range(16)
+        }
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": {key: {"source": "unit"} for key in weights},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        runtime_truth_evidence = model.status()["runtime_truth"]["evidence"]
+        dense_plan = model.snn_language_dense_readout_resize_plan(
+            runtime_truth_evidence["snn_language_capacity_pressure"],
+            fixed_boundaries=runtime_truth_evidence[
+                "snn_language_capacity_fixed_boundaries"
+            ],
+        )
+        rev_before = runtime_state.state_revision
+        dense_preflight = model.snn_language_dense_readout_resize_preflight(
+            dense_plan,
+            expected_state_revision=rev_before,
+            checkpoint_transaction={
+                "checkpoint_path": "dense-readout-resize.pt",
+                "snapshot_id": "dense-resize-snapshot",
+                "pre_resize_checkpoint_saved": True,
+                "pre_resize_checkpoint_restore_verified": True,
+            },
+            device_evidence={
+                "device": "cuda:0",
+                "source": "unit",
+                "requested_cuda_honored": True,
+            },
+        )
+        runtime_state.mark_clean()
+
+        proposal = model.snn_language_dense_readout_resize_transaction_proposal(
+            dense_preflight,
+            expected_state_revision=rev_before,
+            operator_id="operator-test",
+            confirmation=True,
+        )
+        blocked = model.snn_language_dense_readout_resize_transaction_proposal(
+            dense_preflight,
+            expected_state_revision=rev_before + 1,
+            operator_id="",
+            confirmation=False,
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            proposal["surface"],
+            "snn_language_dense_readout_resize_transaction_proposal.v1",
+        )
+        self.assertEqual(
+            proposal["artifact_kind"],
+            "terminus_snn_language_dense_readout_resize_transaction_proposal",
+        )
+        self.assertFalse(proposal["ready"])
+        self.assertFalse(proposal["executable"])
+        self.assertFalse(proposal["mutates_runtime_state"])
+        self.assertFalse(proposal["writes_checkpoint"])
+        self.assertFalse(proposal["resizes_network"])
+        self.assertEqual(
+            proposal["dense_readout_resize_plan_hash"],
+            dense_plan["dense_readout_resize_plan_hash"],
+        )
+        self.assertEqual(
+            proposal["transaction_recipe"]["target_dense_readout_shape"],
+            [128, 128],
+        )
+        self.assertIn(
+            "allocate_target_dense_readout_tensor_on_cuda",
+            proposal["transaction_recipe"]["steps"],
+        )
+        self.assertTrue(
+            proposal["promotion_gate"]["required_evidence"][
+                "preflight_checkpoint_restore_verified"
+            ]
+        )
+        self.assertTrue(
+            proposal["promotion_gate"]["required_evidence"][
+                "preflight_cuda_relayout_evidence_available"
+            ]
+        )
+        self.assertFalse(
+            proposal["promotion_gate"]["required_evidence"]["executor_available"]
+        )
+        self.assertFalse(
+            proposal["promotion_gate"]["eligible_for_dense_readout_resize_executor"]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "expected_revision_current"
+            ]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"]["operator_id_available"]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"]["confirmation"]
+        )
+
+    def test_snn_language_dense_readout_resize_executor_readiness_audit_names_blockers(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(14)
+            for target in range(16)
+        }
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": {key: {"source": "unit"} for key in weights},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        runtime_truth_evidence = model.status()["runtime_truth"]["evidence"]
+        dense_plan = model.snn_language_dense_readout_resize_plan(
+            runtime_truth_evidence["snn_language_capacity_pressure"],
+            fixed_boundaries=runtime_truth_evidence[
+                "snn_language_capacity_fixed_boundaries"
+            ],
+        )
+        rev_before = runtime_state.state_revision
+        dense_preflight = model.snn_language_dense_readout_resize_preflight(
+            dense_plan,
+            expected_state_revision=rev_before,
+            checkpoint_transaction={
+                "checkpoint_path": "dense-readout-resize.pt",
+                "snapshot_id": "dense-resize-snapshot",
+                "pre_resize_checkpoint_saved": True,
+                "pre_resize_checkpoint_restore_verified": True,
+            },
+            device_evidence={
+                "device": "cuda:0",
+                "source": "unit",
+                "requested_cuda_honored": True,
+            },
+        )
+        proposal = model.snn_language_dense_readout_resize_transaction_proposal(
+            dense_preflight,
+            expected_state_revision=rev_before,
+            operator_id="operator-test",
+            confirmation=True,
+        )
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_resize_executor_readiness_audit(
+            proposal
+        )
+        capability_ready = model.snn_language_dense_readout_resize_executor_readiness_audit(
+            proposal,
+            executor_capabilities={
+                "dense_readout_tensor_weight_owner_available": True,
+                "cuda_allocator_available": True,
+                "checkpoint_writer_available": True,
+                "migration_ledger_writer_available": True,
+                "post_resize_boundary_marker_available": True,
+                "dense_boundary_migration_tests_available": True,
+            },
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_resize_executor_readiness_audit.v1",
+        )
+        self.assertEqual(
+            blocked["artifact_kind"],
+            "terminus_snn_language_dense_readout_resize_executor_readiness_audit",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(blocked["executable"])
+        self.assertFalse(blocked["mutates_runtime_state"])
+        self.assertFalse(blocked["writes_checkpoint"])
+        self.assertFalse(blocked["resizes_network"])
+        self.assertEqual(blocked["remaining_dense_boundary_count"], 2)
+        self.assertIn(
+            "snn_language_readout_ledger.dense_readout_index_validators",
+            blocked["remaining_dense_boundary_ids"],
+        )
+        self.assertIn(
+            "snn_language_readout_ledger.cuda_dense_tensor_shapes",
+            blocked["remaining_dense_boundary_ids"],
+        )
+        self.assertEqual(
+            blocked["dense_readout_layout_state"]["target_dense_readout_shape"],
+            [128, 128],
+        )
+        self.assertTrue(
+            blocked["promotion_gate"]["required_evidence"][
+                "dense_readout_layout_state_available"
+            ]
+        )
+        self.assertTrue(
+            blocked["promotion_gate"]["required_evidence"][
+                "dense_readout_layout_matches_transaction"
+            ]
+        )
+        self.assertTrue(
+            blocked["promotion_gate"]["required_evidence"][
+                "dense_readout_tensor_owner_available"
+            ]
+        )
+        self.assertIn(
+            "dense_readout_tensor_weight_owner_available",
+            blocked["missing_executor_capabilities"],
+        )
+        self.assertNotIn(
+            "dense_readout_tensor_owner_available",
+            blocked["missing_executor_capabilities"],
+        )
+        self.assertTrue(
+            blocked["promotion_gate"]["required_evidence"][
+                "dense_readout_tensor_owner_available"
+            ]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "dense_readout_tensor_weight_owner_available"
+            ]
+        )
+        self.assertTrue(
+            capability_ready["promotion_gate"]["required_evidence"][
+                "dense_readout_tensor_weight_owner_available"
+            ]
+        )
+        self.assertTrue(
+            capability_ready["promotion_gate"]["required_evidence"][
+                "cuda_allocator_available"
+            ]
+        )
+        self.assertTrue(
+            capability_ready["promotion_gate"]["required_evidence"][
+                "dense_boundary_migration_tests_available"
+            ]
+        )
+        self.assertFalse(capability_ready["mutates_runtime_state"])
+        self.assertFalse(capability_ready["writes_checkpoint"])
+        self.assertFalse(capability_ready["resizes_network"])
+
+    def test_snn_language_dense_readout_tensor_materialization_readiness_names_cuda_blockers(
+        self,
+    ) -> None:
+        layout_migration = {
+            "applied": True,
+            "operator_id": "operator-test",
+            "checkpoint_path": "dense-layout.pt",
+            "committed_checkpoint_path": "dense-layout.committed.pt",
+            "current_dense_readout_shape": [64, 64],
+            "target_dense_readout_shape": [128, 128],
+            "preserved_dense_window": [64, 64],
+            "zero_initialized_new_dense_cell_count": 12288,
+            "target_language_neuron_count": 128,
+            "transaction_hash": "sha256:dense-transaction",
+            "plan_hash": "sha256:dense-plan",
+            "materializes_dense_tensor_weights": False,
+            "requires_tensor_weight_executor": True,
+        }
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+            "dense_readout_layout": {
+                "surface": "snn_language_dense_readout_layout_state.v1",
+                "target_language_neuron_count": 128,
+                "layout_migration": layout_migration,
+                "layout_migration_count": 1,
+                "dense_resize_applied": False,
+                "dynamic_dense_readout_enabled": False,
+                "migration_status": "layout_migration_applied_tensor_resize_pending",
+            },
+            "sparse_transition_weights": {},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        migration_result = {
+            "surface": "snn_language_dense_readout_layout_migration.v1",
+            "accepted": True,
+            "owned_by_hecsn": True,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "materializes_dense_tensor_weights": False,
+            "checkpoint_transaction": {
+                "post_layout_migration_checkpoint_saved": True,
+                "post_layout_migration_checkpoint_restore_verified": True,
+                "committed_checkpoint_path": "dense-layout.committed.pt",
+            },
+            "dense_readout_layout_migration": layout_migration,
+        }
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_tensor_materialization_readiness(
+            migration_result
+        )
+        capability_ready = model.snn_language_dense_readout_tensor_materialization_readiness(
+            migration_result,
+            executor_capabilities={
+                "dense_readout_tensor_weight_owner_available": True,
+                "cuda_allocator_available": True,
+                "preserved_window_copy_kernel_available": True,
+                "zero_fill_kernel_available": True,
+                "checkpoint_writer_available": True,
+                "migration_ledger_writer_available": True,
+                "post_resize_boundary_marker_available": True,
+                "dense_boundary_migration_tests_available": True,
+            },
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_tensor_materialization_readiness.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(blocked["executable"])
+        self.assertFalse(blocked["mutates_runtime_state"])
+        self.assertFalse(blocked["writes_checkpoint"])
+        self.assertFalse(blocked["resizes_network"])
+        self.assertFalse(blocked["generates_text"])
+        self.assertFalse(blocked["materializes_dense_tensor_weights"])
+        self.assertEqual(blocked["target_dense_readout_shape"], [128, 128])
+        self.assertTrue(
+            blocked["promotion_gate"]["required_evidence"][
+                "layout_state_migration_applied"
+            ]
+        )
+        self.assertTrue(
+            blocked["promotion_gate"]["required_evidence"][
+                "layout_state_matches_migration"
+            ]
+        )
+        self.assertIn(
+            "preserved_window_copy_kernel_available",
+            blocked["missing_executor_capabilities"],
+        )
+        self.assertIn(
+            "zero_fill_kernel_available",
+            blocked["missing_executor_capabilities"],
+        )
+        self.assertTrue(capability_ready["ready"])
+        self.assertTrue(
+            capability_ready["promotion_gate"][
+                "eligible_for_dense_readout_tensor_materialization_executor"
+            ]
+        )
+        self.assertFalse(
+            capability_ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+        self.assertFalse(capability_ready["mutates_runtime_state"])
+        self.assertFalse(capability_ready["writes_checkpoint"])
+        self.assertFalse(capability_ready["resizes_network"])
 
     def test_runtime_truth_applied_synapse_provenance_blocks_audit_when_restore_lineage_mismatches(
         self,
