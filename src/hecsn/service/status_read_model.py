@@ -5737,6 +5737,11 @@ class StatusReadModel:
                 if isinstance(probe.get("device_evidence"), Mapping)
                 else {}
             )
+            probe_trace = (
+                probe.get("symbolic_trace")
+                if isinstance(probe.get("symbolic_trace"), Mapping)
+                else {}
+            )
             required = {
                 "post_training_evaluation_surface_available": evaluation.get("surface")
                 == "snn_language_dense_readout_post_training_evaluation.v1",
@@ -5881,6 +5886,11 @@ class StatusReadModel:
                 if isinstance(probe.get("device_evidence"), Mapping)
                 else {}
             )
+            probe_trace = (
+                probe.get("symbolic_trace")
+                if isinstance(probe.get("symbolic_trace"), Mapping)
+                else {}
+            )
             device = dict(device_evidence or {})
             requested_device = str(
                 device.get("device")
@@ -5982,6 +5992,11 @@ class StatusReadModel:
                     "tensor_device": probe_device.get("tensor_device"),
                     "cuda_tensor": bool(probe_device.get("cuda_tensor")),
                 },
+                "grounded_label_candidates": [
+                    str(label)
+                    for label in list(probe_trace.get("labels") or [])
+                    if str(label).strip()
+                ][: int(decoder_design.get("max_slots", 4) or 4)],
                 "promotion_gate": {
                     "status": "ready_for_bounded_dense_readout_decoder_probe"
                     if ready
@@ -5993,6 +6008,272 @@ class StatusReadModel:
                     "next_gate": "bounded_dense_readout_decoder_probe_execution"
                     if ready
                     else "collect_current_revision_device_sparse_probe_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_decoder_probe_execution(
+        self,
+        dense_readout_decoder_probe_preflight: Mapping[str, Any],
+        *,
+        max_candidate_labels: int = 4,
+    ) -> dict[str, Any]:
+        """Execute a bounded decoder probe without free-form language generation."""
+
+        def _snapshot() -> dict[str, Any]:
+            preflight = dict(dense_readout_decoder_probe_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_preflight = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            decoder_design = (
+                preflight.get("decoder_design")
+                if isinstance(preflight.get("decoder_design"), Mapping)
+                else {}
+            )
+            probe_summary = (
+                preflight.get("decoder_probe_summary")
+                if isinstance(preflight.get("decoder_probe_summary"), Mapping)
+                else {}
+            )
+            label_limit = max(1, min(int(max_candidate_labels or 4), 8))
+            labels = [
+                str(label).strip()
+                for label in list(preflight.get("grounded_label_candidates") or [])
+                if str(label).strip()
+            ][:label_limit]
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_dense_readout_decoder_probe_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and gate.get("status")
+                == "ready_for_bounded_dense_readout_decoder_probe",
+                "preflight_revision_current": bool(
+                    required_preflight.get("expected_state_revision_current")
+                ),
+                "preflight_sparse_probe_ready": bool(
+                    required_preflight.get("decoder_probe_sparse")
+                ),
+                "preflight_device_ready": bool(
+                    required_preflight.get("decoder_probe_device_evidence_available")
+                    and required_preflight.get(
+                        "cuda_requirement_satisfied_or_not_required"
+                    )
+                ),
+                "decoder_design_grounded_label_only": bool(
+                    decoder_design.get("grounded_label_only")
+                    and not decoder_design.get("freeform_generation_allowed")
+                ),
+                "grounded_label_candidates_available": bool(labels),
+                "label_count_bounded": 0 < len(labels) <= label_limit,
+                "probe_summary_available": bool(probe_summary.get("surface")),
+                "probe_sparse_activity_available": int(
+                    probe_summary.get("active_count", 0) or 0
+                )
+                > 0,
+                "language_generation_absent": not bool(preflight.get("generates_text")),
+                "freeform_generation_absent": not bool(
+                    preflight.get("freeform_language_generation")
+                ),
+                "runtime_mutation_absent": not bool(preflight.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+            }
+            ready = all(required.values())
+            execution_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_readout_decoder_probe_execution.v1",
+                    "preflight_hash": preflight.get("preflight_material_hash"),
+                    "labels": labels,
+                    "active_count": int(probe_summary.get("active_count", 0) or 0),
+                    "tensor_device": probe_summary.get("tensor_device"),
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_decoder_probe_execution",
+                "surface": "snn_language_dense_readout_decoder_probe_execution.v1",
+                "available": bool(preflight),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "probe_executed": ready,
+                "source": "status_read_model.snn_language_dense_readout_decoder_probe_execution",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "freeform_language_generation": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "execution_hash": execution_hash,
+                "grounded_label_candidates": labels if ready else [],
+                "candidate_label_count": len(labels) if ready else 0,
+                "decoder_probe_summary": dict(probe_summary),
+                "promotion_gate": {
+                    "status": "ready_for_dense_readout_label_candidate_review"
+                    if ready
+                    else "blocked_missing_dense_readout_decoder_probe_execution_evidence",
+                    "eligible_for_dense_readout_label_candidate_review": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "operator_review_dense_readout_label_candidates"
+                    if ready
+                    else "collect_ready_preflight_sparse_label_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_label_candidate_review(
+        self,
+        dense_readout_decoder_probe_execution: Mapping[str, Any],
+        *,
+        operator_id: str,
+        confirmation: bool = False,
+        review_note: str | None = None,
+    ) -> dict[str, Any]:
+        """Review bounded dense-readout label candidates as evidence, not text."""
+
+        def _snapshot() -> dict[str, Any]:
+            execution = dict(dense_readout_decoder_probe_execution or {})
+            gate = (
+                execution.get("promotion_gate")
+                if isinstance(execution.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_execution = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            probe_summary = (
+                execution.get("decoder_probe_summary")
+                if isinstance(execution.get("decoder_probe_summary"), Mapping)
+                else {}
+            )
+            labels = [
+                str(label).strip()
+                for label in list(execution.get("grounded_label_candidates") or [])
+                if str(label).strip()
+            ]
+            reviewer = str(operator_id or "").strip()
+            note = str(review_note or "").strip()
+            label_limit = int(execution.get("candidate_label_count", len(labels)) or 0)
+            required = {
+                "execution_surface_available": execution.get("surface")
+                == "snn_language_dense_readout_decoder_probe_execution.v1",
+                "execution_ready": bool(execution.get("ready")),
+                "probe_executed": bool(execution.get("probe_executed")),
+                "execution_hash_available": bool(execution.get("execution_hash")),
+                "execution_gate_ready": gate.get("status")
+                == "ready_for_dense_readout_label_candidate_review"
+                and bool(gate.get("eligible_for_dense_readout_label_candidate_review")),
+                "grounded_label_candidates_available": bool(labels),
+                "label_count_bounded": 0 < len(labels) <= max(1, min(label_limit or 8, 8)),
+                "probe_sparse_activity_available": int(
+                    probe_summary.get("active_count", 0) or 0
+                )
+                > 0,
+                "probe_device_evidence_available": bool(
+                    probe_summary.get("tensor_device")
+                ),
+                "operator_id_available": bool(reviewer),
+                "operator_confirmation_present": bool(confirmation),
+                "execution_preflight_was_current": bool(
+                    required_execution.get("preflight_revision_current")
+                ),
+                "language_generation_absent": not bool(execution.get("generates_text")),
+                "freeform_generation_absent": not bool(
+                    execution.get("freeform_language_generation")
+                ),
+                "text_decoding_absent": not bool(execution.get("decodes_text")),
+                "runtime_mutation_absent": not bool(execution.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+                "plasticity_absent": not bool(execution.get("applies_plasticity")),
+            }
+            ready = all(required.values())
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_readout_label_candidate_review.v1",
+                    "execution_hash": execution.get("execution_hash"),
+                    "labels": labels,
+                    "operator_id": reviewer,
+                    "confirmation": bool(confirmation),
+                    "review_note": note,
+                    "tensor_device": probe_summary.get("tensor_device"),
+                    "active_count": int(probe_summary.get("active_count", 0) or 0),
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_label_candidate_review",
+                "surface": "snn_language_dense_readout_label_candidate_review.v1",
+                "available": bool(execution),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "review_recorded": ready,
+                "source": "status_read_model.snn_language_dense_readout_label_candidate_review",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "freeform_language_generation": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "records_replay_artifact": False,
+                "promotes_facts": False,
+                "executes_actions": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "review_hash": review_hash,
+                "source_execution_hash": execution.get("execution_hash"),
+                "grounded_label_candidates": labels if ready else [],
+                "candidate_label_count": len(labels) if ready else 0,
+                "review_context": {
+                    "operator_id": reviewer,
+                    "confirmation": bool(confirmation),
+                    "review_note_present": bool(note),
+                    "tensor_device": probe_summary.get("tensor_device"),
+                    "active_count": int(probe_summary.get("active_count", 0) or 0),
+                },
+                "promotion_gate": {
+                    "status": "ready_for_bounded_label_candidate_evidence_record"
+                    if ready
+                    else "blocked_missing_dense_readout_label_candidate_review_evidence",
+                    "eligible_for_bounded_label_candidate_evidence_record": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_replay_artifact": False,
+                    "eligible_for_checkpoint_write": False,
+                    "next_gate": "bounded_label_candidate_evidence_ledger_record"
+                    if ready
+                    else "collect_operator_review_and_ready_decoder_probe_execution",
                     "required_evidence": required,
                 },
             }

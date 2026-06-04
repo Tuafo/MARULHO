@@ -289,6 +289,121 @@ class SNNLanguageReadoutEmissionReplayEvaluationDesignRequest(BaseModel):
     device_evidence: dict[str, Any] | None = None
 
 
+class SNNLanguageDenseLabelCandidateCalibrationEvaluationDesignRequest(BaseModel):
+    dense_label_candidate_calibration_policy: dict[str, Any] = Field(..., min_length=1)
+    heldout_label_evidence: dict[str, Any] | None = None
+    design_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidateCalibrationEvaluationPreflightRequest(BaseModel):
+    dense_label_candidate_calibration_evaluation_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidateCalibrationEvaluationRequest(BaseModel):
+    dense_label_candidate_calibration_evaluation_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    heldout_label_evidence: dict[str, Any] = Field(..., min_length=1)
+    bin_count: int = Field(5, ge=2, le=16)
+
+
+class SNNLanguageDenseLabelCandidateCalibrationEvaluationReviewRequest(BaseModel):
+    dense_label_candidate_calibration_evaluation: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidateCalibrationUpdateDesignRequest(BaseModel):
+    dense_label_candidate_calibration_evaluation_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    update_policy: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidateCalibrationUpdatePreflightRequest(BaseModel):
+    dense_label_candidate_calibration_update_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str = Field(..., min_length=1, max_length=1024)
+    rollback_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidateCalibrationUpdateApplicationRequest(BaseModel):
+    dense_label_candidate_calibration_update_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+
+
+class SNNLanguageDenseLabelCandidateCalibrationUpdateApplicationReviewRequest(BaseModel):
+    dense_label_candidate_calibration_update_application: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidatePostCalibrationObservationWindowRequest(BaseModel):
+    dense_label_candidate_calibration_update_application_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    observation_evidence: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    window_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseLabelCandidatePostCalibrationOperatorReviewRequest(BaseModel):
+    dense_label_candidate_post_calibration_observation_window: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceUseDesignRequest(BaseModel):
+    dense_label_candidate_post_calibration_operator_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    confidence_use_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceUsePreflightRequest(BaseModel):
+    dense_label_confidence_use_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    candidate_evidence: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceUseExecutorRequest(BaseModel):
+    calibrated_dense_label_confidence_use_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    candidate_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
 class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)
@@ -639,6 +754,25 @@ class SNNLanguageDenseReadoutDecoderProbePreflightRequest(BaseModel):
     dense_readout_decoder_probe_design: dict[str, Any] = Field(..., min_length=1)
     expected_state_revision: int = Field(..., ge=0)
     device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutDecoderProbeExecutionRequest(BaseModel):
+    dense_readout_decoder_probe_preflight: dict[str, Any] = Field(..., min_length=1)
+    max_candidate_labels: int = Field(4, ge=1, le=8)
+
+
+class SNNLanguageDenseReadoutLabelCandidateReviewRequest(BaseModel):
+    dense_readout_decoder_probe_execution: dict[str, Any] = Field(..., min_length=1)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    review_note: str | None = Field(None, max_length=512)
+
+
+class SNNLanguageDenseReadoutLabelCandidateEvidenceRecordRequest(BaseModel):
+    dense_readout_label_candidate_review: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
 
 
 class SNNLanguageTransitionMemoryHomeostaticMaintenanceRequest(BaseModel):

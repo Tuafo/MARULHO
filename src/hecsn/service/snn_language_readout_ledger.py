@@ -407,6 +407,142 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
+    def record_dense_readout_label_candidate_review(
+        self,
+        *,
+        dense_readout_label_candidate_review: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Record reviewed dense decoder labels as audit evidence only."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            review = dict(dense_readout_label_candidate_review)
+            gate = (
+                review.get("promotion_gate")
+                if isinstance(review.get("promotion_gate"), Mapping)
+                else {}
+            )
+            review_context = (
+                review.get("review_context")
+                if isinstance(review.get("review_context"), Mapping)
+                else {}
+            )
+            labels = [
+                str(value).strip()
+                for value in list(review.get("grounded_label_candidates") or [])
+                if str(value).strip()
+            ][:8]
+            required_evidence = {
+                "expected_revision_current": int(expected_state_revision) == before_revision,
+                "confirmation": bool(confirmation),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "review_surface": review.get("surface")
+                == "snn_language_dense_readout_label_candidate_review.v1",
+                "review_ready": bool(review.get("ready")),
+                "review_recorded": bool(review.get("review_recorded")),
+                "review_owned_by_hecsn": bool(review.get("owned_by_hecsn")),
+                "label_candidate_record_ready": bool(
+                    gate.get("eligible_for_bounded_label_candidate_evidence_record")
+                ),
+                "external_dependency_absent": not bool(review.get("external_dependency")),
+                "external_checkpoint_absent": not bool(review.get("loads_external_checkpoint")),
+                "generation_absent": not bool(review.get("generates_text")),
+                "freeform_language_generation_absent": not bool(
+                    review.get("freeform_language_generation")
+                ),
+                "text_decoding_absent": not bool(review.get("decodes_text")),
+                "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+                "plasticity_absent": not bool(review.get("applies_plasticity")),
+                "replay_artifact_absent": not bool(review.get("records_replay_artifact"))
+                and not bool(gate.get("eligible_for_replay_artifact")),
+                "fact_promotion_absent": not bool(review.get("promotes_facts"))
+                and not bool(gate.get("eligible_for_fact_promotion")),
+                "action_promotion_absent": not bool(review.get("executes_actions"))
+                and not bool(gate.get("eligible_for_action")),
+                "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+                "source_execution_hash_available": len(
+                    str(review.get("source_execution_hash") or "")
+                )
+                == 64,
+                "grounded_label_candidates_available": bool(labels),
+                "label_count_bounded": 0 < len(labels) <= 8,
+                "review_context_operator_matches": str(
+                    review_context.get("operator_id") or ""
+                ).strip()
+                == str(operator_id or "").strip(),
+                "review_context_confirmed": bool(review_context.get("confirmation")),
+                "tensor_device_available": bool(str(review_context.get("tensor_device") or "")),
+                "sparse_activity_available": int(review_context.get("active_count", 0) or 0)
+                > 0,
+            }
+            accepted = all(required_evidence.values())
+            if not accepted:
+                return self._blocked_dense_label_candidate_record(
+                    before_revision,
+                    required_evidence,
+                )
+
+            state = self._normalized_state()
+            event = self._dense_label_candidate_event(
+                review=review,
+                operator_id=str(operator_id).strip(),
+                state_revision=before_revision,
+                labels=labels,
+            )
+            existing_hashes = {
+                str(item.get("dense_label_candidate_evidence_hash") or "")
+                for item in state["dense_label_candidate_events"]
+            }
+            duplicate = event["dense_label_candidate_evidence_hash"] in existing_hashes
+            if not duplicate:
+                state["dense_label_candidate_events"].appendleft(deepcopy(event))
+                state["total_dense_label_candidate_count"] = int(
+                    state.get("total_dense_label_candidate_count", 0) or 0
+                ) + 1
+                state["last_dense_label_candidate_recorded_at"] = event["recorded_at"]
+                self._store_state(state)
+                self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_label_candidate_evidence_record",
+                "surface": "snn_language_dense_readout_label_candidate_evidence_record.v1",
+                "accepted": True,
+                "duplicate": duplicate,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "records_replay_artifact": False,
+                "promotes_facts": False,
+                "executes_actions": False,
+                "mutates_runtime_state": not duplicate,
+                "writes_checkpoint": False,
+                "requires_operator_approval": True,
+                "operator_id": str(operator_id).strip(),
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "recorded_event": event,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": "recorded" if not duplicate else "duplicate_already_recorded",
+                    "eligible_for_dense_label_candidate_history": True,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required_evidence,
+                },
+            }
+
     def emission_review_history(
         self,
         *,
@@ -546,6 +682,2675 @@ class SNNLanguageReadoutEvidenceLedger:
                     },
                 },
             }
+
+    def dense_label_candidate_history(
+        self,
+        *,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Inspect reviewed dense decoder labels without replay or generation."""
+
+        with self._lock:
+            state = self._normalized_state()
+            count = max(0, min(int(limit), self._limit))
+            events = (
+                list(state["dense_label_candidate_events"])[:count]
+                if count > 0
+                else []
+            )
+            reviewed_events: list[dict[str, Any]] = []
+            unique_review_hashes: set[str] = set()
+            unique_execution_hashes: set[str] = set()
+            unique_label_hashes: set[str] = set()
+            for index, event in enumerate(events):
+                review_hash = str(event.get("review_hash") or "")
+                execution_hash = str(event.get("source_execution_hash") or "")
+                label_hash = str(event.get("label_hash") or "")
+                if review_hash:
+                    unique_review_hashes.add(review_hash)
+                if execution_hash:
+                    unique_execution_hashes.add(execution_hash)
+                if label_hash:
+                    unique_label_hashes.add(label_hash)
+                labels = [
+                    str(value)
+                    for value in list(event.get("labels") or [])
+                    if str(value)
+                ][:8]
+                reviewed_events.append(
+                    {
+                        "history_index": index,
+                        "dense_label_candidate_evidence_hash": event.get(
+                            "dense_label_candidate_evidence_hash"
+                        ),
+                        "dense_label_candidate_evidence_id": event.get(
+                            "dense_label_candidate_evidence_id"
+                        ),
+                        "recorded_at": event.get("recorded_at"),
+                        "state_revision": event.get("state_revision"),
+                        "operator_id": event.get("operator_id"),
+                        "review_hash": review_hash,
+                        "source_execution_hash": execution_hash,
+                        "labels": labels,
+                        "label_hash": label_hash,
+                        "label_count": len(labels),
+                        "tensor_device": event.get("tensor_device"),
+                        "active_count": int(event.get("active_count", 0) or 0),
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                    }
+                )
+
+            available = bool(reviewed_events)
+            return {
+                "artifact_kind": "terminus_snn_language_dense_label_candidate_history",
+                "surface": "snn_language_dense_label_candidate_history.v1",
+                "source": "service.snn_language_readout_ledger.dense_label_candidate_history",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "exposes_reviewed_bounded_labels": True,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "limit": count,
+                "summary": {
+                    "dense_label_candidate_event_count": len(
+                        state["dense_label_candidate_events"]
+                    ),
+                    "returned_dense_label_candidate_event_count": len(
+                        reviewed_events
+                    ),
+                    "total_dense_label_candidate_count": int(
+                        state.get(
+                            "total_dense_label_candidate_count",
+                            len(state["dense_label_candidate_events"]),
+                        )
+                        or 0
+                    ),
+                    "unique_review_count": len(unique_review_hashes),
+                    "unique_decoder_execution_count": len(unique_execution_hashes),
+                    "unique_label_set_count": len(unique_label_hashes),
+                    "last_dense_label_candidate_recorded_at": state.get(
+                        "last_dense_label_candidate_recorded_at"
+                    ),
+                },
+                "dense_label_candidate_events": reviewed_events,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_operator_dense_label_candidate_history_inspection"
+                        if available
+                        else "blocked_missing_reviewed_dense_label_candidates"
+                    ),
+                    "eligible_for_operator_dense_label_candidate_history_inspection": available,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "operator_review_dense_label_candidate_history_to_calibration_policy"
+                        if available
+                        else "snn_language_dense_readout_label_candidate_evidence_record.v1"
+                    ),
+                    "required_evidence": {
+                        "reviewed_dense_label_candidates_available": available,
+                        "bounded_label_history_available": any(
+                            bool(item.get("labels")) for item in reviewed_events
+                        ),
+                        "broader_ledger_events_absent": True,
+                        "runtime_mutation_absent": True,
+                        "endpoint_execution_absent": True,
+                        "ledger_recording_absent": True,
+                        "checkpoint_write_absent": True,
+                        "replay_memory_promotion_absent": True,
+                        "plasticity_application_absent": True,
+                        "fact_promotion_absent": True,
+                        "action_promotion_absent": True,
+                        "cognition_substrate_absent": True,
+                    },
+                },
+            }
+
+    def dense_label_candidate_calibration_policy(
+        self,
+        *,
+        limit: int = 12,
+    ) -> dict[str, Any]:
+        """Rank reviewed dense decoder labels for calibration review only."""
+
+        with self._lock:
+            state = self._normalized_state()
+            count = max(0, min(int(limit), self._limit))
+            events = (
+                list(state["dense_label_candidate_events"])[:count]
+                if count > 0
+                else []
+            )
+            all_events = [
+                dict(item)
+                for item in list(state["dense_label_candidate_events"])
+                if isinstance(item, Mapping)
+            ]
+            label_set_counts: dict[str, int] = {}
+            execution_counts: dict[str, int] = {}
+            for event in all_events:
+                label_hash = str(event.get("label_hash") or "")
+                execution_hash = str(event.get("source_execution_hash") or "")
+                if label_hash:
+                    label_set_counts[label_hash] = label_set_counts.get(label_hash, 0) + 1
+                if execution_hash:
+                    execution_counts[execution_hash] = execution_counts.get(execution_hash, 0) + 1
+
+            candidates: list[dict[str, Any]] = []
+            for index, event in enumerate(events):
+                labels = [
+                    str(value)
+                    for value in list(event.get("labels") or [])
+                    if str(value)
+                ][:8]
+                label_hash = str(event.get("label_hash") or "")
+                execution_hash = str(event.get("source_execution_hash") or "")
+                evidence_hash = str(event.get("dense_label_candidate_evidence_hash") or "")
+                review_hash = str(event.get("review_hash") or "")
+                active_count = int(event.get("active_count", 0) or 0)
+                tensor_device = str(event.get("tensor_device") or "")
+                bounded = 0 < len(labels) <= 8
+                hashes_available = all(
+                    len(value) == 64
+                    for value in [label_hash, execution_hash, evidence_hash, review_hash]
+                )
+                device_available = bool(tensor_device)
+                sparse_activity_available = active_count > 0
+                repeated_label_set = label_set_counts.get(label_hash, 0) > 1
+                repeated_execution = execution_counts.get(execution_hash, 0) > 1
+                recency = 1.0 - min(1.0, index / max(1, len(events) - 1)) if len(events) > 1 else 1.0
+                repetition = min(1.0, label_set_counts.get(label_hash, 0) / 3.0) if label_hash else 0.0
+                activity = min(1.0, active_count / 16.0)
+                score = 100.0 * (0.40 * repetition + 0.30 * activity + 0.30 * recency)
+                ready = (
+                    bounded
+                    and hashes_available
+                    and device_available
+                    and sparse_activity_available
+                )
+                candidates.append(
+                    {
+                        "rank": len(candidates) + 1,
+                        "calibration_candidate_id": (
+                            f"snn-dense-label-calibration:{evidence_hash[:16]}"
+                        ),
+                        "dense_label_candidate_evidence_hash": evidence_hash,
+                        "dense_label_candidate_evidence_id": event.get(
+                            "dense_label_candidate_evidence_id"
+                        ),
+                        "review_hash": review_hash,
+                        "source_execution_hash": execution_hash,
+                        "label_hash": label_hash,
+                        "labels": labels,
+                        "label_count": len(labels),
+                        "tensor_device": tensor_device,
+                        "active_count": active_count,
+                        "label_set_observation_count": label_set_counts.get(label_hash, 0),
+                        "decoder_execution_observation_count": execution_counts.get(
+                            execution_hash,
+                            0,
+                        ),
+                        "repeated_label_set": repeated_label_set,
+                        "repeated_decoder_execution": repeated_execution,
+                        "calibration_priority_score": round(score, 6),
+                        "eligible_for_dense_label_calibration_review": ready,
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                    }
+                )
+
+            candidates.sort(
+                key=lambda item: (
+                    -float(item.get("calibration_priority_score", 0.0) or 0.0),
+                    str(item.get("dense_label_candidate_evidence_hash") or ""),
+                )
+            )
+            for rank, candidate in enumerate(candidates, start=1):
+                candidate["rank"] = rank
+            ready_candidates = [
+                candidate
+                for candidate in candidates
+                if bool(candidate.get("eligible_for_dense_label_calibration_review"))
+            ]
+            ready = bool(ready_candidates)
+            return {
+                "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_policy",
+                "surface": "snn_language_dense_label_candidate_calibration_policy.v1",
+                "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_policy",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "limit": count,
+                "candidate_count": len(candidates),
+                "ready_candidate_count": len(ready_candidates),
+                "calibration_candidates": candidates,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_operator_dense_label_calibration_review"
+                        if ready
+                        else "blocked_missing_dense_label_candidate_history"
+                    ),
+                    "eligible_for_operator_dense_label_calibration_review": ready,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "operator_review_dense_label_calibration_candidates"
+                        if ready
+                        else "snn_language_dense_label_candidate_history.v1"
+                    ),
+                    "required_evidence": {
+                        "dense_label_candidate_history_available": bool(events),
+                        "ready_calibration_candidates_available": ready,
+                        "bounded_label_candidates": all(
+                            0 < int(item.get("label_count", 0) or 0) <= 8
+                            for item in candidates
+                        )
+                        if candidates
+                        else False,
+                        "hashes_available": all(
+                            len(str(item.get("label_hash") or "")) == 64
+                            and len(str(item.get("source_execution_hash") or "")) == 64
+                            and len(
+                                str(
+                                    item.get(
+                                        "dense_label_candidate_evidence_hash"
+                                    )
+                                    or ""
+                                )
+                            )
+                            == 64
+                            for item in candidates
+                        )
+                        if candidates
+                        else False,
+                        "device_evidence_available": all(
+                            bool(str(item.get("tensor_device") or ""))
+                            for item in candidates
+                        )
+                        if candidates
+                        else False,
+                        "sparse_activity_available": all(
+                            int(item.get("active_count", 0) or 0) > 0
+                            for item in candidates
+                        )
+                        if candidates
+                        else False,
+                        "runtime_mutation_absent": True,
+                        "ledger_recording_absent": True,
+                        "replay_execution_absent": True,
+                        "checkpoint_write_absent": True,
+                        "plasticity_application_absent": True,
+                        "language_generation_absent": True,
+                        "fact_promotion_absent": True,
+                        "action_promotion_absent": True,
+                        "cognition_substrate_absent": True,
+                    },
+                },
+            }
+
+    def dense_label_candidate_calibration_evaluation_design(
+        self,
+        *,
+        dense_label_candidate_calibration_policy: Mapping[str, Any],
+        heldout_label_evidence: Mapping[str, Any] | None = None,
+        design_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a heldout calibration evaluation without executing it."""
+
+        policy = dict(dense_label_candidate_calibration_policy or {})
+        gate = (
+            policy.get("promotion_gate")
+            if isinstance(policy.get("promotion_gate"), Mapping)
+            else {}
+        )
+        heldout = dict(heldout_label_evidence or {})
+        config = dict(design_policy or {})
+        device = dict(device_evidence or {})
+        max_candidates = max(1, min(int(config.get("max_candidates", 4) or 4), 8))
+        min_heldout_labels = max(1, min(int(config.get("min_heldout_labels", 1) or 1), 16))
+        metrics = [
+            str(metric).strip()
+            for metric in list(
+                config.get(
+                    "metrics",
+                    [
+                        "expected_calibration_error",
+                        "coverage_gap",
+                        "label_set_stability",
+                    ],
+                )
+                or []
+            )
+            if str(metric).strip()
+        ][:6]
+        supported_metrics = {
+            "expected_calibration_error",
+            "coverage_gap",
+            "label_set_stability",
+            "sparse_activity_coverage",
+        }
+        candidates = [
+            dict(candidate)
+            for candidate in list(policy.get("calibration_candidates") or [])
+            if isinstance(candidate, Mapping)
+            and bool(candidate.get("eligible_for_dense_label_calibration_review"))
+        ][:max_candidates]
+        heldout_labels = [
+            str(label).strip()
+            for label in list(heldout.get("labels") or heldout.get("heldout_labels") or [])
+            if str(label).strip()
+        ][:32]
+        target_hash = str(
+            heldout.get("target_hash")
+            or heldout.get("heldout_target_hash")
+            or self._sha256_json(heldout_labels)
+        )
+        selected = []
+        for index, candidate in enumerate(candidates):
+            selected.append(
+                {
+                    "selection_index": index,
+                    "calibration_candidate_id": candidate.get(
+                        "calibration_candidate_id"
+                    ),
+                    "dense_label_candidate_evidence_hash": candidate.get(
+                        "dense_label_candidate_evidence_hash"
+                    ),
+                    "source_execution_hash": candidate.get("source_execution_hash"),
+                    "label_hash": candidate.get("label_hash"),
+                    "labels": list(candidate.get("labels") or [])[:8],
+                    "label_count": int(candidate.get("label_count", 0) or 0),
+                    "tensor_device": candidate.get("tensor_device"),
+                    "active_count": int(candidate.get("active_count", 0) or 0),
+                    "calibration_priority_score": float(
+                        candidate.get("calibration_priority_score", 0.0) or 0.0
+                    ),
+                }
+            )
+        required = {
+            "policy_surface_available": policy.get("surface")
+            == "snn_language_dense_label_candidate_calibration_policy.v1",
+            "policy_ready": bool(
+                gate.get("eligible_for_operator_dense_label_calibration_review")
+            ),
+            "selected_candidates_available": bool(selected),
+            "selected_candidate_hashes_available": bool(selected)
+            and all(
+                len(str(item.get("dense_label_candidate_evidence_hash") or "")) == 64
+                and len(str(item.get("source_execution_hash") or "")) == 64
+                and len(str(item.get("label_hash") or "")) == 64
+                for item in selected
+            ),
+            "selected_candidate_labels_bounded": bool(selected)
+            and all(0 < int(item.get("label_count", 0) or 0) <= 8 for item in selected),
+            "heldout_label_evidence_available": len(heldout_labels) >= min_heldout_labels,
+            "heldout_target_hash_available": len(target_hash) == 64,
+            "supported_metrics_requested": bool(metrics)
+            and all(metric in supported_metrics for metric in metrics),
+            "device_evidence_available": bool(
+                str(device.get("device") or device.get("tensor_device") or "")
+            ),
+            "runtime_mutation_absent": True,
+            "evaluation_execution_absent": True,
+            "training_absent": True,
+            "plasticity_absent": True,
+            "checkpoint_write_absent": True,
+            "language_generation_absent": True,
+            "fact_promotion_absent": True,
+            "action_promotion_absent": True,
+        }
+        ready = all(required.values())
+        design_material = {
+            "surface": "snn_language_dense_label_candidate_calibration_evaluation_design.v1",
+            "candidate_hashes": [
+                item.get("dense_label_candidate_evidence_hash") for item in selected
+            ],
+            "heldout_target_hash": target_hash,
+            "metrics": metrics,
+            "device": device.get("device") or device.get("tensor_device"),
+            "max_candidates": max_candidates,
+        }
+        design_hash = self._sha256_json(design_material)
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_evaluation_design",
+            "surface": "snn_language_dense_label_candidate_calibration_evaluation_design.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_evaluation_design",
+            "available": bool(policy),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_evaluation": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "design_hash": design_hash,
+            "selected_candidate_count": len(selected),
+            "selected_calibration_candidates": selected if ready else [],
+            "heldout_label_evidence": {
+                "label_count": len(heldout_labels),
+                "target_hash": target_hash,
+                "labels_hash": self._sha256_json(heldout_labels),
+            },
+            "calibration_evaluation_design": {
+                "metrics": metrics,
+                "max_candidates": max_candidates,
+                "min_heldout_labels": min_heldout_labels,
+                "requires_cross_validation": True,
+                "requires_coverage_check": True,
+                "requires_expected_calibration_error": (
+                    "expected_calibration_error" in metrics
+                ),
+                "device_evidence": device,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_dense_label_calibration_evaluation_preflight"
+                    if ready
+                    else "blocked_missing_dense_label_calibration_design_evidence"
+                ),
+                "eligible_for_dense_label_calibration_evaluation_preflight": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "dense_label_calibration_evaluation_preflight"
+                    if ready
+                    else "collect_policy_heldout_device_metric_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def dense_label_candidate_calibration_evaluation_preflight(
+        self,
+        *,
+        dense_label_candidate_calibration_evaluation_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight dense label calibration evaluation without executing it."""
+
+        design = dict(dense_label_candidate_calibration_evaluation_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        design_body = (
+            design.get("calibration_evaluation_design")
+            if isinstance(design.get("calibration_evaluation_design"), Mapping)
+            else {}
+        )
+        heldout = (
+            design.get("heldout_label_evidence")
+            if isinstance(design.get("heldout_label_evidence"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or design_body.get("device_evidence") or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        metrics = [str(metric) for metric in list(design_body.get("metrics") or [])]
+        selected = [
+            dict(candidate)
+            for candidate in list(design.get("selected_calibration_candidates") or [])
+            if isinstance(candidate, Mapping)
+        ]
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(capabilities.get("calibration_evaluation_executor"))
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_dense_label_candidate_calibration_evaluation_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_dense_label_calibration_evaluation_preflight")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "design_hash_available": len(str(design.get("design_hash") or "")) == 64,
+            "selected_candidates_available": bool(selected),
+            "selected_candidate_hashes_available": bool(selected)
+            and all(
+                len(str(item.get("dense_label_candidate_evidence_hash") or "")) == 64
+                and len(str(item.get("source_execution_hash") or "")) == 64
+                and len(str(item.get("label_hash") or "")) == 64
+                for item in selected
+            ),
+            "heldout_target_hash_available": len(str(heldout.get("target_hash") or "")) == 64,
+            "heldout_labels_available": int(heldout.get("label_count", 0) or 0) > 0,
+            "metrics_available": bool(metrics),
+            "expected_calibration_error_required": bool(
+                design_body.get("requires_expected_calibration_error")
+            ),
+            "cross_validation_required": bool(design_body.get("requires_cross_validation")),
+            "coverage_check_required": bool(design_body.get("requires_coverage_check")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "evaluation_execution_absent": not bool(
+                design.get("runs_calibration_evaluation")
+            ),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1",
+                "design_hash": design.get("design_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "candidate_hashes": [
+                    item.get("dense_label_candidate_evidence_hash") for item in selected
+                ],
+                "heldout_target_hash": heldout.get("target_hash"),
+                "metrics": metrics,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_evaluation_preflight",
+            "surface": "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_evaluation_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_evaluation": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "preflight_hash": preflight_hash,
+            "design_hash": design.get("design_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "selected_candidate_count": len(selected),
+            "selected_candidate_hashes": [
+                item.get("dense_label_candidate_evidence_hash") for item in selected
+            ],
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_dense_label_calibration_evaluation_executor"
+                    if ready
+                    else "blocked_missing_dense_label_calibration_preflight_evidence"
+                ),
+                "eligible_for_dense_label_calibration_evaluation_executor": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "dense_label_calibration_evaluation_executor"
+                    if ready
+                    else "collect_revision_device_executor_capability_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def dense_label_candidate_calibration_evaluation(
+        self,
+        *,
+        dense_label_candidate_calibration_evaluation_preflight: Mapping[str, Any],
+        heldout_label_evidence: Mapping[str, Any],
+        bin_count: int = 5,
+    ) -> dict[str, Any]:
+        """Measure dense label calibration without mutating runtime state."""
+
+        preflight = dict(dense_label_candidate_calibration_evaluation_preflight or {})
+        gate = (
+            preflight.get("promotion_gate")
+            if isinstance(preflight.get("promotion_gate"), Mapping)
+            else {}
+        )
+        required_preflight = (
+            gate.get("required_evidence")
+            if isinstance(gate.get("required_evidence"), Mapping)
+            else {}
+        )
+        heldout = dict(heldout_label_evidence or {})
+        heldout_labels = {
+            str(label).strip()
+            for label in list(heldout.get("labels") or heldout.get("heldout_labels") or [])
+            if str(label).strip()
+        }
+        state = self._normalized_state()
+        candidate_hashes = {
+            str(value)
+            for value in list(preflight.get("selected_candidate_hashes") or [])
+            if str(value)
+        }
+        evaluated_events = [
+            dict(event)
+            for event in list(state["dense_label_candidate_events"])
+            if str(event.get("dense_label_candidate_evidence_hash") or "")
+            in candidate_hashes
+        ][: max(1, min(int(preflight.get("selected_candidate_count", 1) or 1), 8))]
+        bins = max(2, min(int(bin_count or 5), 16))
+        samples: list[dict[str, Any]] = []
+        for event in evaluated_events:
+            labels = [
+                str(label).strip()
+                for label in list(event.get("labels") or [])
+                if str(label).strip()
+            ][:8]
+            active_count = int(event.get("active_count", 0) or 0)
+            confidence = min(1.0, max(0.0, active_count / 16.0))
+            matches = sum(1 for label in labels if label in heldout_labels)
+            accuracy = matches / max(1, len(labels))
+            bin_index = min(bins - 1, int(confidence * bins))
+            samples.append(
+                {
+                    "dense_label_candidate_evidence_hash": event.get(
+                        "dense_label_candidate_evidence_hash"
+                    ),
+                    "label_hash": event.get("label_hash"),
+                    "labels": labels,
+                    "label_count": len(labels),
+                    "heldout_match_count": matches,
+                    "confidence": round(confidence, 6),
+                    "accuracy": round(accuracy, 6),
+                    "calibration_gap": round(abs(confidence - accuracy), 6),
+                    "bin_index": bin_index,
+                    "tensor_device": event.get("tensor_device"),
+                    "active_count": active_count,
+                }
+            )
+        bin_rows: list[dict[str, Any]] = []
+        total = max(1, len(samples))
+        ece = 0.0
+        for bin_index in range(bins):
+            row_samples = [
+                sample for sample in samples if int(sample.get("bin_index", -1)) == bin_index
+            ]
+            if row_samples:
+                avg_confidence = sum(
+                    float(sample.get("confidence", 0.0) or 0.0)
+                    for sample in row_samples
+                ) / len(row_samples)
+                avg_accuracy = sum(
+                    float(sample.get("accuracy", 0.0) or 0.0)
+                    for sample in row_samples
+                ) / len(row_samples)
+            else:
+                avg_confidence = 0.0
+                avg_accuracy = 0.0
+            weight = len(row_samples) / total
+            gap = abs(avg_confidence - avg_accuracy)
+            ece += weight * gap
+            bin_rows.append(
+                {
+                    "bin_index": bin_index,
+                    "sample_count": len(row_samples),
+                    "weight": round(weight, 6),
+                    "avg_confidence": round(avg_confidence, 6),
+                    "avg_accuracy": round(avg_accuracy, 6),
+                    "gap": round(gap, 6),
+                }
+            )
+        coverage = len(
+            {
+                label
+                for sample in samples
+                for label in list(sample.get("labels") or [])
+                if str(label) in heldout_labels
+            }
+        ) / max(1, len(heldout_labels))
+        label_hashes = {
+            str(sample.get("label_hash") or "")
+            for sample in samples
+            if str(sample.get("label_hash") or "")
+        }
+        stability = 1.0 if len(label_hashes) <= 1 and samples else 1.0 / max(1, len(label_hashes))
+        required = {
+            "preflight_surface_available": preflight.get("surface")
+            == "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1",
+            "preflight_ready": bool(preflight.get("ready"))
+            and bool(gate.get("eligible_for_dense_label_calibration_evaluation_executor")),
+            "preflight_revision_was_current": bool(
+                required_preflight.get("expected_revision_current")
+            ),
+            "preflight_executor_capability_available": bool(
+                required_preflight.get("executor_capability_available")
+            ),
+            "heldout_labels_available": bool(heldout_labels),
+            "candidate_events_available": bool(samples),
+            "bin_count_bounded": 2 <= bins <= 16,
+            "runtime_mutation_absent": not bool(preflight.get("mutates_runtime_state")),
+            "training_absent": not bool(preflight.get("trains_runtime_model")),
+            "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+            "language_generation_absent": not bool(preflight.get("generates_text")),
+        }
+        ready = all(required.values())
+        evaluation_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_label_candidate_calibration_evaluation.v1",
+                "preflight_hash": preflight.get("preflight_hash"),
+                "heldout_labels_hash": self._sha256_json(sorted(heldout_labels)),
+                "sample_hashes": [
+                    sample.get("dense_label_candidate_evidence_hash")
+                    for sample in samples
+                ],
+                "expected_calibration_error": round(ece, 6),
+                "coverage": round(coverage, 6),
+                "stability": round(stability, 6),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_evaluation",
+            "surface": "snn_language_dense_label_candidate_calibration_evaluation.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_evaluation",
+            "available": bool(preflight),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_evaluation": ready,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "evaluation_hash": evaluation_hash,
+            "preflight_hash": preflight.get("preflight_hash"),
+            "sample_count": len(samples) if ready else 0,
+            "metrics": {
+                "expected_calibration_error": round(ece, 6) if ready else None,
+                "coverage_gap": round(1.0 - coverage, 6) if ready else None,
+                "label_set_stability": round(stability, 6) if ready else None,
+                "bin_count": bins,
+            },
+            "reliability_bins": bin_rows if ready else [],
+            "evaluated_samples": samples if ready else [],
+            "promotion_gate": {
+                "status": (
+                    "ready_for_dense_label_calibration_evaluation_review"
+                    if ready
+                    else "blocked_missing_dense_label_calibration_evaluation_evidence"
+                ),
+                "eligible_for_dense_label_calibration_evaluation_review": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "operator_review_dense_label_calibration_metrics"
+                    if ready
+                    else "collect_ready_preflight_and_heldout_labels"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def dense_label_candidate_calibration_evaluation_review(
+        self,
+        *,
+        dense_label_candidate_calibration_evaluation: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review calibration metrics without permitting training or generation."""
+
+        evaluation = dict(dense_label_candidate_calibration_evaluation or {})
+        gate = (
+            evaluation.get("promotion_gate")
+            if isinstance(evaluation.get("promotion_gate"), Mapping)
+            else {}
+        )
+        metrics = (
+            evaluation.get("metrics")
+            if isinstance(evaluation.get("metrics"), Mapping)
+            else {}
+        )
+        policy = dict(review_policy or {})
+        max_ece = float(policy.get("max_expected_calibration_error", 0.35) or 0.35)
+        max_coverage_gap = float(policy.get("max_coverage_gap", 0.5) or 0.5)
+        min_stability = float(policy.get("min_label_set_stability", 0.5) or 0.5)
+        reviewer = str(operator_id or "").strip()
+        before_revision = int(self._runtime_state.state_revision)
+        ece = metrics.get("expected_calibration_error")
+        coverage_gap = metrics.get("coverage_gap")
+        stability = metrics.get("label_set_stability")
+        metric_values_available = all(
+            value is not None for value in [ece, coverage_gap, stability]
+        )
+        metric_thresholds_met = bool(metric_values_available) and (
+            float(ece) <= max_ece
+            and float(coverage_gap) <= max_coverage_gap
+            and float(stability) >= min_stability
+        )
+        required = {
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "operator_id_available": bool(reviewer),
+            "confirmation": bool(confirmation),
+            "evaluation_surface_available": evaluation.get("surface")
+            == "snn_language_dense_label_candidate_calibration_evaluation.v1",
+            "evaluation_ready": bool(evaluation.get("ready"))
+            and bool(gate.get("eligible_for_dense_label_calibration_evaluation_review")),
+            "evaluation_hash_available": len(str(evaluation.get("evaluation_hash") or "")) == 64,
+            "preflight_hash_available": len(str(evaluation.get("preflight_hash") or "")) == 64,
+            "sample_count_available": int(evaluation.get("sample_count", 0) or 0) > 0,
+            "metric_values_available": metric_values_available,
+            "metric_thresholds_met": metric_thresholds_met,
+            "runtime_mutation_absent": not bool(evaluation.get("mutates_runtime_state")),
+            "ledger_recording_absent": not bool(evaluation.get("records_ledger_event")),
+            "training_absent": not bool(evaluation.get("trains_runtime_model")),
+            "plasticity_absent": not bool(evaluation.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(evaluation.get("writes_checkpoint")),
+            "language_generation_absent": not bool(evaluation.get("generates_text")),
+        }
+        ready = all(required.values())
+        review_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_label_candidate_calibration_evaluation_review.v1",
+                "evaluation_hash": evaluation.get("evaluation_hash"),
+                "preflight_hash": evaluation.get("preflight_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "operator_id": reviewer,
+                "confirmation": bool(confirmation),
+                "metrics": {
+                    "expected_calibration_error": ece,
+                    "coverage_gap": coverage_gap,
+                    "label_set_stability": stability,
+                },
+                "thresholds": {
+                    "max_expected_calibration_error": max_ece,
+                    "max_coverage_gap": max_coverage_gap,
+                    "min_label_set_stability": min_stability,
+                },
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_evaluation_review",
+            "surface": "snn_language_dense_label_candidate_calibration_evaluation_review.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_evaluation_review",
+            "available": bool(evaluation),
+            "ready": ready,
+            "review_recorded": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_evaluation": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "review_hash": review_hash,
+            "evaluation_hash": evaluation.get("evaluation_hash"),
+            "preflight_hash": evaluation.get("preflight_hash"),
+            "operator_id": reviewer,
+            "metric_review": {
+                "expected_calibration_error": ece,
+                "coverage_gap": coverage_gap,
+                "label_set_stability": stability,
+                "max_expected_calibration_error": max_ece,
+                "max_coverage_gap": max_coverage_gap,
+                "min_label_set_stability": min_stability,
+                "metric_thresholds_met": metric_thresholds_met,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_dense_label_calibration_update_design"
+                    if ready
+                    else "blocked_missing_dense_label_calibration_review_evidence"
+                ),
+                "eligible_for_dense_label_calibration_update_design": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "dense_label_calibration_update_design"
+                    if ready
+                    else "operator_review_calibration_metrics_and_thresholds"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def dense_label_candidate_calibration_update_design(
+        self,
+        *,
+        dense_label_candidate_calibration_evaluation_review: Mapping[str, Any],
+        update_policy: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded post-hoc calibration update without applying it."""
+
+        review = dict(dense_label_candidate_calibration_evaluation_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        metric_review = (
+            review.get("metric_review")
+            if isinstance(review.get("metric_review"), Mapping)
+            else {}
+        )
+        policy = dict(update_policy or {})
+        rollback = dict(rollback_policy or {})
+        device = dict(device_evidence or {})
+        method = str(policy.get("method") or "bounded_temperature_scaling").strip()
+        allowed_methods = {
+            "bounded_temperature_scaling",
+            "bounded_confidence_rescaling",
+        }
+        ece = float(metric_review.get("expected_calibration_error", 0.0) or 0.0)
+        coverage_gap = float(metric_review.get("coverage_gap", 0.0) or 0.0)
+        stability = float(metric_review.get("label_set_stability", 0.0) or 0.0)
+        max_temperature_delta = max(
+            0.0,
+            min(float(policy.get("max_temperature_delta", 0.25) or 0.25), 1.0),
+        )
+        base_temperature = max(
+            0.25,
+            min(float(policy.get("base_temperature", 1.0) or 1.0), 4.0),
+        )
+        direction = "soften" if ece > 0.05 or coverage_gap > 0.0 else "hold"
+        proposed_delta = min(max_temperature_delta, max(0.0, ece + coverage_gap) / 2.0)
+        target_temperature = base_temperature + proposed_delta if direction == "soften" else base_temperature
+        target_temperature = max(0.25, min(target_temperature, 4.0))
+        update_material = {
+            "review_hash": review.get("review_hash"),
+            "evaluation_hash": review.get("evaluation_hash"),
+            "method": method,
+            "direction": direction,
+            "base_temperature": round(base_temperature, 6),
+            "target_temperature": round(target_temperature, 6),
+            "max_temperature_delta": round(max_temperature_delta, 6),
+            "metrics": {
+                "expected_calibration_error": ece,
+                "coverage_gap": coverage_gap,
+                "label_set_stability": stability,
+            },
+            "rollback_policy": rollback,
+            "device": device.get("device") or device.get("tensor_device"),
+        }
+        design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_label_candidate_calibration_update_design.v1",
+                **update_material,
+            }
+        )
+        required = {
+            "review_surface_available": review.get("surface")
+            == "snn_language_dense_label_candidate_calibration_evaluation_review.v1",
+            "review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_dense_label_calibration_update_design")),
+            "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+            "evaluation_hash_available": len(str(review.get("evaluation_hash") or "")) == 64,
+            "metric_thresholds_met": bool(metric_review.get("metric_thresholds_met")),
+            "method_supported": method in allowed_methods,
+            "temperature_delta_bounded": 0.0 <= max_temperature_delta <= 1.0
+            and abs(target_temperature - base_temperature) <= max_temperature_delta + 1e-9,
+            "temperature_range_bounded": 0.25 <= target_temperature <= 4.0,
+            "rollback_policy_available": bool(rollback.get("available"))
+            and bool(str(rollback.get("snapshot_id") or "").strip()),
+            "device_evidence_available": bool(
+                str(device.get("device") or device.get("tensor_device") or "")
+            ),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+        }
+        ready = all(required.values())
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_design",
+            "surface": "snn_language_dense_label_candidate_calibration_update_design.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_update_design",
+            "available": bool(review),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_evaluation": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "design_hash": design_hash,
+            "review_hash": review.get("review_hash"),
+            "evaluation_hash": review.get("evaluation_hash"),
+            "calibration_update_design": {
+                "method": method,
+                "direction": direction,
+                "base_temperature": round(base_temperature, 6),
+                "target_temperature": round(target_temperature, 6),
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "bounded_post_hoc_update": True,
+                "requires_checkpointed_preflight": True,
+                "runtime_update_applied": False,
+                "weights_persisted": False,
+                "rollback_policy": rollback,
+                "device_evidence": device,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_dense_label_calibration_update_preflight"
+                    if ready
+                    else "blocked_missing_dense_label_calibration_update_design_evidence"
+                ),
+                "eligible_for_dense_label_calibration_update_preflight": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "checkpoint_backed_dense_label_calibration_update_preflight"
+                    if ready
+                    else "collect_review_rollback_device_update_policy_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def dense_label_candidate_calibration_update_preflight(
+        self,
+        *,
+        dense_label_candidate_calibration_update_design: Mapping[str, Any],
+        expected_state_revision: int,
+        checkpoint_path: str,
+        rollback_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a bounded calibration update without applying it."""
+
+        design = dict(dense_label_candidate_calibration_update_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        design_body = (
+            design.get("calibration_update_design")
+            if isinstance(design.get("calibration_update_design"), Mapping)
+            else {}
+        )
+        rollback_from_design = (
+            design_body.get("rollback_policy")
+            if isinstance(design_body.get("rollback_policy"), Mapping)
+            else {}
+        )
+        design_device = (
+            design_body.get("device_evidence")
+            if isinstance(design_body.get("device_evidence"), Mapping)
+            else {}
+        )
+        rollback = dict(rollback_policy or rollback_from_design or {})
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        method = str(design_body.get("method") or "").strip()
+        allowed_methods = {
+            "bounded_temperature_scaling",
+            "bounded_confidence_rescaling",
+        }
+        base_temperature = float(design_body.get("base_temperature", 0.0) or 0.0)
+        target_temperature = float(design_body.get("target_temperature", 0.0) or 0.0)
+        max_temperature_delta = float(
+            design_body.get("max_temperature_delta", 0.0) or 0.0
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        checkpoint = str(checkpoint_path or "").strip()
+        capability_ready = bool(capabilities.get("calibration_update_executor"))
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_dense_label_candidate_calibration_update_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_dense_label_calibration_update_preflight")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "design_hash_available": len(str(design.get("design_hash") or "")) == 64,
+            "review_hash_available": len(str(design.get("review_hash") or "")) == 64,
+            "evaluation_hash_available": len(str(design.get("evaluation_hash") or "")) == 64,
+            "bounded_post_hoc_update": bool(
+                design_body.get("bounded_post_hoc_update")
+            ),
+            "method_supported": method in allowed_methods,
+            "temperature_range_bounded": 0.25 <= target_temperature <= 4.0
+            and 0.25 <= base_temperature <= 4.0,
+            "temperature_delta_bounded": 0.0 <= max_temperature_delta <= 1.0
+            and abs(target_temperature - base_temperature)
+            <= max_temperature_delta + 1e-9,
+            "rollback_policy_available": bool(rollback.get("available"))
+            and bool(str(rollback.get("snapshot_id") or "").strip()),
+            "checkpoint_path_available": bool(checkpoint),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_label_candidate_calibration_update_preflight.v1",
+                "design_hash": design.get("design_hash"),
+                "review_hash": design.get("review_hash"),
+                "evaluation_hash": design.get("evaluation_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "checkpoint_path": checkpoint,
+                "method": method,
+                "base_temperature": round(base_temperature, 6),
+                "target_temperature": round(target_temperature, 6),
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "rollback_policy": rollback,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_preflight",
+            "surface": "snn_language_dense_label_candidate_calibration_update_preflight.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_update_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "preflight_hash": preflight_hash,
+            "design_hash": design.get("design_hash"),
+            "review_hash": design.get("review_hash"),
+            "evaluation_hash": design.get("evaluation_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+            },
+            "calibration_update_preflight": {
+                "method": method,
+                "base_temperature": round(base_temperature, 6),
+                "target_temperature": round(target_temperature, 6),
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "bounded_post_hoc_update": bool(
+                    design_body.get("bounded_post_hoc_update")
+                ),
+                "checkpoint_path": checkpoint,
+                "rollback_policy": rollback,
+                "executor_capability_available": capability_ready,
+                "runtime_update_applied": False,
+                "weights_persisted": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_checkpoint_backed_dense_label_calibration_update_executor"
+                    if ready
+                    else "blocked_missing_dense_label_calibration_update_preflight_evidence"
+                ),
+                "eligible_for_dense_label_calibration_update_executor": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "checkpoint_backed_dense_label_calibration_update_executor"
+                    if ready
+                    else "collect_revision_checkpoint_device_executor_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def apply_dense_label_candidate_calibration_update(
+        self,
+        *,
+        dense_label_candidate_calibration_update_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+    ) -> dict[str, Any]:
+        """Apply a bounded label-calibration parameter update without training."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(dense_label_candidate_calibration_update_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("calibration_update_preflight")
+                if isinstance(preflight.get("calibration_update_preflight"), Mapping)
+                else {}
+            )
+            device = (
+                preflight.get("device_preflight")
+                if isinstance(preflight.get("device_preflight"), Mapping)
+                else {}
+            )
+            rollback = (
+                body.get("rollback_policy")
+                if isinstance(body.get("rollback_policy"), Mapping)
+                else {}
+            )
+            method = str(body.get("method") or "").strip()
+            base_temperature = float(body.get("base_temperature", 0.0) or 0.0)
+            target_temperature = float(body.get("target_temperature", 0.0) or 0.0)
+            max_temperature_delta = float(body.get("max_temperature_delta", 0.0) or 0.0)
+            checkpoint_path = str(body.get("checkpoint_path") or "").strip()
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_dense_label_candidate_calibration_update_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(gate.get("eligible_for_dense_label_calibration_update_executor")),
+                "expected_revision_current": int(expected_state_revision) == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1) or -1
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1) or -1)
+                == before_revision,
+                "confirmation": bool(confirmation),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "preflight_hash_available": len(str(preflight.get("preflight_hash") or "")) == 64,
+                "design_hash_available": len(str(preflight.get("design_hash") or "")) == 64,
+                "review_hash_available": len(str(preflight.get("review_hash") or "")) == 64,
+                "evaluation_hash_available": len(str(preflight.get("evaluation_hash") or "")) == 64,
+                "bounded_post_hoc_update": bool(body.get("bounded_post_hoc_update")),
+                "method_supported": method
+                in {"bounded_temperature_scaling", "bounded_confidence_rescaling"},
+                "temperature_range_bounded": 0.25 <= target_temperature <= 4.0
+                and 0.25 <= base_temperature <= 4.0,
+                "temperature_delta_bounded": 0.0 <= max_temperature_delta <= 1.0
+                and abs(target_temperature - base_temperature)
+                <= max_temperature_delta + 1e-9,
+                "rollback_policy_available": bool(rollback.get("available"))
+                and bool(str(rollback.get("snapshot_id") or "").strip()),
+                "checkpoint_path_available": bool(checkpoint_path),
+                "device_evidence_available": bool(str(device.get("requested_device") or "")),
+                "cuda_requirement_satisfied": bool(
+                    device.get("cuda_requirement_satisfied")
+                ),
+                "executor_capability_available": bool(
+                    device.get("executor_capability_available")
+                ),
+                "runtime_update_absent_in_preflight": not bool(
+                    body.get("runtime_update_applied")
+                )
+                and not bool(preflight.get("mutates_runtime_state")),
+                "weights_persistence_absent": not bool(body.get("weights_persisted")),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+                "language_generation_absent": not bool(preflight.get("generates_text")),
+            }
+            accepted = all(required.values())
+            if not accepted:
+                return {
+                    "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_application",
+                    "surface": "snn_language_dense_label_candidate_calibration_update_application.v1",
+                    "accepted": False,
+                    "duplicate": False,
+                    "owned_by_hecsn": True,
+                    "external_dependency": False,
+                    "loads_external_checkpoint": False,
+                    "records_ledger_event": False,
+                    "runs_replay": False,
+                    "runs_calibration_update": False,
+                    "writes_checkpoint": False,
+                    "generates_text": False,
+                    "decodes_text": False,
+                    "trains_runtime_model": False,
+                    "applies_plasticity": False,
+                    "mutates_runtime_state": False,
+                    "before": {"state_revision": before_revision},
+                    "after": self._runtime_state.mutation_summary(),
+                    "promotion_gate": {
+                        "status": "blocked_missing_dense_label_calibration_update_application_evidence",
+                        "eligible_for_dense_label_calibration_application_review": False,
+                        "eligible_for_dense_readout_training": False,
+                        "eligible_for_language_generation": False,
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                        "required_evidence": required,
+                    },
+                }
+
+            state = self._normalized_state()
+            applied_event = {
+                "applied_calibration_update_id": (
+                    f"snn-dense-label-calibration-update:{str(preflight.get('preflight_hash'))[:16]}"
+                ),
+                "applied_at": datetime.now(timezone.utc).isoformat(),
+                "state_revision": before_revision,
+                "operator_id": str(operator_id).strip(),
+                "preflight_hash": preflight.get("preflight_hash"),
+                "design_hash": preflight.get("design_hash"),
+                "review_hash": preflight.get("review_hash"),
+                "evaluation_hash": preflight.get("evaluation_hash"),
+                "method": method,
+                "base_temperature": round(base_temperature, 6),
+                "target_temperature": round(target_temperature, 6),
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "checkpoint_path": checkpoint_path,
+                "rollback_policy": dict(rollback),
+                "device_preflight": dict(device),
+                "bounded_post_hoc_update": True,
+                "runtime_update_applied": True,
+                "weights_persisted": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+            }
+            applied_event["applied_calibration_update_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_label_candidate_calibration_update_application.v1",
+                    **applied_event,
+                }
+            )
+            existing_hashes = {
+                str(item.get("applied_calibration_update_hash") or "")
+                for item in state["dense_label_calibration_update_events"]
+            }
+            duplicate = (
+                applied_event["applied_calibration_update_hash"] in existing_hashes
+            )
+            if not duplicate:
+                state["dense_label_calibration_update_events"].appendleft(
+                    deepcopy(applied_event)
+                )
+                state["total_dense_label_calibration_update_count"] = int(
+                    state.get("total_dense_label_calibration_update_count", 0) or 0
+                ) + 1
+                state["last_dense_label_calibration_update_applied_at"] = (
+                    applied_event["applied_at"]
+                )
+                state["current_dense_label_calibration_update"] = deepcopy(applied_event)
+                self._store_state(state)
+                self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_application",
+                "surface": "snn_language_dense_label_candidate_calibration_update_application.v1",
+                "accepted": True,
+                "duplicate": duplicate,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "records_ledger_event": not duplicate,
+                "runs_replay": False,
+                "runs_calibration_update": not duplicate,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "applied_calibration_update": applied_event,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "dense_label_calibration_update_applied"
+                        if not duplicate
+                        else "duplicate_dense_label_calibration_update_already_applied"
+                    ),
+                    "eligible_for_dense_label_calibration_application_review": True,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required,
+                },
+            }
+
+    def dense_label_candidate_calibration_update_application_review(
+        self,
+        *,
+        dense_label_candidate_calibration_update_application: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review applied dense label calibration lineage without mutating state."""
+
+        with self._lock:
+            state = self._normalized_state()
+            before_revision = int(self._runtime_state.state_revision)
+            application = dict(dense_label_candidate_calibration_update_application or {})
+            gate = (
+                application.get("promotion_gate")
+                if isinstance(application.get("promotion_gate"), Mapping)
+                else {}
+            )
+            applied = (
+                application.get("applied_calibration_update")
+                if isinstance(application.get("applied_calibration_update"), Mapping)
+                else {}
+            )
+            current = (
+                state.get("current_dense_label_calibration_update")
+                if isinstance(state.get("current_dense_label_calibration_update"), Mapping)
+                else {}
+            )
+            rollback = (
+                applied.get("rollback_policy")
+                if isinstance(applied.get("rollback_policy"), Mapping)
+                else {}
+            )
+            device = (
+                applied.get("device_preflight")
+                if isinstance(applied.get("device_preflight"), Mapping)
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_temperature_delta = min(
+                1.0,
+                max(0.0, float(policy.get("max_temperature_delta", 1.0) or 1.0)),
+            )
+            base_temperature = float(applied.get("base_temperature", 0.0) or 0.0)
+            target_temperature = float(applied.get("target_temperature", 0.0) or 0.0)
+            applied_hash = str(applied.get("applied_calibration_update_hash") or "")
+            current_hash = str(current.get("applied_calibration_update_hash") or "")
+            required = {
+                "application_surface_available": application.get("surface")
+                == "snn_language_dense_label_candidate_calibration_update_application.v1",
+                "application_accepted": bool(application.get("accepted")),
+                "application_not_duplicate": not bool(application.get("duplicate")),
+                "application_review_gate_available": bool(
+                    gate.get("eligible_for_dense_label_calibration_application_review")
+                ),
+                "expected_revision_current": int(expected_state_revision) == before_revision,
+                "application_revision_precedes_current": int(
+                    applied.get("state_revision", -1) or -1
+                )
+                < before_revision,
+                "applied_hash_available": len(applied_hash) == 64,
+                "current_applied_hash_matches": bool(applied_hash)
+                and applied_hash == current_hash,
+                "preflight_hash_available": len(str(applied.get("preflight_hash") or "")) == 64,
+                "design_hash_available": len(str(applied.get("design_hash") or "")) == 64,
+                "review_hash_available": len(str(applied.get("review_hash") or "")) == 64,
+                "evaluation_hash_available": len(str(applied.get("evaluation_hash") or "")) == 64,
+                "bounded_post_hoc_update": bool(applied.get("bounded_post_hoc_update")),
+                "temperature_range_bounded": 0.25 <= target_temperature <= 4.0
+                and 0.25 <= base_temperature <= 4.0,
+                "temperature_delta_bounded": abs(target_temperature - base_temperature)
+                <= max_temperature_delta + 1e-9,
+                "rollback_policy_available": bool(rollback.get("available"))
+                and bool(str(rollback.get("snapshot_id") or "").strip()),
+                "checkpoint_path_available": bool(str(applied.get("checkpoint_path") or "")),
+                "device_evidence_available": bool(str(device.get("requested_device") or "")),
+                "runtime_update_applied": bool(applied.get("runtime_update_applied")),
+                "weights_persistence_absent": not bool(applied.get("weights_persisted"))
+                and not bool(application.get("trains_runtime_model")),
+                "training_absent": not bool(applied.get("trains_runtime_model"))
+                and not bool(application.get("trains_runtime_model")),
+                "plasticity_absent": not bool(applied.get("applies_plasticity"))
+                and not bool(application.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(applied.get("writes_checkpoint"))
+                and not bool(application.get("writes_checkpoint")),
+                "language_generation_absent": not bool(applied.get("generates_text"))
+                and not bool(application.get("generates_text")),
+            }
+            ready = all(required.values())
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_label_candidate_calibration_update_application_review.v1",
+                    "applied_calibration_update_hash": applied_hash,
+                    "current_applied_hash": current_hash,
+                    "expected_state_revision": int(expected_state_revision),
+                    "observed_state_revision": before_revision,
+                    "max_temperature_delta": max_temperature_delta,
+                    "required": required,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_label_candidate_calibration_update_application_review",
+                "surface": "snn_language_dense_label_candidate_calibration_update_application_review.v1",
+                "source": "service.snn_language_readout_ledger.dense_label_candidate_calibration_update_application_review",
+                "available": bool(application),
+                "ready": ready,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "review_hash": review_hash,
+                "applied_calibration_update_hash": applied_hash,
+                "current_dense_label_calibration_update_hash": current_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "applied_calibration_review": {
+                    "method": applied.get("method"),
+                    "base_temperature": round(base_temperature, 6),
+                    "target_temperature": round(target_temperature, 6),
+                    "max_temperature_delta": round(max_temperature_delta, 6),
+                    "checkpoint_path": applied.get("checkpoint_path"),
+                    "rollback_policy": dict(rollback),
+                    "device_preflight": dict(device),
+                    "runtime_update_applied": bool(applied.get("runtime_update_applied")),
+                    "weights_persisted": bool(applied.get("weights_persisted")),
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_post_calibration_observation_window"
+                        if ready
+                        else "blocked_missing_dense_label_calibration_application_review_evidence"
+                    ),
+                    "eligible_for_post_calibration_observation_window": ready,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "post_calibration_observation_window"
+                        if ready
+                        else "inspect_applied_calibration_lineage_and_rollback"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def dense_label_candidate_post_calibration_observation_window(
+        self,
+        *,
+        dense_label_candidate_calibration_update_application_review: Mapping[str, Any],
+        observation_evidence: Mapping[str, Any],
+        expected_state_revision: int,
+        window_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate post-calibration observations without adapting runtime state."""
+
+        review = dict(dense_label_candidate_calibration_update_application_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        evidence = dict(observation_evidence or {})
+        policy = dict(window_policy or {})
+        samples = [
+            dict(item)
+            for item in list(evidence.get("samples") or evidence.get("observations") or [])
+            if isinstance(item, Mapping)
+        ][:64]
+        min_samples = max(1, min(int(policy.get("min_samples", 3) or 3), 64))
+        max_expected_calibration_error = max(
+            0.0,
+            min(float(policy.get("max_expected_calibration_error", 0.25) or 0.25), 1.0),
+        )
+        max_confidence_drift = max(
+            0.0,
+            min(float(policy.get("max_confidence_drift", 0.2) or 0.2), 1.0),
+        )
+        before_revision = int(self._runtime_state.state_revision)
+        calibrated_samples: list[dict[str, Any]] = []
+        total_gap = 0.0
+        total_drift = 0.0
+        bounded = True
+        hashes_available = True
+        for index, sample in enumerate(samples):
+            calibrated_confidence = max(
+                0.0,
+                min(float(sample.get("calibrated_confidence", 0.0) or 0.0), 1.0),
+            )
+            pre_calibration_confidence = max(
+                0.0,
+                min(
+                    float(
+                        sample.get(
+                            "pre_calibration_confidence",
+                            sample.get("raw_confidence", calibrated_confidence),
+                        )
+                        or 0.0
+                    ),
+                    1.0,
+                ),
+            )
+            correct = bool(sample.get("correct") or sample.get("label_match"))
+            accuracy = 1.0 if correct else 0.0
+            gap = abs(calibrated_confidence - accuracy)
+            drift = abs(calibrated_confidence - pre_calibration_confidence)
+            total_gap += gap
+            total_drift += drift
+            sample_hash = str(sample.get("sample_hash") or sample.get("evidence_hash") or "")
+            label_hash = str(sample.get("label_hash") or "")
+            hashes_available = hashes_available and len(sample_hash) == 64
+            bounded = (
+                bounded
+                and 0.0 <= calibrated_confidence <= 1.0
+                and 0.0 <= pre_calibration_confidence <= 1.0
+                and (not label_hash or len(label_hash) == 64)
+            )
+            calibrated_samples.append(
+                {
+                    "observation_index": index,
+                    "sample_hash": sample_hash,
+                    "label_hash": label_hash or None,
+                    "calibrated_confidence": round(calibrated_confidence, 6),
+                    "pre_calibration_confidence": round(pre_calibration_confidence, 6),
+                    "correct": correct,
+                    "calibration_gap": round(gap, 6),
+                    "confidence_drift": round(drift, 6),
+                }
+            )
+        sample_count = len(calibrated_samples)
+        expected_calibration_error = (
+            round(total_gap / sample_count, 6) if sample_count else None
+        )
+        mean_confidence_drift = (
+            round(total_drift / sample_count, 6) if sample_count else None
+        )
+        applied_hash = str(review.get("applied_calibration_update_hash") or "")
+        required = {
+            "application_review_surface_available": review.get("surface")
+            == "snn_language_dense_label_candidate_calibration_update_application_review.v1",
+            "application_review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_post_calibration_observation_window")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+            "applied_calibration_hash_available": len(applied_hash) == 64,
+            "sample_count_sufficient": sample_count >= min_samples,
+            "sample_hashes_available": bool(samples) and hashes_available,
+            "confidence_values_bounded": bounded,
+            "expected_calibration_error_within_policy": (
+                expected_calibration_error is not None
+                and expected_calibration_error <= max_expected_calibration_error
+            ),
+            "confidence_drift_within_policy": (
+                mean_confidence_drift is not None
+                and mean_confidence_drift <= max_confidence_drift
+            ),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+        }
+        ready = all(required.values())
+        observation_hash = self._sha256_json(
+            {
+                "surface": "snn_language_dense_label_candidate_post_calibration_observation_window.v1",
+                "review_hash": review.get("review_hash"),
+                "applied_calibration_update_hash": applied_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "sample_hashes": [item["sample_hash"] for item in calibrated_samples],
+                "expected_calibration_error": expected_calibration_error,
+                "mean_confidence_drift": mean_confidence_drift,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_post_calibration_observation_window",
+            "surface": "snn_language_dense_label_candidate_post_calibration_observation_window.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_post_calibration_observation_window",
+            "available": bool(review),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "observation_hash": observation_hash,
+            "application_review_hash": review.get("review_hash"),
+            "applied_calibration_update_hash": applied_hash,
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "sample_count": sample_count,
+            "metrics": {
+                "expected_calibration_error": expected_calibration_error,
+                "mean_confidence_drift": mean_confidence_drift,
+                "max_expected_calibration_error": max_expected_calibration_error,
+                "max_confidence_drift": max_confidence_drift,
+                "min_samples": min_samples,
+            },
+            "observed_samples": calibrated_samples,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_post_calibration_operator_review"
+                    if ready
+                    else "blocked_missing_post_calibration_observation_evidence"
+                ),
+                "eligible_for_post_calibration_operator_review": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "post_calibration_operator_review"
+                    if ready
+                    else "collect_post_calibration_observations"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def dense_label_candidate_post_calibration_operator_review(
+        self,
+        *,
+        dense_label_candidate_post_calibration_observation_window: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review post-calibration observation evidence without enabling generation."""
+
+        observation = dict(
+            dense_label_candidate_post_calibration_observation_window or {}
+        )
+        gate = (
+            observation.get("promotion_gate")
+            if isinstance(observation.get("promotion_gate"), Mapping)
+            else {}
+        )
+        metrics = (
+            observation.get("metrics")
+            if isinstance(observation.get("metrics"), Mapping)
+            else {}
+        )
+        policy = dict(review_policy or {})
+        before_revision = int(self._runtime_state.state_revision)
+        max_expected_calibration_error = max(
+            0.0,
+            min(
+                float(
+                    policy.get(
+                        "max_expected_calibration_error",
+                        metrics.get("max_expected_calibration_error", 0.25),
+                    )
+                    or 0.25
+                ),
+                1.0,
+            ),
+        )
+        max_confidence_drift = max(
+            0.0,
+            min(
+                float(
+                    policy.get(
+                        "max_confidence_drift",
+                        metrics.get("max_confidence_drift", 0.2),
+                    )
+                    or 0.2
+                ),
+                1.0,
+            ),
+        )
+        min_samples = max(
+            1,
+            min(
+                int(policy.get("min_samples", metrics.get("min_samples", 3)) or 3),
+                64,
+            ),
+        )
+        observed_ece = metrics.get("expected_calibration_error")
+        observed_drift = metrics.get("mean_confidence_drift")
+        sample_count = int(observation.get("sample_count", 0) or 0)
+        thresholds_met = (
+            observed_ece is not None
+            and observed_drift is not None
+            and float(observed_ece) <= max_expected_calibration_error
+            and float(observed_drift) <= max_confidence_drift
+            and sample_count >= min_samples
+        )
+        required = {
+            "observation_surface_available": observation.get("surface")
+            == "snn_language_dense_label_candidate_post_calibration_observation_window.v1",
+            "observation_ready": bool(observation.get("ready"))
+            and bool(gate.get("eligible_for_post_calibration_operator_review")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "operator_id_available": bool(str(operator_id or "").strip()),
+            "confirmation": bool(confirmation),
+            "observation_hash_available": len(str(observation.get("observation_hash") or "")) == 64,
+            "application_review_hash_available": len(
+                str(observation.get("application_review_hash") or "")
+            )
+            == 64,
+            "applied_calibration_hash_available": len(
+                str(observation.get("applied_calibration_update_hash") or "")
+            )
+            == 64,
+            "sample_count_sufficient": sample_count >= min_samples,
+            "metric_thresholds_met": thresholds_met,
+            "runtime_mutation_absent": not bool(observation.get("mutates_runtime_state")),
+            "training_absent": not bool(observation.get("trains_runtime_model")),
+            "plasticity_absent": not bool(observation.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(observation.get("writes_checkpoint")),
+            "language_generation_absent": not bool(observation.get("generates_text")),
+        }
+        ready = all(required.values())
+        review_material = {
+            "surface": "snn_language_dense_label_candidate_post_calibration_operator_review.v1",
+            "observation_hash": observation.get("observation_hash"),
+            "application_review_hash": observation.get("application_review_hash"),
+            "applied_calibration_update_hash": observation.get(
+                "applied_calibration_update_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "operator_id": str(operator_id or "").strip(),
+            "thresholds": {
+                "max_expected_calibration_error": max_expected_calibration_error,
+                "max_confidence_drift": max_confidence_drift,
+                "min_samples": min_samples,
+            },
+            "metrics": {
+                "expected_calibration_error": observed_ece,
+                "mean_confidence_drift": observed_drift,
+                "sample_count": sample_count,
+            },
+        }
+        review_hash = self._sha256_json(review_material)
+        return {
+            "artifact_kind": "terminus_snn_language_dense_label_candidate_post_calibration_operator_review",
+            "surface": "snn_language_dense_label_candidate_post_calibration_operator_review.v1",
+            "source": "service.snn_language_readout_ledger.dense_label_candidate_post_calibration_operator_review",
+            "available": bool(observation),
+            "ready": ready,
+            "review_recorded": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "review_hash": review_hash,
+            "observation_hash": observation.get("observation_hash"),
+            "application_review_hash": observation.get("application_review_hash"),
+            "applied_calibration_update_hash": observation.get(
+                "applied_calibration_update_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "operator_id": str(operator_id or "").strip(),
+            "metric_review": {
+                "expected_calibration_error": observed_ece,
+                "mean_confidence_drift": observed_drift,
+                "sample_count": sample_count,
+                "max_expected_calibration_error": max_expected_calibration_error,
+                "max_confidence_drift": max_confidence_drift,
+                "min_samples": min_samples,
+                "metric_thresholds_met": thresholds_met,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_calibrated_dense_label_confidence_use_design"
+                    if ready
+                    else "blocked_missing_post_calibration_operator_review_evidence"
+                ),
+                "eligible_for_calibrated_dense_label_confidence_use_design": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "calibrated_dense_label_confidence_use_design"
+                    if ready
+                    else "operator_review_post_calibration_observation_metrics"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_use_design(
+        self,
+        *,
+        dense_label_candidate_post_calibration_operator_review: Mapping[str, Any],
+        confidence_use_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded use of calibrated dense-label confidence only."""
+
+        review = dict(dense_label_candidate_post_calibration_operator_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        metric_review = (
+            review.get("metric_review")
+            if isinstance(review.get("metric_review"), Mapping)
+            else {}
+        )
+        policy = dict(confidence_use_policy or {})
+        device = dict(device_evidence or {})
+        allowed_use_modes = {
+            "rank_only",
+            "threshold_and_abstain",
+            "operator_display_confidence",
+        }
+        use_mode = str(policy.get("use_mode") or "threshold_and_abstain").strip()
+        min_confidence_threshold = max(
+            0.0,
+            min(float(policy.get("min_confidence_threshold", 0.5) or 0.5), 1.0),
+        )
+        max_candidates = max(1, min(int(policy.get("max_candidates", 8) or 8), 32))
+        applied_hash = str(review.get("applied_calibration_update_hash") or "")
+        review_hash = str(review.get("review_hash") or "")
+        observation_hash = str(review.get("observation_hash") or "")
+        required = {
+            "operator_review_surface_available": review.get("surface")
+            == "snn_language_dense_label_candidate_post_calibration_operator_review.v1",
+            "operator_review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_calibrated_dense_label_confidence_use_design")),
+            "review_hash_available": len(review_hash) == 64,
+            "observation_hash_available": len(observation_hash) == 64,
+            "applied_calibration_hash_available": len(applied_hash) == 64,
+            "metric_thresholds_met": bool(metric_review.get("metric_thresholds_met")),
+            "use_mode_supported": use_mode in allowed_use_modes,
+            "confidence_threshold_bounded": 0.0 <= min_confidence_threshold <= 1.0,
+            "candidate_limit_bounded": 1 <= max_candidates <= 32,
+            "device_evidence_available": bool(
+                str(device.get("device") or device.get("tensor_device") or "")
+            ),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+        }
+        ready = all(required.values())
+        design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_use_design.v1",
+                "operator_review_hash": review_hash,
+                "observation_hash": observation_hash,
+                "applied_calibration_update_hash": applied_hash,
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "max_candidates": max_candidates,
+                "device": device.get("device") or device.get("tensor_device"),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_use_design",
+            "surface": "snn_language_calibrated_dense_label_confidence_use_design.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_use_design",
+            "available": bool(review),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "design_hash": design_hash,
+            "operator_review_hash": review_hash,
+            "observation_hash": observation_hash,
+            "applied_calibration_update_hash": applied_hash,
+            "confidence_use_design": {
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "max_candidates": max_candidates,
+                "allowed_operations": [
+                    "rank_dense_label_candidates",
+                    "hide_or_abstain_below_threshold",
+                    "display_calibrated_confidence_to_operator",
+                ],
+                "disallowed_operations": [
+                    "sample_text",
+                    "generate_language",
+                    "train_dense_readout",
+                    "apply_plasticity",
+                    "record_replay_memory",
+                    "promote_facts_or_actions",
+                ],
+                "metric_review": dict(metric_review),
+                "device_evidence": device,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_calibrated_dense_label_confidence_use_preflight"
+                    if ready
+                    else "blocked_missing_calibrated_dense_label_confidence_use_design_evidence"
+                ),
+                "eligible_for_calibrated_dense_label_confidence_use_preflight": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "calibrated_dense_label_confidence_use_preflight"
+                    if ready
+                    else "collect_operator_review_device_and_confidence_policy"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_use_preflight(
+        self,
+        *,
+        dense_label_confidence_use_design: Mapping[str, Any],
+        expected_state_revision: int,
+        candidate_evidence: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight bounded calibrated-confidence use without running it."""
+
+        design = dict(dense_label_confidence_use_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        design_body = (
+            design.get("confidence_use_design")
+            if isinstance(design.get("confidence_use_design"), Mapping)
+            else {}
+        )
+        design_device = (
+            design_body.get("device_evidence")
+            if isinstance(design_body.get("device_evidence"), Mapping)
+            else {}
+        )
+        evidence = dict(candidate_evidence or {})
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        use_mode = str(design_body.get("use_mode") or "").strip()
+        allowed_use_modes = {
+            "rank_only",
+            "threshold_and_abstain",
+            "operator_display_confidence",
+        }
+        min_confidence_threshold = float(
+            design_body.get("min_confidence_threshold", 0.0) or 0.0
+        )
+        max_candidates = int(design_body.get("max_candidates", 0) or 0)
+        candidates = [
+            dict(candidate)
+            for candidate in list(evidence.get("candidates") or [])
+            if isinstance(candidate, Mapping)
+        ]
+        bounded_candidates = candidates[: max(0, max_candidates)]
+
+        def _confidence(candidate: Mapping[str, Any]) -> float:
+            return float(candidate.get("calibrated_confidence", -1.0) or 0.0)
+
+        candidate_confidences = [_confidence(candidate) for candidate in bounded_candidates]
+        passing_candidate_count = sum(
+            confidence >= min_confidence_threshold
+            for confidence in candidate_confidences
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(capabilities.get("calibrated_confidence_use_executor"))
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_use_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_calibrated_dense_label_confidence_use_preflight")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "design_hash_available": len(str(design.get("design_hash") or "")) == 64,
+            "operator_review_hash_available": len(
+                str(design.get("operator_review_hash") or "")
+            )
+            == 64,
+            "observation_hash_available": len(str(design.get("observation_hash") or ""))
+            == 64,
+            "applied_calibration_hash_available": len(
+                str(design.get("applied_calibration_update_hash") or "")
+            )
+            == 64,
+            "use_mode_supported": use_mode in allowed_use_modes,
+            "confidence_threshold_bounded": 0.0 <= min_confidence_threshold <= 1.0,
+            "candidate_limit_bounded": 1 <= max_candidates <= 32,
+            "candidate_count_bounded": 0 < len(candidates) <= max_candidates,
+            "candidate_hashes_available": bool(candidates)
+            and all(
+                len(str(candidate.get("dense_label_candidate_evidence_hash") or "")) == 64
+                and len(str(candidate.get("label_hash") or "")) == 64
+                for candidate in candidates
+            ),
+            "candidate_confidences_bounded": bool(candidates)
+            and all(0.0 <= _confidence(candidate) <= 1.0 for candidate in candidates),
+            "threshold_mode_has_passing_candidate": use_mode != "threshold_and_abstain"
+            or passing_candidate_count > 0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_use_preflight.v1",
+                "design_hash": design.get("design_hash"),
+                "operator_review_hash": design.get("operator_review_hash"),
+                "observation_hash": design.get("observation_hash"),
+                "applied_calibration_update_hash": design.get(
+                    "applied_calibration_update_hash"
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "max_candidates": max_candidates,
+                "candidate_hashes": [
+                    candidate.get("dense_label_candidate_evidence_hash")
+                    for candidate in bounded_candidates
+                ],
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_use_preflight",
+            "surface": "snn_language_calibrated_dense_label_confidence_use_preflight.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_use_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "preflight_hash": preflight_hash,
+            "design_hash": design.get("design_hash"),
+            "operator_review_hash": design.get("operator_review_hash"),
+            "observation_hash": design.get("observation_hash"),
+            "applied_calibration_update_hash": design.get(
+                "applied_calibration_update_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "candidate_preflight": {
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "candidate_count": len(candidates),
+                "passing_candidate_count": passing_candidate_count,
+                "max_candidates": max_candidates,
+                "candidate_hashes": [
+                    candidate.get("dense_label_candidate_evidence_hash")
+                    for candidate in bounded_candidates
+                ],
+            },
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_calibrated_dense_label_confidence_use_executor"
+                    if ready
+                    else "blocked_missing_calibrated_dense_label_confidence_use_preflight_evidence"
+                ),
+                "eligible_for_calibrated_dense_label_confidence_use_executor": ready,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "calibrated_dense_label_confidence_use_executor"
+                    if ready
+                    else "collect_candidate_device_executor_revision_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_calibrated_dense_label_confidence_use(
+        self,
+        *,
+        calibrated_dense_label_confidence_use_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        candidate_evidence: Mapping[str, Any] | None = None,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute bounded rank/abstain use of calibrated confidence only."""
+
+        preflight = dict(calibrated_dense_label_confidence_use_preflight or {})
+        gate = (
+            preflight.get("promotion_gate")
+            if isinstance(preflight.get("promotion_gate"), Mapping)
+            else {}
+        )
+        candidate_preflight = (
+            preflight.get("candidate_preflight")
+            if isinstance(preflight.get("candidate_preflight"), Mapping)
+            else {}
+        )
+        evidence = dict(candidate_evidence or {})
+        policy = dict(execution_policy or {})
+        before_revision = int(self._runtime_state.state_revision)
+        use_mode = str(candidate_preflight.get("use_mode") or "").strip()
+        min_confidence_threshold = float(
+            candidate_preflight.get("min_confidence_threshold", 0.0) or 0.0
+        )
+        max_candidates = int(candidate_preflight.get("max_candidates", 0) or 0)
+        requested_candidate_hashes = [
+            str(value)
+            for value in list(candidate_preflight.get("candidate_hashes") or [])
+            if str(value)
+        ]
+        candidates = [
+            dict(candidate)
+            for candidate in list(evidence.get("candidates") or [])
+            if isinstance(candidate, Mapping)
+        ][: max(0, max_candidates)]
+        candidate_hashes = [
+            str(candidate.get("dense_label_candidate_evidence_hash") or "")
+            for candidate in candidates
+        ]
+
+        def _confidence(candidate: Mapping[str, Any]) -> float:
+            return float(candidate.get("calibrated_confidence", -1.0) or 0.0)
+
+        ranked_candidates = sorted(
+            candidates,
+            key=lambda candidate: (
+                _confidence(candidate),
+                str(candidate.get("dense_label_candidate_evidence_hash") or ""),
+            ),
+            reverse=True,
+        )
+        if use_mode == "threshold_and_abstain":
+            selected_candidates = [
+                candidate
+                for candidate in ranked_candidates
+                if _confidence(candidate) >= min_confidence_threshold
+            ]
+        else:
+            selected_candidates = ranked_candidates
+        max_selected = max(
+            1,
+            min(int(policy.get("max_selected_candidates", max_candidates) or max_candidates), max_candidates or 1),
+        )
+        selected_candidates = selected_candidates[:max_selected]
+        abstained = use_mode == "threshold_and_abstain" and not selected_candidates
+        expected_candidate_count = int(
+            candidate_preflight.get("candidate_count", 0) or 0
+        )
+        required = {
+            "preflight_surface_available": preflight.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_use_preflight.v1",
+            "preflight_ready": bool(preflight.get("ready"))
+            and bool(gate.get("eligible_for_calibrated_dense_label_confidence_use_executor")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "preflight_revision_current": int(
+                preflight.get("observed_state_revision", -1) or -1
+            )
+            == before_revision,
+            "preflight_hash_available": len(str(preflight.get("preflight_hash") or ""))
+            == 64,
+            "design_hash_available": len(str(preflight.get("design_hash") or ""))
+            == 64,
+            "candidate_count_matches_preflight": len(candidates)
+            == expected_candidate_count,
+            "candidate_hashes_match_preflight": bool(requested_candidate_hashes)
+            and candidate_hashes == requested_candidate_hashes,
+            "candidate_confidences_bounded": bool(candidates)
+            and all(0.0 <= _confidence(candidate) <= 1.0 for candidate in candidates),
+            "selected_candidate_count_bounded": 0 <= len(selected_candidates) <= max_candidates,
+            "threshold_mode_does_not_select_below_threshold": use_mode
+            != "threshold_and_abstain"
+            or all(
+                _confidence(candidate) >= min_confidence_threshold
+                for candidate in selected_candidates
+            ),
+            "ranked_output_bounded": len(ranked_candidates) <= max_candidates,
+            "runtime_mutation_absent": not bool(preflight.get("mutates_runtime_state")),
+            "training_absent": not bool(preflight.get("trains_runtime_model")),
+            "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+            "language_generation_absent": not bool(preflight.get("generates_text")),
+            "text_decoding_absent": not bool(preflight.get("decodes_text")),
+        }
+        ready = all(required.values())
+        ranked_candidate_refs = [
+            {
+                "rank": index + 1,
+                "dense_label_candidate_evidence_hash": candidate.get(
+                    "dense_label_candidate_evidence_hash"
+                ),
+                "label_hash": candidate.get("label_hash"),
+                "calibrated_confidence": round(_confidence(candidate), 6),
+                "meets_threshold": _confidence(candidate) >= min_confidence_threshold,
+            }
+            for index, candidate in enumerate(ranked_candidates)
+        ]
+        selected_candidate_refs = [
+            {
+                "selection_rank": index + 1,
+                "dense_label_candidate_evidence_hash": candidate.get(
+                    "dense_label_candidate_evidence_hash"
+                ),
+                "label_hash": candidate.get("label_hash"),
+                "calibrated_confidence": round(_confidence(candidate), 6),
+            }
+            for index, candidate in enumerate(selected_candidates)
+        ]
+        execution_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_use_executor.v1",
+                "preflight_hash": preflight.get("preflight_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "selected_candidate_hashes": [
+                    item.get("dense_label_candidate_evidence_hash")
+                    for item in selected_candidate_refs
+                ],
+                "abstained": abstained,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_use_executor",
+            "surface": "snn_language_calibrated_dense_label_confidence_use_executor.v1",
+            "source": "service.snn_language_readout_ledger.execute_calibrated_dense_label_confidence_use",
+            "available": bool(preflight),
+            "ready": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": False,
+            "executable": ready,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "execution_hash": execution_hash,
+            "preflight_hash": preflight.get("preflight_hash"),
+            "design_hash": preflight.get("design_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "confidence_use_result": {
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "candidate_count": len(candidates),
+                "ranked_candidate_count": len(ranked_candidate_refs),
+                "selected_candidate_count": len(selected_candidate_refs),
+                "abstained": abstained,
+                "ranked_candidate_refs": ranked_candidate_refs,
+                "selected_candidate_refs": selected_candidate_refs,
+                "output_is_label_hash_only": True,
+            },
+            "promotion_gate": {
+                "status": (
+                    "bounded_calibrated_confidence_use_executed"
+                    if ready
+                    else "blocked_missing_calibrated_dense_label_confidence_use_executor_evidence"
+                ),
+                "eligible_for_operator_display_confidence_result": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "operator_display_confidence_result"
+                    if ready
+                    else "collect_preflight_matched_candidate_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
 
     def emission_review_replay_evaluation_policy(
         self,
@@ -979,6 +3784,16 @@ class SNNLanguageReadoutEvidenceLedger:
             emission_review_events = (
                 list(state["emission_review_events"])[:count] if count > 0 else []
             )
+            dense_label_candidate_events = (
+                list(state["dense_label_candidate_events"])[:count]
+                if count > 0
+                else []
+            )
+            dense_label_calibration_update_events = (
+                list(state["dense_label_calibration_update_events"])[:count]
+                if count > 0
+                else []
+            )
             prediction_hashes = {
                 str(item.get("prediction_hash") or "")
                 for item in state["events"]
@@ -1002,6 +3817,12 @@ class SNNLanguageReadoutEvidenceLedger:
                     "event_count": len(state["events"]),
                     "rollout_event_count": len(state["rollout_events"]),
                     "emission_review_event_count": len(state["emission_review_events"]),
+                    "dense_label_candidate_event_count": len(
+                        state["dense_label_candidate_events"]
+                    ),
+                    "dense_label_calibration_update_event_count": len(
+                        state["dense_label_calibration_update_events"]
+                    ),
                     "total_recorded_count": int(state.get("total_recorded_count", 0) or 0),
                     "total_rollout_recorded_count": int(
                         state.get("total_rollout_recorded_count", 0) or 0
@@ -1009,16 +3830,44 @@ class SNNLanguageReadoutEvidenceLedger:
                     "total_emission_review_count": int(
                         state.get("total_emission_review_count", 0) or 0
                     ),
+                    "total_dense_label_candidate_count": int(
+                        state.get("total_dense_label_candidate_count", 0) or 0
+                    ),
+                    "total_dense_label_calibration_update_count": int(
+                        state.get("total_dense_label_calibration_update_count", 0) or 0
+                    ),
                     "unique_prediction_count": len(prediction_hashes),
                     "unique_transition_memory_count": len(transition_memory_hashes),
                     "last_recorded_at": state.get("last_recorded_at"),
                     "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
                     "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+                    "last_dense_label_candidate_recorded_at": state.get(
+                        "last_dense_label_candidate_recorded_at"
+                    ),
+                    "last_dense_label_calibration_update_applied_at": state.get(
+                        "last_dense_label_calibration_update_applied_at"
+                    ),
+                    "current_dense_label_calibration_update_hash": (
+                        state.get("current_dense_label_calibration_update", {}).get(
+                            "applied_calibration_update_hash"
+                        )
+                        if isinstance(
+                            state.get("current_dense_label_calibration_update"),
+                            Mapping,
+                        )
+                        else None
+                    ),
                 },
                 "events": [deepcopy(item) for item in events],
                 "rollout_events": [deepcopy(item) for item in rollout_events],
                 "emission_review_events": [
                     deepcopy(item) for item in emission_review_events
+                ],
+                "dense_label_candidate_events": [
+                    deepcopy(item) for item in dense_label_candidate_events
+                ],
+                "dense_label_calibration_update_events": [
+                    deepcopy(item) for item in dense_label_calibration_update_events
                 ],
             }
 
@@ -4843,6 +7692,43 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
+    def _blocked_dense_label_candidate_record(
+        self,
+        before_revision: int,
+        required_evidence: Mapping[str, bool],
+    ) -> dict[str, Any]:
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_label_candidate_evidence_record",
+            "surface": "snn_language_dense_readout_label_candidate_evidence_record.v1",
+            "accepted": False,
+            "duplicate": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "applies_plasticity": False,
+            "records_replay_artifact": False,
+            "promotes_facts": False,
+            "executes_actions": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "before": {"state_revision": before_revision},
+            "after": self._runtime_state.mutation_summary(),
+            "promotion_gate": {
+                "status": "blocked_missing_dense_label_candidate_review_evidence",
+                "eligible_for_dense_label_candidate_history": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": dict(required_evidence),
+            },
+        }
+
     def _ledger_event(
         self,
         *,
@@ -4939,6 +7825,54 @@ class SNNLanguageReadoutEvidenceLedger:
             "generation_scope": emission.get("generation_scope"),
             "freeform_language_generation": False,
             "eligible_for_replay_memory": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_cognition_substrate": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "material_hash_algorithm": "sha256_canonical_json",
+        }
+
+    def _dense_label_candidate_event(
+        self,
+        *,
+        review: Mapping[str, Any],
+        operator_id: str,
+        state_revision: int,
+        labels: Sequence[str],
+    ) -> dict[str, Any]:
+        review_context = (
+            review.get("review_context")
+            if isinstance(review.get("review_context"), Mapping)
+            else {}
+        )
+        label_list = [str(value) for value in list(labels) if str(value)][:8]
+        material = {
+            "review_hash": review.get("review_hash"),
+            "source_execution_hash": review.get("source_execution_hash"),
+            "labels": label_list,
+            "tensor_device": review_context.get("tensor_device"),
+            "active_count": int(review_context.get("active_count", 0) or 0),
+            "state_revision": int(state_revision),
+        }
+        evidence_hash = self._sha256_json(material)
+        return {
+            "dense_label_candidate_evidence_hash": evidence_hash,
+            "dense_label_candidate_evidence_id": (
+                f"snn-dense-label-candidate-evidence:{evidence_hash[:16]}"
+            ),
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "state_revision": int(state_revision),
+            "operator_id": operator_id,
+            "review_hash": material["review_hash"],
+            "source_execution_hash": material["source_execution_hash"],
+            "labels": label_list,
+            "label_count": len(label_list),
+            "label_hash": self._sha256_json(label_list),
+            "tensor_device": material["tensor_device"],
+            "active_count": material["active_count"],
+            "freeform_language_generation": False,
+            "eligible_for_replay_memory": False,
+            "eligible_for_live_replay": False,
             "eligible_for_plasticity_application": False,
             "eligible_for_cognition_substrate": False,
             "eligible_for_fact_promotion": False,
@@ -5157,6 +8091,12 @@ class SNNLanguageReadoutEvidenceLedger:
         raw_events = list(state.get("events") or [])
         raw_rollout_events = list(state.get("rollout_events") or [])
         raw_emission_review_events = list(state.get("emission_review_events") or [])
+        raw_dense_label_candidate_events = list(
+            state.get("dense_label_candidate_events") or []
+        )
+        raw_dense_label_calibration_update_events = list(
+            state.get("dense_label_calibration_update_events") or []
+        )
         events = deque(
             (deepcopy(dict(item)) for item in raw_events if isinstance(item, Mapping)),
             maxlen=self._limit,
@@ -5173,10 +8113,34 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             maxlen=self._limit,
         )
+        dense_label_candidate_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_dense_label_candidate_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        dense_label_calibration_update_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_dense_label_calibration_update_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        current_dense_label_calibration_update = (
+            deepcopy(dict(state.get("current_dense_label_calibration_update")))
+            if isinstance(state.get("current_dense_label_calibration_update"), Mapping)
+            else {}
+        )
         return {
             "events": events,
             "rollout_events": rollout_events,
             "emission_review_events": emission_review_events,
+            "dense_label_candidate_events": dense_label_candidate_events,
+            "dense_label_calibration_update_events": dense_label_calibration_update_events,
+            "current_dense_label_calibration_update": current_dense_label_calibration_update,
             "total_recorded_count": int(state.get("total_recorded_count", len(events)) or 0),
             "total_rollout_recorded_count": int(
                 state.get("total_rollout_recorded_count", len(rollout_events)) or 0
@@ -5184,9 +8148,29 @@ class SNNLanguageReadoutEvidenceLedger:
             "total_emission_review_count": int(
                 state.get("total_emission_review_count", len(emission_review_events)) or 0
             ),
+            "total_dense_label_candidate_count": int(
+                state.get(
+                    "total_dense_label_candidate_count",
+                    len(dense_label_candidate_events),
+                )
+                or 0
+            ),
+            "total_dense_label_calibration_update_count": int(
+                state.get(
+                    "total_dense_label_calibration_update_count",
+                    len(dense_label_calibration_update_events),
+                )
+                or 0
+            ),
             "last_recorded_at": state.get("last_recorded_at"),
             "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
             "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
+            "last_dense_label_candidate_recorded_at": state.get(
+                "last_dense_label_candidate_recorded_at"
+            ),
+            "last_dense_label_calibration_update_applied_at": state.get(
+                "last_dense_label_calibration_update_applied_at"
+            ),
         }
 
     def _known_readout_evidence_hashes(self) -> set[str]:
@@ -5214,6 +8198,21 @@ class SNNLanguageReadoutEvidenceLedger:
             deepcopy(item)
             for item in list(normalized.get("emission_review_events") or [])[: self._limit]
         ]
+        state["dense_label_candidate_events"] = [
+            deepcopy(item)
+            for item in list(normalized.get("dense_label_candidate_events") or [])[
+                : self._limit
+            ]
+        ]
+        state["dense_label_calibration_update_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("dense_label_calibration_update_events") or []
+            )[: self._limit]
+        ]
+        state["current_dense_label_calibration_update"] = deepcopy(
+            dict(normalized.get("current_dense_label_calibration_update") or {})
+        )
         state["total_recorded_count"] = int(normalized.get("total_recorded_count", 0) or 0)
         state["total_rollout_recorded_count"] = int(
             normalized.get("total_rollout_recorded_count", 0) or 0
@@ -5221,9 +8220,21 @@ class SNNLanguageReadoutEvidenceLedger:
         state["total_emission_review_count"] = int(
             normalized.get("total_emission_review_count", 0) or 0
         )
+        state["total_dense_label_candidate_count"] = int(
+            normalized.get("total_dense_label_candidate_count", 0) or 0
+        )
+        state["total_dense_label_calibration_update_count"] = int(
+            normalized.get("total_dense_label_calibration_update_count", 0) or 0
+        )
         state["last_recorded_at"] = normalized.get("last_recorded_at")
         state["last_rollout_recorded_at"] = normalized.get("last_rollout_recorded_at")
         state["last_emission_reviewed_at"] = normalized.get("last_emission_reviewed_at")
+        state["last_dense_label_candidate_recorded_at"] = normalized.get(
+            "last_dense_label_candidate_recorded_at"
+        )
+        state["last_dense_label_calibration_update_applied_at"] = normalized.get(
+            "last_dense_label_calibration_update_applied_at"
+        )
 
     @staticmethod
     def _sha256_json(value: Any) -> str:

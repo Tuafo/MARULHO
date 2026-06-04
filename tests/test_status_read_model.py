@@ -4271,6 +4271,181 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             ready["promotion_gate"]["eligible_for_language_generation"]
         )
 
+    def test_snn_language_dense_readout_decoder_probe_execution_returns_only_grounded_candidates(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        post_training = {
+            "surface": "snn_language_dense_readout_post_training_evaluation.v1",
+            "ready": True,
+            "generates_text": False,
+            "tensor_summary": {"device": "cpu"},
+            "promotion_gate": {
+                "status": "ready_for_dense_readout_decoder_probe_design"
+            },
+        }
+        design = model.snn_language_dense_readout_decoder_probe_design(
+            post_training,
+            [
+                {
+                    "label": "prediction error",
+                    "pressure_band": "high",
+                    "grounded": True,
+                },
+                {
+                    "label": "concept focus",
+                    "pressure_band": "medium",
+                    "grounded": True,
+                },
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+            decoder_design={"code_dim": 64, "max_slots": 4},
+        )
+        preflight = model.snn_language_dense_readout_decoder_probe_preflight(
+            design,
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_decoder_probe_execution(
+            {**preflight, "ready": False},
+        )
+        ready = model.snn_language_dense_readout_decoder_probe_execution(
+            preflight,
+            max_candidate_labels=2,
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_decoder_probe_execution.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(blocked["probe_executed"])
+        self.assertEqual(blocked["grounded_label_candidates"], [])
+        self.assertTrue(ready["ready"])
+        self.assertTrue(ready["probe_executed"])
+        self.assertEqual(
+            ready["grounded_label_candidates"],
+            ["prediction error", "concept focus"],
+        )
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertFalse(ready["freeform_language_generation"])
+        self.assertFalse(ready["decodes_text"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_dense_readout_label_candidate_review"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_label_candidate_review_records_evidence_only(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        post_training = {
+            "surface": "snn_language_dense_readout_post_training_evaluation.v1",
+            "ready": True,
+            "generates_text": False,
+            "tensor_summary": {"device": "cpu"},
+            "promotion_gate": {
+                "status": "ready_for_dense_readout_decoder_probe_design"
+            },
+        }
+        design = model.snn_language_dense_readout_decoder_probe_design(
+            post_training,
+            [
+                {
+                    "label": "prediction error",
+                    "pressure_band": "high",
+                    "grounded": True,
+                },
+                {
+                    "label": "concept focus",
+                    "pressure_band": "medium",
+                    "grounded": True,
+                },
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+            decoder_design={"code_dim": 64, "max_slots": 4},
+        )
+        preflight = model.snn_language_dense_readout_decoder_probe_preflight(
+            design,
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        execution = model.snn_language_dense_readout_decoder_probe_execution(
+            preflight,
+            max_candidate_labels=2,
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_label_candidate_review(
+            execution,
+            operator_id="operator-test",
+            confirmation=False,
+        )
+        ready = model.snn_language_dense_readout_label_candidate_review(
+            execution,
+            operator_id="operator-test",
+            confirmation=True,
+            review_note="grounded labels reviewed as candidates",
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_label_candidate_review.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(blocked["review_recorded"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "operator_confirmation_present"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertTrue(ready["review_recorded"])
+        self.assertEqual(
+            ready["grounded_label_candidates"],
+            ["prediction error", "concept focus"],
+        )
+        self.assertEqual(ready["candidate_label_count"], 2)
+        self.assertEqual(ready["source_execution_hash"], execution["execution_hash"])
+        self.assertTrue(ready["review_hash"])
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertFalse(ready["freeform_language_generation"])
+        self.assertFalse(ready["decodes_text"])
+        self.assertFalse(ready["applies_plasticity"])
+        self.assertFalse(ready["records_replay_artifact"])
+        self.assertFalse(ready["promotes_facts"])
+        self.assertFalse(ready["executes_actions"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_bounded_label_candidate_evidence_record"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_fact_promotion"]
+        )
+        self.assertFalse(ready["promotion_gate"]["eligible_for_action"])
+
     def test_snn_language_capacity_expansion_design_is_read_only_checkpoint_backed_plan(
         self,
     ) -> None:

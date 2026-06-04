@@ -91,8 +91,88 @@ class RuntimeFacade:
     def snn_language_readout_emission_review_record(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.record_readout_emission_review(**kwargs)
 
+    def snn_language_dense_readout_label_candidate_evidence_record(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.record_dense_readout_label_candidate_review(
+            **kwargs
+        )
+
     def snn_language_readout_emission_review_history(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_history(**kwargs)
+
+    def snn_language_dense_label_candidate_history(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_history(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_policy(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_policy(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_evaluation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_evaluation_design(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_evaluation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_evaluation_preflight(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_evaluation(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_evaluation_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_evaluation_review(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_update_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_update_design(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_update_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_update_preflight(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_update_application(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.apply_dense_label_candidate_calibration_update(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_calibration_update_application_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_calibration_update_application_review(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_post_calibration_observation_window(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_post_calibration_observation_window(
+            **kwargs
+        )
+
+    def snn_language_dense_label_candidate_post_calibration_operator_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.dense_label_candidate_post_calibration_operator_review(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_use_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_use_design(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_use_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_use_preflight(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_use_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_calibrated_dense_label_confidence_use(
+            **kwargs
+        )
 
     def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
@@ -1021,6 +1101,16 @@ class RuntimeFacade:
 
     def snn_language_dense_readout_decoder_probe_preflight(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._status_read_model.snn_language_dense_readout_decoder_probe_preflight(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_decoder_probe_execution(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_decoder_probe_execution(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_label_candidate_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_label_candidate_review(
             **kwargs
         )
 

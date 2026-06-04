@@ -44,6 +44,9 @@ from .schemas import (
     RuntimeTraceExportResponse,
     SNNLanguageHeldoutEvaluationRequest,
     SNNLanguagePlasticityApplicationDesignRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceUseDesignRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceUseExecutorRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceUsePreflightRequest,
     SNNLanguageCapacityExpansionDesignRequest,
     SNNLanguageCapacityExpansionPreflightRequest,
     SNNLanguageCapacityResizeCompatibilityAuditRequest,
@@ -54,7 +57,20 @@ from .schemas import (
     SNNLanguageDenseReadoutTensorMaterializationRequest,
     SNNLanguageDenseReadoutTensorMaterializationReadinessRequest,
     SNNLanguageDenseReadoutDecoderProbeDesignRequest,
+    SNNLanguageDenseReadoutDecoderProbeExecutionRequest,
     SNNLanguageDenseReadoutDecoderProbePreflightRequest,
+    SNNLanguageDenseLabelCandidateCalibrationEvaluationRequest,
+    SNNLanguageDenseLabelCandidateCalibrationEvaluationDesignRequest,
+    SNNLanguageDenseLabelCandidateCalibrationEvaluationPreflightRequest,
+    SNNLanguageDenseLabelCandidateCalibrationEvaluationReviewRequest,
+    SNNLanguageDenseLabelCandidateCalibrationUpdateApplicationRequest,
+    SNNLanguageDenseLabelCandidateCalibrationUpdateApplicationReviewRequest,
+    SNNLanguageDenseLabelCandidateCalibrationUpdateDesignRequest,
+    SNNLanguageDenseLabelCandidateCalibrationUpdatePreflightRequest,
+    SNNLanguageDenseLabelCandidatePostCalibrationObservationWindowRequest,
+    SNNLanguageDenseLabelCandidatePostCalibrationOperatorReviewRequest,
+    SNNLanguageDenseReadoutLabelCandidateEvidenceRecordRequest,
+    SNNLanguageDenseReadoutLabelCandidateReviewRequest,
     SNNLanguageDenseReadoutPostTrainingEvaluationRequest,
     SNNLanguageDenseReadoutTrainingLoopDesignRequest,
     SNNLanguageDenseReadoutTrainingLoopPreflightRequest,
@@ -531,6 +547,189 @@ def create_app(
     @app.get("/terminus/snn-language-sequence/readout-ledger/replay-priority")
     def terminus_snn_language_readout_replay_priority(limit: int = Query(12, ge=0, le=128)) -> dict[str, Any]:
         return runtime.snn_language_readout_replay_priority(limit=limit)
+
+    @app.get("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-history")
+    def terminus_snn_language_dense_label_candidate_history(
+        limit: int = Query(20, ge=0, le=128),
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_history(limit=limit)
+
+    @app.get("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-policy")
+    def terminus_snn_language_dense_label_candidate_calibration_policy(
+        limit: int = Query(12, ge=0, le=128),
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_policy(
+            limit=limit,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation-design")
+    def terminus_snn_language_dense_label_candidate_calibration_evaluation_design(
+        request: SNNLanguageDenseLabelCandidateCalibrationEvaluationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_evaluation_design(
+            dense_label_candidate_calibration_policy=(
+                request.dense_label_candidate_calibration_policy
+            ),
+            heldout_label_evidence=request.heldout_label_evidence,
+            design_policy=request.design_policy,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation-preflight")
+    def terminus_snn_language_dense_label_candidate_calibration_evaluation_preflight(
+        request: SNNLanguageDenseLabelCandidateCalibrationEvaluationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_evaluation_preflight(
+            dense_label_candidate_calibration_evaluation_design=(
+                request.dense_label_candidate_calibration_evaluation_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation")
+    def terminus_snn_language_dense_label_candidate_calibration_evaluation(
+        request: SNNLanguageDenseLabelCandidateCalibrationEvaluationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_evaluation(
+            dense_label_candidate_calibration_evaluation_preflight=(
+                request.dense_label_candidate_calibration_evaluation_preflight
+            ),
+            heldout_label_evidence=request.heldout_label_evidence,
+            bin_count=request.bin_count,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation-review")
+    def terminus_snn_language_dense_label_candidate_calibration_evaluation_review(
+        request: SNNLanguageDenseLabelCandidateCalibrationEvaluationReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_evaluation_review(
+            dense_label_candidate_calibration_evaluation=(
+                request.dense_label_candidate_calibration_evaluation
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-design")
+    def terminus_snn_language_dense_label_candidate_calibration_update_design(
+        request: SNNLanguageDenseLabelCandidateCalibrationUpdateDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_update_design(
+            dense_label_candidate_calibration_evaluation_review=(
+                request.dense_label_candidate_calibration_evaluation_review
+            ),
+            update_policy=request.update_policy,
+            rollback_policy=request.rollback_policy,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-preflight")
+    def terminus_snn_language_dense_label_candidate_calibration_update_preflight(
+        request: SNNLanguageDenseLabelCandidateCalibrationUpdatePreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_update_preflight(
+            dense_label_candidate_calibration_update_design=(
+                request.dense_label_candidate_calibration_update_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+            rollback_policy=request.rollback_policy,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-application")
+    def terminus_snn_language_dense_label_candidate_calibration_update_application(
+        request: SNNLanguageDenseLabelCandidateCalibrationUpdateApplicationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_update_application(
+            dense_label_candidate_calibration_update_preflight=(
+                request.dense_label_candidate_calibration_update_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-application-review")
+    def terminus_snn_language_dense_label_candidate_calibration_update_application_review(
+        request: SNNLanguageDenseLabelCandidateCalibrationUpdateApplicationReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_calibration_update_application_review(
+            dense_label_candidate_calibration_update_application=(
+                request.dense_label_candidate_calibration_update_application
+            ),
+            expected_state_revision=request.expected_state_revision,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-post-calibration-observation-window")
+    def terminus_snn_language_dense_label_candidate_post_calibration_observation_window(
+        request: SNNLanguageDenseLabelCandidatePostCalibrationObservationWindowRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_post_calibration_observation_window(
+            dense_label_candidate_calibration_update_application_review=(
+                request.dense_label_candidate_calibration_update_application_review
+            ),
+            observation_evidence=request.observation_evidence,
+            expected_state_revision=request.expected_state_revision,
+            window_policy=request.window_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-post-calibration-operator-review")
+    def terminus_snn_language_dense_label_candidate_post_calibration_operator_review(
+        request: SNNLanguageDenseLabelCandidatePostCalibrationOperatorReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_label_candidate_post_calibration_operator_review(
+            dense_label_candidate_post_calibration_observation_window=(
+                request.dense_label_candidate_post_calibration_observation_window
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-use-design")
+    def terminus_snn_language_calibrated_dense_label_confidence_use_design(
+        request: SNNLanguageCalibratedDenseLabelConfidenceUseDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_use_design(
+            dense_label_candidate_post_calibration_operator_review=(
+                request.dense_label_candidate_post_calibration_operator_review
+            ),
+            confidence_use_policy=request.confidence_use_policy,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-use-preflight")
+    def terminus_snn_language_calibrated_dense_label_confidence_use_preflight(
+        request: SNNLanguageCalibratedDenseLabelConfidenceUsePreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_use_preflight(
+            dense_label_confidence_use_design=request.dense_label_confidence_use_design,
+            expected_state_revision=request.expected_state_revision,
+            candidate_evidence=request.candidate_evidence,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-use-executor")
+    def terminus_snn_language_calibrated_dense_label_confidence_use_executor(
+        request: SNNLanguageCalibratedDenseLabelConfidenceUseExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_use_executor(
+            calibrated_dense_label_confidence_use_preflight=(
+                request.calibrated_dense_label_confidence_use_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            candidate_evidence=request.candidate_evidence,
+            execution_policy=request.execution_policy,
+        )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/rehearsal-evaluation")
     def terminus_snn_language_readout_rehearsal_evaluation(
@@ -1080,6 +1279,43 @@ def create_app(
             ),
             expected_state_revision=request.expected_state_revision,
             device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-decoder-probe")
+    def terminus_snn_language_dense_readout_decoder_probe(
+        request: SNNLanguageDenseReadoutDecoderProbeExecutionRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_decoder_probe_execution(
+            dense_readout_decoder_probe_preflight=(
+                request.dense_readout_decoder_probe_preflight
+            ),
+            max_candidate_labels=request.max_candidate_labels,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-label-candidate-review")
+    def terminus_snn_language_dense_readout_label_candidate_review(
+        request: SNNLanguageDenseReadoutLabelCandidateReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_label_candidate_review(
+            dense_readout_decoder_probe_execution=(
+                request.dense_readout_decoder_probe_execution
+            ),
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            review_note=request.review_note,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/record-dense-label-candidate-review")
+    def terminus_snn_language_dense_readout_label_candidate_evidence_record(
+        request: SNNLanguageDenseReadoutLabelCandidateEvidenceRecordRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_label_candidate_evidence_record(
+            dense_readout_label_candidate_review=(
+                request.dense_readout_label_candidate_review
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
         )
 
     @app.post("/terminus/snn-language-sequence/plasticity-homeostatic-maintenance")

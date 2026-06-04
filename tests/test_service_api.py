@@ -342,6 +342,250 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "device_evidence": {"device": "cpu", "source": "service_api"},
                     },
                 )
+                dense_readout_decoder_probe_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-decoder-probe",
+                    json={
+                        "dense_readout_decoder_probe_preflight": (
+                            dense_readout_decoder_probe_preflight_response.json()
+                        ),
+                        "max_candidate_labels": 4,
+                    },
+                )
+                dense_readout_label_candidate_review_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-label-candidate-review",
+                    json={
+                        "dense_readout_decoder_probe_execution": (
+                            dense_readout_decoder_probe_response.json()
+                        ),
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                        "review_note": "service API candidate review",
+                    },
+                )
+                dense_readout_label_candidate_record_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/record-dense-label-candidate-review",
+                    json={
+                        "dense_readout_label_candidate_review": (
+                            dense_readout_label_candidate_review_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                    },
+                )
+                dense_label_candidate_history_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-history",
+                    params={"limit": 4},
+                )
+                dense_label_candidate_calibration_policy_response = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-policy",
+                    params={"limit": 4},
+                )
+                dense_label_candidate_calibration_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation-design",
+                    json={
+                        "dense_label_candidate_calibration_policy": (
+                            dense_label_candidate_calibration_policy_response.json()
+                        ),
+                        "heldout_label_evidence": {
+                            "labels": ["prediction error"],
+                            "target_hash": status_response.json()["runtime_truth"][
+                                "evidence"
+                            ]["snn_language_capacity_pressure"]["surface"],
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                dense_label_candidate_calibration_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation-preflight",
+                    json={
+                        "dense_label_candidate_calibration_evaluation_design": (
+                            dense_label_candidate_calibration_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "executor_capabilities": {
+                            "calibration_evaluation_executor": False
+                        },
+                    },
+                )
+                dense_label_candidate_calibration_evaluation_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation",
+                    json={
+                        "dense_label_candidate_calibration_evaluation_preflight": (
+                            dense_label_candidate_calibration_preflight_response.json()
+                        ),
+                        "heldout_label_evidence": {"labels": ["prediction error"]},
+                        "bin_count": 5,
+                    },
+                )
+                dense_label_candidate_calibration_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-evaluation-review",
+                    json={
+                        "dense_label_candidate_calibration_evaluation": (
+                            dense_label_candidate_calibration_evaluation_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                    },
+                )
+                dense_label_candidate_calibration_update_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-design",
+                    json={
+                        "dense_label_candidate_calibration_evaluation_review": (
+                            dense_label_candidate_calibration_review_response.json()
+                        ),
+                        "update_policy": {"method": "bounded_temperature_scaling"},
+                        "rollback_policy": {
+                            "available": True,
+                            "snapshot_id": "service-api-calibration",
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                dense_label_candidate_calibration_update_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-preflight",
+                    json={
+                        "dense_label_candidate_calibration_update_design": (
+                            dense_label_candidate_calibration_update_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "checkpoint_path": "checkpoints/service-api-calibration.json",
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "executor_capabilities": {
+                            "calibration_update_executor": False
+                        },
+                    },
+                )
+                dense_label_candidate_calibration_update_application_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-application",
+                    json={
+                        "dense_label_candidate_calibration_update_preflight": (
+                            dense_label_candidate_calibration_update_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                    },
+                )
+                dense_label_candidate_calibration_update_application_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-calibration-update-application-review",
+                    json={
+                        "dense_label_candidate_calibration_update_application": (
+                            dense_label_candidate_calibration_update_application_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                    },
+                )
+                dense_label_candidate_post_calibration_observation_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-post-calibration-observation-window",
+                    json={
+                        "dense_label_candidate_calibration_update_application_review": (
+                            dense_label_candidate_calibration_update_application_review_response.json()
+                        ),
+                        "observation_evidence": {
+                            "samples": [
+                                {
+                                    "sample_hash": "a" * 64,
+                                    "label_hash": "b" * 64,
+                                    "pre_calibration_confidence": 0.8,
+                                    "calibrated_confidence": 0.75,
+                                    "correct": True,
+                                }
+                            ]
+                        },
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "window_policy": {"min_samples": 3},
+                    },
+                )
+                dense_label_candidate_post_calibration_operator_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/dense-label-candidate-post-calibration-operator-review",
+                    json={
+                        "dense_label_candidate_post_calibration_observation_window": (
+                            dense_label_candidate_post_calibration_observation_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                    },
+                )
+                calibrated_dense_label_confidence_use_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-use-design",
+                    json={
+                        "dense_label_candidate_post_calibration_operator_review": (
+                            dense_label_candidate_post_calibration_operator_review_response.json()
+                        ),
+                        "confidence_use_policy": {
+                            "use_mode": "threshold_and_abstain",
+                            "min_confidence_threshold": 0.6,
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                calibrated_dense_label_confidence_use_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-use-preflight",
+                    json={
+                        "dense_label_confidence_use_design": (
+                            calibrated_dense_label_confidence_use_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "candidate_evidence": {
+                            "candidates": [
+                                {
+                                    "dense_label_candidate_evidence_hash": "c" * 64,
+                                    "label_hash": "d" * 64,
+                                    "calibrated_confidence": 0.7,
+                                    "pre_calibration_confidence": 0.8,
+                                }
+                            ]
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "executor_capabilities": {
+                            "calibrated_confidence_use_executor": True
+                        },
+                    },
+                )
+                calibrated_dense_label_confidence_use_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-use-executor",
+                    json={
+                        "calibrated_dense_label_confidence_use_preflight": (
+                            calibrated_dense_label_confidence_use_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "candidate_evidence": {
+                            "candidates": [
+                                {
+                                    "dense_label_candidate_evidence_hash": "c" * 64,
+                                    "label_hash": "d" * 64,
+                                    "calibrated_confidence": 0.7,
+                                    "pre_calibration_confidence": 0.8,
+                                }
+                            ]
+                        },
+                        "execution_policy": {"max_selected_candidates": 1},
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
@@ -369,6 +613,72 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(dense_readout_decoder_probe_design_response.status_code, 200)
         self.assertEqual(dense_readout_decoder_probe_preflight_response.status_code, 200)
+        self.assertEqual(dense_readout_decoder_probe_response.status_code, 200)
+        self.assertEqual(
+            dense_readout_label_candidate_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_readout_label_candidate_record_response.status_code,
+            200,
+        )
+        self.assertEqual(dense_label_candidate_history_response.status_code, 200)
+        self.assertEqual(
+            dense_label_candidate_calibration_policy_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_evaluation_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_application_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_application_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_post_calibration_observation_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            dense_label_candidate_post_calibration_operator_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_use_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_use_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_use_executor_response.status_code,
+            200,
+        )
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
         capacity_expansion_design = capacity_expansion_response.json()
@@ -403,6 +713,56 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         dense_readout_decoder_probe_preflight = (
             dense_readout_decoder_probe_preflight_response.json()
+        )
+        dense_readout_decoder_probe = dense_readout_decoder_probe_response.json()
+        dense_readout_label_candidate_review = (
+            dense_readout_label_candidate_review_response.json()
+        )
+        dense_readout_label_candidate_record = (
+            dense_readout_label_candidate_record_response.json()
+        )
+        dense_label_candidate_history = dense_label_candidate_history_response.json()
+        dense_label_candidate_calibration_policy = (
+            dense_label_candidate_calibration_policy_response.json()
+        )
+        dense_label_candidate_calibration_design = (
+            dense_label_candidate_calibration_design_response.json()
+        )
+        dense_label_candidate_calibration_preflight = (
+            dense_label_candidate_calibration_preflight_response.json()
+        )
+        dense_label_candidate_calibration_evaluation = (
+            dense_label_candidate_calibration_evaluation_response.json()
+        )
+        dense_label_candidate_calibration_review = (
+            dense_label_candidate_calibration_review_response.json()
+        )
+        dense_label_candidate_calibration_update_design = (
+            dense_label_candidate_calibration_update_design_response.json()
+        )
+        dense_label_candidate_calibration_update_preflight = (
+            dense_label_candidate_calibration_update_preflight_response.json()
+        )
+        dense_label_candidate_calibration_update_application = (
+            dense_label_candidate_calibration_update_application_response.json()
+        )
+        dense_label_candidate_calibration_update_application_review = (
+            dense_label_candidate_calibration_update_application_review_response.json()
+        )
+        dense_label_candidate_post_calibration_observation = (
+            dense_label_candidate_post_calibration_observation_response.json()
+        )
+        dense_label_candidate_post_calibration_operator_review = (
+            dense_label_candidate_post_calibration_operator_review_response.json()
+        )
+        calibrated_dense_label_confidence_use_design = (
+            calibrated_dense_label_confidence_use_design_response.json()
+        )
+        calibrated_dense_label_confidence_use_preflight = (
+            calibrated_dense_label_confidence_use_preflight_response.json()
+        )
+        calibrated_dense_label_confidence_use_executor = (
+            calibrated_dense_label_confidence_use_executor_response.json()
         )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
@@ -655,6 +1015,545 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(dense_readout_decoder_probe_preflight["generates_text"])
         self.assertFalse(
             dense_readout_decoder_probe_preflight["freeform_language_generation"]
+        )
+        self.assertEqual(
+            dense_readout_decoder_probe["surface"],
+            "snn_language_dense_readout_decoder_probe_execution.v1",
+        )
+        self.assertFalse(dense_readout_decoder_probe["ready"])
+        self.assertFalse(dense_readout_decoder_probe["probe_executed"])
+        self.assertFalse(dense_readout_decoder_probe["executable"])
+        self.assertFalse(dense_readout_decoder_probe["mutates_runtime_state"])
+        self.assertFalse(dense_readout_decoder_probe["writes_checkpoint"])
+        self.assertFalse(dense_readout_decoder_probe["generates_text"])
+        self.assertFalse(dense_readout_decoder_probe["freeform_language_generation"])
+        self.assertEqual(
+            dense_readout_label_candidate_review["surface"],
+            "snn_language_dense_readout_label_candidate_review.v1",
+        )
+        self.assertFalse(dense_readout_label_candidate_review["ready"])
+        self.assertFalse(dense_readout_label_candidate_review["review_recorded"])
+        self.assertFalse(dense_readout_label_candidate_review["executable"])
+        self.assertFalse(
+            dense_readout_label_candidate_review["mutates_runtime_state"]
+        )
+        self.assertFalse(dense_readout_label_candidate_review["writes_checkpoint"])
+        self.assertFalse(dense_readout_label_candidate_review["generates_text"])
+        self.assertFalse(
+            dense_readout_label_candidate_review["freeform_language_generation"]
+        )
+        self.assertFalse(dense_readout_label_candidate_review["decodes_text"])
+        self.assertFalse(dense_readout_label_candidate_review["applies_plasticity"])
+        self.assertFalse(
+            dense_readout_label_candidate_review["records_replay_artifact"]
+        )
+        self.assertFalse(dense_readout_label_candidate_review["promotes_facts"])
+        self.assertFalse(dense_readout_label_candidate_review["executes_actions"])
+        self.assertEqual(
+            dense_readout_label_candidate_record["surface"],
+            "snn_language_dense_readout_label_candidate_evidence_record.v1",
+        )
+        self.assertFalse(dense_readout_label_candidate_record["accepted"])
+        self.assertFalse(dense_readout_label_candidate_record["mutates_runtime_state"])
+        self.assertFalse(dense_readout_label_candidate_record["writes_checkpoint"])
+        self.assertFalse(dense_readout_label_candidate_record["generates_text"])
+        self.assertFalse(dense_readout_label_candidate_record["decodes_text"])
+        self.assertFalse(dense_readout_label_candidate_record["applies_plasticity"])
+        self.assertFalse(
+            dense_readout_label_candidate_record["records_replay_artifact"]
+        )
+        self.assertFalse(dense_readout_label_candidate_record["promotes_facts"])
+        self.assertFalse(dense_readout_label_candidate_record["executes_actions"])
+        self.assertEqual(
+            dense_label_candidate_history["surface"],
+            "snn_language_dense_label_candidate_history.v1",
+        )
+        self.assertFalse(dense_label_candidate_history["executable"])
+        self.assertFalse(dense_label_candidate_history["records_ledger_event"])
+        self.assertFalse(dense_label_candidate_history["runs_replay"])
+        self.assertFalse(dense_label_candidate_history["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_history["generates_text"])
+        self.assertFalse(dense_label_candidate_history["decodes_text"])
+        self.assertTrue(dense_label_candidate_history["exposes_reviewed_bounded_labels"])
+        self.assertFalse(dense_label_candidate_history["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_history["mutates_runtime_state"])
+        self.assertEqual(
+            dense_label_candidate_history["summary"][
+                "returned_dense_label_candidate_event_count"
+            ],
+            0,
+        )
+        self.assertFalse(
+            dense_label_candidate_history["promotion_gate"][
+                "eligible_for_operator_dense_label_candidate_history_inspection"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_policy["surface"],
+            "snn_language_dense_label_candidate_calibration_policy.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_policy["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_policy["records_ledger_event"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_policy["runs_replay"])
+        self.assertFalse(dense_label_candidate_calibration_policy["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_calibration_policy["generates_text"])
+        self.assertFalse(dense_label_candidate_calibration_policy["decodes_text"])
+        self.assertFalse(
+            dense_label_candidate_calibration_policy["trains_runtime_model"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_policy["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_calibration_policy["mutates_runtime_state"])
+        self.assertEqual(
+            dense_label_candidate_calibration_policy["ready_candidate_count"],
+            0,
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_policy["promotion_gate"][
+                "eligible_for_operator_dense_label_calibration_review"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_policy["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_design["surface"],
+            "snn_language_dense_label_candidate_calibration_evaluation_design.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_design["ready"])
+        self.assertFalse(dense_label_candidate_calibration_design["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_design["records_ledger_event"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_design["runs_replay"])
+        self.assertFalse(
+            dense_label_candidate_calibration_design["runs_calibration_evaluation"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_design["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_calibration_design["generates_text"])
+        self.assertFalse(dense_label_candidate_calibration_design["decodes_text"])
+        self.assertFalse(
+            dense_label_candidate_calibration_design["trains_runtime_model"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_design["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_calibration_design["mutates_runtime_state"])
+        self.assertFalse(
+            dense_label_candidate_calibration_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_preflight["surface"],
+            "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_preflight["ready"])
+        self.assertFalse(dense_label_candidate_calibration_preflight["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_preflight["records_ledger_event"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_preflight["runs_replay"])
+        self.assertFalse(
+            dense_label_candidate_calibration_preflight[
+                "runs_calibration_evaluation"
+            ]
+        )
+        self.assertFalse(dense_label_candidate_calibration_preflight["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_calibration_preflight["generates_text"])
+        self.assertFalse(dense_label_candidate_calibration_preflight["decodes_text"])
+        self.assertFalse(
+            dense_label_candidate_calibration_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_preflight["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_calibration_preflight["mutates_runtime_state"])
+        self.assertFalse(
+            dense_label_candidate_calibration_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_evaluation["surface"],
+            "snn_language_dense_label_candidate_calibration_evaluation.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_evaluation["ready"])
+        self.assertFalse(dense_label_candidate_calibration_evaluation["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_evaluation["records_ledger_event"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_evaluation["runs_replay"])
+        self.assertFalse(dense_label_candidate_calibration_evaluation["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_calibration_evaluation["generates_text"])
+        self.assertFalse(dense_label_candidate_calibration_evaluation["decodes_text"])
+        self.assertFalse(
+            dense_label_candidate_calibration_evaluation["trains_runtime_model"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_evaluation["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_calibration_evaluation["mutates_runtime_state"])
+        self.assertEqual(dense_label_candidate_calibration_evaluation["sample_count"], 0)
+        self.assertFalse(
+            dense_label_candidate_calibration_evaluation["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_review["surface"],
+            "snn_language_dense_label_candidate_calibration_evaluation_review.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_review["ready"])
+        self.assertFalse(dense_label_candidate_calibration_review["review_recorded"])
+        self.assertFalse(dense_label_candidate_calibration_review["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_review["records_ledger_event"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_review["runs_replay"])
+        self.assertFalse(
+            dense_label_candidate_calibration_review["runs_calibration_evaluation"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_review["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_calibration_review["generates_text"])
+        self.assertFalse(dense_label_candidate_calibration_review["decodes_text"])
+        self.assertFalse(
+            dense_label_candidate_calibration_review["trains_runtime_model"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_review["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_calibration_review["mutates_runtime_state"])
+        self.assertFalse(
+            dense_label_candidate_calibration_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_design["surface"],
+            "snn_language_dense_label_candidate_calibration_update_design.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_update_design["ready"])
+        self.assertFalse(dense_label_candidate_calibration_update_design["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_update_design["records_ledger_event"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_update_design["runs_replay"])
+        self.assertFalse(dense_label_candidate_calibration_update_design["writes_checkpoint"])
+        self.assertFalse(dense_label_candidate_calibration_update_design["generates_text"])
+        self.assertFalse(dense_label_candidate_calibration_update_design["decodes_text"])
+        self.assertFalse(
+            dense_label_candidate_calibration_update_design["trains_runtime_model"]
+        )
+        self.assertFalse(dense_label_candidate_calibration_update_design["applies_plasticity"])
+        self.assertFalse(dense_label_candidate_calibration_update_design["mutates_runtime_state"])
+        self.assertFalse(
+            dense_label_candidate_calibration_update_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_preflight["surface"],
+            "snn_language_dense_label_candidate_calibration_update_preflight.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_update_preflight["ready"])
+        self.assertFalse(dense_label_candidate_calibration_update_preflight["executable"])
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["runs_calibration_update"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["generates_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["decodes_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["promotion_gate"][
+                "eligible_for_dense_label_calibration_update_executor"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_preflight["promotion_gate"][
+                "required_evidence"
+            ]["executor_capability_available"]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_application["surface"],
+            "snn_language_dense_label_candidate_calibration_update_application.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_update_application["accepted"])
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["records_ledger_event"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["runs_calibration_update"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["writes_checkpoint"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["generates_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["decodes_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["trains_runtime_model"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["applies_plasticity"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["promotion_gate"][
+                "eligible_for_dense_label_calibration_application_review"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_calibration_update_application_review["surface"],
+            "snn_language_dense_label_candidate_calibration_update_application_review.v1",
+        )
+        self.assertFalse(dense_label_candidate_calibration_update_application_review["ready"])
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["executable"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["generates_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["decodes_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["promotion_gate"][
+                "eligible_for_post_calibration_observation_window"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_calibration_update_application_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_post_calibration_observation["surface"],
+            "snn_language_dense_label_candidate_post_calibration_observation_window.v1",
+        )
+        self.assertFalse(dense_label_candidate_post_calibration_observation["ready"])
+        self.assertFalse(dense_label_candidate_post_calibration_observation["executable"])
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["records_ledger_event"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["runs_calibration_update"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["writes_checkpoint"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["generates_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["decodes_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["trains_runtime_model"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["applies_plasticity"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["promotion_gate"][
+                "eligible_for_post_calibration_operator_review"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_observation["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            dense_label_candidate_post_calibration_operator_review["surface"],
+            "snn_language_dense_label_candidate_post_calibration_operator_review.v1",
+        )
+        self.assertFalse(dense_label_candidate_post_calibration_operator_review["ready"])
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["executable"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["generates_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["decodes_text"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["promotion_gate"][
+                "eligible_for_calibrated_dense_label_confidence_use_design"
+            ]
+        )
+        self.assertFalse(
+            dense_label_candidate_post_calibration_operator_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_use_design["surface"],
+            "snn_language_calibrated_dense_label_confidence_use_design.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_design["ready"])
+        self.assertFalse(calibrated_dense_label_confidence_use_design["executable"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_design["records_ledger_event"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_design["runs_calibration_update"]
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_design["writes_checkpoint"])
+        self.assertFalse(calibrated_dense_label_confidence_use_design["generates_text"])
+        self.assertFalse(calibrated_dense_label_confidence_use_design["decodes_text"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_design["trains_runtime_model"]
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_design["applies_plasticity"])
+        self.assertFalse(calibrated_dense_label_confidence_use_design["mutates_runtime_state"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_design["promotion_gate"][
+                "eligible_for_calibrated_dense_label_confidence_use_preflight"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_use_preflight["surface"],
+            "snn_language_calibrated_dense_label_confidence_use_preflight.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["ready"])
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["executable"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_preflight["runs_calibration_update"]
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["writes_checkpoint"])
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["generates_text"])
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["decodes_text"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["applies_plasticity"])
+        self.assertFalse(calibrated_dense_label_confidence_use_preflight["mutates_runtime_state"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_preflight["promotion_gate"][
+                "eligible_for_calibrated_dense_label_confidence_use_executor"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_use_executor["surface"],
+            "snn_language_calibrated_dense_label_confidence_use_executor.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["ready"])
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["executable"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_executor["records_ledger_event"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_executor["runs_calibration_update"]
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["writes_checkpoint"])
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["generates_text"])
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["decodes_text"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_executor["trains_runtime_model"]
+        )
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["applies_plasticity"])
+        self.assertFalse(calibrated_dense_label_confidence_use_executor["mutates_runtime_state"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_executor["promotion_gate"][
+                "eligible_for_operator_display_confidence_result"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_use_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
         )
         self.assertFalse(capacity_compatibility["adds_neurons"])
         self.assertFalse(

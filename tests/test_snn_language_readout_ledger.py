@@ -149,6 +149,50 @@ def _ready_emission() -> dict[str, object]:
     }
 
 
+def _ready_dense_label_candidate_review() -> dict[str, object]:
+    review_hash = _sha256_json({"review": "dense-label-candidates"})
+    execution_hash = _sha256_json({"execution": "dense-decoder-probe"})
+    return {
+        "surface": "snn_language_dense_readout_label_candidate_review.v1",
+        "ready": True,
+        "review_recorded": True,
+        "owned_by_hecsn": True,
+        "external_dependency": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "freeform_language_generation": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "returns_trained_weights": False,
+        "applies_plasticity": False,
+        "records_replay_artifact": False,
+        "promotes_facts": False,
+        "executes_actions": False,
+        "mutates_runtime_state": False,
+        "writes_checkpoint": False,
+        "review_hash": review_hash,
+        "source_execution_hash": execution_hash,
+        "grounded_label_candidates": ["prediction error", "concept focus"],
+        "candidate_label_count": 2,
+        "review_context": {
+            "operator_id": "operator-dense-label",
+            "confirmation": True,
+            "tensor_device": "cpu",
+            "active_count": 3,
+        },
+        "promotion_gate": {
+            "eligible_for_bounded_label_candidate_evidence_record": True,
+            "eligible_for_language_generation": False,
+            "eligible_for_freeform_language_generation": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_replay_artifact": False,
+            "eligible_for_checkpoint_write": False,
+        },
+    }
+
+
 def _ready_draft_for(
     prediction_hash: str,
     evaluation_hash: str,
@@ -310,6 +354,1151 @@ def test_readout_ledger_records_ready_emission_review_separately_from_replay_mem
     assert snapshot["emission_review_events"][0]["eligible_for_replay_memory"] is False
     assert runtime_state.state_revision == 0
     assert runtime_state.dirty_state is True
+
+
+def test_readout_ledger_records_dense_label_candidate_review_as_audit_only() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+
+    result = ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    duplicate = ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    snapshot = ledger.snapshot(limit=4)
+
+    assert result["accepted"] is True
+    assert (
+        result["surface"]
+        == "snn_language_dense_readout_label_candidate_evidence_record.v1"
+    )
+    assert result["mutates_runtime_state"] is True
+    assert result["records_replay_artifact"] is False
+    assert result["promotes_facts"] is False
+    assert result["executes_actions"] is False
+    assert result["promotion_gate"]["eligible_for_dense_label_candidate_history"] is True
+    assert result["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert result["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert result["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert result["promotion_gate"]["eligible_for_action"] is False
+    assert duplicate["accepted"] is True
+    assert duplicate["duplicate"] is True
+    assert duplicate["mutates_runtime_state"] is False
+    assert snapshot["summary"]["dense_label_candidate_event_count"] == 1
+    assert snapshot["summary"]["event_count"] == 0
+    assert snapshot["summary"]["rollout_event_count"] == 0
+    assert snapshot["summary"]["emission_review_event_count"] == 0
+    event = snapshot["dense_label_candidate_events"][0]
+    assert event["labels"] == ["prediction error", "concept focus"]
+    assert event["eligible_for_replay_memory"] is False
+    assert event["eligible_for_plasticity_application"] is False
+    assert event["eligible_for_fact_promotion"] is False
+    assert event["eligible_for_action"] is False
+    assert runtime_state.state_revision == 0
+    assert runtime_state.dirty_state is True
+
+
+def test_readout_ledger_blocks_unready_or_unconfirmed_dense_label_candidate_review() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    review = _ready_dense_label_candidate_review()
+    review["ready"] = False
+
+    result = ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=review,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    unconfirmed = ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=False,
+    )
+
+    assert result["accepted"] is False
+    assert result["promotion_gate"]["required_evidence"]["review_ready"] is False
+    assert unconfirmed["accepted"] is False
+    assert unconfirmed["promotion_gate"]["required_evidence"]["confirmation"] is False
+    assert ledger.snapshot()["summary"]["dense_label_candidate_event_count"] == 0
+    assert runtime_state.dirty_state is False
+
+
+def test_readout_ledger_dense_label_candidate_history_is_read_only_audit_surface() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    history = ledger.dense_label_candidate_history(limit=1)
+    empty = ledger.dense_label_candidate_history(limit=0)
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert history["surface"] == "snn_language_dense_label_candidate_history.v1"
+    assert history["artifact_kind"] == "terminus_snn_language_dense_label_candidate_history"
+    assert history["advisory"] is True
+    assert history["executable"] is False
+    assert history["records_ledger_event"] is False
+    assert history["runs_replay"] is False
+    assert history["writes_checkpoint"] is False
+    assert history["generates_text"] is False
+    assert history["decodes_text"] is False
+    assert history["exposes_reviewed_bounded_labels"] is True
+    assert history["freeform_language_generation"] is False
+    assert history["applies_plasticity"] is False
+    assert history["mutates_runtime_state"] is False
+    assert history["summary"]["returned_dense_label_candidate_event_count"] == 1
+    assert history["summary"]["dense_label_candidate_event_count"] == 1
+    event = history["dense_label_candidate_events"][0]
+    assert event["labels"] == ["prediction error", "concept focus"]
+    assert event["label_count"] == 2
+    assert event["tensor_device"] == "cpu"
+    assert event["active_count"] == 3
+    assert event["eligible_for_replay_memory"] is False
+    assert event["eligible_for_live_replay"] is False
+    assert event["eligible_for_plasticity_application"] is False
+    assert event["eligible_for_fact_promotion"] is False
+    assert event["eligible_for_action"] is False
+    assert history["promotion_gate"][
+        "eligible_for_operator_dense_label_candidate_history_inspection"
+    ] is True
+    assert history["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert history["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert history["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert history["promotion_gate"]["eligible_for_action"] is False
+    assert empty["summary"]["returned_dense_label_candidate_event_count"] == 0
+    assert empty["promotion_gate"][
+        "eligible_for_operator_dense_label_candidate_history_inspection"
+    ] is False
+    assert "events" not in history
+    assert "rollout_events" not in history
+    assert "emission_review_events" not in history
+    assert "replay_targets" not in history
+
+
+def test_readout_ledger_dense_label_candidate_calibration_policy_is_advisory_only() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+    empty = ledger.dense_label_candidate_calibration_policy(limit=0)
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert policy["surface"] == "snn_language_dense_label_candidate_calibration_policy.v1"
+    assert policy["artifact_kind"] == "terminus_snn_language_dense_label_candidate_calibration_policy"
+    assert policy["advisory"] is True
+    assert policy["executable"] is False
+    assert policy["records_ledger_event"] is False
+    assert policy["runs_replay"] is False
+    assert policy["writes_checkpoint"] is False
+    assert policy["generates_text"] is False
+    assert policy["decodes_text"] is False
+    assert policy["trains_runtime_model"] is False
+    assert policy["applies_plasticity"] is False
+    assert policy["mutates_runtime_state"] is False
+    assert policy["candidate_count"] == 1
+    assert policy["ready_candidate_count"] == 1
+    candidate = policy["calibration_candidates"][0]
+    assert candidate["labels"] == ["prediction error", "concept focus"]
+    assert candidate["eligible_for_dense_label_calibration_review"] is True
+    assert candidate["eligible_for_replay_memory"] is False
+    assert candidate["eligible_for_live_replay"] is False
+    assert candidate["eligible_for_plasticity_application"] is False
+    assert candidate["eligible_for_fact_promotion"] is False
+    assert candidate["eligible_for_action"] is False
+    assert policy["promotion_gate"][
+        "eligible_for_operator_dense_label_calibration_review"
+    ] is True
+    assert policy["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert policy["promotion_gate"]["eligible_for_language_generation"] is False
+    assert policy["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert policy["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert policy["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert policy["promotion_gate"]["eligible_for_action"] is False
+    assert empty["ready_candidate_count"] == 0
+    assert empty["promotion_gate"][
+        "eligible_for_operator_dense_label_calibration_review"
+    ] is False
+
+
+def test_readout_ledger_dense_label_calibration_evaluation_design_is_read_only() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    blocked = ledger.dense_label_candidate_calibration_evaluation_design(
+        dense_label_candidate_calibration_policy=policy,
+        heldout_label_evidence={},
+        device_evidence={"device": "cpu"},
+    )
+    ready = ledger.dense_label_candidate_calibration_evaluation_design(
+        dense_label_candidate_calibration_policy=policy,
+        heldout_label_evidence={
+            "labels": ["prediction error", "concept focus"],
+            "target_hash": _sha256_json(["prediction error", "concept focus"]),
+        },
+        design_policy={
+            "metrics": ["expected_calibration_error", "coverage_gap"],
+            "max_candidates": 2,
+            "min_heldout_labels": 2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert blocked["ready"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "heldout_label_evidence_available"
+    ] is False
+    assert ready["surface"] == "snn_language_dense_label_candidate_calibration_evaluation_design.v1"
+    assert ready["ready"] is True
+    assert ready["advisory"] is True
+    assert ready["executable"] is False
+    assert ready["records_ledger_event"] is False
+    assert ready["runs_replay"] is False
+    assert ready["runs_calibration_evaluation"] is False
+    assert ready["writes_checkpoint"] is False
+    assert ready["generates_text"] is False
+    assert ready["decodes_text"] is False
+    assert ready["trains_runtime_model"] is False
+    assert ready["applies_plasticity"] is False
+    assert ready["mutates_runtime_state"] is False
+    assert ready["selected_candidate_count"] == 1
+    assert ready["selected_calibration_candidates"][0]["labels"] == [
+        "prediction error",
+        "concept focus",
+    ]
+    assert ready["calibration_evaluation_design"]["requires_cross_validation"] is True
+    assert ready["calibration_evaluation_design"][
+        "requires_expected_calibration_error"
+    ] is True
+    assert ready["promotion_gate"][
+        "eligible_for_dense_label_calibration_evaluation_preflight"
+    ] is True
+    assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready["promotion_gate"]["eligible_for_action"] is False
+
+
+def test_readout_ledger_dense_label_calibration_evaluation_preflight_requires_revision_and_executor() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+    design = ledger.dense_label_candidate_calibration_evaluation_design(
+        dense_label_candidate_calibration_policy=policy,
+        heldout_label_evidence={
+            "labels": ["prediction error", "concept focus"],
+            "target_hash": _sha256_json(["prediction error", "concept focus"]),
+        },
+        design_policy={
+            "metrics": ["expected_calibration_error", "coverage_gap"],
+            "max_candidates": 2,
+            "min_heldout_labels": 2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    blocked = ledger.dense_label_candidate_calibration_evaluation_preflight(
+        dense_label_candidate_calibration_evaluation_design=design,
+        expected_state_revision=runtime_state.state_revision + 1,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_evaluation_executor": True},
+    )
+    missing_executor = ledger.dense_label_candidate_calibration_evaluation_preflight(
+        dense_label_candidate_calibration_evaluation_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_evaluation_executor": False},
+    )
+    ready = ledger.dense_label_candidate_calibration_evaluation_preflight(
+        dense_label_candidate_calibration_evaluation_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_evaluation_executor": True},
+    )
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert blocked["ready"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "expected_revision_current"
+    ] is False
+    assert missing_executor["ready"] is False
+    assert missing_executor["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert ready["surface"] == "snn_language_dense_label_candidate_calibration_evaluation_preflight.v1"
+    assert ready["ready"] is True
+    assert ready["advisory"] is True
+    assert ready["executable"] is False
+    assert ready["records_ledger_event"] is False
+    assert ready["runs_replay"] is False
+    assert ready["runs_calibration_evaluation"] is False
+    assert ready["writes_checkpoint"] is False
+    assert ready["generates_text"] is False
+    assert ready["decodes_text"] is False
+    assert ready["trains_runtime_model"] is False
+    assert ready["applies_plasticity"] is False
+    assert ready["mutates_runtime_state"] is False
+    assert ready["device_preflight"]["requested_device"] == "cpu"
+    assert ready["device_preflight"]["executor_capability_available"] is True
+    assert ready["promotion_gate"][
+        "eligible_for_dense_label_calibration_evaluation_executor"
+    ] is True
+    assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready["promotion_gate"]["eligible_for_action"] is False
+
+
+def test_readout_ledger_dense_label_calibration_evaluation_computes_metrics_without_mutation() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+    design = ledger.dense_label_candidate_calibration_evaluation_design(
+        dense_label_candidate_calibration_policy=policy,
+        heldout_label_evidence={
+            "labels": ["prediction error", "concept focus"],
+            "target_hash": _sha256_json(["prediction error", "concept focus"]),
+        },
+        design_policy={
+            "metrics": ["expected_calibration_error", "coverage_gap"],
+            "max_candidates": 2,
+            "min_heldout_labels": 2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    preflight = ledger.dense_label_candidate_calibration_evaluation_preflight(
+        dense_label_candidate_calibration_evaluation_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_evaluation_executor": True},
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    blocked = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight={
+            **preflight,
+            "ready": False,
+        },
+        heldout_label_evidence={"labels": ["prediction error", "concept focus"]},
+    )
+    ready = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight=preflight,
+        heldout_label_evidence={"labels": ["prediction error", "concept focus"]},
+        bin_count=5,
+    )
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert blocked["ready"] is False
+    assert blocked["sample_count"] == 0
+    assert ready["surface"] == "snn_language_dense_label_candidate_calibration_evaluation.v1"
+    assert ready["ready"] is True
+    assert ready["advisory"] is True
+    assert ready["executable"] is False
+    assert ready["records_ledger_event"] is False
+    assert ready["runs_replay"] is False
+    assert ready["runs_calibration_evaluation"] is True
+    assert ready["writes_checkpoint"] is False
+    assert ready["generates_text"] is False
+    assert ready["decodes_text"] is False
+    assert ready["trains_runtime_model"] is False
+    assert ready["applies_plasticity"] is False
+    assert ready["mutates_runtime_state"] is False
+    assert ready["sample_count"] == 1
+    assert ready["metrics"]["expected_calibration_error"] is not None
+    assert ready["metrics"]["coverage_gap"] == 0.0
+    assert len(ready["reliability_bins"]) == 5
+    assert ready["evaluated_samples"][0]["heldout_match_count"] == 2
+    assert ready["promotion_gate"][
+        "eligible_for_dense_label_calibration_evaluation_review"
+    ] is True
+    assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready["promotion_gate"]["eligible_for_action"] is False
+
+
+def test_readout_ledger_dense_label_calibration_evaluation_review_gates_metrics_without_mutation() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+    design = ledger.dense_label_candidate_calibration_evaluation_design(
+        dense_label_candidate_calibration_policy=policy,
+        heldout_label_evidence={
+            "labels": ["prediction error", "concept focus"],
+            "target_hash": _sha256_json(["prediction error", "concept focus"]),
+        },
+        design_policy={
+            "metrics": ["expected_calibration_error", "coverage_gap"],
+            "max_candidates": 2,
+            "min_heldout_labels": 2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    preflight = ledger.dense_label_candidate_calibration_evaluation_preflight(
+        dense_label_candidate_calibration_evaluation_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_evaluation_executor": True},
+    )
+    evaluation = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight=preflight,
+        heldout_label_evidence={"labels": ["prediction error", "concept focus"]},
+        bin_count=5,
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    blocked = ledger.dense_label_candidate_calibration_evaluation_review(
+        dense_label_candidate_calibration_evaluation=evaluation,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=False,
+    )
+    ready = ledger.dense_label_candidate_calibration_evaluation_review(
+        dense_label_candidate_calibration_evaluation=evaluation,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+        review_policy={
+            "max_expected_calibration_error": 1.0,
+            "max_coverage_gap": 0.1,
+            "min_label_set_stability": 0.5,
+        },
+    )
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert blocked["ready"] is False
+    assert blocked["promotion_gate"]["required_evidence"]["confirmation"] is False
+    assert ready["surface"] == "snn_language_dense_label_candidate_calibration_evaluation_review.v1"
+    assert ready["ready"] is True
+    assert ready["review_recorded"] is True
+    assert ready["advisory"] is True
+    assert ready["executable"] is False
+    assert ready["records_ledger_event"] is False
+    assert ready["runs_replay"] is False
+    assert ready["runs_calibration_evaluation"] is False
+    assert ready["writes_checkpoint"] is False
+    assert ready["generates_text"] is False
+    assert ready["decodes_text"] is False
+    assert ready["trains_runtime_model"] is False
+    assert ready["applies_plasticity"] is False
+    assert ready["mutates_runtime_state"] is False
+    assert ready["metric_review"]["metric_thresholds_met"] is True
+    assert ready["promotion_gate"][
+        "eligible_for_dense_label_calibration_update_design"
+    ] is True
+    assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready["promotion_gate"]["eligible_for_action"] is False
+
+
+def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_read_only() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    ledger.record_dense_readout_label_candidate_review(
+        dense_readout_label_candidate_review=_ready_dense_label_candidate_review(),
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    policy = ledger.dense_label_candidate_calibration_policy(limit=4)
+    design = ledger.dense_label_candidate_calibration_evaluation_design(
+        dense_label_candidate_calibration_policy=policy,
+        heldout_label_evidence={
+            "labels": ["prediction error", "concept focus"],
+            "target_hash": _sha256_json(["prediction error", "concept focus"]),
+        },
+        design_policy={
+            "metrics": ["expected_calibration_error", "coverage_gap"],
+            "max_candidates": 2,
+            "min_heldout_labels": 2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    preflight = ledger.dense_label_candidate_calibration_evaluation_preflight(
+        dense_label_candidate_calibration_evaluation_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_evaluation_executor": True},
+    )
+    evaluation = ledger.dense_label_candidate_calibration_evaluation(
+        dense_label_candidate_calibration_evaluation_preflight=preflight,
+        heldout_label_evidence={"labels": ["prediction error", "concept focus"]},
+        bin_count=5,
+    )
+    review = ledger.dense_label_candidate_calibration_evaluation_review(
+        dense_label_candidate_calibration_evaluation=evaluation,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+        review_policy={
+            "max_expected_calibration_error": 1.0,
+            "max_coverage_gap": 0.1,
+            "min_label_set_stability": 0.5,
+        },
+    )
+    runtime_state.mark_clean()
+    before_revision = runtime_state.state_revision
+
+    blocked = ledger.dense_label_candidate_calibration_update_design(
+        dense_label_candidate_calibration_evaluation_review=review,
+        update_policy={"method": "bounded_temperature_scaling"},
+        rollback_policy={},
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    ready = ledger.dense_label_candidate_calibration_update_design(
+        dense_label_candidate_calibration_evaluation_review=review,
+        update_policy={
+            "method": "bounded_temperature_scaling",
+            "base_temperature": 1.0,
+            "max_temperature_delta": 0.25,
+        },
+        rollback_policy={"available": True, "snapshot_id": "calibration-snapshot"},
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert blocked["ready"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "rollback_policy_available"
+    ] is False
+    assert ready["surface"] == "snn_language_dense_label_candidate_calibration_update_design.v1"
+    assert ready["ready"] is True
+    assert ready["advisory"] is True
+    assert ready["executable"] is False
+    assert ready["records_ledger_event"] is False
+    assert ready["runs_replay"] is False
+    assert ready["writes_checkpoint"] is False
+    assert ready["generates_text"] is False
+    assert ready["decodes_text"] is False
+    assert ready["trains_runtime_model"] is False
+    assert ready["applies_plasticity"] is False
+    assert ready["mutates_runtime_state"] is False
+    update_design = ready["calibration_update_design"]
+    assert update_design["method"] == "bounded_temperature_scaling"
+    assert update_design["bounded_post_hoc_update"] is True
+    assert update_design["runtime_update_applied"] is False
+    assert update_design["weights_persisted"] is False
+    assert update_design["target_temperature"] <= 1.25
+    assert ready["promotion_gate"][
+        "eligible_for_dense_label_calibration_update_preflight"
+    ] is True
+    assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready["promotion_gate"]["eligible_for_action"] is False
+
+    blocked_preflight = ledger.dense_label_candidate_calibration_update_preflight(
+        dense_label_candidate_calibration_update_design=ready,
+        expected_state_revision=before_revision,
+        checkpoint_path="",
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_update_executor": False},
+    )
+    ready_preflight = ledger.dense_label_candidate_calibration_update_preflight(
+        dense_label_candidate_calibration_update_design=ready,
+        expected_state_revision=before_revision,
+        checkpoint_path="checkpoints/dense-label-calibration.json",
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibration_update_executor": True},
+    )
+
+    assert runtime_state.state_revision == before_revision
+    assert runtime_state.dirty_state is False
+    assert blocked_preflight["ready"] is False
+    assert blocked_preflight["promotion_gate"]["required_evidence"][
+        "checkpoint_path_available"
+    ] is False
+    assert blocked_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert (
+        ready_preflight["surface"]
+        == "snn_language_dense_label_candidate_calibration_update_preflight.v1"
+    )
+    assert ready_preflight["ready"] is True
+    assert ready_preflight["advisory"] is True
+    assert ready_preflight["executable"] is False
+    assert ready_preflight["records_ledger_event"] is False
+    assert ready_preflight["runs_replay"] is False
+    assert ready_preflight["runs_calibration_update"] is False
+    assert ready_preflight["writes_checkpoint"] is False
+    assert ready_preflight["generates_text"] is False
+    assert ready_preflight["decodes_text"] is False
+    assert ready_preflight["trains_runtime_model"] is False
+    assert ready_preflight["applies_plasticity"] is False
+    assert ready_preflight["mutates_runtime_state"] is False
+    assert ready_preflight["design_hash"] == ready["design_hash"]
+    assert ready_preflight["review_hash"] == ready["review_hash"]
+    assert ready_preflight["evaluation_hash"] == ready["evaluation_hash"]
+    assert (
+        ready_preflight["calibration_update_preflight"]["checkpoint_path"]
+        == "checkpoints/dense-label-calibration.json"
+    )
+    assert ready_preflight["calibration_update_preflight"][
+        "runtime_update_applied"
+    ] is False
+    assert ready_preflight["calibration_update_preflight"]["weights_persisted"] is False
+    assert ready_preflight["promotion_gate"][
+        "eligible_for_dense_label_calibration_update_executor"
+    ] is True
+    assert ready_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert ready_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready_preflight["promotion_gate"]["eligible_for_action"] is False
+
+    blocked_application = ledger.apply_dense_label_candidate_calibration_update(
+        dense_label_candidate_calibration_update_preflight=ready_preflight,
+        expected_state_revision=before_revision,
+        operator_id="operator-dense-label",
+        confirmation=False,
+    )
+    applied = ledger.apply_dense_label_candidate_calibration_update(
+        dense_label_candidate_calibration_update_preflight=ready_preflight,
+        expected_state_revision=before_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    stale_reapply = ledger.apply_dense_label_candidate_calibration_update(
+        dense_label_candidate_calibration_update_preflight=ready_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+    )
+    blocked_review = ledger.dense_label_candidate_calibration_update_application_review(
+        dense_label_candidate_calibration_update_application={
+            **applied,
+            "applied_calibration_update": {
+                **applied["applied_calibration_update"],
+                "applied_calibration_update_hash": "0" * 64,
+            },
+        },
+        expected_state_revision=runtime_state.state_revision,
+    )
+    application_review = ledger.dense_label_candidate_calibration_update_application_review(
+        dense_label_candidate_calibration_update_application=applied,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={"max_temperature_delta": 0.25},
+    )
+    observation_samples = [
+        {
+            "sample_hash": _sha256_json(["sample", index]),
+            "label_hash": _sha256_json(["label", index]),
+            "pre_calibration_confidence": 0.8,
+            "calibrated_confidence": 0.9 if index != 1 else 0.15,
+            "correct": index != 1,
+        }
+        for index in range(3)
+    ]
+    blocked_observation = ledger.dense_label_candidate_post_calibration_observation_window(
+        dense_label_candidate_calibration_update_application_review=application_review,
+        observation_evidence={"samples": observation_samples[:1]},
+        expected_state_revision=runtime_state.state_revision,
+        window_policy={"min_samples": 3},
+    )
+    observation_window = ledger.dense_label_candidate_post_calibration_observation_window(
+        dense_label_candidate_calibration_update_application_review=application_review,
+        observation_evidence={"samples": observation_samples},
+        expected_state_revision=runtime_state.state_revision,
+        window_policy={
+            "min_samples": 3,
+            "max_expected_calibration_error": 0.2,
+            "max_confidence_drift": 0.7,
+        },
+    )
+    blocked_operator_review = ledger.dense_label_candidate_post_calibration_operator_review(
+        dense_label_candidate_post_calibration_observation_window=observation_window,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=False,
+    )
+    operator_review = ledger.dense_label_candidate_post_calibration_operator_review(
+        dense_label_candidate_post_calibration_observation_window=observation_window,
+        expected_state_revision=runtime_state.state_revision,
+        operator_id="operator-dense-label",
+        confirmation=True,
+        review_policy={
+            "min_samples": 3,
+            "max_expected_calibration_error": 0.2,
+            "max_confidence_drift": 0.7,
+        },
+    )
+    blocked_confidence_use_design = ledger.calibrated_dense_label_confidence_use_design(
+        dense_label_candidate_post_calibration_operator_review=operator_review,
+        confidence_use_policy={"use_mode": "generate_text"},
+        device_evidence={},
+    )
+    confidence_use_design = ledger.calibrated_dense_label_confidence_use_design(
+        dense_label_candidate_post_calibration_operator_review=operator_review,
+        confidence_use_policy={
+            "use_mode": "threshold_and_abstain",
+            "min_confidence_threshold": 0.6,
+            "max_candidates": 4,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    blocked_confidence_use_preflight = ledger.calibrated_dense_label_confidence_use_preflight(
+        dense_label_confidence_use_design=confidence_use_design,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": _sha256_json(
+                        ["candidate", "blocked"]
+                    ),
+                    "label_hash": _sha256_json(["label", "blocked"]),
+                    "calibrated_confidence": 0.4,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibrated_confidence_use_executor": True},
+    )
+    confidence_use_preflight = ledger.calibrated_dense_label_confidence_use_preflight(
+        dense_label_confidence_use_design=confidence_use_design,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": _sha256_json(
+                        ["candidate", "ready"]
+                    ),
+                    "label_hash": _sha256_json(["label", "ready"]),
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"calibrated_confidence_use_executor": True},
+    )
+    blocked_confidence_use_executor = (
+        ledger.execute_calibrated_dense_label_confidence_use(
+            calibrated_dense_label_confidence_use_preflight=blocked_confidence_use_preflight,
+            expected_state_revision=runtime_state.state_revision,
+            candidate_evidence={
+                "candidates": [
+                    {
+                        "dense_label_candidate_evidence_hash": _sha256_json(
+                            ["candidate", "blocked"]
+                        ),
+                        "label_hash": _sha256_json(["label", "blocked"]),
+                        "calibrated_confidence": 0.4,
+                        "pre_calibration_confidence": 0.8,
+                    }
+                ]
+            },
+        )
+    )
+    confidence_use_executor = ledger.execute_calibrated_dense_label_confidence_use(
+        calibrated_dense_label_confidence_use_preflight=confidence_use_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": _sha256_json(
+                        ["candidate", "ready"]
+                    ),
+                    "label_hash": _sha256_json(["label", "ready"]),
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        execution_policy={"max_selected_candidates": 1},
+    )
+
+    assert blocked_application["accepted"] is False
+    assert blocked_application["mutates_runtime_state"] is False
+    assert blocked_application["promotion_gate"]["required_evidence"][
+        "confirmation"
+    ] is False
+    assert applied["surface"] == (
+        "snn_language_dense_label_candidate_calibration_update_application.v1"
+    )
+    assert applied["accepted"] is True
+    assert applied["duplicate"] is False
+    assert applied["records_ledger_event"] is True
+    assert applied["runs_calibration_update"] is True
+    assert applied["writes_checkpoint"] is False
+    assert applied["generates_text"] is False
+    assert applied["decodes_text"] is False
+    assert applied["trains_runtime_model"] is False
+    assert applied["applies_plasticity"] is False
+    assert applied["mutates_runtime_state"] is True
+    assert applied["before"]["state_revision"] == before_revision
+    assert applied["after"]["state_revision"] == before_revision + 1
+    assert runtime_state.state_revision == before_revision + 1
+    assert runtime_state.dirty_state is True
+    applied_update = applied["applied_calibration_update"]
+    assert applied_update["preflight_hash"] == ready_preflight["preflight_hash"]
+    assert applied_update["design_hash"] == ready["design_hash"]
+    assert applied_update["target_temperature"] <= 1.25
+    assert applied_update["runtime_update_applied"] is True
+    assert applied_update["weights_persisted"] is False
+    assert applied["ledger_summary"]["dense_label_calibration_update_event_count"] == 1
+    assert applied["ledger_summary"]["total_dense_label_calibration_update_count"] == 1
+    assert applied["promotion_gate"][
+        "eligible_for_dense_label_calibration_application_review"
+    ] is True
+    assert applied["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert applied["promotion_gate"]["eligible_for_language_generation"] is False
+    assert applied["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert applied["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert applied["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert applied["promotion_gate"]["eligible_for_action"] is False
+    assert stale_reapply["accepted"] is False
+    assert stale_reapply["promotion_gate"]["required_evidence"][
+        "preflight_revision_current"
+    ] is False
+    assert blocked_review["ready"] is False
+    assert blocked_review["promotion_gate"]["required_evidence"][
+        "current_applied_hash_matches"
+    ] is False
+    assert application_review["surface"] == (
+        "snn_language_dense_label_candidate_calibration_update_application_review.v1"
+    )
+    assert application_review["ready"] is True
+    assert application_review["advisory"] is True
+    assert application_review["executable"] is False
+    assert application_review["records_ledger_event"] is False
+    assert application_review["runs_replay"] is False
+    assert application_review["runs_calibration_update"] is False
+    assert application_review["writes_checkpoint"] is False
+    assert application_review["generates_text"] is False
+    assert application_review["decodes_text"] is False
+    assert application_review["trains_runtime_model"] is False
+    assert application_review["applies_plasticity"] is False
+    assert application_review["mutates_runtime_state"] is False
+    assert application_review["applied_calibration_update_hash"] == applied_update[
+        "applied_calibration_update_hash"
+    ]
+    assert application_review["current_dense_label_calibration_update_hash"] == (
+        applied_update["applied_calibration_update_hash"]
+    )
+    assert application_review["applied_calibration_review"][
+        "runtime_update_applied"
+    ] is True
+    assert application_review["applied_calibration_review"]["weights_persisted"] is False
+    assert application_review["promotion_gate"][
+        "eligible_for_post_calibration_observation_window"
+    ] is True
+    assert application_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert application_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert application_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert application_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert application_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert application_review["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_observation["ready"] is False
+    assert blocked_observation["promotion_gate"]["required_evidence"][
+        "sample_count_sufficient"
+    ] is False
+    assert observation_window["surface"] == (
+        "snn_language_dense_label_candidate_post_calibration_observation_window.v1"
+    )
+    assert observation_window["ready"] is True
+    assert observation_window["advisory"] is True
+    assert observation_window["executable"] is False
+    assert observation_window["records_ledger_event"] is False
+    assert observation_window["runs_replay"] is False
+    assert observation_window["runs_calibration_update"] is False
+    assert observation_window["writes_checkpoint"] is False
+    assert observation_window["generates_text"] is False
+    assert observation_window["decodes_text"] is False
+    assert observation_window["trains_runtime_model"] is False
+    assert observation_window["applies_plasticity"] is False
+    assert observation_window["mutates_runtime_state"] is False
+    assert observation_window["sample_count"] == 3
+    assert observation_window["metrics"]["expected_calibration_error"] <= 0.2
+    assert observation_window["metrics"]["mean_confidence_drift"] <= 0.7
+    assert observation_window["promotion_gate"][
+        "eligible_for_post_calibration_operator_review"
+    ] is True
+    assert observation_window["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert observation_window["promotion_gate"]["eligible_for_language_generation"] is False
+    assert observation_window["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert observation_window["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert observation_window["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert observation_window["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_operator_review["ready"] is False
+    assert blocked_operator_review["promotion_gate"]["required_evidence"][
+        "confirmation"
+    ] is False
+    assert operator_review["surface"] == (
+        "snn_language_dense_label_candidate_post_calibration_operator_review.v1"
+    )
+    assert operator_review["ready"] is True
+    assert operator_review["review_recorded"] is True
+    assert operator_review["advisory"] is True
+    assert operator_review["executable"] is False
+    assert operator_review["records_ledger_event"] is False
+    assert operator_review["runs_replay"] is False
+    assert operator_review["runs_calibration_update"] is False
+    assert operator_review["writes_checkpoint"] is False
+    assert operator_review["generates_text"] is False
+    assert operator_review["decodes_text"] is False
+    assert operator_review["trains_runtime_model"] is False
+    assert operator_review["applies_plasticity"] is False
+    assert operator_review["mutates_runtime_state"] is False
+    assert operator_review["observation_hash"] == observation_window["observation_hash"]
+    assert operator_review["metric_review"]["metric_thresholds_met"] is True
+    assert operator_review["promotion_gate"][
+        "eligible_for_calibrated_dense_label_confidence_use_design"
+    ] is True
+    assert operator_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert operator_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert operator_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert operator_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert operator_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert operator_review["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_confidence_use_design["ready"] is False
+    assert blocked_confidence_use_design["promotion_gate"]["required_evidence"][
+        "use_mode_supported"
+    ] is False
+    assert blocked_confidence_use_design["promotion_gate"]["required_evidence"][
+        "device_evidence_available"
+    ] is False
+    assert confidence_use_design["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_use_design.v1"
+    )
+    assert confidence_use_design["ready"] is True
+    assert confidence_use_design["advisory"] is True
+    assert confidence_use_design["executable"] is False
+    assert confidence_use_design["records_ledger_event"] is False
+    assert confidence_use_design["runs_replay"] is False
+    assert confidence_use_design["runs_calibration_update"] is False
+    assert confidence_use_design["writes_checkpoint"] is False
+    assert confidence_use_design["generates_text"] is False
+    assert confidence_use_design["decodes_text"] is False
+    assert confidence_use_design["trains_runtime_model"] is False
+    assert confidence_use_design["applies_plasticity"] is False
+    assert confidence_use_design["mutates_runtime_state"] is False
+    use_design = confidence_use_design["confidence_use_design"]
+    assert use_design["use_mode"] == "threshold_and_abstain"
+    assert use_design["min_confidence_threshold"] == 0.6
+    assert "generate_language" in use_design["disallowed_operations"]
+    assert confidence_use_design["promotion_gate"][
+        "eligible_for_calibrated_dense_label_confidence_use_preflight"
+    ] is True
+    assert confidence_use_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert confidence_use_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert confidence_use_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert confidence_use_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert confidence_use_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert confidence_use_design["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_confidence_use_preflight["ready"] is False
+    assert blocked_confidence_use_preflight["promotion_gate"]["required_evidence"][
+        "threshold_mode_has_passing_candidate"
+    ] is False
+    assert confidence_use_preflight["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_use_preflight.v1"
+    )
+    assert confidence_use_preflight["ready"] is True
+    assert confidence_use_preflight["advisory"] is True
+    assert confidence_use_preflight["executable"] is False
+    assert confidence_use_preflight["records_ledger_event"] is False
+    assert confidence_use_preflight["runs_replay"] is False
+    assert confidence_use_preflight["runs_calibration_update"] is False
+    assert confidence_use_preflight["writes_checkpoint"] is False
+    assert confidence_use_preflight["generates_text"] is False
+    assert confidence_use_preflight["decodes_text"] is False
+    assert confidence_use_preflight["trains_runtime_model"] is False
+    assert confidence_use_preflight["applies_plasticity"] is False
+    assert confidence_use_preflight["mutates_runtime_state"] is False
+    assert confidence_use_preflight["design_hash"] == confidence_use_design["design_hash"]
+    assert confidence_use_preflight["candidate_preflight"]["candidate_count"] == 1
+    assert confidence_use_preflight["candidate_preflight"]["passing_candidate_count"] == 1
+    assert confidence_use_preflight["device_preflight"][
+        "executor_capability_available"
+    ] is True
+    assert confidence_use_preflight["promotion_gate"][
+        "eligible_for_calibrated_dense_label_confidence_use_executor"
+    ] is True
+    assert confidence_use_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert confidence_use_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert confidence_use_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert confidence_use_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert confidence_use_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert confidence_use_preflight["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_confidence_use_executor["ready"] is False
+    assert blocked_confidence_use_executor["executable"] is False
+    assert blocked_confidence_use_executor["promotion_gate"]["required_evidence"][
+        "preflight_ready"
+    ] is False
+    assert confidence_use_executor["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_use_executor.v1"
+    )
+    assert confidence_use_executor["ready"] is True
+    assert confidence_use_executor["advisory"] is False
+    assert confidence_use_executor["executable"] is True
+    assert confidence_use_executor["records_ledger_event"] is False
+    assert confidence_use_executor["runs_replay"] is False
+    assert confidence_use_executor["runs_calibration_update"] is False
+    assert confidence_use_executor["writes_checkpoint"] is False
+    assert confidence_use_executor["generates_text"] is False
+    assert confidence_use_executor["decodes_text"] is False
+    assert confidence_use_executor["trains_runtime_model"] is False
+    assert confidence_use_executor["applies_plasticity"] is False
+    assert confidence_use_executor["mutates_runtime_state"] is False
+    result = confidence_use_executor["confidence_use_result"]
+    assert result["use_mode"] == "threshold_and_abstain"
+    assert result["selected_candidate_count"] == 1
+    assert result["abstained"] is False
+    assert result["output_is_label_hash_only"] is True
+    assert result["selected_candidate_refs"][0]["calibrated_confidence"] == 0.75
+    assert "label_hash" in result["selected_candidate_refs"][0]
+    assert "label" not in result["selected_candidate_refs"][0]
+    assert confidence_use_executor["promotion_gate"][
+        "eligible_for_operator_display_confidence_result"
+    ] is True
+    assert confidence_use_executor["promotion_gate"]["eligible_for_language_generation"] is False
+    assert confidence_use_executor["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert confidence_use_executor["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert confidence_use_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert confidence_use_executor["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert confidence_use_executor["promotion_gate"]["eligible_for_action"] is False
 
 
 def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surface() -> None:
