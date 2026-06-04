@@ -645,6 +645,275 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "after": self._runtime_state.mutation_summary(),
             }
 
+    def apply_dense_readout_training_loop(
+        self,
+        *,
+        dense_readout_training_loop_preflight: Mapping[str, Any],
+        training_transitions: list[Mapping[str, Any]],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        checkpoint_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply bounded local dense-readout training without text generation."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(dense_readout_training_loop_preflight)
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_preflight = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            design = (
+                preflight.get("training_design")
+                if isinstance(preflight.get("training_design"), Mapping)
+                else {}
+            )
+            tensor_summary = (
+                preflight.get("tensor_summary")
+                if isinstance(preflight.get("tensor_summary"), Mapping)
+                else {}
+            )
+            expected_shape = self._shape_pair(tensor_summary.get("shape"))
+            learning_rate = float(design.get("learning_rate", 0.0) or 0.0)
+            max_delta_norm = float(design.get("max_delta_norm", 0.0) or 0.0)
+            transition_budget = int(design.get("transition_budget", 0) or 0)
+            transitions = [
+                dict(item) for item in list(training_transitions or []) if isinstance(item, Mapping)
+            ]
+            state = self._language_plasticity_state()
+            tensor = state.get("dense_readout_weights")
+            tensor_available = isinstance(tensor, torch.Tensor)
+            tensor_shape = [int(item) for item in list(tensor.shape)] if tensor_available else []
+            parsed: list[dict[str, Any]] = []
+            for index, transition in enumerate(transitions):
+                try:
+                    pre_indices = [
+                        int(value)
+                        for value in list(transition.get("pre_indices") or [])
+                    ]
+                    post_indices = [
+                        int(value)
+                        for value in list(transition.get("post_indices") or [])
+                    ]
+                except (TypeError, ValueError):
+                    pre_indices = []
+                    post_indices = []
+                parsed.append(
+                    {
+                        "transition_id": str(
+                            transition.get("transition_id") or f"dense_training_{index}"
+                        ),
+                        "pre_indices": pre_indices[:32],
+                        "post_indices": post_indices[:32],
+                    }
+                )
+            canonical_indices = bool(
+                tensor_available
+                and parsed
+                and all(
+                    bool(item["pre_indices"])
+                    and bool(item["post_indices"])
+                    and all(0 <= pre < tensor.shape[0] for pre in item["pre_indices"])
+                    and all(0 <= post < tensor.shape[1] for post in item["post_indices"])
+                    for item in parsed
+                )
+            )
+            required = {
+                "confirmation": bool(confirmation),
+                "operator_id_available": bool(str(operator_id or "").strip()),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_dense_readout_training_loop_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and gate.get("status")
+                == "ready_for_checkpoint_backed_dense_readout_training_executor",
+                "preflight_not_executable": not bool(preflight.get("executable")),
+                "preflight_does_not_mutate": not bool(
+                    preflight.get("mutates_runtime_state")
+                ),
+                "preflight_does_not_generate": not bool(preflight.get("generates_text")),
+                "preflight_checkpoint_current": bool(
+                    required_preflight.get("expected_state_revision_current")
+                ),
+                "preflight_checkpoint_path_available": bool(
+                    required_preflight.get("checkpoint_path_available")
+                ),
+                "preflight_bounded_delta_capability_available": bool(
+                    required_preflight.get(
+                        "bounded_delta_application_capability_available"
+                    )
+                ),
+                "dense_tensor_available": tensor_available,
+                "dense_tensor_shape_matches_preflight": tensor_shape == expected_shape,
+                "training_transitions_available": bool(parsed),
+                "training_transition_count_bounded": bool(transition_budget)
+                and 0 < len(parsed) <= transition_budget,
+                "training_transition_indices_canonical": canonical_indices,
+                "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
+                "delta_norm_bounded": 0.0 < max_delta_norm <= 0.25,
+                "no_text_generation": not bool(preflight.get("generates_text")),
+                "no_external_checkpoint": not bool(preflight.get("loads_external_checkpoint")),
+            }
+            if not all(required.values()):
+                return self._blocked_dense_readout_training(
+                    reason="blocked_missing_dense_readout_training_evidence",
+                    before_revision=before_revision,
+                    required_evidence=required,
+                )
+
+            checkpoint_state = deepcopy(state)
+            before_dirty_state = bool(self._runtime_state.dirty_state)
+            checkpoint = self._save_checkpoint(
+                checkpoint_path or str(preflight.get("checkpoint_path") or "")
+            )
+            checkpoint_file = Path(str(checkpoint.get("path") or self._checkpoint_path()))
+            checkpoint_verified = self._verify_checkpoint_transaction(
+                checkpoint_file,
+                checkpoint_state,
+                before_revision,
+            )
+            if not checkpoint_verified:
+                return self._blocked_dense_readout_training(
+                    reason="checkpoint_save_missing",
+                    before_revision=before_revision,
+                    required_evidence={
+                        **required,
+                        "pre_training_checkpoint_saved": checkpoint_file.exists(),
+                        "pre_training_checkpoint_restore_verified": checkpoint_verified,
+                    },
+                )
+
+            trained = tensor.detach().clone().to(dtype=torch.float32)
+            applied_cells: dict[str, dict[str, Any]] = {}
+            base_delta = min(learning_rate, max_delta_norm)
+            for transition in parsed:
+                cell_count = max(
+                    1,
+                    len(transition["pre_indices"]) * len(transition["post_indices"]),
+                )
+                cell_delta = base_delta / float(cell_count)
+                for pre_index in transition["pre_indices"]:
+                    for post_index in transition["post_indices"]:
+                        previous = float(trained[pre_index, post_index].item())
+                        updated = max(-1.0, min(1.0, previous + cell_delta))
+                        trained[pre_index, post_index] = updated
+                        key = f"{pre_index}:{post_index}"
+                        applied = applied_cells.setdefault(
+                            key,
+                            {
+                                "pre_index": pre_index,
+                                "post_index": post_index,
+                                "previous_weight": previous,
+                                "updated_weight": updated,
+                                "delta": 0.0,
+                                "transition_ids": [],
+                            },
+                        )
+                        applied["updated_weight"] = updated
+                        applied["delta"] = float(applied["delta"]) + (
+                            updated - previous
+                        )
+                        applied["transition_ids"].append(transition["transition_id"])
+
+            weights = state.setdefault("sparse_transition_weights", {})
+            provenance_by_key = state.setdefault("synapse_provenance_by_key", {})
+            for key, applied in sorted(applied_cells.items()):
+                updated = float(applied["updated_weight"])
+                if abs(updated) > 0.0:
+                    weights[key] = updated
+                elif key in weights:
+                    del weights[key]
+                provenance_by_key[key] = {
+                    "source": "dense_readout_training_loop",
+                    "operator_id": operator_id,
+                    "transition_ids": list(applied["transition_ids"])[:16],
+                    "preflight_hash": preflight.get("preflight_hash"),
+                    "checkpoint_path": str(checkpoint_file),
+                }
+
+            training_state = state.setdefault("dense_readout_training", {})
+            committed_checkpoint_file = self._committed_checkpoint_path(
+                checkpoint_file,
+                "dense_readout_training",
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            event = {
+                "completed_at": now,
+                "operator_id": str(operator_id or "").strip(),
+                "before_state_revision": before_revision,
+                "after_state_revision": before_revision + 1,
+                "checkpoint_path": str(checkpoint_file),
+                "committed_checkpoint_path": str(committed_checkpoint_file),
+                "preflight_hash": preflight.get("preflight_hash"),
+                "training_transition_count": len(parsed),
+                "updated_cell_count": len(applied_cells),
+                "learning_rate": learning_rate,
+                "max_delta_norm": max_delta_norm,
+                "returns_trained_weights": False,
+                "generates_text": False,
+            }
+            state["dense_readout_weights"] = trained
+            training_state["training_count"] = int(training_state.get("training_count", 0) or 0) + 1
+            training_state["last_training"] = deepcopy(event)
+            recent_events = list(training_state.get("recent_events") or [])
+            training_state["recent_events"] = [*recent_events, deepcopy(event)][-8:]
+            state["last_checkpoint_path"] = str(committed_checkpoint_file)
+            self._runtime_state.mark_mutated()
+            commit = self._commit_mutation(
+                committed_checkpoint_file=committed_checkpoint_file,
+                operation="dense_readout_training",
+                before_state=checkpoint_state,
+                before_revision=before_revision,
+                before_dirty_state=before_dirty_state,
+            )
+            if not commit["committed"]:
+                return self._blocked_dense_readout_training(
+                    reason="post_training_checkpoint_commit_failed",
+                    before_revision=before_revision,
+                    required_evidence={**required, **commit},
+                )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_training",
+                "surface": "snn_language_dense_readout_training.v1",
+                "accepted": True,
+                "status": "dense_readout_training_applied",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": True,
+                "applies_plasticity": True,
+                "mutates_runtime_state": True,
+                "writes_checkpoint": True,
+                "resizes_network": False,
+                "returns_trained_weights": False,
+                "checkpoint_transaction": {
+                    "pre_training_checkpoint_saved": True,
+                    "checkpoint_path": str(checkpoint_file),
+                    "committed_checkpoint_path": commit["committed_checkpoint_path"],
+                    "staged_committed_checkpoint_path": str(committed_checkpoint_file),
+                    "post_training_checkpoint_saved": True,
+                    "post_training_checkpoint_restore_verified": True,
+                    "current_checkpoint_manifest": commit["current_checkpoint_manifest"],
+                    "restore_verified": checkpoint_verified,
+                },
+                "dense_readout_training": deepcopy(event),
+                "dense_readout_tensor": self._dense_tensor_summary(trained),
+                "updated_cell_count": len(applied_cells),
+                "applied_cell_summaries": list(applied_cells.values())[:16],
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+            }
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             state = deepcopy(self._language_plasticity_state())
@@ -652,6 +921,7 @@ class SNNLanguagePlasticityApplicationExecutor:
             maintenance = dict(state.get("homeostatic_maintenance") or {})
             regeneration = dict(state.get("synapse_regeneration") or {})
             live_application = dict(state.get("live_application") or {})
+            dense_training = dict(state.get("dense_readout_training") or {})
             capacity = self._language_capacity_state(state)
             dense_layout = self._dense_readout_layout_state(state, capacity)
             dense_tensor = state.get("dense_readout_weights")
@@ -662,6 +932,7 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "language_capacity": deepcopy(capacity),
                 "dense_readout_layout": deepcopy(dense_layout),
                 "dense_readout_tensor": self._dense_tensor_summary(dense_tensor),
+                "dense_readout_training": deepcopy(dense_training),
                 "language_neuron_count": capacity["language_neuron_count"],
                 "sparse_edge_budget": capacity["sparse_edge_budget"],
                 "outgoing_fanout_budget": capacity["outgoing_fanout_budget"],
@@ -1585,6 +1856,43 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "status": "blocked_missing_dense_readout_tensor_materialization_evidence",
                 "eligible_for_dense_readout_tensor_materialization": False,
                 "eligible_for_network_resize": False,
+                "eligible_for_language_generation": False,
+                "required_evidence": dict(required_evidence),
+            },
+            "before": {"state_revision": before_revision},
+            "after": {
+                "state_revision": before_revision,
+                **self._runtime_state.mutation_summary(),
+            },
+        }
+
+    def _blocked_dense_readout_training(
+        self,
+        *,
+        reason: str,
+        before_revision: int,
+        required_evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_training",
+            "surface": "snn_language_dense_readout_training.v1",
+            "accepted": False,
+            "status": "blocked",
+            "reason": reason,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "returns_trained_weights": False,
+            "promotion_gate": {
+                "status": "blocked_missing_dense_readout_training_evidence",
+                "eligible_for_dense_readout_training": False,
                 "eligible_for_language_generation": False,
                 "required_evidence": dict(required_evidence),
             },

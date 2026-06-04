@@ -105,6 +105,42 @@ def _dense_readout_tensor_materialization_readiness() -> dict[str, object]:
     }
 
 
+def _dense_readout_training_loop_preflight() -> dict[str, object]:
+    return {
+        "surface": "snn_language_dense_readout_training_loop_preflight.v1",
+        "ready": True,
+        "owned_by_hecsn": True,
+        "executable": False,
+        "mutates_runtime_state": False,
+        "loads_external_checkpoint": False,
+        "generates_text": False,
+        "checkpoint_path": "dense-training.pt",
+        "preflight_hash": "sha256:dense-training-preflight",
+        "tensor_summary": {
+            "shape": [128, 128],
+            "device": "cpu",
+            "dtype": "torch.float32",
+            "nonzero_count": 0,
+        },
+        "training_design": {
+            "training_transition_count": 4,
+            "validation_transition_count": 2,
+            "learning_rate": 0.02,
+            "max_delta_norm": 0.05,
+            "transition_budget": 128,
+            "requires_cuda": False,
+        },
+        "promotion_gate": {
+            "status": "ready_for_checkpoint_backed_dense_readout_training_executor",
+            "required_evidence": {
+                "expected_state_revision_current": True,
+                "checkpoint_path_available": True,
+                "bounded_delta_application_capability_available": True,
+            },
+        },
+    }
+
+
 def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -360,6 +396,99 @@ def test_dense_readout_tensor_materialization_blocks_unavailable_cuda_before_che
     ] is False
     assert checkpoint_calls == []
     assert "dense_readout_weights" not in language_state
+    assert runtime_state.state_revision == 0
+
+
+def test_dense_readout_training_loop_updates_dense_and_sparse_checkpointed_state(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "dense_readout_weights": torch.zeros((128, 128), dtype=torch.float32),
+        "sparse_transition_weights": {},
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "dense-training.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "dense-training.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_training_loop(
+        dense_readout_training_loop_preflight=_dense_readout_training_loop_preflight(),
+        training_transitions=[
+            {"transition_id": "t1", "pre_indices": [1, 2], "post_indices": [3, 4]},
+        ],
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "dense-training.pt"),
+    )
+    snapshot = executor.snapshot()
+
+    assert result["accepted"] is True
+    assert result["surface"] == "snn_language_dense_readout_training.v1"
+    assert result["trains_runtime_model"] is True
+    assert result["generates_text"] is False
+    assert result["returns_trained_weights"] is False
+    assert result["writes_checkpoint"] is True
+    assert runtime_state.state_revision == 1
+    assert snapshot["dense_readout_tensor"]["available"] is True
+    assert snapshot["dense_readout_tensor"]["nonzero_count"] == 4
+    assert set(language_state["sparse_transition_weights"]) == {
+        "1:3",
+        "1:4",
+        "2:3",
+        "2:4",
+    }
+    assert snapshot["dense_readout_training"]["training_count"] == 1
+
+
+def test_dense_readout_training_loop_blocks_stale_revision_before_checkpoint(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "dense_readout_weights": torch.zeros((128, 128), dtype=torch.float32),
+        "sparse_transition_weights": {},
+    }
+    checkpoint_calls = []
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "dense-training.pt")},
+        checkpoint_path=lambda: tmp_path / "dense-training.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_dense_readout_training_loop(
+        dense_readout_training_loop_preflight=_dense_readout_training_loop_preflight(),
+        training_transitions=[
+            {"transition_id": "t1", "pre_indices": [1], "post_indices": [3]},
+        ],
+        expected_state_revision=1,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "dense-training.pt"),
+    )
+
+    assert result["accepted"] is False
+    assert result["promotion_gate"]["required_evidence"]["expected_revision_current"] is False
+    assert checkpoint_calls == []
+    assert torch.count_nonzero(language_state["dense_readout_weights"]).item() == 0
+    assert language_state["sparse_transition_weights"] == {}
     assert runtime_state.state_revision == 0
 
 

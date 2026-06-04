@@ -590,6 +590,57 @@ class SNNLanguageDenseReadoutTensorMaterializationRequest(BaseModel):
     requested_device: str | None = Field(None, min_length=1, max_length=64)
 
 
+class SNNLanguageDenseReadoutTrainingReadinessRequest(BaseModel):
+    dense_readout_tensor_integrity: dict[str, Any] = Field(..., min_length=1)
+    heldout_evaluation: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutTrainingLoopDesignRequest(BaseModel):
+    dense_readout_training_readiness: dict[str, Any] = Field(..., min_length=1)
+    training_plan: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutTrainingLoopPreflightRequest(BaseModel):
+    dense_readout_training_loop_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1)
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutTrainingRequest(BaseModel):
+    dense_readout_training_loop_preflight: dict[str, Any] = Field(..., min_length=1)
+    training_transitions: list[dict[str, Any]] = Field(..., min_length=1, max_length=8192)
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    checkpoint_path: str | None = Field(None, min_length=1)
+
+
+class SNNLanguageDenseReadoutPostTrainingEvaluationRequest(BaseModel):
+    dense_readout_training: dict[str, Any] = Field(..., min_length=1)
+    dense_readout_tensor_integrity: dict[str, Any] = Field(..., min_length=1)
+    heldout_evaluation: dict[str, Any] | None = None
+    runtime_truth_delta: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutDecoderProbeDesignRequest(BaseModel):
+    dense_readout_post_training_evaluation: dict[str, Any] = Field(..., min_length=1)
+    readout_slots: list[dict[str, Any]] = Field(..., min_length=1, max_length=8)
+    device_evidence: dict[str, Any] | None = None
+    decoder_design: dict[str, Any] | None = None
+
+
+class SNNLanguageDenseReadoutDecoderProbePreflightRequest(BaseModel):
+    dense_readout_decoder_probe_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+
+
 class SNNLanguageTransitionMemoryHomeostaticMaintenanceRequest(BaseModel):
     expected_state_revision: int = Field(..., ge=0)
     operator_id: str = Field(..., min_length=1, max_length=160)

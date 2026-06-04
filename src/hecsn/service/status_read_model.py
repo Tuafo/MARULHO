@@ -45,6 +45,7 @@ from hecsn.semantics import (
     build_subcortical_structural_plasticity_surface,
     build_spike_language_plasticity_application_design,
     build_spike_language_plasticity_pressure,
+    build_spike_language_decoder_probe,
     build_spike_language_plasticity_shadow_delta,
     build_snn_language_readout_emission,
     build_snn_language_transition_memory_sleep_policy,
@@ -723,6 +724,11 @@ class StatusReadModel:
                 snn_language_capacity_pressure
             )
         )
+        snn_language_dense_readout_tensor_integrity = (
+            self._snn_language_dense_readout_tensor_integrity(
+                snn_language_dense_readout_layout_state
+            )
+        )
         snn_language_capacity_fixed_boundaries = (
             self._snn_language_capacity_fixed_boundaries()
         )
@@ -892,6 +898,9 @@ class StatusReadModel:
                 "snn_language_capacity_pressure": snn_language_capacity_pressure,
                 "snn_language_dense_readout_layout_state": (
                     snn_language_dense_readout_layout_state
+                ),
+                "snn_language_dense_readout_tensor_integrity": (
+                    snn_language_dense_readout_tensor_integrity
                 ),
                 "snn_language_capacity_fixed_boundaries": (
                     snn_language_capacity_fixed_boundaries
@@ -1276,6 +1285,133 @@ class StatusReadModel:
                     "network_resize_absent": True,
                     "checkpoint_write_absent": True,
                 },
+            },
+        }
+
+    def _snn_language_dense_readout_tensor_integrity(
+        self,
+        dense_layout_state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Audit materialized dense readout tensor without exposing raw weights."""
+
+        state = (
+            self._language_plasticity_state_fn()
+            if self._language_plasticity_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        tensor = state.get("dense_readout_weights")
+        weights = dict(state.get("sparse_transition_weights") or {})
+        expected_shape = list(dense_layout_state.get("target_dense_readout_shape") or [])
+        tensor_available = isinstance(tensor, torch.Tensor)
+        tensor_shape = [int(item) for item in list(tensor.shape)] if tensor_available else []
+        tensor_device = str(tensor.device) if tensor_available else None
+        tensor_dtype = str(tensor.dtype) if tensor_available else None
+        tensor_is_cuda = bool(tensor.is_cuda) if tensor_available else False
+        nonzero_count = int(torch.count_nonzero(tensor).item()) if tensor_available else 0
+        finite = bool(torch.isfinite(tensor).all().item()) if tensor_available else False
+        sampled = []
+        for key, value in sorted(weights.items())[:32]:
+            try:
+                pre_text, post_text = str(key).split(":", maxsplit=1)
+                pre_index = int(pre_text)
+                post_index = int(post_text)
+                sparse_value = float(value)
+            except (TypeError, ValueError):
+                sampled.append(
+                    {
+                        "synapse": str(key),
+                        "well_formed": False,
+                        "matches_dense_tensor": False,
+                    }
+                )
+                continue
+            in_range = bool(
+                tensor_available
+                and 0 <= pre_index < tensor.shape[0]
+                and 0 <= post_index < tensor.shape[1]
+            )
+            dense_value = (
+                float(tensor[pre_index, post_index].item()) if in_range else None
+            )
+            sampled.append(
+                {
+                    "synapse": str(key),
+                    "well_formed": True,
+                    "pre_index": pre_index,
+                    "post_index": post_index,
+                    "sparse_weight": sparse_value,
+                    "dense_weight": dense_value,
+                    "in_tensor_range": in_range,
+                    "matches_dense_tensor": bool(
+                        in_range
+                        and dense_value is not None
+                        and abs(float(dense_value) - sparse_value) <= 1e-6
+                    ),
+                }
+            )
+        required = {
+            "dense_tensor_available": tensor_available,
+            "dense_tensor_shape_matches_layout": bool(
+                tensor_available and tensor_shape == expected_shape
+            ),
+            "dense_tensor_dtype_float32": tensor_dtype == "torch.float32",
+            "dense_tensor_finite": finite,
+            "dense_tensor_nonzero_count_matches_sparse_weights": bool(
+                tensor_available and nonzero_count == len(weights)
+            ),
+            "sampled_sparse_weights_match_dense_tensor": all(
+                bool(item.get("matches_dense_tensor")) for item in sampled
+            )
+            if sampled
+            else tensor_available,
+            "layout_marks_tensor_materialized": bool(
+                dense_layout_state.get("tensor_materialization_applied")
+                and dense_layout_state.get("dense_resize_applied")
+            ),
+            "raw_tensor_not_exposed": True,
+            "runtime_mutation_absent": True,
+            "checkpoint_write_absent": True,
+            "language_generation_absent": True,
+        }
+        ready = all(required.values())
+        return {
+            "artifact_kind": "terminus_snn_language_dense_readout_tensor_integrity",
+            "surface": "snn_language_dense_readout_tensor_integrity.v1",
+            "available": tensor_available,
+            "ready": ready,
+            "advisory": True,
+            "executable": False,
+            "source": "status_read_model.snn_language_dense_readout_tensor_integrity",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "materializes_dense_tensor_weights": False,
+            "tensor_summary": {
+                "shape": tensor_shape,
+                "expected_shape": expected_shape,
+                "device": tensor_device,
+                "is_cuda": tensor_is_cuda,
+                "dtype": tensor_dtype,
+                "nonzero_count": nonzero_count,
+                "sparse_transition_weight_count": len(weights),
+            },
+            "sampled_sparse_weight_checks": sampled,
+            "promotion_gate": {
+                "status": "dense_readout_tensor_integrity_verified"
+                if ready
+                else "blocked_missing_dense_readout_tensor_integrity",
+                "eligible_for_dense_readout_training": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_action": False,
+                "required_evidence": required,
             },
         }
 
@@ -4923,6 +5059,940 @@ class StatusReadModel:
                     "next_gate": "checkpoint_backed_cuda_dense_readout_tensor_materialization_executor"
                     if ready
                     else "implement_cuda_allocator_copy_zero_fill_checkpoint_and_migration_tests",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_training_readiness(
+        self,
+        dense_readout_tensor_integrity: Mapping[str, Any],
+        *,
+        heldout_evaluation: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review whether a materialized dense readout can enter training design."""
+
+        def _snapshot() -> dict[str, Any]:
+            integrity = dict(dense_readout_tensor_integrity)
+            summary = (
+                integrity.get("tensor_summary")
+                if isinstance(integrity.get("tensor_summary"), Mapping)
+                else {}
+            )
+            gate = (
+                integrity.get("promotion_gate")
+                if isinstance(integrity.get("promotion_gate"), Mapping)
+                else {}
+            )
+            integrity_required = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            heldout = dict(heldout_evaluation or {})
+            heldout_gate = (
+                heldout.get("promotion_gate")
+                if isinstance(heldout.get("promotion_gate"), Mapping)
+                else {}
+            )
+            heldout_summary = (
+                heldout.get("heldout_summary")
+                if isinstance(heldout.get("heldout_summary"), Mapping)
+                else {}
+            )
+            device = dict(device_evidence or {})
+            rollback = dict(rollback_policy or {})
+            required = {
+                "tensor_integrity_surface_available": integrity.get("surface")
+                == "snn_language_dense_readout_tensor_integrity.v1",
+                "tensor_integrity_ready": bool(integrity.get("ready")),
+                "tensor_integrity_owned_by_hecsn": bool(integrity.get("owned_by_hecsn")),
+                "tensor_integrity_does_not_generate": not bool(
+                    integrity.get("generates_text")
+                ),
+                "tensor_integrity_does_not_mutate": not bool(
+                    integrity.get("mutates_runtime_state")
+                ),
+                "dense_tensor_available": bool(
+                    integrity_required.get("dense_tensor_available")
+                ),
+                "dense_tensor_matches_layout": bool(
+                    integrity_required.get("dense_tensor_shape_matches_layout")
+                ),
+                "dense_tensor_matches_sparse_weights": bool(
+                    integrity_required.get("sampled_sparse_weights_match_dense_tensor")
+                ),
+                "tensor_device_report_available": bool(str(summary.get("device") or "")),
+                "tensor_shape_available": bool(list(summary.get("shape") or [])),
+                "heldout_evaluation_available": bool(heldout),
+                "heldout_gate_ready": str(heldout_gate.get("status") or "")
+                == "ready_for_operator_review",
+                "heldout_cases_supported": int(
+                    heldout_summary.get("supported_case_count", 0) or 0
+                )
+                > 0
+                and int(heldout_summary.get("unsupported_case_count", 1)) == 0,
+                "heldout_does_not_generate": not bool(heldout.get("generates_text")),
+                "heldout_does_not_train": not bool(heldout.get("trains")),
+                "heldout_does_not_mutate": not bool(
+                    heldout.get("mutates_runtime_state")
+                ),
+                "device_evidence_available": bool(str(device.get("device") or "")),
+                "rollback_policy_available": bool(
+                    rollback.get("checkpoint_available")
+                    or rollback.get("restore_endpoint_available")
+                    or rollback.get("available")
+                ),
+                "runtime_training_absent": True,
+                "runtime_mutation_absent": True,
+                "checkpoint_write_absent": True,
+                "language_generation_absent": True,
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_training_readiness",
+                "surface": "snn_language_dense_readout_training_readiness.v1",
+                "available": bool(integrity),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_training_readiness",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "returns_trained_weights": False,
+                "tensor_summary": dict(summary),
+                "heldout_summary": dict(heldout_summary),
+                "device_evidence": device,
+                "promotion_gate": {
+                    "status": "ready_for_dense_readout_training_loop_design"
+                    if ready
+                    else "blocked_missing_dense_readout_training_readiness_evidence",
+                    "eligible_for_dense_readout_training_loop_design": ready,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_runtime_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "operator_approved_dense_readout_training_loop_design"
+                    if ready
+                    else "collect_tensor_integrity_heldout_device_and_rollback_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_training_loop_design(
+        self,
+        dense_readout_training_readiness: Mapping[str, Any],
+        *,
+        training_plan: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design an isolated dense-readout trainer without executing it."""
+
+        def _snapshot() -> dict[str, Any]:
+            readiness = dict(dense_readout_training_readiness or {})
+            readiness_gate = (
+                readiness.get("promotion_gate")
+                if isinstance(readiness.get("promotion_gate"), Mapping)
+                else {}
+            )
+            tensor_summary = (
+                readiness.get("tensor_summary")
+                if isinstance(readiness.get("tensor_summary"), Mapping)
+                else {}
+            )
+            shape = [int(value) for value in list(tensor_summary.get("shape") or [])]
+            plan = dict(training_plan or {})
+            device = dict(device_evidence or readiness.get("device_evidence") or {})
+            rollback = dict(rollback_policy or {})
+            learning_rule = str(
+                plan.get("learning_rule")
+                or "bounded_local_hebbian_readout_delta_with_homeostatic_row_norm"
+            )
+            train_count = int(plan.get("training_transition_count", 0) or 0)
+            validation_count = int(plan.get("validation_transition_count", 0) or 0)
+            max_epochs = max(1, min(int(plan.get("max_epochs", 1) or 1), 8))
+            learning_rate = max(
+                0.0,
+                min(float(plan.get("learning_rate", 0.02) or 0.0), 0.25),
+            )
+            target_min_sparsity = max(
+                0.0,
+                min(float(plan.get("target_min_weight_sparsity", 0.85) or 0.0), 1.0),
+            )
+            max_delta_norm = max(
+                0.0,
+                min(float(plan.get("max_delta_norm", 0.05) or 0.0), 1.0),
+            )
+            requires_cuda = bool(
+                plan.get("requires_cuda")
+                if "requires_cuda" in plan
+                else str(device.get("device") or "").startswith("cuda")
+            )
+            cuda_available = bool(
+                device.get("cuda_available")
+                or device.get("cuda_tensor")
+                or str(device.get("device") or "").startswith("cuda")
+            )
+            bounded_shape = len(shape) == 2 and shape[0] > 0 and shape[1] > 0
+            transition_budget = max(1, min(shape[0] if shape else 128, 8192))
+            required = {
+                "readiness_surface_available": readiness.get("surface")
+                == "snn_language_dense_readout_training_readiness.v1",
+                "readiness_gate_ready": bool(readiness.get("ready"))
+                and readiness_gate.get("status")
+                == "ready_for_dense_readout_training_loop_design",
+                "tensor_shape_available": bounded_shape,
+                "training_transitions_available": train_count > 0,
+                "validation_transitions_available": validation_count > 0,
+                "transition_counts_bounded": 0 < train_count <= transition_budget
+                and 0 < validation_count <= transition_budget,
+                "local_learning_rule_selected": learning_rule
+                in {
+                    "bounded_local_hebbian_readout_delta_with_homeostatic_row_norm",
+                    "surrogate_spike_readout_delta_with_sparse_mask",
+                },
+                "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
+                "epoch_count_bounded": 1 <= max_epochs <= 8,
+                "sparsity_floor_preserved": target_min_sparsity >= 0.85,
+                "delta_norm_bounded": 0.0 < max_delta_norm <= 0.25,
+                "device_evidence_available": bool(str(device.get("device") or "")),
+                "cuda_requirement_satisfied_or_not_required": (not requires_cuda)
+                or cuda_available,
+                "rollback_policy_available": bool(
+                    rollback.get("checkpoint_available")
+                    or rollback.get("restore_endpoint_available")
+                    or rollback.get("available")
+                ),
+                "runtime_training_absent": True,
+                "trained_weights_absent": True,
+                "checkpoint_write_absent": True,
+                "language_generation_absent": True,
+                "runtime_mutation_absent": True,
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_training_loop_design",
+                "surface": "snn_language_dense_readout_training_loop_design.v1",
+                "available": bool(readiness),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_training_loop_design",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "training_design": {
+                    "learning_rule": learning_rule,
+                    "training_transition_count": train_count,
+                    "validation_transition_count": validation_count,
+                    "max_epochs": max_epochs,
+                    "learning_rate": learning_rate,
+                    "target_min_weight_sparsity": target_min_sparsity,
+                    "max_delta_norm": max_delta_norm,
+                    "transition_budget": transition_budget,
+                    "requires_cuda": requires_cuda,
+                },
+                "tensor_summary": dict(tensor_summary),
+                "device_evidence": device,
+                "rollback_evidence": {
+                    "available": bool(required["rollback_policy_available"]),
+                    "checkpoint_available": bool(rollback.get("checkpoint_available")),
+                    "restore_endpoint_available": bool(
+                        rollback.get("restore_endpoint_available")
+                    ),
+                },
+                "promotion_gate": {
+                    "status": "ready_for_dense_readout_training_loop_preflight"
+                    if ready
+                    else "blocked_missing_dense_readout_training_loop_design_evidence",
+                    "eligible_for_dense_readout_training_loop_preflight": ready,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_runtime_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "checkpoint_backed_dense_readout_training_loop_preflight"
+                    if ready
+                    else "collect_bounded_training_validation_cuda_and_rollback_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_training_loop_preflight(
+        self,
+        dense_readout_training_loop_design: Mapping[str, Any],
+        *,
+        expected_state_revision: int,
+        checkpoint_path: str | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a future dense-readout trainer without executing it."""
+
+        def _snapshot() -> dict[str, Any]:
+            design = dict(dense_readout_training_loop_design or {})
+            design_gate = (
+                design.get("promotion_gate")
+                if isinstance(design.get("promotion_gate"), Mapping)
+                else {}
+            )
+            design_required = (
+                design_gate.get("required_evidence")
+                if isinstance(design_gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            training_design = (
+                design.get("training_design")
+                if isinstance(design.get("training_design"), Mapping)
+                else {}
+            )
+            tensor_summary = (
+                design.get("tensor_summary")
+                if isinstance(design.get("tensor_summary"), Mapping)
+                else {}
+            )
+            shape = [int(value) for value in list(tensor_summary.get("shape") or [])]
+            device = (
+                design.get("device_evidence")
+                if isinstance(design.get("device_evidence"), Mapping)
+                else {}
+            )
+            capabilities = dict(executor_capabilities or {})
+            before_revision = int(self._runtime_state.state_revision)
+            requested_device = str(device.get("device") or "")
+            requires_cuda = bool(training_design.get("requires_cuda"))
+            cuda_available = bool(
+                capabilities.get("cuda_allocator_available")
+                or capabilities.get("cuda_training_kernel_available")
+                or device.get("cuda_available")
+                or device.get("cuda_tensor")
+                or requested_device.startswith("cuda")
+            )
+            checkpoint_available = bool(str(checkpoint_path or ""))
+            required = {
+                "design_surface_available": design.get("surface")
+                == "snn_language_dense_readout_training_loop_design.v1",
+                "design_gate_ready": bool(design.get("ready"))
+                and design_gate.get("status")
+                == "ready_for_dense_readout_training_loop_preflight",
+                "expected_state_revision_current": int(expected_state_revision)
+                == before_revision,
+                "checkpoint_path_available": checkpoint_available,
+                "tensor_shape_available": len(shape) == 2
+                and shape[0] > 0
+                and shape[1] > 0,
+                "training_design_bounded": bool(
+                    design_required.get("transition_counts_bounded")
+                    and design_required.get("learning_rate_bounded")
+                    and design_required.get("epoch_count_bounded")
+                    and design_required.get("delta_norm_bounded")
+                    and design_required.get("sparsity_floor_preserved")
+                ),
+                "local_learning_rule_supported": bool(
+                    design_required.get("local_learning_rule_selected")
+                ),
+                "device_evidence_available": bool(requested_device),
+                "cuda_requirement_satisfied_or_not_required": (not requires_cuda)
+                or cuda_available,
+                "checkpoint_writer_capability_available": bool(
+                    capabilities.get("checkpoint_writer_available")
+                    or checkpoint_available
+                ),
+                "bounded_delta_application_capability_available": bool(
+                    capabilities.get("bounded_delta_application_available")
+                ),
+                "runtime_training_absent": True,
+                "trained_weights_absent": True,
+                "checkpoint_write_absent": True,
+                "language_generation_absent": True,
+                "runtime_mutation_absent": True,
+            }
+            ready = all(required.values())
+            preflight_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_readout_training_loop_preflight.v1",
+                    "design": {
+                        "surface": design.get("surface"),
+                        "ready": bool(design.get("ready")),
+                        "training_design": dict(training_design),
+                        "tensor_shape": shape,
+                    },
+                    "expected_state_revision": int(expected_state_revision),
+                    "checkpoint_path": str(checkpoint_path or ""),
+                    "executor_capabilities": capabilities,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_training_loop_preflight",
+                "surface": "snn_language_dense_readout_training_loop_preflight.v1",
+                "available": bool(design),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_training_loop_preflight",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "expected_state_revision": int(expected_state_revision),
+                "current_state_revision": before_revision,
+                "checkpoint_path": str(checkpoint_path or ""),
+                "preflight_hash": preflight_hash,
+                "training_design": dict(training_design),
+                "tensor_summary": dict(tensor_summary),
+                "executor_capabilities": capabilities,
+                "checkpoint_transaction_requirements": {
+                    "expected_state_revision_current": bool(
+                        required["expected_state_revision_current"]
+                    ),
+                    "checkpoint_path_available": checkpoint_available,
+                    "checkpoint_writer_capability_available": bool(
+                        required["checkpoint_writer_capability_available"]
+                    ),
+                    "preflight_hash": preflight_hash,
+                },
+                "promotion_gate": {
+                    "status": "ready_for_checkpoint_backed_dense_readout_training_executor"
+                    if ready
+                    else "blocked_missing_dense_readout_training_loop_preflight_evidence",
+                    "eligible_for_dense_readout_training_executor": ready,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_runtime_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "operator_confirmed_checkpoint_backed_dense_readout_training_executor"
+                    if ready
+                    else "collect_revision_checkpoint_cuda_and_bounded_delta_capabilities",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_post_training_evaluation(
+        self,
+        dense_readout_training: Mapping[str, Any],
+        dense_readout_tensor_integrity: Mapping[str, Any],
+        *,
+        heldout_evaluation: Mapping[str, Any] | None = None,
+        runtime_truth_delta: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate checkpointed dense-readout training without decoding text."""
+
+        def _snapshot() -> dict[str, Any]:
+            training = dict(dense_readout_training or {})
+            training_checkpoint = (
+                training.get("checkpoint_transaction")
+                if isinstance(training.get("checkpoint_transaction"), Mapping)
+                else {}
+            )
+            training_event = (
+                training.get("dense_readout_training")
+                if isinstance(training.get("dense_readout_training"), Mapping)
+                else {}
+            )
+            integrity = dict(dense_readout_tensor_integrity or {})
+            integrity_gate = (
+                integrity.get("promotion_gate")
+                if isinstance(integrity.get("promotion_gate"), Mapping)
+                else {}
+            )
+            integrity_required = (
+                integrity_gate.get("required_evidence")
+                if isinstance(integrity_gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            heldout = dict(heldout_evaluation or {})
+            heldout_gate = (
+                heldout.get("promotion_gate")
+                if isinstance(heldout.get("promotion_gate"), Mapping)
+                else {}
+            )
+            heldout_summary = (
+                heldout.get("heldout_summary")
+                if isinstance(heldout.get("heldout_summary"), Mapping)
+                else {}
+            )
+            truth_delta = dict(runtime_truth_delta or {})
+            rollback = dict(rollback_policy or {})
+            supported_cases = int(heldout_summary.get("supported_case_count", 0) or 0)
+            unsupported_cases = int(heldout_summary.get("unsupported_case_count", 0) or 0)
+            required = {
+                "training_surface_available": training.get("surface")
+                == "snn_language_dense_readout_training.v1",
+                "training_accepted": bool(training.get("accepted")),
+                "training_owned_by_hecsn": bool(training.get("owned_by_hecsn")),
+                "training_checkpoint_committed": bool(
+                    training_checkpoint.get("post_training_checkpoint_saved")
+                    and training_checkpoint.get(
+                        "post_training_checkpoint_restore_verified"
+                    )
+                    and training_checkpoint.get("committed_checkpoint_path")
+                ),
+                "training_mutated_runtime_state": bool(
+                    training.get("mutates_runtime_state")
+                ),
+                "training_does_not_generate": not bool(training.get("generates_text")),
+                "training_does_not_decode_text": not bool(training.get("decodes_text")),
+                "training_does_not_return_weights": not bool(
+                    training.get("returns_trained_weights")
+                ),
+                "training_transition_evidence_available": int(
+                    training_event.get("training_transition_count", 0) or 0
+                )
+                > 0
+                and int(training_event.get("updated_cell_count", 0) or 0) > 0,
+                "tensor_integrity_surface_available": integrity.get("surface")
+                == "snn_language_dense_readout_tensor_integrity.v1",
+                "tensor_integrity_ready": bool(integrity.get("ready")),
+                "tensor_integrity_does_not_generate": not bool(
+                    integrity.get("generates_text")
+                ),
+                "dense_sparse_integrity_preserved": bool(
+                    integrity_required.get("sampled_sparse_weights_match_dense_tensor")
+                    and integrity_required.get(
+                        "dense_tensor_nonzero_count_matches_sparse_weights"
+                    )
+                ),
+                "heldout_evaluation_available": bool(heldout),
+                "heldout_gate_ready": heldout_gate.get("status")
+                == "ready_for_operator_review",
+                "heldout_cases_supported": supported_cases > 0
+                and unsupported_cases == 0,
+                "heldout_does_not_generate": not bool(heldout.get("generates_text")),
+                "heldout_does_not_train": not bool(heldout.get("trains")),
+                "runtime_truth_improved_or_stable": bool(
+                    truth_delta.get("improved_or_stable")
+                    if truth_delta
+                    else True
+                ),
+                "rollback_policy_available": bool(
+                    rollback.get("checkpoint_available")
+                    or rollback.get("restore_endpoint_available")
+                    or rollback.get("available")
+                ),
+                "language_generation_absent": True,
+                "action_execution_absent": True,
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_post_training_evaluation",
+                "surface": "snn_language_dense_readout_post_training_evaluation.v1",
+                "available": bool(training and integrity),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_post_training_evaluation",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "eligible_for_language_generation": False,
+                "training_summary": {
+                    "training_transition_count": int(
+                        training_event.get("training_transition_count", 0) or 0
+                    ),
+                    "updated_cell_count": int(
+                        training_event.get("updated_cell_count", 0) or 0
+                    ),
+                    "checkpoint_path": training_checkpoint.get(
+                        "committed_checkpoint_path"
+                    ),
+                },
+                "tensor_summary": dict(integrity.get("tensor_summary") or {}),
+                "heldout_summary": dict(heldout_summary),
+                "runtime_truth_delta": truth_delta,
+                "promotion_gate": {
+                    "status": "ready_for_dense_readout_decoder_probe_design"
+                    if ready
+                    else "blocked_missing_dense_readout_post_training_evaluation_evidence",
+                    "eligible_for_dense_readout_decoder_probe_design": ready,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_runtime_training": False,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "bounded_dense_readout_decoder_probe_design"
+                    if ready
+                    else "collect_training_integrity_heldout_and_rollback_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_decoder_probe_design(
+        self,
+        dense_readout_post_training_evaluation: Mapping[str, Any],
+        readout_slots: Sequence[Mapping[str, Any]],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        decoder_design: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded dense-readout decoder probe without generating text."""
+
+        def _snapshot() -> dict[str, Any]:
+            evaluation = dict(dense_readout_post_training_evaluation or {})
+            evaluation_gate = (
+                evaluation.get("promotion_gate")
+                if isinstance(evaluation.get("promotion_gate"), Mapping)
+                else {}
+            )
+            design = dict(decoder_design or {})
+            slots = [dict(slot) for slot in list(readout_slots or []) if isinstance(slot, Mapping)]
+            max_slots = max(1, min(int(design.get("max_slots", 4) or 4), 8))
+            code_dim = max(8, min(int(design.get("code_dim", 32) or 32), 512))
+            bounded_slots = slots[:max_slots]
+            device = dict(device_evidence or {})
+            if not device:
+                tensor_summary = (
+                    evaluation.get("tensor_summary")
+                    if isinstance(evaluation.get("tensor_summary"), Mapping)
+                    else {}
+                )
+                device = {
+                    "device": tensor_summary.get("device", "cpu"),
+                    "source": "dense_readout_post_training_evaluation",
+                }
+            probe = build_spike_language_decoder_probe(
+                {
+                    "readout_slots": bounded_slots,
+                    "device_evidence": device,
+                    "code_dim": code_dim,
+                    "max_slots": max_slots,
+                }
+            )
+            probe_support = (
+                probe.get("support_evidence")
+                if isinstance(probe.get("support_evidence"), Mapping)
+                else {}
+            )
+            probe_sparsity = (
+                probe.get("sparsity_evidence")
+                if isinstance(probe.get("sparsity_evidence"), Mapping)
+                else {}
+            )
+            probe_temporal = (
+                probe.get("temporal_state_evidence")
+                if isinstance(probe.get("temporal_state_evidence"), Mapping)
+                else {}
+            )
+            probe_device = (
+                probe.get("device_evidence")
+                if isinstance(probe.get("device_evidence"), Mapping)
+                else {}
+            )
+            required = {
+                "post_training_evaluation_surface_available": evaluation.get("surface")
+                == "snn_language_dense_readout_post_training_evaluation.v1",
+                "post_training_evaluation_ready": bool(evaluation.get("ready"))
+                and evaluation_gate.get("status")
+                == "ready_for_dense_readout_decoder_probe_design",
+                "post_training_evaluation_does_not_generate": not bool(
+                    evaluation.get("generates_text")
+                ),
+                "readout_slots_available": bool(bounded_slots),
+                "readout_slot_count_bounded": 0 < len(bounded_slots) <= max_slots,
+                "readout_slots_grounded": all(
+                    bool(slot.get("grounded")) and bool(str(slot.get("label") or "").strip())
+                    for slot in bounded_slots
+                ),
+                "decoder_code_dim_bounded": 8 <= code_dim <= 512,
+                "decoder_probe_surface_available": probe.get("surface")
+                == "snn_language_decoder_probe_evidence.v1",
+                "decoder_probe_owned_by_hecsn": bool(probe.get("owned_by_hecsn")),
+                "decoder_probe_non_generative": not bool(probe.get("generates_text")),
+                "decoder_probe_not_executable": not bool(probe.get("executable")),
+                "decoder_probe_sparse": bool(
+                    probe_sparsity.get("meets_sparse_readout_floor")
+                ),
+                "decoder_probe_grounding_supported": bool(
+                    probe_support.get("supported")
+                ),
+                "decoder_probe_temporal_state_available": bool(
+                    probe_temporal.get("dynamic_state_available")
+                ),
+                "decoder_probe_device_evidence_available": bool(
+                    probe_device.get("tensor_device")
+                ),
+                "language_generation_absent": True,
+                "freeform_generation_absent": True,
+                "runtime_mutation_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            ready = all(required.values())
+            design_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_dense_readout_decoder_probe_design.v1",
+                    "post_training_surface": evaluation.get("surface"),
+                    "post_training_ready": bool(evaluation.get("ready")),
+                    "slot_labels": [
+                        str(slot.get("label") or "").strip()
+                        for slot in bounded_slots
+                    ],
+                    "code_dim": code_dim,
+                    "max_slots": max_slots,
+                    "device": device,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_decoder_probe_design",
+                "surface": "snn_language_dense_readout_decoder_probe_design.v1",
+                "available": bool(evaluation and bounded_slots),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_decoder_probe_design",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "freeform_language_generation": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "decoder_design": {
+                    "design_hash": design_hash,
+                    "code_dim": code_dim,
+                    "max_slots": max_slots,
+                    "readout_slot_count": len(bounded_slots),
+                    "bounded_population_code": True,
+                    "grounded_label_only": True,
+                    "freeform_generation_allowed": False,
+                },
+                "decoder_probe_evidence": probe,
+                "promotion_gate": {
+                    "status": "ready_for_dense_readout_decoder_probe_preflight"
+                    if ready
+                    else "blocked_missing_dense_readout_decoder_probe_design_evidence",
+                    "eligible_for_dense_readout_decoder_probe_preflight": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "bounded_dense_readout_decoder_probe_preflight"
+                    if ready
+                    else "collect_post_training_grounded_sparse_decoder_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_dense_readout_decoder_probe_preflight(
+        self,
+        dense_readout_decoder_probe_design: Mapping[str, Any],
+        *,
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a bounded dense-readout decoder probe without running it."""
+
+        def _snapshot() -> dict[str, Any]:
+            design = dict(dense_readout_decoder_probe_design or {})
+            gate = (
+                design.get("promotion_gate")
+                if isinstance(design.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_design = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            decoder_design = (
+                design.get("decoder_design")
+                if isinstance(design.get("decoder_design"), Mapping)
+                else {}
+            )
+            probe = (
+                design.get("decoder_probe_evidence")
+                if isinstance(design.get("decoder_probe_evidence"), Mapping)
+                else {}
+            )
+            probe_sparsity = (
+                probe.get("sparsity_evidence")
+                if isinstance(probe.get("sparsity_evidence"), Mapping)
+                else {}
+            )
+            probe_device = (
+                probe.get("device_evidence")
+                if isinstance(probe.get("device_evidence"), Mapping)
+                else {}
+            )
+            device = dict(device_evidence or {})
+            requested_device = str(
+                device.get("device")
+                or probe_device.get("requested_device")
+                or probe_device.get("tensor_device")
+                or ""
+            )
+            before_revision = int(self._runtime_state.state_revision)
+            design_hash = str(decoder_design.get("design_hash") or "")
+            recomputed_design_hash = self._sha256_json(
+                {
+                    "surface": design.get("surface"),
+                    "ready": bool(design.get("ready")),
+                    "design_hash": design_hash,
+                    "code_dim": int(decoder_design.get("code_dim", 0) or 0),
+                    "max_slots": int(decoder_design.get("max_slots", 0) or 0),
+                    "readout_slot_count": int(
+                        decoder_design.get("readout_slot_count", 0) or 0
+                    ),
+                    "probe_surface": probe.get("surface"),
+                    "probe_active_count": int(
+                        probe_sparsity.get("active_count", 0) or 0
+                    ),
+                    "probe_tensor_device": probe_device.get("tensor_device"),
+                }
+            )
+            requires_cuda = str(requested_device).startswith("cuda")
+            cuda_available = bool(
+                device.get("cuda_available")
+                or probe_device.get("cuda_tensor")
+                or (requires_cuda and torch.cuda.is_available())
+            )
+            required = {
+                "design_surface_available": design.get("surface")
+                == "snn_language_dense_readout_decoder_probe_design.v1",
+                "design_gate_ready": bool(design.get("ready"))
+                and gate.get("status")
+                == "ready_for_dense_readout_decoder_probe_preflight",
+                "expected_state_revision_current": int(expected_state_revision)
+                == before_revision,
+                "design_hash_available": bool(design_hash),
+                "preflight_material_hash_available": bool(recomputed_design_hash),
+                "decoder_design_bounded": bool(
+                    decoder_design.get("bounded_population_code")
+                    and decoder_design.get("grounded_label_only")
+                    and not decoder_design.get("freeform_generation_allowed")
+                ),
+                "decoder_probe_surface_available": probe.get("surface")
+                == "snn_language_decoder_probe_evidence.v1",
+                "decoder_probe_non_generative": not bool(probe.get("generates_text")),
+                "decoder_probe_not_executable": not bool(probe.get("executable")),
+                "decoder_probe_sparse": bool(
+                    required_design.get("decoder_probe_sparse")
+                    and probe_sparsity.get("meets_sparse_readout_floor")
+                ),
+                "decoder_probe_device_evidence_available": bool(
+                    probe_device.get("tensor_device")
+                ),
+                "requested_device_available": bool(requested_device),
+                "cuda_requirement_satisfied_or_not_required": (not requires_cuda)
+                or cuda_available,
+                "language_generation_absent": not bool(design.get("generates_text")),
+                "freeform_generation_absent": not bool(
+                    design.get("freeform_language_generation")
+                ),
+                "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_dense_readout_decoder_probe_preflight",
+                "surface": "snn_language_dense_readout_decoder_probe_preflight.v1",
+                "available": bool(design),
+                "ready": ready,
+                "advisory": True,
+                "executable": False,
+                "source": "status_read_model.snn_language_dense_readout_decoder_probe_preflight",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "freeform_language_generation": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "returns_trained_weights": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "expected_state_revision": int(expected_state_revision),
+                "current_state_revision": before_revision,
+                "preflight_material_hash": recomputed_design_hash,
+                "decoder_design": dict(decoder_design),
+                "decoder_probe_summary": {
+                    "surface": probe.get("surface"),
+                    "active_count": int(probe_sparsity.get("active_count", 0) or 0),
+                    "mean_sparsity": float(
+                        probe_sparsity.get("mean_sparsity", 0.0) or 0.0
+                    ),
+                    "tensor_device": probe_device.get("tensor_device"),
+                    "cuda_tensor": bool(probe_device.get("cuda_tensor")),
+                },
+                "promotion_gate": {
+                    "status": "ready_for_bounded_dense_readout_decoder_probe"
+                    if ready
+                    else "blocked_missing_dense_readout_decoder_probe_preflight_evidence",
+                    "eligible_for_dense_readout_decoder_probe": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_action": False,
+                    "next_gate": "bounded_dense_readout_decoder_probe_execution"
+                    if ready
+                    else "collect_current_revision_device_sparse_probe_evidence",
                     "required_evidence": required,
                 },
             }

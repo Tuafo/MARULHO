@@ -53,6 +53,13 @@ from .schemas import (
     SNNLanguageDenseReadoutResizePlanRequest,
     SNNLanguageDenseReadoutTensorMaterializationRequest,
     SNNLanguageDenseReadoutTensorMaterializationReadinessRequest,
+    SNNLanguageDenseReadoutDecoderProbeDesignRequest,
+    SNNLanguageDenseReadoutDecoderProbePreflightRequest,
+    SNNLanguageDenseReadoutPostTrainingEvaluationRequest,
+    SNNLanguageDenseReadoutTrainingLoopDesignRequest,
+    SNNLanguageDenseReadoutTrainingLoopPreflightRequest,
+    SNNLanguageDenseReadoutTrainingRequest,
+    SNNLanguageDenseReadoutTrainingReadinessRequest,
     SNNLanguageDenseReadoutResizeTransactionProposalRequest,
     SNNLanguagePlasticityLiveApplicationPreflightRequest,
     SNNLanguagePlasticityLiveApplicationRequest,
@@ -984,6 +991,95 @@ def create_app(
             confirmation=request.confirmation,
             checkpoint_path=request.checkpoint_path,
             requested_device=request.requested_device,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-training-readiness")
+    def terminus_snn_language_dense_readout_training_readiness(
+        request: SNNLanguageDenseReadoutTrainingReadinessRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_training_readiness(
+            dense_readout_tensor_integrity=request.dense_readout_tensor_integrity,
+            heldout_evaluation=request.heldout_evaluation,
+            device_evidence=request.device_evidence,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-training-loop-design")
+    def terminus_snn_language_dense_readout_training_loop_design(
+        request: SNNLanguageDenseReadoutTrainingLoopDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_training_loop_design(
+            dense_readout_training_readiness=(
+                request.dense_readout_training_readiness
+            ),
+            training_plan=request.training_plan,
+            device_evidence=request.device_evidence,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-training-loop-preflight")
+    def terminus_snn_language_dense_readout_training_loop_preflight(
+        request: SNNLanguageDenseReadoutTrainingLoopPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_training_loop_preflight(
+            dense_readout_training_loop_design=(
+                request.dense_readout_training_loop_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-training")
+    def terminus_snn_language_dense_readout_training(
+        request: SNNLanguageDenseReadoutTrainingRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_training(
+            dense_readout_training_loop_preflight=(
+                request.dense_readout_training_loop_preflight
+            ),
+            training_transitions=request.training_transitions,
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            checkpoint_path=request.checkpoint_path,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-post-training-evaluation")
+    def terminus_snn_language_dense_readout_post_training_evaluation(
+        request: SNNLanguageDenseReadoutPostTrainingEvaluationRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_post_training_evaluation(
+            dense_readout_training=request.dense_readout_training,
+            dense_readout_tensor_integrity=request.dense_readout_tensor_integrity,
+            heldout_evaluation=request.heldout_evaluation,
+            runtime_truth_delta=request.runtime_truth_delta,
+            rollback_policy=request.rollback_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-decoder-probe-design")
+    def terminus_snn_language_dense_readout_decoder_probe_design(
+        request: SNNLanguageDenseReadoutDecoderProbeDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_decoder_probe_design(
+            dense_readout_post_training_evaluation=(
+                request.dense_readout_post_training_evaluation
+            ),
+            readout_slots=request.readout_slots,
+            device_evidence=request.device_evidence,
+            decoder_design=request.decoder_design,
+        )
+
+    @app.post("/terminus/snn-language-sequence/dense-readout-decoder-probe-preflight")
+    def terminus_snn_language_dense_readout_decoder_probe_preflight(
+        request: SNNLanguageDenseReadoutDecoderProbePreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_dense_readout_decoder_probe_preflight(
+            dense_readout_decoder_probe_design=(
+                request.dense_readout_decoder_probe_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
         )
 
     @app.post("/terminus/snn-language-sequence/plasticity-homeostatic-maintenance")

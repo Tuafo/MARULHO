@@ -989,6 +989,41 @@ class RuntimeFacade:
             **kwargs
         )
 
+    def snn_language_dense_readout_training_readiness(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_training_readiness(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_training_loop_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_training_loop_design(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_training_loop_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_training_loop_preflight(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_training(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_plasticity_executor.apply_dense_readout_training_loop(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_post_training_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_post_training_evaluation(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_decoder_probe_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_decoder_probe_design(
+            **kwargs
+        )
+
+    def snn_language_dense_readout_decoder_probe_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_dense_readout_decoder_probe_preflight(
+            **kwargs
+        )
+
     def snn_language_plasticity_runtime_state(self) -> dict[str, Any]:
         return self._root._snn_language_plasticity_executor.snapshot()
 

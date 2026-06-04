@@ -3663,6 +3663,614 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "layout_metadata_only_resize_pending",
         )
 
+    def test_runtime_truth_dense_readout_tensor_integrity_audits_materialized_tensor(
+        self,
+    ) -> None:
+        tensor = torch.zeros((128, 128), dtype=torch.float32)
+        tensor[1, 2] = 0.5
+        tensor[65, 66] = 0.25
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+            "dense_readout_layout": {
+                "surface": "snn_language_dense_readout_layout_state.v1",
+                "target_language_neuron_count": 128,
+                "tensor_materialization": {
+                    "applied": True,
+                    "actual_device": "cpu",
+                    "target_dense_readout_shape": [128, 128],
+                    "materializes_dense_tensor_weights": True,
+                },
+                "dense_resize_applied": True,
+                "dynamic_dense_readout_enabled": True,
+                "migration_status": "dense_readout_tensor_materialized",
+            },
+            "dense_readout_weights": tensor,
+            "sparse_transition_weights": {"1:2": 0.5, "65:66": 0.25},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        truth_evidence = model.status()["runtime_truth"]["evidence"]
+        dense_layout = truth_evidence["snn_language_dense_readout_layout_state"]
+        integrity = truth_evidence["snn_language_dense_readout_tensor_integrity"]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(dense_layout["target_dense_readout_shape"], [128, 128])
+        self.assertTrue(dense_layout["tensor_materialization_applied"])
+        self.assertTrue(dense_layout["dense_resize_applied"])
+        self.assertFalse(dense_layout["requires_cuda_relayout"])
+        self.assertFalse(dense_layout["checkpoint_required_before_resize"])
+        self.assertEqual(
+            integrity["surface"],
+            "snn_language_dense_readout_tensor_integrity.v1",
+        )
+        self.assertTrue(integrity["ready"])
+        self.assertFalse(integrity["executable"])
+        self.assertFalse(integrity["mutates_runtime_state"])
+        self.assertFalse(integrity["writes_checkpoint"])
+        self.assertFalse(integrity["generates_text"])
+        self.assertEqual(integrity["tensor_summary"]["shape"], [128, 128])
+        self.assertEqual(integrity["tensor_summary"]["device"], "cpu")
+        self.assertEqual(integrity["tensor_summary"]["nonzero_count"], 2)
+        self.assertTrue(
+            integrity["promotion_gate"]["required_evidence"][
+                "sampled_sparse_weights_match_dense_tensor"
+            ]
+        )
+        self.assertTrue(
+            integrity["promotion_gate"]["required_evidence"][
+                "dense_tensor_nonzero_count_matches_sparse_weights"
+            ]
+        )
+        self.assertFalse(
+            integrity["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_training_readiness_requires_heldout_and_rollback(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        integrity = {
+            "surface": "snn_language_dense_readout_tensor_integrity.v1",
+            "ready": True,
+            "owned_by_hecsn": True,
+            "generates_text": False,
+            "mutates_runtime_state": False,
+            "tensor_summary": {
+                "shape": [128, 128],
+                "device": "cpu",
+                "dtype": "torch.float32",
+                "nonzero_count": 2,
+            },
+            "promotion_gate": {
+                "required_evidence": {
+                    "dense_tensor_available": True,
+                    "dense_tensor_shape_matches_layout": True,
+                    "sampled_sparse_weights_match_dense_tensor": True,
+                }
+            },
+        }
+        heldout = model.snn_language_adapter_heldout_evaluation(
+            [
+                [
+                    {
+                        "label": "prediction error",
+                        "pressure_band": "high",
+                        "grounded": True,
+                    }
+                ]
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_training_readiness(integrity)
+        ready = model.snn_language_dense_readout_training_readiness(
+            integrity,
+            heldout_evaluation=heldout,
+            device_evidence={"device": "cpu", "source": "unit"},
+            rollback_policy={
+                "checkpoint_available": True,
+                "restore_endpoint_available": True,
+            },
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_training_readiness.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(blocked["executable"])
+        self.assertFalse(blocked["mutates_runtime_state"])
+        self.assertFalse(blocked["writes_checkpoint"])
+        self.assertFalse(blocked["generates_text"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "heldout_evaluation_available"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_dense_readout_training_loop_design"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_dense_readout_training"]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_runtime_training"]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_training_loop_design_is_read_only(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        integrity = {
+            "surface": "snn_language_dense_readout_tensor_integrity.v1",
+            "ready": True,
+            "owned_by_hecsn": True,
+            "generates_text": False,
+            "mutates_runtime_state": False,
+            "tensor_summary": {
+                "shape": [128, 128],
+                "device": "cpu",
+                "dtype": "torch.float32",
+                "nonzero_count": 2,
+            },
+            "promotion_gate": {
+                "required_evidence": {
+                    "dense_tensor_available": True,
+                    "dense_tensor_shape_matches_layout": True,
+                    "sampled_sparse_weights_match_dense_tensor": True,
+                }
+            },
+        }
+        heldout = model.snn_language_adapter_heldout_evaluation(
+            [
+                [
+                    {
+                        "label": "prediction error",
+                        "pressure_band": "high",
+                        "grounded": True,
+                    }
+                ]
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        readiness = model.snn_language_dense_readout_training_readiness(
+            integrity,
+            heldout_evaluation=heldout,
+            device_evidence={"device": "cpu", "source": "unit"},
+            rollback_policy={
+                "checkpoint_available": True,
+                "restore_endpoint_available": True,
+            },
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_training_loop_design(readiness)
+        ready = model.snn_language_dense_readout_training_loop_design(
+            readiness,
+            training_plan={
+                "training_transition_count": 8,
+                "validation_transition_count": 4,
+                "learning_rule": (
+                    "bounded_local_hebbian_readout_delta_with_homeostatic_row_norm"
+                ),
+                "learning_rate": 0.02,
+                "max_epochs": 2,
+                "target_min_weight_sparsity": 0.9,
+                "max_delta_norm": 0.05,
+            },
+            device_evidence={"device": "cpu", "source": "unit"},
+            rollback_policy={
+                "checkpoint_available": True,
+                "restore_endpoint_available": True,
+            },
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_training_loop_design.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "training_transitions_available"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["trains_runtime_model"])
+        self.assertFalse(ready["returns_trained_weights"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_dense_readout_training_loop_preflight"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_dense_readout_training"]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_training_loop_preflight_requires_revision_and_checkpoint(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        integrity = {
+            "surface": "snn_language_dense_readout_tensor_integrity.v1",
+            "ready": True,
+            "owned_by_hecsn": True,
+            "generates_text": False,
+            "mutates_runtime_state": False,
+            "tensor_summary": {
+                "shape": [128, 128],
+                "device": "cpu",
+                "dtype": "torch.float32",
+                "nonzero_count": 2,
+            },
+            "promotion_gate": {
+                "required_evidence": {
+                    "dense_tensor_available": True,
+                    "dense_tensor_shape_matches_layout": True,
+                    "sampled_sparse_weights_match_dense_tensor": True,
+                }
+            },
+        }
+        heldout = model.snn_language_adapter_heldout_evaluation(
+            [
+                [
+                    {
+                        "label": "prediction error",
+                        "pressure_band": "high",
+                        "grounded": True,
+                    }
+                ]
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        readiness = model.snn_language_dense_readout_training_readiness(
+            integrity,
+            heldout_evaluation=heldout,
+            device_evidence={"device": "cpu", "source": "unit"},
+            rollback_policy={
+                "checkpoint_available": True,
+                "restore_endpoint_available": True,
+            },
+        )
+        design = model.snn_language_dense_readout_training_loop_design(
+            readiness,
+            training_plan={
+                "training_transition_count": 8,
+                "validation_transition_count": 4,
+                "learning_rate": 0.02,
+                "max_epochs": 2,
+                "target_min_weight_sparsity": 0.9,
+                "max_delta_norm": 0.05,
+            },
+            device_evidence={"device": "cpu", "source": "unit"},
+            rollback_policy={
+                "checkpoint_available": True,
+                "restore_endpoint_available": True,
+            },
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_training_loop_preflight(
+            design,
+            expected_state_revision=rev_before + 1,
+            checkpoint_path=None,
+            executor_capabilities={},
+        )
+        ready = model.snn_language_dense_readout_training_loop_preflight(
+            design,
+            expected_state_revision=rev_before,
+            checkpoint_path="dense-readout-training.pt",
+            executor_capabilities={
+                "checkpoint_writer_available": True,
+                "bounded_delta_application_available": True,
+            },
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_training_loop_preflight.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "expected_state_revision_current"
+            ]
+        )
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "checkpoint_path_available"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["trains_runtime_model"])
+        self.assertFalse(ready["returns_trained_weights"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_dense_readout_training_executor"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_runtime_training"]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_post_training_evaluation_requires_integrity_and_heldout(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        training = {
+            "surface": "snn_language_dense_readout_training.v1",
+            "accepted": True,
+            "owned_by_hecsn": True,
+            "generates_text": False,
+            "decodes_text": False,
+            "mutates_runtime_state": True,
+            "returns_trained_weights": False,
+            "checkpoint_transaction": {
+                "post_training_checkpoint_saved": True,
+                "post_training_checkpoint_restore_verified": True,
+                "committed_checkpoint_path": "dense-training.committed.pt",
+            },
+            "dense_readout_training": {
+                "training_transition_count": 2,
+                "updated_cell_count": 2,
+            },
+        }
+        integrity = {
+            "surface": "snn_language_dense_readout_tensor_integrity.v1",
+            "ready": True,
+            "generates_text": False,
+            "tensor_summary": {
+                "shape": [128, 128],
+                "device": "cpu",
+                "dtype": "torch.float32",
+                "nonzero_count": 2,
+            },
+            "promotion_gate": {
+                "required_evidence": {
+                    "sampled_sparse_weights_match_dense_tensor": True,
+                    "dense_tensor_nonzero_count_matches_sparse_weights": True,
+                }
+            },
+        }
+        heldout = model.snn_language_adapter_heldout_evaluation(
+            [
+                [
+                    {
+                        "label": "prediction error",
+                        "pressure_band": "high",
+                        "grounded": True,
+                    }
+                ]
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_post_training_evaluation(
+            training,
+            integrity,
+        )
+        ready = model.snn_language_dense_readout_post_training_evaluation(
+            training,
+            integrity,
+            heldout_evaluation=heldout,
+            runtime_truth_delta={"improved_or_stable": True},
+            rollback_policy={
+                "checkpoint_available": True,
+                "restore_endpoint_available": True,
+            },
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_post_training_evaluation.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "heldout_evaluation_available"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["trains_runtime_model"])
+        self.assertFalse(ready["returns_trained_weights"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_dense_readout_decoder_probe_design"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_decoder_probe_design_is_grounded_and_non_generative(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        post_training = {
+            "surface": "snn_language_dense_readout_post_training_evaluation.v1",
+            "ready": True,
+            "generates_text": False,
+            "tensor_summary": {"device": "cpu"},
+            "promotion_gate": {
+                "status": "ready_for_dense_readout_decoder_probe_design"
+            },
+        }
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_decoder_probe_design(
+            post_training,
+            [{"label": "", "pressure_band": "high", "grounded": False}],
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        ready = model.snn_language_dense_readout_decoder_probe_design(
+            post_training,
+            [
+                {
+                    "label": "prediction error",
+                    "pressure_band": "high",
+                    "grounded": True,
+                },
+                {
+                    "label": "concept focus",
+                    "pressure_band": "medium",
+                    "grounded": True,
+                },
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+            decoder_design={"code_dim": 64, "max_slots": 4},
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_decoder_probe_design.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "readout_slots_grounded"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertFalse(ready["freeform_language_generation"])
+        self.assertEqual(
+            ready["decoder_probe_evidence"]["surface"],
+            "snn_language_decoder_probe_evidence.v1",
+        )
+        self.assertFalse(ready["decoder_probe_evidence"]["generates_text"])
+        self.assertTrue(
+            ready["promotion_gate"][
+                "eligible_for_dense_readout_decoder_probe_preflight"
+            ]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
+    def test_snn_language_dense_readout_decoder_probe_preflight_requires_current_revision(
+        self,
+    ) -> None:
+        model, _, _, runtime_state = _build_read_model()
+        post_training = {
+            "surface": "snn_language_dense_readout_post_training_evaluation.v1",
+            "ready": True,
+            "generates_text": False,
+            "tensor_summary": {"device": "cpu"},
+            "promotion_gate": {
+                "status": "ready_for_dense_readout_decoder_probe_design"
+            },
+        }
+        design = model.snn_language_dense_readout_decoder_probe_design(
+            post_training,
+            [
+                {
+                    "label": "prediction error",
+                    "pressure_band": "high",
+                    "grounded": True,
+                },
+                {
+                    "label": "concept focus",
+                    "pressure_band": "medium",
+                    "grounded": True,
+                },
+            ],
+            device_evidence={"device": "cpu", "source": "unit"},
+            decoder_design={"code_dim": 64, "max_slots": 4},
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        blocked = model.snn_language_dense_readout_decoder_probe_preflight(
+            design,
+            expected_state_revision=rev_before + 1,
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+        ready = model.snn_language_dense_readout_decoder_probe_preflight(
+            design,
+            expected_state_revision=rev_before,
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            blocked["surface"],
+            "snn_language_dense_readout_decoder_probe_preflight.v1",
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "expected_state_revision_current"
+            ]
+        )
+        self.assertTrue(ready["ready"])
+        self.assertFalse(ready["executable"])
+        self.assertFalse(ready["mutates_runtime_state"])
+        self.assertFalse(ready["writes_checkpoint"])
+        self.assertFalse(ready["generates_text"])
+        self.assertFalse(ready["freeform_language_generation"])
+        self.assertTrue(
+            ready["promotion_gate"]["eligible_for_dense_readout_decoder_probe"]
+        )
+        self.assertFalse(
+            ready["promotion_gate"]["eligible_for_language_generation"]
+        )
+
     def test_snn_language_capacity_expansion_design_is_read_only_checkpoint_backed_plan(
         self,
     ) -> None:

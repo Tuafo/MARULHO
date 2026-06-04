@@ -241,6 +241,107 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "requested_device": "cpu",
                     },
                 )
+                dense_readout_training_readiness_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-training-readiness",
+                    json={
+                        "dense_readout_tensor_integrity": status_response.json()[
+                            "runtime_truth"
+                        ]["evidence"]["snn_language_dense_readout_tensor_integrity"],
+                    },
+                )
+                dense_readout_training_loop_design_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-training-loop-design",
+                    json={
+                        "dense_readout_training_readiness": (
+                            dense_readout_training_readiness_response.json()
+                        ),
+                        "training_plan": {
+                            "training_transition_count": 2,
+                            "validation_transition_count": 1,
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "rollback_policy": {
+                            "checkpoint_available": True,
+                            "restore_endpoint_available": True,
+                        },
+                    },
+                )
+                dense_readout_training_loop_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-training-loop-preflight",
+                    json={
+                        "dense_readout_training_loop_design": (
+                            dense_readout_training_loop_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "checkpoint_path": str(root / "dense-training.pt"),
+                        "executor_capabilities": {
+                            "checkpoint_writer_available": True,
+                            "bounded_delta_application_available": True,
+                        },
+                    },
+                )
+                dense_readout_training_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-training",
+                    json={
+                        "dense_readout_training_loop_preflight": (
+                            dense_readout_training_loop_preflight_response.json()
+                        ),
+                        "training_transitions": [
+                            {
+                                "transition_id": "service-api-training",
+                                "pre_indices": [1],
+                                "post_indices": [2],
+                            }
+                        ],
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                        "checkpoint_path": str(root / "dense-training.pt"),
+                    },
+                )
+                dense_readout_post_training_evaluation_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-post-training-evaluation",
+                    json={
+                        "dense_readout_training": (
+                            dense_readout_training_response.json()
+                        ),
+                        "dense_readout_tensor_integrity": status_response.json()[
+                            "runtime_truth"
+                        ]["evidence"]["snn_language_dense_readout_tensor_integrity"],
+                    },
+                )
+                dense_readout_decoder_probe_design_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-decoder-probe-design",
+                    json={
+                        "dense_readout_post_training_evaluation": (
+                            dense_readout_post_training_evaluation_response.json()
+                        ),
+                        "readout_slots": [
+                            {
+                                "label": "prediction error",
+                                "pressure_band": "high",
+                                "grounded": True,
+                            }
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                dense_readout_decoder_probe_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/dense-readout-decoder-probe-preflight",
+                    json={
+                        "dense_readout_decoder_probe_design": (
+                            dense_readout_decoder_probe_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
@@ -258,6 +359,16 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             200,
         )
         self.assertEqual(dense_readout_tensor_materialization_response.status_code, 200)
+        self.assertEqual(dense_readout_training_readiness_response.status_code, 200)
+        self.assertEqual(dense_readout_training_loop_design_response.status_code, 200)
+        self.assertEqual(dense_readout_training_loop_preflight_response.status_code, 200)
+        self.assertEqual(dense_readout_training_response.status_code, 200)
+        self.assertEqual(
+            dense_readout_post_training_evaluation_response.status_code,
+            200,
+        )
+        self.assertEqual(dense_readout_decoder_probe_design_response.status_code, 200)
+        self.assertEqual(dense_readout_decoder_probe_preflight_response.status_code, 200)
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
         capacity_expansion_design = capacity_expansion_response.json()
@@ -273,6 +384,25 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         dense_readout_tensor_materialization = (
             dense_readout_tensor_materialization_response.json()
+        )
+        dense_readout_training_readiness = (
+            dense_readout_training_readiness_response.json()
+        )
+        dense_readout_training_loop_design = (
+            dense_readout_training_loop_design_response.json()
+        )
+        dense_readout_training_loop_preflight = (
+            dense_readout_training_loop_preflight_response.json()
+        )
+        dense_readout_training = dense_readout_training_response.json()
+        dense_readout_post_training_evaluation = (
+            dense_readout_post_training_evaluation_response.json()
+        )
+        dense_readout_decoder_probe_design = (
+            dense_readout_decoder_probe_design_response.json()
+        )
+        dense_readout_decoder_probe_preflight = (
+            dense_readout_decoder_probe_preflight_response.json()
         )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
@@ -441,6 +571,90 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(dense_readout_tensor_materialization["resizes_network"])
         self.assertFalse(
             dense_readout_tensor_materialization["materializes_dense_tensor_weights"]
+        )
+        self.assertEqual(
+            dense_readout_training_readiness["surface"],
+            "snn_language_dense_readout_training_readiness.v1",
+        )
+        self.assertFalse(dense_readout_training_readiness["ready"])
+        self.assertFalse(dense_readout_training_readiness["executable"])
+        self.assertFalse(dense_readout_training_readiness["mutates_runtime_state"])
+        self.assertFalse(dense_readout_training_readiness["writes_checkpoint"])
+        self.assertFalse(dense_readout_training_readiness["generates_text"])
+        self.assertEqual(
+            dense_readout_training_loop_design["surface"],
+            "snn_language_dense_readout_training_loop_design.v1",
+        )
+        self.assertFalse(dense_readout_training_loop_design["ready"])
+        self.assertFalse(dense_readout_training_loop_design["executable"])
+        self.assertFalse(dense_readout_training_loop_design["trains_runtime_model"])
+        self.assertFalse(dense_readout_training_loop_design["returns_trained_weights"])
+        self.assertFalse(dense_readout_training_loop_design["mutates_runtime_state"])
+        self.assertFalse(dense_readout_training_loop_design["writes_checkpoint"])
+        self.assertFalse(dense_readout_training_loop_design["generates_text"])
+        self.assertEqual(
+            dense_readout_training_loop_preflight["surface"],
+            "snn_language_dense_readout_training_loop_preflight.v1",
+        )
+        self.assertFalse(dense_readout_training_loop_preflight["ready"])
+        self.assertFalse(dense_readout_training_loop_preflight["executable"])
+        self.assertFalse(dense_readout_training_loop_preflight["trains_runtime_model"])
+        self.assertFalse(
+            dense_readout_training_loop_preflight["returns_trained_weights"]
+        )
+        self.assertFalse(dense_readout_training_loop_preflight["mutates_runtime_state"])
+        self.assertFalse(dense_readout_training_loop_preflight["writes_checkpoint"])
+        self.assertFalse(dense_readout_training_loop_preflight["generates_text"])
+        self.assertEqual(
+            dense_readout_training["surface"],
+            "snn_language_dense_readout_training.v1",
+        )
+        self.assertFalse(dense_readout_training["accepted"])
+        self.assertFalse(dense_readout_training["trains_runtime_model"])
+        self.assertFalse(dense_readout_training["returns_trained_weights"])
+        self.assertFalse(dense_readout_training["mutates_runtime_state"])
+        self.assertFalse(dense_readout_training["writes_checkpoint"])
+        self.assertFalse(dense_readout_training["generates_text"])
+        self.assertEqual(
+            dense_readout_post_training_evaluation["surface"],
+            "snn_language_dense_readout_post_training_evaluation.v1",
+        )
+        self.assertFalse(dense_readout_post_training_evaluation["ready"])
+        self.assertFalse(dense_readout_post_training_evaluation["executable"])
+        self.assertFalse(
+            dense_readout_post_training_evaluation["trains_runtime_model"]
+        )
+        self.assertFalse(
+            dense_readout_post_training_evaluation["returns_trained_weights"]
+        )
+        self.assertFalse(
+            dense_readout_post_training_evaluation["mutates_runtime_state"]
+        )
+        self.assertFalse(dense_readout_post_training_evaluation["writes_checkpoint"])
+        self.assertFalse(dense_readout_post_training_evaluation["generates_text"])
+        self.assertEqual(
+            dense_readout_decoder_probe_design["surface"],
+            "snn_language_dense_readout_decoder_probe_design.v1",
+        )
+        self.assertFalse(dense_readout_decoder_probe_design["ready"])
+        self.assertFalse(dense_readout_decoder_probe_design["executable"])
+        self.assertFalse(dense_readout_decoder_probe_design["mutates_runtime_state"])
+        self.assertFalse(dense_readout_decoder_probe_design["writes_checkpoint"])
+        self.assertFalse(dense_readout_decoder_probe_design["generates_text"])
+        self.assertFalse(
+            dense_readout_decoder_probe_design["freeform_language_generation"]
+        )
+        self.assertEqual(
+            dense_readout_decoder_probe_preflight["surface"],
+            "snn_language_dense_readout_decoder_probe_preflight.v1",
+        )
+        self.assertFalse(dense_readout_decoder_probe_preflight["ready"])
+        self.assertFalse(dense_readout_decoder_probe_preflight["executable"])
+        self.assertFalse(dense_readout_decoder_probe_preflight["mutates_runtime_state"])
+        self.assertFalse(dense_readout_decoder_probe_preflight["writes_checkpoint"])
+        self.assertFalse(dense_readout_decoder_probe_preflight["generates_text"])
+        self.assertFalse(
+            dense_readout_decoder_probe_preflight["freeform_language_generation"]
         )
         self.assertFalse(capacity_compatibility["adds_neurons"])
         self.assertFalse(

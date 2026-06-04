@@ -133,7 +133,10 @@ class SpikeLanguageDecoderProbe:
 
 
 def build_spike_language_decoder_probe(spike_readout_evidence: Mapping[str, Any]) -> dict[str, Any]:
-    return SpikeLanguageDecoderProbe().evaluate(spike_readout_evidence)
+    return SpikeLanguageDecoderProbe(
+        code_dim=int(spike_readout_evidence.get("code_dim", 32) or 32),
+        max_slots=int(spike_readout_evidence.get("max_slots", 4) or 4),
+    ).evaluate(spike_readout_evidence)
 
 
 def _pressure_offset(pressure_band: str) -> int:
