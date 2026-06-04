@@ -20,6 +20,10 @@ from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_c
 DEFAULT_REPLAY_SAMPLE_HISTORY = 256
 DEFAULT_DELAYED_CONSEQUENCE_RECORDS = 24
 CURRENT_CHECKPOINT_MANIFEST = "hecsn_current_checkpoint.json"
+_SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
+_SNN_LANGUAGE_NEURON_COUNT = 64
+_SNN_LANGUAGE_SPARSE_EDGE_BUDGET = 256
+_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
 
 
 _FORWARDED_STATE_NAMES = frozenset({
@@ -183,7 +187,9 @@ class RuntimePersistence:
             service_state = dict(metadata.get("service_state", {}))
             service_state["concept_store"] = self._concept_store.state_dict()
             service_state["terminus_runtime"] = self._brain_persisted_state_locked()
-            service_state["snn_language_plasticity"] = deepcopy(self._snn_language_plasticity_state)
+            service_state["snn_language_plasticity"] = self._snn_language_plasticity_checkpoint_state(
+                self._snn_language_plasticity_state
+            )
             service_state["snn_applied_replay_lineage_checkpoint_summary"] = (
                 self._applied_replay_lineage_checkpoint_summary(
                     service_state["snn_language_plasticity"]
@@ -206,6 +212,71 @@ class RuntimePersistence:
                 **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
+
+    @classmethod
+    def _snn_language_plasticity_checkpoint_state(
+        cls,
+        plasticity_state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        state = deepcopy(dict(plasticity_state or {}))
+        state["language_capacity"] = cls._snn_language_capacity_checkpoint_state(
+            state
+        )
+        return state
+
+    @classmethod
+    def _snn_language_capacity_checkpoint_state(
+        cls,
+        plasticity_state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        raw = (
+            plasticity_state.get("language_capacity")
+            if isinstance(plasticity_state.get("language_capacity"), Mapping)
+            else {}
+        )
+        return {
+            "surface": _SNN_LANGUAGE_CAPACITY_SURFACE,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "language_neuron_count": cls._positive_capacity_int(
+                raw.get("language_neuron_count"),
+                default=_SNN_LANGUAGE_NEURON_COUNT,
+                minimum=_SNN_LANGUAGE_NEURON_COUNT,
+            ),
+            "sparse_edge_budget": cls._positive_capacity_int(
+                raw.get("sparse_edge_budget"),
+                default=_SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                minimum=_SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+            ),
+            "outgoing_fanout_budget": cls._positive_capacity_int(
+                raw.get("outgoing_fanout_budget"),
+                default=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
+                minimum=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
+            ),
+            "dynamic_capacity_enabled": False,
+            "capacity_expansion_count": cls._positive_capacity_int(
+                raw.get("capacity_expansion_count"),
+                default=0,
+                minimum=0,
+            ),
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+            "writes_checkpoint": False,
+        }
+
+    @staticmethod
+    def _positive_capacity_int(
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+    ) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = int(default)
+        return max(int(minimum), normalized)
 
     @classmethod
     def _applied_replay_lineage_checkpoint_summary(

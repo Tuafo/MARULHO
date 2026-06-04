@@ -279,6 +279,16 @@ class RuntimePersistenceTests(unittest.TestCase):
                 "artifact-1",
             )
             self.assertEqual(service_state["snn_language_plasticity"]["sparse_transition_weights"]["1:2"], 0.5)
+            capacity_state = service_state["snn_language_plasticity"]["language_capacity"]
+            self.assertEqual(capacity_state["surface"], "snn_language_capacity_state.v1")
+            self.assertTrue(capacity_state["owned_by_hecsn"])
+            self.assertEqual(capacity_state["language_neuron_count"], 64)
+            self.assertEqual(capacity_state["sparse_edge_budget"], 256)
+            self.assertEqual(capacity_state["outgoing_fanout_budget"], 16)
+            self.assertFalse(capacity_state["dynamic_capacity_enabled"])
+            self.assertFalse(capacity_state["resizes_network"])
+            self.assertFalse(capacity_state["adds_neurons"])
+            self.assertFalse(capacity_state["adds_layers"])
             self.assertEqual(
                 service_state["snn_language_plasticity"]["synapse_provenance_by_key"]["1:2"][
                     "source_metadata_hash"

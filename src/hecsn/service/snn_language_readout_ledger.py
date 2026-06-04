@@ -14,6 +14,7 @@ from hecsn.service.runtime_state import RuntimeState
 
 
 DEFAULT_SNN_LANGUAGE_READOUT_LEDGER_LIMIT = 128
+_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 _LANGUAGE_NEURON_COUNT = 64
 _MAX_READOUT_SYNAPSE_ABS_WEIGHT = 1.0
 _MAX_STRUCTURAL_EDGES_PER_EVENT = 32
@@ -2550,6 +2551,7 @@ class SNNLanguageReadoutEvidenceLedger:
         runtime_memory_evidence = {
             "surface": memory.get("surface"),
             "owned_by_hecsn": bool(memory.get("owned_by_hecsn", True)),
+            "language_capacity": self._language_capacity_state(memory),
             "runtime_state_revision": int(runtime_snapshot.get("state_revision", 0) or 0),
             "transition_memory_snapshot_hash": transition_memory_snapshot_hash,
             "existing_sparse_synapse_count": len(weights),
@@ -2703,6 +2705,8 @@ class SNNLanguageReadoutEvidenceLedger:
             if isinstance(review.get("runtime_memory_evidence"), Mapping)
             else {}
         )
+        language_capacity = self._language_capacity_state(runtime_memory)
+        language_neuron_count = int(language_capacity["language_neuron_count"])
         raw_candidates = [
             dict(item)
             for item in list(developmental.get("growth_candidates") or [])
@@ -2843,15 +2847,17 @@ class SNNLanguageReadoutEvidenceLedger:
             "candidate_keys_unique": bool(candidate_keys)
             and len(set(candidate_keys)) == len(candidate_keys),
             "candidate_indices_canonical": all(
-                0 <= int(item["pre_index"]) < _LANGUAGE_NEURON_COUNT
-                and 0 <= int(item["post_index"]) < _LANGUAGE_NEURON_COUNT
+                0 <= int(item["pre_index"]) < language_neuron_count
+                and 0 <= int(item["post_index"]) < language_neuron_count
                 for item in candidates
             ),
             "candidate_indices_in_range": all(
-                0 <= int(item["pre_index"]) < _LANGUAGE_NEURON_COUNT
-                and 0 <= int(item["post_index"]) < _LANGUAGE_NEURON_COUNT
+                0 <= int(item["pre_index"]) < language_neuron_count
+                and 0 <= int(item["post_index"]) < language_neuron_count
                 for item in candidates
             ),
+            "language_capacity_state_available": bool(language_capacity["present"]),
+            "language_capacity_state_dynamic_limits_applied": True,
             "candidate_values_finite": all(
                 math.isfinite(float(item["initial_weight"])) for item in candidates
             ),
@@ -2917,6 +2923,7 @@ class SNNLanguageReadoutEvidenceLedger:
             "rollout_regeneration_proposal_adapter_hash": adapter_hash,
             "integrity_evidence": required,
             "rollout_growth_evidence": rollout_growth_evidence,
+            "language_capacity": language_capacity,
             "regeneration_design": regeneration_design,
             "blocked_replay_evidence": blocked_replay_evidence,
             "executor_bypass_evidence": executor_bypass_evidence,
@@ -5240,6 +5247,56 @@ class SNNLanguageReadoutEvidenceLedger:
             and cls._valid_language_index(post_index)
             and str(key) == f"{pre_index}:{post_index}"
         )
+
+    @classmethod
+    def _language_capacity_state(cls, state: Mapping[str, Any]) -> dict[str, Any]:
+        raw = (
+            state.get("language_capacity")
+            if isinstance(state.get("language_capacity"), Mapping)
+            else {}
+        )
+        present = bool(raw)
+        return {
+            "surface": _LANGUAGE_CAPACITY_SURFACE,
+            "raw_surface": str(raw.get("surface") or "") if present else None,
+            "present": present,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "language_neuron_count": cls._positive_capacity_int(
+                raw.get("language_neuron_count"),
+                default=_LANGUAGE_NEURON_COUNT,
+                minimum=_LANGUAGE_NEURON_COUNT,
+            ),
+            "sparse_edge_budget": cls._positive_capacity_int(
+                raw.get("sparse_edge_budget"),
+                default=_MAX_SPARSE_TRANSITION_EDGES,
+                minimum=_MAX_SPARSE_TRANSITION_EDGES,
+            ),
+            "outgoing_fanout_budget": cls._positive_capacity_int(
+                raw.get("outgoing_fanout_budget"),
+                default=_MAX_OUTGOING_FANOUT,
+                minimum=_MAX_OUTGOING_FANOUT,
+            ),
+            "dynamic_capacity_enabled": False,
+            "capacity_expansion_count": cls._positive_capacity_int(
+                raw.get("capacity_expansion_count"),
+                default=0,
+                minimum=0,
+            ),
+        }
+
+    @staticmethod
+    def _positive_capacity_int(
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+    ) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = int(default)
+        return max(int(minimum), normalized)
 
     @staticmethod
     def _valid_language_index(value: int | None) -> bool:

@@ -42,6 +42,39 @@ def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
     }
 
 
+def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "language_capacity": {
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 32,
+            "capacity_expansion_count": 1,
+        },
+        "sparse_transition_weights": {"1:2": 0.5},
+    }
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: {"path": str(path or tmp_path / "checkpoint.pt")},
+        checkpoint_path=lambda: tmp_path / "checkpoint.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    snapshot = executor.snapshot()
+
+    assert snapshot["language_capacity"]["surface"] == "snn_language_capacity_state.v1"
+    assert snapshot["language_neuron_count"] == 128
+    assert snapshot["sparse_edge_budget"] == 512
+    assert snapshot["outgoing_fanout_budget"] == 32
+    assert snapshot["language_capacity"]["dynamic_capacity_enabled"] is False
+    assert snapshot["language_capacity"]["resizes_network"] is False
+    assert snapshot["language_capacity"]["adds_neurons"] is False
+
+
 def test_homeostatic_maintenance_normalizes_rows_and_persists_prune_ledger(tmp_path: Path) -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -216,6 +249,62 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
     assert language_state["synapse_regeneration"]["recent_events"][0]["committed_checkpoint_path"].endswith(
         ".regeneration.committed.pt"
     )
+    assert runtime_state.state_revision == 1
+
+
+def test_regeneration_uses_capacity_state_for_sparse_indices_above_default(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 128,
+            "sparse_edge_budget": 512,
+            "outgoing_fanout_budget": 32,
+        },
+        "sparse_transition_weights": {},
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "regeneration.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "regeneration.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        verify_regeneration_permit=lambda proposal: True,
+    )
+
+    result = executor.regenerate_transition_memory(
+        regeneration_proposal=_regeneration_proposal(
+            {
+                "pre_index": 65,
+                "post_index": 66,
+                "initial_weight": 0.1,
+                "locality_distance": 1,
+                "source_synapse_id": "snn-rollout-local:65:66:0",
+                "source_trace_index": 0,
+                "source_rollout_step_index": 10,
+                "target_rollout_step_index": 11,
+                "source_active_indices_hash": "source-active-hash-65",
+                "target_active_indices_hash": "target-active-hash-66",
+            },
+        ),
+        expected_state_revision=0,
+        operator_id="operator-test",
+        confirmation=True,
+        checkpoint_path=str(tmp_path / "regeneration.pt"),
+    )
+
+    assert result["accepted"] is True
+    assert "65:66" in language_state["sparse_transition_weights"]
     assert runtime_state.state_revision == 1
 
 

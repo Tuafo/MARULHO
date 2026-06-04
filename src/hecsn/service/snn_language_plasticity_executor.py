@@ -12,6 +12,7 @@ _MAX_STRUCTURAL_EDGES_PER_EVENT = 32
 _MAX_OUTGOING_FANOUT = 16
 _MAX_SPARSE_TRANSITION_EDGES = 256
 _MAX_OUTGOING_ROW_MASS = 1.0
+_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
 
 
 class SNNLanguagePlasticityApplicationExecutor:
@@ -225,10 +226,15 @@ class SNNLanguagePlasticityApplicationExecutor:
             maintenance = dict(state.get("homeostatic_maintenance") or {})
             regeneration = dict(state.get("synapse_regeneration") or {})
             live_application = dict(state.get("live_application") or {})
+            capacity = self._language_capacity_state(state)
             return {
                 "surface": "snn_language_plasticity_runtime_state.v1",
                 "owned_by_hecsn": True,
                 "external_dependency": False,
+                "language_capacity": deepcopy(capacity),
+                "language_neuron_count": capacity["language_neuron_count"],
+                "sparse_edge_budget": capacity["sparse_edge_budget"],
+                "outgoing_fanout_budget": capacity["outgoing_fanout_budget"],
                 "sparse_transition_weights": deepcopy(weights),
                 "sparse_transition_weight_count": len(weights),
                 "applied_update_count": int(state.get("applied_update_count", 0) or 0),
@@ -247,6 +253,56 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "last_operator_id": state.get("last_operator_id"),
                 "last_checkpoint_path": state.get("last_checkpoint_path"),
             }
+
+    @classmethod
+    def _language_capacity_state(cls, state: Mapping[str, Any]) -> dict[str, Any]:
+        raw = (
+            state.get("language_capacity")
+            if isinstance(state.get("language_capacity"), Mapping)
+            else {}
+        )
+        return {
+            "surface": _LANGUAGE_CAPACITY_SURFACE,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "language_neuron_count": cls._positive_capacity_int(
+                raw.get("language_neuron_count"),
+                default=_LANGUAGE_NEURON_COUNT,
+                minimum=_LANGUAGE_NEURON_COUNT,
+            ),
+            "sparse_edge_budget": cls._positive_capacity_int(
+                raw.get("sparse_edge_budget"),
+                default=_MAX_SPARSE_TRANSITION_EDGES,
+                minimum=_MAX_SPARSE_TRANSITION_EDGES,
+            ),
+            "outgoing_fanout_budget": cls._positive_capacity_int(
+                raw.get("outgoing_fanout_budget"),
+                default=_MAX_OUTGOING_FANOUT,
+                minimum=_MAX_OUTGOING_FANOUT,
+            ),
+            "dynamic_capacity_enabled": False,
+            "capacity_expansion_count": cls._positive_capacity_int(
+                raw.get("capacity_expansion_count"),
+                default=0,
+                minimum=0,
+            ),
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+        }
+
+    @staticmethod
+    def _positive_capacity_int(
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+    ) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = int(default)
+        return max(int(minimum), normalized)
 
     def maintain_transition_memory(
         self,
@@ -417,12 +473,16 @@ class SNNLanguagePlasticityApplicationExecutor:
             candidates = [dict(item) for item in list(design.get("candidate_synapses") or []) if isinstance(item, Mapping)]
             row_mass_limit = float(max_outgoing_row_mass)
             state = self._language_plasticity_state()
+            capacity = self._language_capacity_state(state)
             weights = state.setdefault("sparse_transition_weights", {})
             topology = self._validate_structural_candidates(
                 candidates=candidates,
                 weights=weights,
                 candidate_weight=lambda item: float(item.get("initial_weight", 0.0) or 0.0),
                 row_mass_limit=row_mass_limit,
+                language_neuron_count=int(capacity["language_neuron_count"]),
+                sparse_edge_budget=int(capacity["sparse_edge_budget"]),
+                outgoing_fanout_budget=int(capacity["outgoing_fanout_budget"]),
                 locality_radius=int(design.get("locality_radius", 0) or 0),
                 require_locality=True,
             )
@@ -634,11 +694,16 @@ class SNNLanguagePlasticityApplicationExecutor:
         max_delta = abs(float(delta.get("max_abs_weight_delta", 0.0) or 0.0))
         pressure_before = float(delta.get("pressure_before", 1.0) or 1.0)
         pressure_after = float(delta.get("pressure_after", pressure_before) or pressure_before)
+        state = self._language_plasticity_state()
+        capacity = self._language_capacity_state(state)
         topology = self._validate_structural_candidates(
             candidates=synapses,
-            weights=self._language_plasticity_state().setdefault("sparse_transition_weights", {}),
+            weights=state.setdefault("sparse_transition_weights", {}),
             candidate_weight=lambda _item: max_delta,
             row_mass_limit=_MAX_OUTGOING_ROW_MASS,
+            language_neuron_count=int(capacity["language_neuron_count"]),
+            sparse_edge_budget=int(capacity["sparse_edge_budget"]),
+            outgoing_fanout_budget=int(capacity["outgoing_fanout_budget"]),
         )
         required = {
             "confirmation": bool(confirmation),
@@ -790,6 +855,9 @@ class SNNLanguagePlasticityApplicationExecutor:
         weights: Mapping[str, Any],
         candidate_weight: Callable[[dict[str, Any]], float],
         row_mass_limit: float,
+        language_neuron_count: int | None = None,
+        sparse_edge_budget: int | None = None,
+        outgoing_fanout_budget: int | None = None,
         locality_radius: int | None = None,
         require_locality: bool = False,
     ) -> dict[str, bool]:
@@ -817,11 +885,23 @@ class SNNLanguagePlasticityApplicationExecutor:
             pre_index = key.split(":", maxsplit=1)[0]
             fanout[pre_index] = fanout.get(pre_index, 0) + 1
         radius = int(locality_radius or 0)
+        neuron_count = max(
+            _LANGUAGE_NEURON_COUNT,
+            int(language_neuron_count or _LANGUAGE_NEURON_COUNT),
+        )
+        edge_budget = max(
+            _MAX_SPARSE_TRANSITION_EDGES,
+            int(sparse_edge_budget or _MAX_SPARSE_TRANSITION_EDGES),
+        )
+        fanout_budget = max(
+            _MAX_OUTGOING_FANOUT,
+            int(outgoing_fanout_budget or _MAX_OUTGOING_FANOUT),
+        )
         return {
             "candidate_payload_well_formed": len(parsed) == len(candidates),
             "candidate_count_bounded": 0 < len(candidates) <= _MAX_STRUCTURAL_EDGES_PER_EVENT,
             "candidate_indices_canonical": all(
-                0 <= pre_index < _LANGUAGE_NEURON_COUNT and 0 <= post_index < _LANGUAGE_NEURON_COUNT
+                0 <= pre_index < neuron_count and 0 <= post_index < neuron_count
                 for _candidate, pre_index, post_index, _weight in parsed
             ),
             "candidate_weights_bounded": all(0.0 < weight <= 0.25 for _candidate, _pre, _post, weight in parsed),
@@ -834,8 +914,10 @@ class SNNLanguagePlasticityApplicationExecutor:
             ),
             "outgoing_row_mass_bounded": 0.0 < row_mass_limit <= _MAX_OUTGOING_ROW_MASS
             and max(self._row_mass_by_pre_index(resulting).values(), default=0.0) <= row_mass_limit,
-            "outgoing_fanout_bounded": max(fanout.values(), default=0) <= _MAX_OUTGOING_FANOUT,
-            "global_sparse_edge_budget_bounded": len(existing) + len(new_edges) <= _MAX_SPARSE_TRANSITION_EDGES,
+            "outgoing_fanout_bounded": max(fanout.values(), default=0) <= fanout_budget,
+            "global_sparse_edge_budget_bounded": len(existing) + len(new_edges) <= edge_budget,
+            "language_capacity_state_available": True,
+            "language_capacity_state_dynamic_limits_applied": True,
         }
 
     def _blocked_maintenance(

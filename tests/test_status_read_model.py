@@ -3274,6 +3274,62 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "snn_applied_replay_lineage_restore_validation",
             truth["evidence"],
         )
+        self.assertIn("snn_language_capacity_pressure", truth["evidence"])
+        capacity_pressure = truth["evidence"]["snn_language_capacity_pressure"]
+        self.assertEqual(
+            capacity_pressure["artifact_kind"],
+            "terminus_snn_language_capacity_pressure_evidence",
+        )
+        self.assertEqual(
+            capacity_pressure["surface"],
+            "snn_language_capacity_pressure_evidence.v1",
+        )
+        self.assertFalse(capacity_pressure["executable"])
+        self.assertFalse(capacity_pressure["mutates_runtime_state"])
+        self.assertFalse(capacity_pressure["writes_checkpoint"])
+        self.assertFalse(capacity_pressure["resizes_network"])
+        self.assertFalse(capacity_pressure["adds_neurons"])
+        self.assertFalse(capacity_pressure["adds_layers"])
+        self.assertFalse(capacity_pressure["capacity_pressure_detected"])
+        self.assertFalse(
+            capacity_pressure["eligible_for_capacity_expansion_design_review"]
+        )
+        self.assertIn("snn_language_capacity_fixed_boundaries", truth["evidence"])
+        capacity_boundaries = truth["evidence"][
+            "snn_language_capacity_fixed_boundaries"
+        ]
+        self.assertEqual(
+            capacity_boundaries["artifact_kind"],
+            "terminus_snn_language_capacity_fixed_boundary_evidence",
+        )
+        self.assertEqual(
+            capacity_boundaries["surface"],
+            "snn_language_capacity_fixed_boundary_evidence.v1",
+        )
+        self.assertTrue(capacity_boundaries["advisory"])
+        self.assertFalse(capacity_boundaries["executable"])
+        self.assertFalse(capacity_boundaries["mutates_runtime_state"])
+        self.assertFalse(capacity_boundaries["writes_checkpoint"])
+        self.assertFalse(capacity_boundaries["resizes_network"])
+        self.assertFalse(capacity_boundaries["adds_neurons"])
+        self.assertEqual(capacity_boundaries["fixed_boundary_count"], 3)
+        self.assertEqual(
+            capacity_boundaries["dynamic_capacity_aware_boundary_count"],
+            3,
+        )
+        self.assertTrue(
+            capacity_boundaries["capacity_resize_blocked_by_fixed_boundaries"]
+        )
+        self.assertFalse(
+            capacity_boundaries[
+                "eligible_for_capacity_resize_compatibility_audit"
+            ]
+        )
+        self.assertFalse(
+            capacity_boundaries["promotion_gate"]["required_evidence"][
+                "all_runtime_boundaries_dynamic_capacity_aware"
+            ]
+        )
         restore_validation = truth["evidence"][
             "snn_applied_replay_lineage_restore_validation"
         ]
@@ -3425,6 +3481,347 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(
             lineage_blocked["promotion_gate"]["required_evidence"][
                 "replay_regeneration_artifact_lineage_complete"
+            ]
+        )
+
+    def test_runtime_truth_language_capacity_pressure_reports_fixed_neuron_pressure_without_resize(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(14)
+            for target in range(16)
+        }
+        provenance = {key: {"source": "unit"} for key in weights}
+        memory_state = {
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": provenance,
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        evidence = model.status()["runtime_truth"]["evidence"][
+            "snn_language_capacity_pressure"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            evidence["capacity_state_surface"],
+            "snn_language_capacity_state.v1",
+        )
+        self.assertFalse(evidence["capacity_state_present"])
+        self.assertFalse(evidence["capacity_state_durable"])
+        self.assertFalse(evidence["dynamic_capacity_enabled"])
+        self.assertEqual(evidence["current_language_neuron_count"], 64)
+        self.assertEqual(evidence["configured_sparse_edge_budget"], 256)
+        self.assertEqual(evidence["configured_outgoing_fanout_budget"], 16)
+        self.assertEqual(evidence["sparse_transition_weight_count"], 224)
+        self.assertEqual(evidence["active_language_neuron_count"], 16)
+        self.assertGreater(evidence["sparse_edge_budget_occupancy"], 0.85)
+        self.assertEqual(evidence["max_outgoing_fanout"], 16)
+        self.assertEqual(evidence["saturated_source_neuron_count"], 14)
+        self.assertEqual(evidence["invalid_synapse_key_count"], 0)
+        self.assertEqual(evidence["orphan_weight_count"], 0)
+        self.assertEqual(evidence["dangling_provenance_count"], 0)
+        self.assertTrue(evidence["capacity_pressure_detected"])
+        self.assertTrue(evidence["eligible_for_capacity_expansion_design_review"])
+        self.assertFalse(evidence["eligible_for_network_resize"])
+        self.assertFalse(evidence["eligible_for_neuron_growth"])
+        self.assertFalse(evidence["eligible_for_layer_growth"])
+        self.assertFalse(evidence["eligible_for_structural_write"])
+        self.assertFalse(evidence["mutates_runtime_state"])
+        self.assertFalse(evidence["resizes_network"])
+        self.assertEqual(
+            evidence["promotion_status"],
+            "ready_for_operator_language_capacity_expansion_design_review",
+        )
+        self.assertTrue(
+            evidence["promotion_gate"]["required_evidence"][
+                "capacity_pressure_detected"
+            ]
+        )
+        self.assertTrue(
+            evidence["promotion_gate"]["required_evidence"]["network_resize_absent"]
+        )
+
+    def test_runtime_truth_language_capacity_pressure_uses_durable_capacity_state(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(8)
+            for target in range(32)
+        }
+        provenance = {key: {"source": "unit"} for key in weights}
+        memory_state = {
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": provenance,
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        evidence = model.status()["runtime_truth"]["evidence"][
+            "snn_language_capacity_pressure"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(evidence["current_language_neuron_count"], 128)
+        self.assertTrue(evidence["capacity_state_present"])
+        self.assertTrue(evidence["capacity_state_durable"])
+        self.assertEqual(evidence["configured_sparse_edge_budget"], 512)
+        self.assertEqual(evidence["configured_outgoing_fanout_budget"], 32)
+        self.assertEqual(evidence["language_capacity"]["capacity_expansion_count"], 1)
+        self.assertFalse(evidence["language_capacity"]["dynamic_capacity_enabled"])
+        self.assertEqual(evidence["sparse_transition_weight_count"], 256)
+        self.assertEqual(evidence["active_language_neuron_count"], 32)
+        self.assertEqual(evidence["sparse_edge_budget_occupancy"], 0.5)
+        self.assertEqual(evidence["active_language_neuron_coverage"], 0.25)
+        self.assertEqual(evidence["max_outgoing_fanout"], 32)
+        self.assertEqual(evidence["saturated_source_neuron_count"], 8)
+        self.assertTrue(evidence["capacity_pressure_detected"])
+        self.assertTrue(evidence["eligible_for_capacity_expansion_design_review"])
+        self.assertFalse(evidence["eligible_for_network_resize"])
+        self.assertFalse(evidence["eligible_for_neuron_growth"])
+
+    def test_snn_language_capacity_expansion_design_is_read_only_checkpoint_backed_plan(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(14)
+            for target in range(16)
+        }
+        memory_state = {
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": {key: {"source": "unit"} for key in weights},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        runtime_truth_evidence = model.status()["runtime_truth"]["evidence"]
+        capacity_pressure = runtime_truth_evidence["snn_language_capacity_pressure"]
+        fixed_boundaries = runtime_truth_evidence[
+            "snn_language_capacity_fixed_boundaries"
+        ]
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        design = model.snn_language_capacity_expansion_design(
+            capacity_pressure,
+            device_evidence={"device": "cuda:0", "source": "unit"},
+            rollback_policy={"available": True, "snapshot_id": "capacity-snapshot"},
+            max_neuron_growth_factor=2.0,
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            design["surface"],
+            "snn_language_neuron_capacity_expansion_design.v1",
+        )
+        self.assertEqual(
+            design["artifact_kind"],
+            "terminus_snn_language_capacity_expansion_design",
+        )
+        self.assertTrue(design["ready"])
+        self.assertFalse(design["mutates_runtime_state"])
+        self.assertFalse(design["writes_checkpoint"])
+        self.assertFalse(design["resizes_network"])
+        self.assertFalse(design["adds_neurons"])
+        self.assertFalse(design["adds_layers"])
+        self.assertEqual(design["design"]["current_language_neuron_count"], 64)
+        self.assertEqual(design["design"]["proposed_language_neuron_count"], 128)
+        self.assertEqual(design["design"]["proposed_sparse_edge_budget"], 512)
+        self.assertTrue(design["design"]["requires_cuda_relayout_review"])
+        self.assertTrue(design["design"]["requires_checkpoint_snapshot"])
+        self.assertTrue(design["design"]["requires_restore_validation"])
+        self.assertTrue(
+            design["promotion_gate"][
+                "eligible_for_operator_capacity_expansion_design_review"
+            ]
+        )
+        self.assertFalse(design["promotion_gate"]["eligible_for_network_resize"])
+        self.assertTrue(
+            design["promotion_gate"]["required_evidence"][
+                "cuda_device_preferred"
+            ]
+        )
+
+    def test_snn_language_capacity_expansion_preflight_requires_design_checkpoint_and_cuda(
+        self,
+    ) -> None:
+        weights = {
+            f"{source}:{target}": 0.01
+            for source in range(14)
+            for target in range(16)
+        }
+        memory_state = {
+            "sparse_transition_weights": weights,
+            "synapse_provenance_by_key": {key: {"source": "unit"} for key in weights},
+        }
+        model, _, _, runtime_state = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state)
+        )
+        runtime_truth_evidence = model.status()["runtime_truth"]["evidence"]
+        capacity_pressure = runtime_truth_evidence["snn_language_capacity_pressure"]
+        fixed_boundaries = runtime_truth_evidence[
+            "snn_language_capacity_fixed_boundaries"
+        ]
+        design = model.snn_language_capacity_expansion_design(
+            capacity_pressure,
+            device_evidence={"device": "cuda:0", "source": "unit"},
+            rollback_policy={"available": True, "snapshot_id": "capacity-snapshot"},
+            max_neuron_growth_factor=2.0,
+        )
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        preflight = model.snn_language_capacity_expansion_preflight(
+            design,
+            expected_state_revision=rev_before,
+            checkpoint_transaction={
+                "checkpoint_path": "capacity-expansion.pt",
+                "snapshot_id": "capacity-snapshot",
+                "pre_expansion_checkpoint_saved": True,
+                "pre_expansion_checkpoint_restore_verified": True,
+            },
+            device_evidence={"device": "cuda:0", "source": "unit"},
+        )
+        compatibility = model.snn_language_capacity_resize_compatibility_audit(
+            preflight,
+            language_capacity_state={
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 64,
+                "sparse_edge_budget": 256,
+                "outgoing_fanout_budget": 16,
+                "capacity_expansion_count": 0,
+            },
+        )
+        tampered = deepcopy(design)
+        tampered["design"]["proposed_language_neuron_count"] = 96
+        blocked = model.snn_language_capacity_expansion_preflight(
+            tampered,
+            expected_state_revision=rev_before,
+            checkpoint_transaction={
+                "checkpoint_path": "capacity-expansion.pt",
+                "snapshot_id": "capacity-snapshot",
+                "pre_expansion_checkpoint_saved": True,
+                "pre_expansion_checkpoint_restore_verified": True,
+            },
+            device_evidence={"device": "cuda:0", "source": "unit"},
+        )
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertEqual(
+            preflight["surface"],
+            "snn_language_neuron_capacity_expansion_preflight.v1",
+        )
+        self.assertEqual(
+            preflight["artifact_kind"],
+            "terminus_snn_language_capacity_expansion_preflight",
+        )
+        self.assertTrue(preflight["ready"])
+        self.assertFalse(preflight["mutates_runtime_state"])
+        self.assertFalse(preflight["writes_checkpoint"])
+        self.assertFalse(preflight["resizes_network"])
+        self.assertFalse(preflight["adds_neurons"])
+        self.assertFalse(preflight["adds_layers"])
+        self.assertEqual(
+            preflight["capacity_expansion_design_hash"],
+            design["capacity_expansion_design_hash"],
+        )
+        self.assertEqual(
+            preflight["recomputed_capacity_expansion_design_hash"],
+            design["capacity_expansion_design_hash"],
+        )
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "design_hash_recomputed_match"
+            ]
+        )
+        self.assertTrue(
+            preflight["promotion_gate"]["required_evidence"][
+                "cuda_relayout_evidence_available"
+            ]
+        )
+        self.assertFalse(
+            preflight["promotion_gate"][
+                "eligible_for_checkpoint_backed_capacity_expansion_executor"
+            ]
+        )
+        self.assertEqual(
+            compatibility["surface"],
+            "snn_language_capacity_resize_compatibility_audit.v1",
+        )
+        self.assertFalse(compatibility["ready"])
+        self.assertFalse(compatibility["mutates_runtime_state"])
+        self.assertFalse(compatibility["writes_checkpoint"])
+        self.assertFalse(compatibility["resizes_network"])
+        self.assertFalse(compatibility["adds_neurons"])
+        self.assertEqual(
+            compatibility["capacity_target"]["proposed_language_neuron_count"],
+            128,
+        )
+        self.assertEqual(
+            compatibility["capacity_target"]["proposed_sparse_edge_budget"],
+            512,
+        )
+        self.assertEqual(compatibility["fixed_boundary_count"], 3)
+        self.assertEqual(compatibility["incompatible_boundary_count"], 3)
+        self.assertIn(
+            "snn_language_readout_ledger.dense_readout_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "snn_language_readout_ledger.regeneration_adapter_sparse_index_validators",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertNotIn(
+            "snn_language_plasticity_executor.sparse_edge_budget",
+            compatibility["incompatible_boundary_ids"],
+        )
+        self.assertTrue(
+            compatibility["promotion_gate"]["required_evidence"][
+                "capacity_state_durable"
+            ]
+        )
+        self.assertFalse(
+            compatibility["promotion_gate"]["required_evidence"][
+                "all_runtime_boundaries_dynamic_capacity_aware"
+            ]
+        )
+        self.assertFalse(
+            compatibility["promotion_gate"]["required_evidence"][
+                "all_runtime_boundaries_compatible_with_target"
+            ]
+        )
+        self.assertEqual(
+            [item["boundary_id"] for item in fixed_boundaries["boundary_inventory"]],
+            [item["boundary_id"] for item in compatibility["boundary_inventory"]],
+        )
+        self.assertFalse(
+            compatibility["promotion_gate"]["eligible_for_capacity_resize_executor"]
+        )
+        self.assertFalse(blocked["ready"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "design_hash_recomputed_match"
             ]
         )
 

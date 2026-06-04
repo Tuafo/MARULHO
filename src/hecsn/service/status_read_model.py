@@ -27,6 +27,11 @@ import time
 
 import torch
 
+_SNN_LANGUAGE_NEURON_COUNT = 64
+_SNN_LANGUAGE_SPARSE_EDGE_BUDGET = 256
+_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET = 16
+_SNN_LANGUAGE_CAPACITY_SURFACE = "snn_language_capacity_state.v1"
+
 from hecsn.semantics import (
     attach_cognitive_signal_language_surface,
     build_snn_language_readiness_surface,
@@ -711,6 +716,10 @@ class StatusReadModel:
         snn_readout_applied_synapse_provenance = (
             self._snn_readout_applied_synapse_provenance()
         )
+        snn_language_capacity_pressure = self._snn_language_capacity_pressure()
+        snn_language_capacity_fixed_boundaries = (
+            self._snn_language_capacity_fixed_boundaries()
+        )
         snn_applied_replay_lineage_restore_validation = (
             self._snn_applied_replay_lineage_restore_validation()
         )
@@ -868,6 +877,10 @@ class StatusReadModel:
                 "snn_readout_applied_synapse_provenance": (
                     snn_readout_applied_synapse_provenance
                 ),
+                "snn_language_capacity_pressure": snn_language_capacity_pressure,
+                "snn_language_capacity_fixed_boundaries": (
+                    snn_language_capacity_fixed_boundaries
+                ),
                 "snn_applied_replay_lineage_restore_validation": (
                     snn_applied_replay_lineage_restore_validation
                 ),
@@ -880,6 +893,374 @@ class StatusReadModel:
                 ),
             },
         }
+
+    def _snn_language_capacity_pressure(self) -> dict[str, Any]:
+        """Summarize fixed language-neuron capacity pressure without resizing."""
+
+        state = (
+            self._language_plasticity_state_fn()
+            if self._language_plasticity_state_fn is not None
+            else {}
+        )
+        state = dict(state or {})
+        sparse_weights = (
+            state.get("sparse_transition_weights")
+            if isinstance(state.get("sparse_transition_weights"), Mapping)
+            else {}
+        )
+        provenance = (
+            state.get("synapse_provenance_by_key")
+            if isinstance(state.get("synapse_provenance_by_key"), Mapping)
+            else {}
+        )
+        capacity_state = self._snn_language_capacity_state(state)
+        current_language_neuron_count = int(
+            capacity_state["language_neuron_count"]
+        )
+        configured_sparse_edge_budget = int(capacity_state["sparse_edge_budget"])
+        configured_outgoing_fanout_budget = int(
+            capacity_state["outgoing_fanout_budget"]
+        )
+        active_neurons: set[int] = set()
+        outgoing_fanout: dict[int, int] = {}
+        invalid_synapse_key_count = 0
+        for key in dict(sparse_weights).keys():
+            parts = str(key).split(":", maxsplit=1)
+            try:
+                pre_index = int(parts[0])
+                post_index = int(parts[1])
+            except (IndexError, TypeError, ValueError):
+                invalid_synapse_key_count += 1
+                continue
+            if not (
+                0 <= pre_index < current_language_neuron_count
+                and 0 <= post_index < current_language_neuron_count
+            ):
+                invalid_synapse_key_count += 1
+                continue
+            active_neurons.update((pre_index, post_index))
+            outgoing_fanout[pre_index] = int(outgoing_fanout.get(pre_index, 0)) + 1
+        sparse_edge_count = len(sparse_weights)
+        active_neuron_count = len(active_neurons)
+        sparse_budget_occupancy = sparse_edge_count / float(configured_sparse_edge_budget)
+        neuron_coverage = active_neuron_count / float(current_language_neuron_count)
+        max_outgoing_fanout = max(outgoing_fanout.values(), default=0)
+        saturated_source_neuron_count = sum(
+            1
+            for value in outgoing_fanout.values()
+            if int(value) >= configured_outgoing_fanout_budget
+        )
+        orphan_weight_count = len(
+            set(map(str, dict(sparse_weights).keys()))
+            - set(map(str, dict(provenance).keys()))
+        )
+        dangling_provenance_count = len(
+            set(map(str, dict(provenance).keys()))
+            - set(map(str, dict(sparse_weights).keys()))
+        )
+        pressure = bool(
+            sparse_budget_occupancy >= 0.85
+            or neuron_coverage >= 0.90
+            or saturated_source_neuron_count > 0
+        )
+        ready = bool(
+            pressure
+            and invalid_synapse_key_count == 0
+            and orphan_weight_count == 0
+            and dangling_provenance_count == 0
+        )
+        promotion_status = (
+            "ready_for_operator_language_capacity_expansion_design_review"
+            if ready
+            else (
+                "waiting_for_capacity_pressure"
+                if not pressure
+                else "waiting_for_clean_language_capacity_evidence"
+            )
+        )
+        return {
+            "surface": "snn_language_capacity_pressure_evidence.v1",
+            "artifact_kind": "terminus_snn_language_capacity_pressure_evidence",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "runs_replay": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+            "language_capacity": deepcopy(capacity_state),
+            "capacity_state_surface": capacity_state["surface"],
+            "capacity_state_present": bool(capacity_state["present"]),
+            "capacity_state_durable": bool(
+                capacity_state["present"]
+                and capacity_state["raw_surface"] == _SNN_LANGUAGE_CAPACITY_SURFACE
+            ),
+            "dynamic_capacity_enabled": False,
+            "current_language_neuron_count": current_language_neuron_count,
+            "configured_sparse_edge_budget": configured_sparse_edge_budget,
+            "configured_outgoing_fanout_budget": configured_outgoing_fanout_budget,
+            "sparse_transition_weight_count": sparse_edge_count,
+            "active_language_neuron_count": active_neuron_count,
+            "sparse_edge_budget_occupancy": sparse_budget_occupancy,
+            "active_language_neuron_coverage": neuron_coverage,
+            "max_outgoing_fanout": max_outgoing_fanout,
+            "saturated_source_neuron_count": saturated_source_neuron_count,
+            "invalid_synapse_key_count": invalid_synapse_key_count,
+            "orphan_weight_count": orphan_weight_count,
+            "dangling_provenance_count": dangling_provenance_count,
+            "capacity_pressure_detected": pressure,
+            "promotion_status": promotion_status,
+            "next_gate": (
+                "snn_language_neuron_capacity_expansion_design.v1"
+                if ready
+                else "collect_snn_language_capacity_pressure"
+            ),
+            "eligible_for_capacity_expansion_design_review": ready,
+            "eligible_for_network_resize": False,
+            "eligible_for_neuron_growth": False,
+            "eligible_for_layer_growth": False,
+            "eligible_for_structural_write": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": promotion_status,
+                "eligible_for_capacity_expansion_design_review": ready,
+                "eligible_for_network_resize": False,
+                "eligible_for_neuron_growth": False,
+                "eligible_for_layer_growth": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "capacity_pressure_detected": pressure,
+                    "synapse_keys_valid": invalid_synapse_key_count == 0,
+                    "no_unprovenanced_weights": orphan_weight_count == 0,
+                    "no_dangling_provenance": dangling_provenance_count == 0,
+                    "runtime_mutation_absent": True,
+                    "network_resize_absent": True,
+                    "neuron_growth_absent": True,
+                    "layer_growth_absent": True,
+                    "checkpoint_write_absent": True,
+                    "replay_execution_absent": True,
+                    "plasticity_application_absent": True,
+                },
+            },
+        }
+
+    def _snn_language_capacity_fixed_boundaries(self) -> dict[str, Any]:
+        """Expose fixed-capacity runtime assumptions before resize review."""
+
+        boundary_inventory = self._snn_language_capacity_boundary_inventory()
+        fixed_boundary_count = sum(
+            1 for item in boundary_inventory if not item["dynamic_capacity_aware"]
+        )
+        ready = fixed_boundary_count == 0
+        return {
+            "surface": "snn_language_capacity_fixed_boundary_evidence.v1",
+            "artifact_kind": "terminus_snn_language_capacity_fixed_boundary_evidence",
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "runs_replay": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+            "fixed_boundary_count": fixed_boundary_count,
+            "dynamic_capacity_aware_boundary_count": len(boundary_inventory)
+            - fixed_boundary_count,
+            "boundary_inventory": boundary_inventory,
+            "capacity_resize_blocked_by_fixed_boundaries": not ready,
+            "promotion_status": "ready_for_capacity_resize_compatibility_audit"
+            if ready
+            else "blocked_by_fixed_capacity_runtime_boundaries",
+            "next_gate": "snn_language_capacity_resize_compatibility_audit.v1"
+            if ready
+            else "replace_fixed_capacity_runtime_boundaries",
+            "eligible_for_capacity_resize_compatibility_audit": ready,
+            "eligible_for_capacity_resize_executor": False,
+            "eligible_for_network_resize": False,
+            "eligible_for_neuron_growth": False,
+            "eligible_for_layer_growth": False,
+            "eligible_for_structural_write": False,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": "ready_for_capacity_resize_compatibility_audit"
+                if ready
+                else "blocked_by_fixed_capacity_runtime_boundaries",
+                "eligible_for_capacity_resize_compatibility_audit": ready,
+                "eligible_for_capacity_resize_executor": False,
+                "eligible_for_network_resize": False,
+                "eligible_for_neuron_growth": False,
+                "eligible_for_layer_growth": False,
+                "eligible_for_structural_write": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "all_runtime_boundaries_dynamic_capacity_aware": ready,
+                    "fixed_capacity_boundaries_absent": fixed_boundary_count == 0,
+                    "runtime_mutation_absent": True,
+                    "network_resize_absent": True,
+                    "checkpoint_write_absent": True,
+                    "replay_execution_absent": True,
+                    "plasticity_application_absent": True,
+                },
+            },
+        }
+
+    @staticmethod
+    def _snn_language_capacity_boundary_inventory(
+        *,
+        proposed_language_neuron_count: int | None = None,
+        proposed_sparse_edge_budget: int | None = None,
+    ) -> list[dict[str, Any]]:
+        proposed_neurons = (
+            int(proposed_language_neuron_count)
+            if proposed_language_neuron_count is not None
+            else None
+        )
+        proposed_edges = (
+            int(proposed_sparse_edge_budget)
+            if proposed_sparse_edge_budget is not None
+            else None
+        )
+        inventory = [
+            {
+                "boundary_id": "snn_language_readout_ledger.dense_readout_index_validators",
+                "owner": "snn_language_readout_ledger",
+                "fixed_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": False,
+                "boundary_kind": "index_validator",
+            },
+            {
+                "boundary_id": "snn_language_readout_ledger.regeneration_adapter_sparse_index_validators",
+                "owner": "snn_language_readout_ledger",
+                "capacity_state_aware": True,
+                "minimum_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "index_validator",
+            },
+            {
+                "boundary_id": "snn_language_readout_ledger.cuda_dense_tensor_shapes",
+                "owner": "snn_language_readout_ledger",
+                "fixed_tensor_shape": [
+                    _SNN_LANGUAGE_NEURON_COUNT,
+                    _SNN_LANGUAGE_NEURON_COUNT,
+                ],
+                "dynamic_capacity_aware": False,
+                "boundary_kind": "tensor_shape",
+            },
+            {
+                "boundary_id": "snn_language_plasticity_executor.neuron_index_validators",
+                "owner": "snn_language_plasticity_executor",
+                "capacity_state_aware": True,
+                "minimum_language_neuron_count": _SNN_LANGUAGE_NEURON_COUNT,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "index_validator",
+            },
+            {
+                "boundary_id": "snn_language_readout_ledger.sparse_edge_budget",
+                "owner": "snn_language_readout_ledger",
+                "fixed_sparse_edge_budget": _SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                "dynamic_capacity_aware": False,
+                "boundary_kind": "sparse_budget",
+            },
+            {
+                "boundary_id": "snn_language_plasticity_executor.sparse_edge_budget",
+                "owner": "snn_language_plasticity_executor",
+                "capacity_state_aware": True,
+                "minimum_sparse_edge_budget": _SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                "dynamic_capacity_aware": True,
+                "boundary_kind": "sparse_budget",
+            },
+        ]
+        for item in inventory:
+            if bool(item["dynamic_capacity_aware"]):
+                item["compatible_with_proposed_capacity"] = True
+                continue
+            if proposed_neurons is not None and (
+                "fixed_language_neuron_count" in item or "fixed_tensor_shape" in item
+            ):
+                item["compatible_with_proposed_capacity"] = (
+                    proposed_neurons <= _SNN_LANGUAGE_NEURON_COUNT
+                )
+            if proposed_edges is not None and "fixed_sparse_edge_budget" in item:
+                item["compatible_with_proposed_capacity"] = (
+                    proposed_edges <= _SNN_LANGUAGE_SPARSE_EDGE_BUDGET
+                )
+        return inventory
+
+    @classmethod
+    def _snn_language_capacity_state(
+        cls,
+        state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        raw = (
+            state.get("language_capacity")
+            if isinstance(state.get("language_capacity"), Mapping)
+            else {}
+        )
+        present = bool(raw)
+        return {
+            "surface": _SNN_LANGUAGE_CAPACITY_SURFACE,
+            "raw_surface": str(raw.get("surface") or "") if present else None,
+            "present": present,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "language_neuron_count": cls._positive_capacity_int(
+                raw.get("language_neuron_count"),
+                default=_SNN_LANGUAGE_NEURON_COUNT,
+                minimum=_SNN_LANGUAGE_NEURON_COUNT,
+            ),
+            "sparse_edge_budget": cls._positive_capacity_int(
+                raw.get("sparse_edge_budget"),
+                default=_SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                minimum=_SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+            ),
+            "outgoing_fanout_budget": cls._positive_capacity_int(
+                raw.get("outgoing_fanout_budget"),
+                default=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
+                minimum=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
+            ),
+            "dynamic_capacity_enabled": False,
+            "capacity_expansion_count": cls._positive_capacity_int(
+                raw.get("capacity_expansion_count"),
+                default=0,
+                minimum=0,
+            ),
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_layers": False,
+        }
+
+    @staticmethod
+    def _positive_capacity_int(
+        value: Any,
+        *,
+        default: int,
+        minimum: int,
+    ) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = int(default)
+        return max(int(minimum), normalized)
 
     def _snn_applied_replay_lineage_restore_validation(self) -> dict[str, Any]:
         """Expose restore-side applied replay-lineage validation without mutation."""
@@ -1904,6 +2285,17 @@ class StatusReadModel:
     # ------------------------------------------------------------------
     # Public surfaces
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sha256_json(value: Mapping[str, Any]) -> str:
+        return hashlib.sha256(
+            json.dumps(
+                value,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
 
     def _read_snapshot(
         self,
@@ -2955,6 +3347,482 @@ class StatusReadModel:
                 application_target=application_target,
                 checkpoint_transaction=checkpoint_transaction,
             ),
+        )
+
+    def snn_language_capacity_expansion_design(
+        self,
+        capacity_pressure: Mapping[str, Any],
+        *,
+        device_evidence: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+        max_neuron_growth_factor: float = 2.0,
+    ) -> dict[str, Any]:
+        """Design bounded language-neuron capacity expansion without resizing."""
+
+        def _snapshot() -> dict[str, Any]:
+            pressure = dict(capacity_pressure)
+            gate = (
+                pressure.get("promotion_gate")
+                if isinstance(pressure.get("promotion_gate"), Mapping)
+                else {}
+            )
+            required_pressure = (
+                gate.get("required_evidence")
+                if isinstance(gate.get("required_evidence"), Mapping)
+                else {}
+            )
+            device = dict(device_evidence or {})
+            rollback = dict(rollback_policy or {})
+            current_neurons = int(
+                pressure.get("current_language_neuron_count", _SNN_LANGUAGE_NEURON_COUNT)
+                or _SNN_LANGUAGE_NEURON_COUNT
+            )
+            sparse_budget = int(
+                pressure.get(
+                    "configured_sparse_edge_budget",
+                    _SNN_LANGUAGE_SPARSE_EDGE_BUDGET,
+                )
+                or _SNN_LANGUAGE_SPARSE_EDGE_BUDGET
+            )
+            growth_factor = max(1.0, min(float(max_neuron_growth_factor), 4.0))
+            proposed_neurons = max(
+                current_neurons + 1,
+                min(int(current_neurons * growth_factor), current_neurons * 4),
+            )
+            proposed_sparse_budget = max(
+                sparse_budget + 1,
+                min(int(sparse_budget * growth_factor), sparse_budget * 4),
+            )
+            cuda_available = str(device.get("device") or "").lower().startswith("cuda")
+            required = {
+                "capacity_pressure_surface_available": pressure.get("surface")
+                == "snn_language_capacity_pressure_evidence.v1",
+                "capacity_pressure_owned_by_hecsn": bool(pressure.get("owned_by_hecsn")),
+                "capacity_pressure_gate_ready": bool(
+                    gate.get("eligible_for_capacity_expansion_design_review")
+                ),
+                "capacity_pressure_detected": bool(
+                    pressure.get("capacity_pressure_detected")
+                ),
+                "capacity_evidence_clean": bool(
+                    required_pressure.get("synapse_keys_valid")
+                    and required_pressure.get("no_unprovenanced_weights")
+                    and required_pressure.get("no_dangling_provenance")
+                ),
+                "device_evidence_available": bool(device),
+                "cuda_device_preferred": cuda_available,
+                "rollback_policy_available": bool(rollback.get("available")),
+                "checkpoint_required_before_resize": True,
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+            }
+            ready = all(required.values())
+            design_hash = self._sha256_json(
+                {
+                    "capacity_pressure_surface": pressure.get("surface"),
+                    "current_language_neuron_count": current_neurons,
+                    "proposed_language_neuron_count": proposed_neurons,
+                    "configured_sparse_edge_budget": sparse_budget,
+                    "proposed_sparse_edge_budget": proposed_sparse_budget,
+                    "max_neuron_growth_factor": growth_factor,
+                    "device": device.get("device"),
+                    "rollback_snapshot": rollback.get("snapshot_id"),
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_capacity_expansion_design",
+                "surface": "snn_language_neuron_capacity_expansion_design.v1",
+                "available": bool(pressure),
+                "ready": ready,
+                "source": "status_read_model.snn_language_capacity_expansion_design",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_layers": False,
+                "returns_trained_weights": False,
+                "capacity_expansion_design_hash": design_hash,
+                "capacity_pressure_summary": {
+                    "sparse_transition_weight_count": pressure.get(
+                        "sparse_transition_weight_count"
+                    ),
+                    "sparse_edge_budget_occupancy": pressure.get(
+                        "sparse_edge_budget_occupancy"
+                    ),
+                    "active_language_neuron_coverage": pressure.get(
+                        "active_language_neuron_coverage"
+                    ),
+                    "max_outgoing_fanout": pressure.get("max_outgoing_fanout"),
+                    "saturated_source_neuron_count": pressure.get(
+                        "saturated_source_neuron_count"
+                    ),
+                },
+                "design": {
+                    "current_language_neuron_count": current_neurons,
+                    "proposed_language_neuron_count": proposed_neurons,
+                    "current_sparse_edge_budget": sparse_budget,
+                    "proposed_sparse_edge_budget": proposed_sparse_budget,
+                    "growth_factor": growth_factor,
+                    "requires_cuda_relayout_review": True,
+                    "requires_checkpoint_snapshot": True,
+                    "requires_restore_validation": True,
+                    "preserve_existing_synapse_indices": True,
+                    "preserve_existing_synapse_provenance": True,
+                },
+                "promotion_gate": {
+                    "status": "ready_for_operator_capacity_expansion_design_review"
+                    if ready
+                    else "blocked_missing_language_capacity_expansion_design_evidence",
+                    "eligible_for_operator_capacity_expansion_design_review": ready,
+                    "eligible_for_checkpoint_backed_capacity_expansion_preflight": False,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_layer_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "next_gate": "operator_review_checkpoint_backed_language_capacity_expansion_preflight"
+                    if ready
+                    else "collect_language_capacity_pressure_device_and_rollback_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_capacity_expansion_preflight(
+        self,
+        capacity_expansion_design: Mapping[str, Any],
+        *,
+        expected_state_revision: int,
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a future capacity expansion without resizing."""
+
+        def _snapshot() -> dict[str, Any]:
+            design_artifact = dict(capacity_expansion_design)
+            gate = (
+                design_artifact.get("promotion_gate")
+                if isinstance(design_artifact.get("promotion_gate"), Mapping)
+                else {}
+            )
+            design = (
+                design_artifact.get("design")
+                if isinstance(design_artifact.get("design"), Mapping)
+                else {}
+            )
+            checkpoint = dict(checkpoint_transaction or {})
+            device = dict(device_evidence or {})
+            before_revision = int(self._runtime_state.state_revision)
+            design_material = {
+                "capacity_pressure_surface": "snn_language_capacity_pressure_evidence.v1",
+                "current_language_neuron_count": int(
+                    design.get("current_language_neuron_count", 0) or 0
+                ),
+                "proposed_language_neuron_count": int(
+                    design.get("proposed_language_neuron_count", 0) or 0
+                ),
+                "configured_sparse_edge_budget": int(
+                    design.get("current_sparse_edge_budget", 0) or 0
+                ),
+                "proposed_sparse_edge_budget": int(
+                    design.get("proposed_sparse_edge_budget", 0) or 0
+                ),
+                "max_neuron_growth_factor": float(design.get("growth_factor", 1.0) or 1.0),
+                "device": device.get("device"),
+                "rollback_snapshot": checkpoint.get("snapshot_id"),
+            }
+            recomputed_design_hash = self._sha256_json(design_material)
+            design_hash = str(
+                design_artifact.get("capacity_expansion_design_hash") or ""
+            )
+            cuda_available = str(device.get("device") or "").lower().startswith("cuda")
+            required = {
+                "design_surface_available": design_artifact.get("surface")
+                == "snn_language_neuron_capacity_expansion_design.v1",
+                "design_owned_by_hecsn": bool(design_artifact.get("owned_by_hecsn")),
+                "design_ready": bool(design_artifact.get("ready")),
+                "design_gate_ready": bool(
+                    gate.get("eligible_for_operator_capacity_expansion_design_review")
+                ),
+                "design_hash_available": bool(design_hash),
+                "design_hash_recomputed_match": recomputed_design_hash == design_hash,
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "checkpoint_transaction_available": bool(checkpoint),
+                "checkpoint_path_available": bool(
+                    str(checkpoint.get("checkpoint_path") or "").strip()
+                ),
+                "checkpoint_snapshot_saved": bool(
+                    checkpoint.get("pre_expansion_checkpoint_saved")
+                    or checkpoint.get("pre_update_checkpoint_saved")
+                    or checkpoint.get("checkpoint_saved")
+                ),
+                "checkpoint_restore_verified": bool(
+                    checkpoint.get("restore_verified")
+                    or checkpoint.get("pre_expansion_checkpoint_restore_verified")
+                    or checkpoint.get("pre_update_checkpoint_restore_verified")
+                ),
+                "device_evidence_available": bool(device),
+                "cuda_relayout_evidence_available": cuda_available,
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            ready = all(required.values())
+            return {
+                "artifact_kind": "terminus_snn_language_capacity_expansion_preflight",
+                "surface": "snn_language_neuron_capacity_expansion_preflight.v1",
+                "available": bool(design_artifact),
+                "ready": ready,
+                "source": "status_read_model.snn_language_capacity_expansion_preflight",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_layers": False,
+                "returns_trained_weights": False,
+                "expected_state_revision": int(expected_state_revision),
+                "capacity_expansion_design_hash": design_hash or None,
+                "recomputed_capacity_expansion_design_hash": recomputed_design_hash,
+                "checkpoint_transaction": {
+                    "checkpoint_path": checkpoint.get("checkpoint_path"),
+                    "snapshot_id": checkpoint.get("snapshot_id"),
+                    "restore_verified": bool(required["checkpoint_restore_verified"]),
+                    "checkpoint_snapshot_saved": bool(
+                        required["checkpoint_snapshot_saved"]
+                    ),
+                },
+                "device_evidence": {
+                    "device": device.get("device"),
+                    "source": device.get("source"),
+                    "cuda_relayout_evidence_available": cuda_available,
+                },
+                "preflight_target": {
+                    "current_language_neuron_count": design.get(
+                        "current_language_neuron_count"
+                    ),
+                    "proposed_language_neuron_count": design.get(
+                        "proposed_language_neuron_count"
+                    ),
+                    "current_sparse_edge_budget": design.get(
+                        "current_sparse_edge_budget"
+                    ),
+                    "proposed_sparse_edge_budget": design.get(
+                        "proposed_sparse_edge_budget"
+                    ),
+                    "preserve_existing_synapse_indices": bool(
+                        design.get("preserve_existing_synapse_indices")
+                    ),
+                    "preserve_existing_synapse_provenance": bool(
+                        design.get("preserve_existing_synapse_provenance")
+                    ),
+                },
+                "promotion_gate": {
+                    "status": "ready_for_operator_capacity_expansion_preflight_review"
+                    if ready
+                    else "blocked_missing_language_capacity_expansion_preflight_evidence",
+                    "eligible_for_operator_capacity_expansion_preflight_review": ready,
+                    "eligible_for_checkpoint_backed_capacity_expansion_executor": False,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_layer_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "next_gate": "operator_confirmed_checkpoint_backed_language_capacity_expansion_executor"
+                    if ready
+                    else "collect_capacity_expansion_design_checkpoint_and_cuda_evidence",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
+        )
+
+    def snn_language_capacity_resize_compatibility_audit(
+        self,
+        capacity_expansion_preflight: Mapping[str, Any],
+        *,
+        language_capacity_state: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Audit fixed-size runtime boundaries before any resize executor exists."""
+
+        def _snapshot() -> dict[str, Any]:
+            preflight = dict(capacity_expansion_preflight)
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            target = (
+                preflight.get("preflight_target")
+                if isinstance(preflight.get("preflight_target"), Mapping)
+                else {}
+            )
+            capacity_state = self._snn_language_capacity_state(
+                {"language_capacity": dict(language_capacity_state or {})}
+            )
+            current_neurons = int(
+                target.get("current_language_neuron_count")
+                or capacity_state["language_neuron_count"]
+                or _SNN_LANGUAGE_NEURON_COUNT
+            )
+            proposed_neurons = int(
+                target.get("proposed_language_neuron_count")
+                or current_neurons
+            )
+            current_sparse_budget = int(
+                target.get("current_sparse_edge_budget")
+                or capacity_state["sparse_edge_budget"]
+                or _SNN_LANGUAGE_SPARSE_EDGE_BUDGET
+            )
+            proposed_sparse_budget = int(
+                target.get("proposed_sparse_edge_budget")
+                or current_sparse_budget
+            )
+            requested_neuron_growth = proposed_neurons > current_neurons
+            requested_sparse_budget_growth = (
+                proposed_sparse_budget > current_sparse_budget
+            )
+            boundary_inventory = self._snn_language_capacity_boundary_inventory(
+                proposed_language_neuron_count=proposed_neurons,
+                proposed_sparse_edge_budget=proposed_sparse_budget,
+            )
+            incompatible = [
+                item
+                for item in boundary_inventory
+                if not bool(item["compatible_with_proposed_capacity"])
+            ]
+            fixed_boundary_count = sum(
+                1
+                for item in boundary_inventory
+                if not bool(item["dynamic_capacity_aware"])
+            )
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_neuron_capacity_expansion_preflight.v1",
+                "preflight_owned_by_hecsn": bool(preflight.get("owned_by_hecsn")),
+                "preflight_ready": bool(preflight.get("ready")),
+                "preflight_gate_ready": bool(
+                    gate.get("eligible_for_operator_capacity_expansion_preflight_review")
+                ),
+                "capacity_state_surface_available": (
+                    capacity_state["surface"] == _SNN_LANGUAGE_CAPACITY_SURFACE
+                ),
+                "capacity_state_present": bool(capacity_state["present"]),
+                "capacity_state_durable": bool(
+                    capacity_state["present"]
+                    and capacity_state["raw_surface"] == _SNN_LANGUAGE_CAPACITY_SURFACE
+                ),
+                "requested_neuron_growth_explicit": requested_neuron_growth,
+                "requested_sparse_budget_growth_explicit": (
+                    requested_sparse_budget_growth
+                ),
+                "all_runtime_boundaries_dynamic_capacity_aware": (
+                    fixed_boundary_count == 0
+                ),
+                "all_runtime_boundaries_compatible_with_target": not incompatible,
+                "runtime_mutation_absent": True,
+                "network_resize_absent": True,
+                "checkpoint_write_absent": True,
+            }
+            ready = all(required.values())
+            audit_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_capacity_resize_compatibility_audit.v1",
+                    "preflight_hash": preflight.get(
+                        "capacity_expansion_design_hash"
+                    ),
+                    "current_language_neuron_count": current_neurons,
+                    "proposed_language_neuron_count": proposed_neurons,
+                    "current_sparse_edge_budget": current_sparse_budget,
+                    "proposed_sparse_edge_budget": proposed_sparse_budget,
+                    "boundary_ids": [
+                        item["boundary_id"] for item in boundary_inventory
+                    ],
+                    "incompatible_boundary_ids": [
+                        item["boundary_id"] for item in incompatible
+                    ],
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_capacity_resize_compatibility_audit",
+                "surface": "snn_language_capacity_resize_compatibility_audit.v1",
+                "available": bool(preflight),
+                "ready": ready,
+                "source": "status_read_model.snn_language_capacity_resize_compatibility_audit",
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_layers": False,
+                "returns_trained_weights": False,
+                "capacity_resize_compatibility_audit_hash": audit_hash,
+                "capacity_target": {
+                    "current_language_neuron_count": current_neurons,
+                    "proposed_language_neuron_count": proposed_neurons,
+                    "current_sparse_edge_budget": current_sparse_budget,
+                    "proposed_sparse_edge_budget": proposed_sparse_budget,
+                },
+                "language_capacity": deepcopy(capacity_state),
+                "fixed_boundary_count": fixed_boundary_count,
+                "incompatible_boundary_count": len(incompatible),
+                "incompatible_boundary_ids": [
+                    item["boundary_id"] for item in incompatible
+                ],
+                "boundary_inventory": boundary_inventory,
+                "promotion_gate": {
+                    "status": "ready_for_checkpoint_backed_capacity_resize_executor"
+                    if ready
+                    else "blocked_by_fixed_capacity_runtime_boundaries",
+                    "eligible_for_capacity_resize_executor": False,
+                    "eligible_for_network_resize": False,
+                    "eligible_for_neuron_growth": False,
+                    "eligible_for_layer_growth": False,
+                    "eligible_for_structural_write": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_action": False,
+                    "next_gate": "replace_fixed_capacity_runtime_boundaries"
+                    if not ready
+                    else "operator_confirmed_checkpoint_backed_capacity_resize_executor",
+                    "required_evidence": required,
+                },
+            }
+
+        return self._read_snapshot(
+            fresh_wait_seconds=None,
+            cached_snapshot=None,
+            snapshot_fn=_snapshot,
         )
 
     def snn_language_transition_memory_sleep_policy(

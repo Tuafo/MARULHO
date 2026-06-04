@@ -109,12 +109,60 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             with TestClient(app) as client:
                 status_response = client.get("/status")
                 terminus_response = client.get("/terminus")
+                capacity_expansion_response = client.post(
+                    "/terminus/snn-language-sequence/capacity-expansion-design",
+                    json={
+                        "capacity_pressure": status_response.json()["runtime_truth"][
+                            "evidence"
+                        ]["snn_language_capacity_pressure"],
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "rollback_policy": {
+                            "available": False,
+                            "snapshot_id": "service-api",
+                        },
+                    },
+                )
+                capacity_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/capacity-expansion-preflight",
+                    json={
+                        "capacity_expansion_design": capacity_expansion_response.json(),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "checkpoint_transaction": {
+                            "checkpoint_path": str(root / "capacity.pt"),
+                            "snapshot_id": "service-api",
+                            "pre_expansion_checkpoint_saved": True,
+                            "pre_expansion_checkpoint_restore_verified": True,
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                capacity_compatibility_response = client.post(
+                    "/terminus/snn-language-sequence/capacity-resize-compatibility-audit",
+                    json={
+                        "capacity_expansion_preflight": capacity_preflight_response.json(),
+                        "language_capacity_state": {
+                            "surface": "snn_language_capacity_state.v1",
+                            "language_neuron_count": 64,
+                            "sparse_edge_budget": 256,
+                            "outgoing_fanout_budget": 16,
+                            "capacity_expansion_count": 0,
+                        },
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(terminus_response.status_code, 200)
+        self.assertEqual(capacity_expansion_response.status_code, 200)
+        self.assertEqual(capacity_preflight_response.status_code, 200)
+        self.assertEqual(capacity_compatibility_response.status_code, 200)
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
+        capacity_expansion_design = capacity_expansion_response.json()
+        capacity_preflight = capacity_preflight_response.json()
+        capacity_compatibility = capacity_compatibility_response.json()
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
         self.assertEqual(status_truth["recommended_action"], "configure_terminus_sources")
@@ -124,6 +172,40 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertNotIn("retired_runtime_path", status_truth)
         self.assertNotIn("retired_runtime_path", status_truth["evidence"])
         self.assertEqual(terminus_truth["verdict"], status_truth["verdict"])
+        self.assertEqual(
+            capacity_expansion_design["surface"],
+            "snn_language_neuron_capacity_expansion_design.v1",
+        )
+        self.assertFalse(capacity_expansion_design["ready"])
+        self.assertFalse(capacity_expansion_design["mutates_runtime_state"])
+        self.assertFalse(capacity_expansion_design["writes_checkpoint"])
+        self.assertFalse(capacity_expansion_design["resizes_network"])
+        self.assertFalse(capacity_expansion_design["adds_neurons"])
+        self.assertFalse(capacity_expansion_design["adds_layers"])
+        self.assertEqual(
+            capacity_preflight["surface"],
+            "snn_language_neuron_capacity_expansion_preflight.v1",
+        )
+        self.assertFalse(capacity_preflight["ready"])
+        self.assertFalse(capacity_preflight["mutates_runtime_state"])
+        self.assertFalse(capacity_preflight["writes_checkpoint"])
+        self.assertFalse(capacity_preflight["resizes_network"])
+        self.assertFalse(capacity_preflight["adds_neurons"])
+        self.assertFalse(capacity_preflight["adds_layers"])
+        self.assertEqual(
+            capacity_compatibility["surface"],
+            "snn_language_capacity_resize_compatibility_audit.v1",
+        )
+        self.assertFalse(capacity_compatibility["ready"])
+        self.assertFalse(capacity_compatibility["mutates_runtime_state"])
+        self.assertFalse(capacity_compatibility["writes_checkpoint"])
+        self.assertFalse(capacity_compatibility["resizes_network"])
+        self.assertFalse(capacity_compatibility["adds_neurons"])
+        self.assertFalse(
+            capacity_compatibility["promotion_gate"][
+                "eligible_for_capacity_resize_executor"
+            ]
+        )
         status_gate = status_truth["evidence"]["self_repair_gate"]
         terminus_gate = terminus_truth["evidence"]["self_repair_gate"]
         self.assertEqual(status_gate["artifact_kind"], "terminus_subcortical_self_repair_gate_plan")
@@ -546,6 +628,54 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_applied_provenance["writes_checkpoint"])
         self.assertFalse(status_applied_provenance["restore_validation_available"])
         self.assertFalse(status_applied_provenance["restore_validation_blocks_audit"])
+        status_capacity_pressure = status_truth["evidence"][
+            "snn_language_capacity_pressure"
+        ]
+        terminus_capacity_pressure = terminus_truth["evidence"][
+            "snn_language_capacity_pressure"
+        ]
+        self.assertEqual(
+            status_capacity_pressure["artifact_kind"],
+            "terminus_snn_language_capacity_pressure_evidence",
+        )
+        self.assertEqual(
+            status_capacity_pressure["surface"],
+            "snn_language_capacity_pressure_evidence.v1",
+        )
+        self.assertFalse(status_capacity_pressure["mutates_runtime_state"])
+        self.assertFalse(status_capacity_pressure["resizes_network"])
+        self.assertFalse(status_capacity_pressure["adds_neurons"])
+        self.assertFalse(status_capacity_pressure["adds_layers"])
+        self.assertEqual(
+            terminus_capacity_pressure["current_language_neuron_count"],
+            status_capacity_pressure["current_language_neuron_count"],
+        )
+        status_capacity_boundaries = status_truth["evidence"][
+            "snn_language_capacity_fixed_boundaries"
+        ]
+        terminus_capacity_boundaries = terminus_truth["evidence"][
+            "snn_language_capacity_fixed_boundaries"
+        ]
+        self.assertEqual(
+            status_capacity_boundaries["surface"],
+            "snn_language_capacity_fixed_boundary_evidence.v1",
+        )
+        self.assertFalse(status_capacity_boundaries["mutates_runtime_state"])
+        self.assertFalse(status_capacity_boundaries["resizes_network"])
+        self.assertTrue(
+            status_capacity_boundaries[
+                "capacity_resize_blocked_by_fixed_boundaries"
+            ]
+        )
+        self.assertEqual(
+            terminus_capacity_boundaries["fixed_boundary_count"],
+            status_capacity_boundaries["fixed_boundary_count"],
+        )
+        self.assertFalse(
+            status_capacity_boundaries[
+                "eligible_for_capacity_resize_compatibility_audit"
+            ]
+        )
         self.assertEqual(
             terminus_applied_provenance["artifact_kind"],
             status_applied_provenance["artifact_kind"],

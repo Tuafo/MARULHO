@@ -1557,6 +1557,94 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
     assert blocked["promotion_gate"]["eligible_for_operator_rollout_regeneration_adapter_review"] is False
 
 
+def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    growth_candidate = {
+        "synapse": "65:66",
+        "pre_index": 65,
+        "post_index": 66,
+        "initial_weight": 0.1,
+        "locality_distance": 1,
+        "source_synapse_id": "snn-rollout-local:65:66:0",
+        "source_trace_index": 0,
+        "source_rollout_step_index": 10,
+        "target_rollout_step_index": 11,
+        "source_active_indices_hash": "source-active-hash-65",
+        "target_active_indices_hash": "target-active-hash-66",
+        "local_only": True,
+        "normalization": True,
+        "applied_to_runtime": False,
+    }
+    transition_memory_snapshot_hash = _sha256_json({})
+    review_hash = _sha256_json(
+        {
+            "rollout_consolidation_design_hash": "design-hash-1",
+            "rollout_consolidation_shadow_application_preflight_hash": (
+                "preflight-hash-1"
+            ),
+            "transition_memory_snapshot_hash": transition_memory_snapshot_hash,
+            "growth_candidates": [growth_candidate],
+        }
+    )
+    review = {
+        "surface": "snn_language_readout_rollout_developmental_plasticity_review.v1",
+        "artifact_kind": "terminus_snn_language_readout_rollout_developmental_plasticity_review",
+        "owned_by_hecsn": True,
+        "mutates_runtime_state": False,
+        "applies_plasticity": False,
+        "rollout_consolidation_design_hash": "design-hash-1",
+        "rollout_consolidation_shadow_application_preflight_hash": (
+            "preflight-hash-1"
+        ),
+        "rollout_developmental_plasticity_review_hash": review_hash,
+        "developmental_plasticity_review": {
+            "growth_candidate_count": 1,
+            "structural_growth_applied": False,
+            "structural_pruning_applied": False,
+            "growth_candidates": [growth_candidate],
+        },
+        "topology_budget_evidence": {
+            "candidate_count_bounded": True,
+            "outgoing_row_mass_bounded": True,
+            "outgoing_fanout_bounded": True,
+            "global_sparse_edge_budget_bounded": True,
+        },
+        "growth_classification": {"all_candidates_are_growth": True},
+        "runtime_memory_evidence": {
+            "transition_memory_snapshot_hash": transition_memory_snapshot_hash,
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 128,
+                "sparse_edge_budget": 512,
+                "outgoing_fanout_budget": 32,
+                "capacity_expansion_count": 1,
+            },
+        },
+        "promotion_gate": {
+            "eligible_for_operator_rollout_developmental_plasticity_review": True,
+            "eligible_for_transition_memory_regeneration_proposal": True,
+            "eligible_for_growth": False,
+            "eligible_for_pruning": False,
+        },
+    }
+
+    adapter = ledger.rollout_regeneration_proposal_adapter(review)
+
+    assert adapter["promotion_gate"]["eligible_for_operator_rollout_regeneration_adapter_review"] is True
+    assert adapter["integrity_evidence"]["candidate_indices_canonical"] is True
+    assert adapter["integrity_evidence"]["language_capacity_state_available"] is True
+    assert adapter["integrity_evidence"]["language_capacity_state_dynamic_limits_applied"] is True
+    assert adapter["language_capacity"]["language_neuron_count"] == 128
+    assert adapter["regeneration_design"]["candidate_synapses"][0]["synapse"] == "65:66"
+
+
 def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay_without_permit() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -1683,7 +1771,20 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
         _runtime_state = runtime_state
         _replay_controller = _ReplayController()
 
+    class _MismatchedRestoreRoot:
+        _runtime_state = runtime_state
+        _replay_controller = _ReplayController()
+        _metadata = {
+            "service_state": {
+                "snn_applied_replay_lineage_restore_validation": {
+                    "surface": "snn_applied_replay_lineage_restore_validation.v1",
+                    "summary_matches_restored_state": False,
+                }
+            }
+        }
+
     facade = RuntimeFacade(_Root())
+    mismatched_facade = RuntimeFacade(_MismatchedRestoreRoot())
     review = {
         "surface": "snn_language_readout_rollout_regeneration_replay_artifact_review.v1",
         "owned_by_hecsn": True,
@@ -1723,9 +1824,19 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
         operator_id="operator-test",
         confirmation=True,
     )
+    mismatched_restore = mismatched_facade.snn_language_readout_rollout_regeneration_permit_request(
+        rollout_regeneration_replay_artifact_review=review,
+        operator_id="operator-test",
+        confirmation=True,
+    )
 
     assert blocked["accepted"] is False
     assert blocked["issues_regeneration_permit"] is False
+    assert mismatched_restore["accepted"] is False
+    assert mismatched_restore["issues_regeneration_permit"] is False
+    assert mismatched_restore["promotion_gate"]["required_evidence"][
+        "applied_replay_lineage_restore_validation_not_mismatched"
+    ] is False
     assert calls == [
         {
             "replay_artifact_id": "artifact-1",
@@ -1751,7 +1862,19 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
     class _Root:
         _runtime_state = runtime_state
 
+    class _MismatchedRestoreRoot:
+        _runtime_state = runtime_state
+        _metadata = {
+            "service_state": {
+                "snn_applied_replay_lineage_restore_validation": {
+                    "surface": "snn_applied_replay_lineage_restore_validation.v1",
+                    "summary_matches_restored_state": False,
+                }
+            }
+        }
+
     facade = RuntimeFacade(_Root())
+    mismatched_facade = RuntimeFacade(_MismatchedRestoreRoot())
     permit_request = {
         "surface": "snn_language_readout_rollout_regeneration_permit_request.v1",
         "accepted": True,
@@ -1780,7 +1903,12 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
                 }
             ],
         },
-        "promotion_gate": {"eligible_for_regeneration_application": True},
+        "promotion_gate": {
+            "eligible_for_regeneration_application": True,
+            "required_evidence": {
+                "applied_replay_lineage_restore_validation_not_mismatched": True
+            },
+        },
     }
 
     blocked = facade.snn_language_readout_rollout_regeneration_application_preflight(
@@ -1789,6 +1917,11 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
         checkpoint_path=None,
     )
     ready = facade.snn_language_readout_rollout_regeneration_application_preflight(
+        rollout_regeneration_permit_request=permit_request,
+        expected_state_revision=runtime_state.state_revision,
+        checkpoint_path="checkpoint://rollout-regeneration",
+    )
+    mismatched_restore = mismatched_facade.snn_language_readout_rollout_regeneration_application_preflight(
         rollout_regeneration_permit_request=permit_request,
         expected_state_revision=runtime_state.state_revision,
         checkpoint_path="checkpoint://rollout-regeneration",
@@ -1806,6 +1939,10 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
     assert ready["regeneration_proposal"]["promotion_gate"]["status"] == "ready_for_operator_review"
     assert ready["promotion_gate"]["eligible_for_checkpoint_backed_regeneration_executor"] is True
     assert ready["promotion_gate"]["eligible_for_regeneration_application"] is False
+    assert mismatched_restore["ready"] is False
+    assert mismatched_restore["promotion_gate"]["required_evidence"][
+        "applied_replay_lineage_restore_validation_not_mismatched"
+    ] is False
 
 
 def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executor(

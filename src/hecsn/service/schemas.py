@@ -518,6 +518,25 @@ class SNNLanguagePlasticityLiveApplicationRequest(BaseModel):
     checkpoint_path: str | None = Field(None, min_length=1)
 
 
+class SNNLanguageCapacityExpansionDesignRequest(BaseModel):
+    capacity_pressure: dict[str, Any] = Field(..., min_length=1)
+    device_evidence: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+    max_neuron_growth_factor: float = Field(2.0, ge=1.0, le=4.0)
+
+
+class SNNLanguageCapacityExpansionPreflightRequest(BaseModel):
+    capacity_expansion_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_transaction: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageCapacityResizeCompatibilityAuditRequest(BaseModel):
+    capacity_expansion_preflight: dict[str, Any] = Field(..., min_length=1)
+    language_capacity_state: dict[str, Any] | None = None
+
+
 class SNNLanguageTransitionMemoryHomeostaticMaintenanceRequest(BaseModel):
     expected_state_revision: int = Field(..., ge=0)
     operator_id: str = Field(..., min_length=1, max_length=160)

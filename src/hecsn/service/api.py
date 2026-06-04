@@ -44,6 +44,9 @@ from .schemas import (
     RuntimeTraceExportResponse,
     SNNLanguageHeldoutEvaluationRequest,
     SNNLanguagePlasticityApplicationDesignRequest,
+    SNNLanguageCapacityExpansionDesignRequest,
+    SNNLanguageCapacityExpansionPreflightRequest,
+    SNNLanguageCapacityResizeCompatibilityAuditRequest,
     SNNLanguagePlasticityLiveApplicationPreflightRequest,
     SNNLanguagePlasticityLiveApplicationRequest,
     SNNLanguagePlasticityLiveApplicationReadinessRequest,
@@ -861,6 +864,37 @@ def create_app(
     @app.get("/terminus/snn-language-sequence/plasticity-runtime-state")
     def terminus_snn_language_plasticity_runtime_state() -> dict[str, Any]:
         return runtime.snn_language_plasticity_runtime_state()
+
+    @app.post("/terminus/snn-language-sequence/capacity-expansion-design")
+    def terminus_snn_language_capacity_expansion_design(
+        request: SNNLanguageCapacityExpansionDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_capacity_expansion_design(
+            capacity_pressure=request.capacity_pressure,
+            device_evidence=request.device_evidence,
+            rollback_policy=request.rollback_policy,
+            max_neuron_growth_factor=request.max_neuron_growth_factor,
+        )
+
+    @app.post("/terminus/snn-language-sequence/capacity-expansion-preflight")
+    def terminus_snn_language_capacity_expansion_preflight(
+        request: SNNLanguageCapacityExpansionPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_capacity_expansion_preflight(
+            capacity_expansion_design=request.capacity_expansion_design,
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_transaction=request.checkpoint_transaction,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/capacity-resize-compatibility-audit")
+    def terminus_snn_language_capacity_resize_compatibility_audit(
+        request: SNNLanguageCapacityResizeCompatibilityAuditRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_capacity_resize_compatibility_audit(
+            capacity_expansion_preflight=request.capacity_expansion_preflight,
+            language_capacity_state=request.language_capacity_state,
+        )
 
     @app.post("/terminus/snn-language-sequence/plasticity-homeostatic-maintenance")
     def terminus_snn_language_transition_memory_homeostatic_maintenance(

@@ -348,17 +348,29 @@ class RuntimeFacade:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = self.snn_language_plasticity_runtime_state()
         if kwargs.get("applied_replay_lineage_restore_validation") is None:
-            service_state = (
-                self._root._metadata.get("service_state")
-                if isinstance(self._root._metadata.get("service_state"), Mapping)
-                else {}
-            )
-            validation = service_state.get(
-                "snn_applied_replay_lineage_restore_validation"
-            )
+            validation = self._applied_replay_lineage_restore_validation()
             if isinstance(validation, Mapping):
                 kwargs["applied_replay_lineage_restore_validation"] = dict(validation)
         return self._root._snn_language_readout_ledger.synapse_provenance_audit(**kwargs)
+
+    def _applied_replay_lineage_restore_validation(self) -> dict[str, Any]:
+        metadata = getattr(self._root, "_metadata", {})
+        service_state = (
+            metadata.get("service_state")
+            if isinstance(metadata, Mapping)
+            and isinstance(metadata.get("service_state"), Mapping)
+            else {}
+        )
+        validation = service_state.get("snn_applied_replay_lineage_restore_validation")
+        return dict(validation) if isinstance(validation, Mapping) else {}
+
+    def _applied_replay_lineage_restore_validation_not_mismatched(self) -> bool:
+        validation = self._applied_replay_lineage_restore_validation()
+        available = (
+            validation.get("surface")
+            == "snn_applied_replay_lineage_restore_validation.v1"
+        )
+        return bool(not available or validation.get("summary_matches_restored_state"))
 
     def snn_language_readout_evidence_ledger_record(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.record_readout_draft(**kwargs)
@@ -429,6 +441,9 @@ class RuntimeFacade:
             else {}
         )
         before_revision = int(self._root._runtime_state.state_revision)
+        restore_validation_not_mismatched = (
+            self._applied_replay_lineage_restore_validation_not_mismatched()
+        )
         required = {
             "confirmation": bool(confirmation),
             "operator_id_available": bool(str(operator_id or "").strip()),
@@ -446,6 +461,9 @@ class RuntimeFacade:
             "replay_artifact_id_available": bool(str(preview.get("replay_artifact_id") or "")),
             "regeneration_design_available": isinstance(preview.get("regeneration_design"), Mapping)
             and bool(preview.get("regeneration_design")),
+            "applied_replay_lineage_restore_validation_not_mismatched": (
+                restore_validation_not_mismatched
+            ),
         }
         if not all(required.values()):
             return {
@@ -581,6 +599,11 @@ class RuntimeFacade:
         )
         before_revision = int(self._root._runtime_state.state_revision)
         checkpoint = str(checkpoint_path or "").strip()
+        request_required = (
+            gate.get("required_evidence")
+            if isinstance(gate.get("required_evidence"), Mapping)
+            else {}
+        )
         required = {
             "permit_request_surface_available": request.get("surface")
             == "snn_language_readout_rollout_regeneration_permit_request.v1",
@@ -595,6 +618,15 @@ class RuntimeFacade:
             "regeneration_design_available": bool(design),
             "permit_request_does_not_apply_plasticity": not bool(request.get("applies_plasticity")),
             "permit_request_does_not_checkpoint": not bool(request.get("checkpoint_written")),
+            "applied_replay_lineage_restore_validation_not_mismatched": (
+                bool(
+                    request_required.get(
+                        "applied_replay_lineage_restore_validation_not_mismatched",
+                        True,
+                    )
+                )
+                and self._applied_replay_lineage_restore_validation_not_mismatched()
+            ),
         }
         ready = all(required.values())
         proposal = {
@@ -825,6 +857,24 @@ class RuntimeFacade:
 
     def snn_language_plasticity_live_application(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_plasticity_executor.apply_live_application(**kwargs)
+
+    def snn_language_capacity_expansion_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_capacity_expansion_design(
+            **kwargs
+        )
+
+    def snn_language_capacity_expansion_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_capacity_expansion_preflight(
+            **kwargs
+        )
+
+    def snn_language_capacity_resize_compatibility_audit(
+        self,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return self._root._status_read_model.snn_language_capacity_resize_compatibility_audit(
+            **kwargs
+        )
 
     def snn_language_plasticity_runtime_state(self) -> dict[str, Any]:
         return self._root._snn_language_plasticity_executor.snapshot()
