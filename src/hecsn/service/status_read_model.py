@@ -711,6 +711,9 @@ class StatusReadModel:
         snn_readout_applied_synapse_provenance = (
             self._snn_readout_applied_synapse_provenance()
         )
+        snn_applied_replay_lineage_restore_validation = (
+            self._snn_applied_replay_lineage_restore_validation()
+        )
         sleep_plasticity_proposal = dict(sleep_plasticity_autonomy_proposal or {})
         sleep_plasticity_gate = (
             sleep_plasticity_proposal.get("promotion_gate")
@@ -865,6 +868,9 @@ class StatusReadModel:
                 "snn_readout_applied_synapse_provenance": (
                     snn_readout_applied_synapse_provenance
                 ),
+                "snn_applied_replay_lineage_restore_validation": (
+                    snn_applied_replay_lineage_restore_validation
+                ),
                 "snn_sleep_plasticity_autonomy_gate": snn_sleep_plasticity_autonomy_gate,
                 "snn_sleep_plasticity_scheduler_installation_autonomy_gate": (
                     snn_sleep_plasticity_scheduler_installation_autonomy_gate
@@ -872,6 +878,117 @@ class StatusReadModel:
                 "snn_due_cycle_bounded_replay_selection_gate": (
                     snn_due_cycle_bounded_replay_selection_gate
                 ),
+            },
+        }
+
+    def _snn_applied_replay_lineage_restore_validation(self) -> dict[str, Any]:
+        """Expose restore-side applied replay-lineage validation without mutation."""
+
+        service_state = (
+            self._metadata.get("service_state")
+            if isinstance(self._metadata.get("service_state"), Mapping)
+            else {}
+        )
+        validation = (
+            service_state.get("snn_applied_replay_lineage_restore_validation")
+            if isinstance(
+                service_state.get("snn_applied_replay_lineage_restore_validation"),
+                Mapping,
+            )
+            else {}
+        )
+        saved_summary = (
+            validation.get("saved_summary")
+            if isinstance(validation.get("saved_summary"), Mapping)
+            else {}
+        )
+        restored_summary = (
+            validation.get("restored_summary")
+            if isinstance(validation.get("restored_summary"), Mapping)
+            else {}
+        )
+        available = (
+            validation.get("surface")
+            == "snn_applied_replay_lineage_restore_validation.v1"
+        )
+        saved_summary_available = bool(validation.get("saved_summary_available"))
+        counts_match = bool(validation.get("summary_counts_match_restored_state"))
+        hash_matches = bool(validation.get("summary_hash_matches_restored_state"))
+        summary_matches = bool(validation.get("summary_matches_restored_state"))
+        ready = bool(
+            available
+            and saved_summary_available
+            and counts_match
+            and hash_matches
+            and summary_matches
+        )
+        return {
+            "surface": "snn_applied_replay_lineage_restore_validation_evidence.v1",
+            "artifact_kind": (
+                "terminus_snn_applied_replay_lineage_restore_validation_evidence"
+            ),
+            "source": "status_read_model.runtime_truth_contract",
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "advisory": True,
+            "executable": False,
+            "runs_replay": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "writes_checkpoint": False,
+            "loads_external_checkpoint": False,
+            "issues_regeneration_permit": False,
+            "available": available,
+            "saved_summary_available": saved_summary_available,
+            "summary_counts_match_restored_state": counts_match,
+            "summary_hash_matches_restored_state": hash_matches,
+            "summary_matches_restored_state": summary_matches,
+            "saved_lineage_count": int(
+                saved_summary.get("applied_replay_lineage_count", 0) or 0
+            ),
+            "restored_lineage_count": int(
+                restored_summary.get("applied_replay_lineage_count", 0) or 0
+            ),
+            "saved_lineage_material_hash": saved_summary.get(
+                "lineage_material_hash"
+            ),
+            "restored_lineage_material_hash": restored_summary.get(
+                "lineage_material_hash"
+            ),
+            "promotion_status": (
+                "ready_for_readout_synapse_provenance_audit"
+                if ready
+                else "waiting_for_matching_applied_replay_lineage_restore_validation"
+            ),
+            "next_gate": "snn_language_readout_synapse_provenance_audit.v1",
+            "eligible_for_readout_synapse_audit_review": ready,
+            "eligible_for_plasticity_application": False,
+            "eligible_for_live_replay": False,
+            "eligible_for_fact_promotion": False,
+            "eligible_for_action": False,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_readout_synapse_provenance_audit"
+                    if ready
+                    else "waiting_for_matching_applied_replay_lineage_restore_validation"
+                ),
+                "eligible_for_readout_synapse_audit_review": ready,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "required_evidence": {
+                    "restore_validation_available": available,
+                    "saved_summary_available": saved_summary_available,
+                    "summary_counts_match_restored_state": counts_match,
+                    "summary_hash_matches_restored_state": hash_matches,
+                    "summary_matches_restored_state": summary_matches,
+                    "runtime_mutation_absent": True,
+                    "replay_execution_absent": True,
+                    "plasticity_application_absent": True,
+                    "checkpoint_write_absent": True,
+                    "permit_issuance_absent": True,
+                },
             },
         }
 
@@ -1206,7 +1323,29 @@ class StatusReadModel:
         ]
         complete_local_edge_rows = 0
         invalid_rollout_step_rows = 0
+        replay_artifact_lineage_rows = 0
+        complete_replay_artifact_lineage_rows = 0
         for row in replay_rows:
+            source_metadata_hash = str(row.get("source_metadata_hash") or "")
+            emission_lineage = (
+                row.get("emission_lineage")
+                if isinstance(row.get("emission_lineage"), Mapping)
+                else {}
+            )
+            lineage_available = bool(source_metadata_hash or emission_lineage)
+            lineage_complete = bool(
+                not lineage_available
+                or (
+                    source_metadata_hash
+                    and emission_lineage.get("emission_hash")
+                    and emission_lineage.get("readout_evidence_hash")
+                    and emission_lineage.get("prediction_hash")
+                )
+            )
+            if lineage_available:
+                replay_artifact_lineage_rows += 1
+            if lineage_available and lineage_complete:
+                complete_replay_artifact_lineage_rows += 1
             local = (
                 row.get("local_edge_provenance")
                 if isinstance(row.get("local_edge_provenance"), Mapping)
@@ -1229,9 +1368,21 @@ class StatusReadModel:
             if not ordered:
                 invalid_rollout_step_rows += 1
         missing_local_edge_rows = max(0, len(replay_rows) - complete_local_edge_rows)
+        incomplete_lineage_rows = max(
+            0,
+            replay_artifact_lineage_rows - complete_replay_artifact_lineage_rows,
+        )
         orphan_weight_count = len(set(map(str, dict(sparse_weights).keys())) - set(map(str, dict(provenance).keys())))
         dangling_provenance_count = len(
             set(map(str, dict(provenance).keys())) - set(map(str, dict(sparse_weights).keys()))
+        )
+        restore_validation = self._snn_applied_replay_lineage_restore_validation()
+        restore_validation_available = bool(restore_validation.get("available"))
+        restore_lineage_matches = bool(
+            restore_validation.get("summary_matches_restored_state")
+        )
+        restore_validation_blocks_audit = bool(
+            restore_validation_available and not restore_lineage_matches
         )
         ready = bool(
             provenance
@@ -1239,6 +1390,17 @@ class StatusReadModel:
             and dangling_provenance_count == 0
             and missing_local_edge_rows == 0
             and invalid_rollout_step_rows == 0
+            and incomplete_lineage_rows == 0
+            and not restore_validation_blocks_audit
+        )
+        promotion_status = (
+            "ready_for_readout_synapse_provenance_audit"
+            if ready
+            else (
+                "waiting_for_matching_applied_replay_lineage_restore_validation"
+                if restore_validation_blocks_audit
+                else "waiting_for_complete_applied_synapse_provenance"
+            )
         )
         return {
             "surface": "snn_readout_applied_synapse_provenance_evidence.v1",
@@ -1263,13 +1425,15 @@ class StatusReadModel:
             "complete_local_edge_provenance_count": complete_local_edge_rows,
             "missing_local_edge_provenance_count": missing_local_edge_rows,
             "invalid_rollout_step_order_count": invalid_rollout_step_rows,
+            "replay_artifact_lineage_count": replay_artifact_lineage_rows,
+            "complete_replay_artifact_lineage_count": complete_replay_artifact_lineage_rows,
+            "incomplete_replay_artifact_lineage_count": incomplete_lineage_rows,
             "orphan_weight_count": orphan_weight_count,
             "dangling_provenance_count": dangling_provenance_count,
-            "promotion_status": (
-                "ready_for_readout_synapse_provenance_audit"
-                if ready
-                else "waiting_for_complete_applied_synapse_provenance"
-            ),
+            "restore_validation_available": restore_validation_available,
+            "restore_lineage_matches_restored_state": restore_lineage_matches,
+            "restore_validation_blocks_audit": restore_validation_blocks_audit,
+            "promotion_status": promotion_status,
             "next_gate": "snn_language_readout_synapse_provenance_audit.v1",
             "eligible_for_readout_synapse_audit_review": ready,
             "eligible_for_live_replay": False,
@@ -1278,11 +1442,7 @@ class StatusReadModel:
             "eligible_for_fact_promotion": False,
             "eligible_for_action": False,
             "promotion_gate": {
-                "status": (
-                    "ready_for_readout_synapse_provenance_audit"
-                    if ready
-                    else "waiting_for_complete_applied_synapse_provenance"
-                ),
+                "status": promotion_status,
                 "eligible_for_readout_synapse_audit_review": ready,
                 "eligible_for_live_replay": False,
                 "eligible_for_plasticity_application": False,
@@ -1298,6 +1458,12 @@ class StatusReadModel:
                     ),
                     "replay_regeneration_rollout_step_order_valid": (
                         invalid_rollout_step_rows == 0
+                    ),
+                    "replay_regeneration_artifact_lineage_complete": (
+                        incomplete_lineage_rows == 0
+                    ),
+                    "restore_validation_not_mismatched": (
+                        not restore_validation_blocks_audit
                     ),
                     "runtime_mutation_absent": True,
                     "endpoint_execution_absent": True,

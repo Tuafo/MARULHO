@@ -473,6 +473,12 @@ class SNNLanguagePlasticityApplicationExecutor:
                 for value in list(replay.get("readout_evidence_hashes") or [])
                 if str(value)
             ][:64]
+            source_metadata_hash = replay.get("source_metadata_hash")
+            emission_lineage = (
+                dict(replay.get("emission_lineage"))
+                if isinstance(replay.get("emission_lineage"), Mapping)
+                else {}
+            )
             for candidate in candidates:
                 pre_index = int(candidate.get("pre_index", 0) or 0)
                 post_index = int(candidate.get("post_index", 0) or 0)
@@ -504,6 +510,8 @@ class SNNLanguagePlasticityApplicationExecutor:
                             "replay_artifact_hash": replay.get("replay_artifact_hash"),
                             "replay_window_hash": replay.get("replay_window_hash"),
                             "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
+                            "source_metadata_hash": source_metadata_hash,
+                            "emission_lineage": deepcopy(emission_lineage),
                         },
                     }
                 )
@@ -526,6 +534,8 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "replay_artifact_hash": replay.get("replay_artifact_hash"),
                     "replay_window_hash": replay.get("replay_window_hash"),
                     "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
+                    "source_metadata_hash": source_metadata_hash,
+                    "emission_lineage": deepcopy(emission_lineage),
                     "local_edge_provenance": deepcopy(
                         regenerated_synapse.get("local_edge_provenance")
                         if isinstance(regenerated_synapse.get("local_edge_provenance"), Mapping)
@@ -549,6 +559,8 @@ class SNNLanguagePlasticityApplicationExecutor:
                     "readout_evidence_hashes": deepcopy(readout_evidence_hashes),
                     "replay_artifact_id": replay.get("replay_artifact_id"),
                     "replay_artifact_hash": replay.get("replay_artifact_hash"),
+                    "source_metadata_hash": source_metadata_hash,
+                    "emission_lineage": deepcopy(emission_lineage),
                     "regeneration_design_hash": replay.get("regeneration_design_hash"),
                     "regeneration_design_candidate_count": replay.get(
                         "regeneration_design_candidate_count"

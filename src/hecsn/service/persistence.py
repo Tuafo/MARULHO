@@ -184,6 +184,11 @@ class RuntimePersistence:
             service_state["concept_store"] = self._concept_store.state_dict()
             service_state["terminus_runtime"] = self._brain_persisted_state_locked()
             service_state["snn_language_plasticity"] = deepcopy(self._snn_language_plasticity_state)
+            service_state["snn_applied_replay_lineage_checkpoint_summary"] = (
+                self._applied_replay_lineage_checkpoint_summary(
+                    service_state["snn_language_plasticity"]
+                )
+            )
             service_state["snn_language_readout_ledger"] = deepcopy(self._snn_language_readout_ledger_state)
             metadata.update(
                 {
@@ -201,6 +206,61 @@ class RuntimePersistence:
                 **self._runtime_state.mutation_summary(),
                 "token_count": int(self._trainer.token_count),
             }
+
+    @classmethod
+    def _applied_replay_lineage_checkpoint_summary(
+        cls,
+        plasticity_state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        provenance_by_key = (
+            plasticity_state.get("synapse_provenance_by_key")
+            if isinstance(plasticity_state.get("synapse_provenance_by_key"), Mapping)
+            else {}
+        )
+        material: list[dict[str, Any]] = []
+        lineage_rows = 0
+        complete_rows = 0
+        for key in sorted(dict(provenance_by_key).keys()):
+            provenance = provenance_by_key.get(key)
+            if not isinstance(provenance, Mapping):
+                continue
+            if str(provenance.get("provenance_type") or "") != "replay_regeneration":
+                continue
+            source_metadata_hash = str(provenance.get("source_metadata_hash") or "")
+            emission_lineage = (
+                dict(provenance.get("emission_lineage"))
+                if isinstance(provenance.get("emission_lineage"), Mapping)
+                else {}
+            )
+            if not source_metadata_hash and not emission_lineage:
+                continue
+            lineage_rows += 1
+            complete = bool(
+                source_metadata_hash
+                and emission_lineage.get("emission_hash")
+                and emission_lineage.get("readout_evidence_hash")
+                and emission_lineage.get("prediction_hash")
+            )
+            if complete:
+                complete_rows += 1
+            material.append(
+                {
+                    "synapse_key": str(key),
+                    "source_metadata_hash": source_metadata_hash,
+                    "emission_lineage": emission_lineage,
+                }
+            )
+        return {
+            "surface": "snn_applied_replay_lineage_checkpoint_summary.v1",
+            "source": "runtime_persistence.save_checkpoint",
+            "owned_by_hecsn": True,
+            "applied_replay_lineage_count": lineage_rows,
+            "complete_applied_replay_lineage_count": complete_rows,
+            "incomplete_applied_replay_lineage_count": max(0, lineage_rows - complete_rows),
+            "lineage_material_hash": cls._sha256_json(material) if material else None,
+            "raw_text_absent": True,
+            "operator_identity_absent": True,
+        }
 
     def publish_current_checkpoint(self, path: str | Path, *, operation: str) -> dict[str, Any]:
         """Atomically publish the verified checkpoint selected for crash recovery."""
@@ -321,6 +381,11 @@ class RuntimePersistence:
         return digest.hexdigest()
 
     @staticmethod
+    def _sha256_json(value: Any) -> str:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
     def _copy_atomic(source: Path, target: Path) -> None:
         temporary_path = target.with_name(f".{target.name}.{uuid4().hex}.tmp")
         try:
@@ -381,6 +446,9 @@ class RuntimePersistence:
             self.save_checkpoint(str(recovery_path), publish=False)
             try:
                 restored_metadata = self._hydrate_checkpoint_locked(selected_path)
+                restore_lineage_validation = self._applied_replay_lineage_restore_validation(
+                    restored_metadata
+                )
                 self._runtime_state.commit_restored_revision(
                     int(restored_metadata.get("state_revision", 0) or 0)
                 )
@@ -393,6 +461,7 @@ class RuntimePersistence:
                     "path": str(manifest["checkpoint_path"]),
                     "restored_from_path": str(selected_path),
                     "current_checkpoint_manifest": manifest,
+                    "applied_replay_lineage_restore_validation": restore_lineage_validation,
                     **self._runtime_state.mutation_summary(),
                     "token_count": int(self._trainer.token_count),
                 }
@@ -429,6 +498,10 @@ class RuntimePersistence:
         terminus_state = dict(service_state.get("terminus_runtime", service_state.get("brain_runtime")) or {})
         concept_state = service_state.get("concept_store")
         self._snn_language_plasticity_state = dict(service_state.get("snn_language_plasticity") or {})
+        service_state["snn_applied_replay_lineage_restore_validation"] = (
+            self._applied_replay_lineage_restore_validation(self._metadata)
+        )
+        self._metadata["service_state"] = service_state
         self._snn_language_readout_ledger_state = dict(service_state.get("snn_language_readout_ledger") or {})
         self._concept_store = ConceptStore.from_state_dict(concept_state)
         geometric_curiosity_state = cast(
@@ -496,6 +569,62 @@ class RuntimePersistence:
             recent_events=terminus_state.get("recent_events"),
         )
         return self._metadata
+
+    def _applied_replay_lineage_restore_validation(
+        self,
+        metadata: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        service_state = (
+            metadata.get("service_state")
+            if isinstance(metadata.get("service_state"), Mapping)
+            else {}
+        )
+        saved_summary = (
+            service_state.get("snn_applied_replay_lineage_checkpoint_summary")
+            if isinstance(
+                service_state.get("snn_applied_replay_lineage_checkpoint_summary"),
+                Mapping,
+            )
+            else {}
+        )
+        restored_summary = self._applied_replay_lineage_checkpoint_summary(
+            self._snn_language_plasticity_state
+        )
+        summary_available = bool(saved_summary)
+        def _summary_int(summary: Mapping[str, Any], key: str, default: int) -> int:
+            value = summary.get(key)
+            return default if value is None else int(value)
+
+        counts_match = bool(
+            summary_available
+            and _summary_int(saved_summary, "applied_replay_lineage_count", -1)
+            == _summary_int(restored_summary, "applied_replay_lineage_count", -2)
+            and _summary_int(saved_summary, "complete_applied_replay_lineage_count", -1)
+            == _summary_int(restored_summary, "complete_applied_replay_lineage_count", -2)
+            and _summary_int(saved_summary, "incomplete_applied_replay_lineage_count", -1)
+            == _summary_int(restored_summary, "incomplete_applied_replay_lineage_count", -2)
+        )
+        hash_matches = bool(
+            summary_available
+            and saved_summary.get("lineage_material_hash")
+            == restored_summary.get("lineage_material_hash")
+        )
+        return {
+            "surface": "snn_applied_replay_lineage_restore_validation.v1",
+            "source": "runtime_persistence.restore_checkpoint",
+            "owned_by_hecsn": True,
+            "saved_summary_available": summary_available,
+            "summary_counts_match_restored_state": counts_match,
+            "summary_hash_matches_restored_state": hash_matches,
+            "summary_matches_restored_state": bool(counts_match and hash_matches),
+            "saved_summary": deepcopy(dict(saved_summary)),
+            "restored_summary": restored_summary,
+            "runs_replay": False,
+            "applies_plasticity": False,
+            "issues_regeneration_permit": False,
+            "raw_text_absent": True,
+            "operator_identity_absent": True,
+        }
 
     def _service_state_snapshot(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
         last_trace = self._trace_history[0] if self._trace_history else None

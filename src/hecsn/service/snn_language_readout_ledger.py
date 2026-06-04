@@ -4341,11 +4341,23 @@ class SNNLanguageReadoutEvidenceLedger:
         self,
         *,
         plasticity_runtime_state: Mapping[str, Any],
+        applied_replay_lineage_restore_validation: Mapping[str, Any] | None = None,
         limit: int = 64,
     ) -> dict[str, Any]:
         """Audit readout-derived sparse transition provenance without mutation."""
 
         runtime = dict(plasticity_runtime_state)
+        restore_validation = dict(applied_replay_lineage_restore_validation or {})
+        restore_validation_available = (
+            restore_validation.get("surface")
+            == "snn_applied_replay_lineage_restore_validation.v1"
+        )
+        restore_summary_matches = bool(
+            restore_validation.get("summary_matches_restored_state")
+        )
+        restore_validation_not_mismatched = bool(
+            not restore_validation_available or restore_summary_matches
+        )
         raw_weights = dict(runtime.get("sparse_transition_weights") or {})
         weights: dict[str, float] = {}
         finite_weight_keys: set[str] = set()
@@ -4407,6 +4419,22 @@ class SNNLanguageReadoutEvidenceLedger:
                 and provenance.get("replay_artifact_hash")
                 and provenance.get("replay_window_hash")
                 and replay_readout_hashes
+            )
+            source_metadata_hash = str(provenance.get("source_metadata_hash") or "")
+            emission_lineage = (
+                dict(provenance.get("emission_lineage"))
+                if isinstance(provenance.get("emission_lineage"), Mapping)
+                else {}
+            )
+            replay_artifact_lineage_available = bool(source_metadata_hash or emission_lineage)
+            replay_artifact_lineage_complete = bool(
+                not replay_artifact_lineage_available
+                or (
+                    source_metadata_hash
+                    and emission_lineage.get("emission_hash")
+                    and emission_lineage.get("readout_evidence_hash")
+                    and emission_lineage.get("prediction_hash")
+                )
             )
             local_edge_provenance = (
                 dict(provenance.get("local_edge_provenance"))
@@ -4520,6 +4548,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 "replay_artifact_hash": provenance.get("replay_artifact_hash"),
                 "replay_window_hash": provenance.get("replay_window_hash"),
                 "readout_evidence_hashes": replay_readout_hashes,
+                "source_metadata_hash": source_metadata_hash or None,
+                "emission_lineage": emission_lineage,
+                "replay_artifact_lineage_available": replay_artifact_lineage_available,
+                "replay_artifact_lineage_complete": replay_artifact_lineage_complete,
                 "local_edge_provenance": local_edge_provenance,
                 "local_edge_provenance_complete": local_edge_provenance_complete,
                 "local_edge_rollout_step_order_valid": rollout_step_order_valid,
@@ -4538,6 +4570,7 @@ class SNNLanguageReadoutEvidenceLedger:
                 "provenance_complete": bool(
                     replay_provenance_complete
                     and local_edge_provenance_complete
+                    and replay_artifact_lineage_complete
                     if provenance_type == "replay_regeneration"
                     else (
                         readout_hash
@@ -4608,6 +4641,13 @@ class SNNLanguageReadoutEvidenceLedger:
                 bool(row["local_edge_rollout_step_order_valid"])
                 for row in replay_regeneration_rows
             ) if replay_regeneration_rows else True,
+            "audited_replay_regeneration_artifact_lineage_complete": all(
+                bool(row["replay_artifact_lineage_complete"])
+                for row in replay_regeneration_rows
+            ) if replay_regeneration_rows else True,
+            "applied_replay_lineage_restore_validation_not_mismatched": (
+                restore_validation_not_mismatched
+            ),
             "no_unprovenanced_weights": not bool(orphan_weight_keys),
             "no_dangling_provenance": not bool(dangling_provenance_keys),
             "all_weights_finite": len(finite_weight_keys) == len(weights),
@@ -4648,6 +4688,19 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "complete_local_edge_provenance_count": sum(
                     1 for row in all_rows if bool(row.get("local_edge_provenance_complete"))
+                ),
+                "replay_artifact_lineage_count": sum(
+                    1 for row in all_rows if bool(row.get("replay_artifact_lineage_available"))
+                ),
+                "complete_replay_artifact_lineage_count": sum(
+                    1
+                    for row in all_rows
+                    if bool(row.get("replay_artifact_lineage_available"))
+                    and bool(row.get("replay_artifact_lineage_complete"))
+                ),
+                "restore_validation_available": restore_validation_available,
+                "restore_validation_blocks_audit": bool(
+                    restore_validation_available and not restore_summary_matches
                 ),
             },
             "audited_synapses": rows,

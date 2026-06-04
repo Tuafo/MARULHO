@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from threading import RLock
+from typing import Mapping
 import unittest
 from unittest.mock import patch
 
@@ -149,10 +150,16 @@ class ReplayControllerTests(unittest.TestCase):
         }
 
     @classmethod
-    def _record_replay_evaluation_context(cls, controller: ReplayController) -> dict[str, object]:
+    def _record_replay_evaluation_context(
+        cls,
+        controller: ReplayController,
+        *,
+        source_metadata: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
         return controller.record_snn_replay_evaluation_context(
             mismatch_report=cls._mismatch_report(),
             pressure_report=cls._pressure_report(),
+            source_metadata=source_metadata,
         )
 
     @staticmethod
@@ -337,6 +344,30 @@ class ReplayControllerTests(unittest.TestCase):
         manager._runtime_state.state_revision += 1
         self.assertIsNone(controller.verified_snn_replay_evaluation_context(context_id))
 
+    def test_snn_replay_evaluation_context_verifies_source_metadata(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        context = controller.record_snn_replay_evaluation_context(
+            mismatch_report=self._mismatch_report(),
+            pressure_report=self._pressure_report(),
+            source_metadata={
+                "source": "test",
+                "emission_hash": "emission-hash",
+                "readout_evidence_hash": "readout-hash",
+            },
+        )
+        context_id = str(context["replay_evaluation_context_id"])
+
+        verified = controller.verified_snn_replay_evaluation_context(context_id)
+        self.assertIsNotNone(verified)
+        assert verified is not None
+        self.assertEqual(verified["source_metadata"]["emission_hash"], "emission-hash")
+        self.assertTrue(verified["source_metadata_hash"])
+        controller.snn_replay_evaluation_contexts[0]["source_metadata"][
+            "emission_hash"
+        ] = "tampered"
+        self.assertIsNone(controller.verified_snn_replay_evaluation_context(context_id))
+
     def test_evaluated_replay_artifact_rejects_stale_context(self) -> None:
         manager = _FakeReplayManager()
         controller = _replay_controller(manager)
@@ -442,6 +473,88 @@ class ReplayControllerTests(unittest.TestCase):
             context["replay_evaluation_context_id"],
         )
         self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 1)
+
+    def test_snn_replay_artifact_recording_review_preserves_context_lineage(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        source_metadata = {
+            "source": "runtime_facade.snn_language_readout_emission_replay_context_review",
+            "surface": "snn_language_readout_emission_replay_context_review.v1",
+            "design_hash": "design-hash",
+            "seed_hash": "seed-hash",
+            "emission_review_hash": "emission-review-hash",
+            "emission_hash": "emission-hash",
+            "readout_evidence_hash": "readout-hash",
+            "prediction_hash": "prediction-hash",
+            "operator_id": "operator-lineage",
+        }
+        context = self._record_replay_evaluation_context(
+            controller,
+            source_metadata=source_metadata,
+        )
+        queue = controller.snn_replay_consolidation_priority_queue(
+            readout_replay_priority_report={
+                "surface": "snn_language_readout_replay_priority.v1",
+                "candidates": [
+                    {
+                        "priority_score": 90.0,
+                        "all_labels_grounded": True,
+                    }
+                ],
+            },
+            limit=4,
+        )
+
+        candidate = queue["candidates"][0]
+        self.assertEqual(candidate["source_metadata_hash"], context["source_metadata_hash"])
+        self.assertEqual(candidate["emission_lineage"]["emission_hash"], "emission-hash")
+        self.assertEqual(candidate["emission_lineage"]["readout_evidence_hash"], "readout-hash")
+        self.assertEqual(candidate["emission_lineage"]["prediction_hash"], "prediction-hash")
+        self.assertNotIn("source_metadata", candidate)
+        self.assertNotIn("operator_id", candidate["emission_lineage"])
+        self.assertTrue(candidate["emission_lineage_available"])
+
+        proposal = controller.snn_replay_artifact_recording_policy_proposal(
+            consolidation_priority_queue=queue,
+            policy={"min_priority_score": 60.0},
+        )
+        self.assertTrue(
+            proposal["promotion_gate"]["required_evidence"][
+                "candidate_lineage_matches_verified_context"
+            ]
+        )
+        self.assertEqual(
+            proposal["recommended_review"]["source_metadata_hash"],
+            context["source_metadata_hash"],
+        )
+        self.assertEqual(
+            proposal["recommended_review"]["emission_lineage"],
+            candidate["emission_lineage"],
+        )
+
+        ticket = controller.record_snn_replay_artifact_recording_review_ticket(
+            policy_proposal=proposal,
+            operator_id="operator-lineage",
+            confirmation=True,
+        )
+        self.assertEqual(ticket["source_metadata_hash"], context["source_metadata_hash"])
+        self.assertEqual(ticket["emission_lineage"], candidate["emission_lineage"])
+        self.assertIsNotNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                str(ticket["review_ticket_id"]),
+                operator_id="operator-lineage",
+            )
+        )
+
+        controller.snn_replay_artifact_recording_review_tickets[0]["emission_lineage"][
+            "emission_hash"
+        ] = "tampered"
+        self.assertIsNone(
+            controller.verified_snn_replay_artifact_recording_review_ticket(
+                str(ticket["review_ticket_id"]),
+                operator_id="operator-lineage",
+            )
+        )
 
     def test_snn_replay_artifact_recording_review_ticket_verification_fails_closed(self) -> None:
         manager = _FakeReplayManager()
@@ -1673,6 +1786,88 @@ class ReplayControllerTests(unittest.TestCase):
         self.assertEqual(manager._runtime_state.dirty_without_revision_calls, 4)
         manager._runtime_state.state_revision += 1
         self.assertFalse(controller.verify_regeneration_permit(proposal))
+
+    def test_evaluated_replay_artifact_and_permit_preserve_emission_lineage(self) -> None:
+        manager = _FakeReplayManager()
+        controller = _replay_controller(manager)
+        source_metadata = {
+            "source": "runtime_facade.snn_language_readout_emission_replay_context_review",
+            "surface": "snn_language_readout_emission_replay_context_review.v1",
+            "design_hash": "design-hash",
+            "seed_hash": "seed-hash",
+            "emission_review_hash": "emission-review-hash",
+            "emission_hash": "emission-hash",
+            "readout_evidence_hash": "readout-hash-1",
+            "prediction_hash": "prediction-hash",
+            "operator_id": "operator-lineage",
+        }
+        context = self._record_replay_evaluation_context(
+            controller,
+            source_metadata=source_metadata,
+        )
+        ticket = self._record_review_ticket(controller, operator_id="operator-lineage")
+        emission_lineage = {
+            "source": source_metadata["source"],
+            "surface": source_metadata["surface"],
+            "design_hash": source_metadata["design_hash"],
+            "seed_hash": source_metadata["seed_hash"],
+            "emission_review_hash": source_metadata["emission_review_hash"],
+            "emission_hash": source_metadata["emission_hash"],
+            "readout_evidence_hash": source_metadata["readout_evidence_hash"],
+            "prediction_hash": source_metadata["prediction_hash"],
+        }
+        proposal = {
+            "surface": "snn_transition_memory_replay_artifact_proposal.v1",
+            "ready": True,
+            "owned_by_hecsn": True,
+            "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
+            "mismatch_report": context["mismatch_report"],
+            "pressure_report": context["pressure_report"],
+            "replay_evaluation_context_id": context["replay_evaluation_context_id"],
+            "replay_evaluation_context_hash": context["evidence_hash"],
+            "source_metadata_hash": context["source_metadata_hash"],
+            "emission_lineage": emission_lineage,
+            "replay_window": [{"readout_evidence_hash": "readout-hash-1", "grounded": True}],
+            "promotion_gate": {"status": "ready_for_operator_recording_review"},
+        }
+
+        artifact = controller.record_evaluated_snn_transition_memory_replay_artifact(
+            artifact_proposal=proposal,
+            known_readout_evidence_hashes=["readout-hash-1"],
+            replay_evaluation_context_id=str(context["replay_evaluation_context_id"]),
+            review_ticket_id=str(ticket["review_ticket_id"]),
+            operator_id="operator-lineage",
+            confirmation=True,
+        )
+        permit_design = {
+            "locality_radius": 2,
+            "initial_weight": 0.02,
+            "max_new_synapses": 8,
+            "mismatch_score": 0.9,
+            "candidate_synapses": [{"pre_index": 1, "post_index": 2, "initial_weight": 0.02}],
+        }
+        permit = controller.issue_regeneration_permit(
+            replay_artifact_id=str(artifact["replay_artifact_id"]),
+            regeneration_design=permit_design,
+            operator_id="operator-lineage",
+            confirmation=True,
+        )
+
+        self.assertEqual(artifact["source_metadata_hash"], context["source_metadata_hash"])
+        self.assertEqual(artifact["emission_lineage"], emission_lineage)
+        self.assertEqual(permit["source_metadata_hash"], context["source_metadata_hash"])
+        self.assertEqual(permit["emission_lineage"], emission_lineage)
+        self.assertTrue(
+            controller.verify_regeneration_permit(
+                {"replay_evidence": permit, "regeneration_design": permit_design}
+            )
+        )
+        controller.regeneration_permits[0]["emission_lineage"]["emission_hash"] = "tampered"
+        self.assertFalse(
+            controller.verify_regeneration_permit(
+                {"replay_evidence": permit, "regeneration_design": permit_design}
+            )
+        )
 
     def test_regeneration_permit_rejects_tampered_payload(self) -> None:
         manager = _FakeReplayManager()

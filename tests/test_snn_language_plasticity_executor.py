@@ -24,6 +24,13 @@ def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
             "replay_artifact_hash": "artifact-hash-1",
             "replay_window_hash": "window-hash-1",
             "readout_evidence_hashes": ["readout-hash-1", "readout-hash-2"],
+            "source_metadata_hash": "source-metadata-hash-1",
+            "emission_lineage": {
+                "emission_hash": "emission-hash-1",
+                "readout_evidence_hash": "readout-hash-1",
+                "prediction_hash": "prediction-hash-1",
+                "design_hash": "design-hash-1",
+            },
             "evidence_hash": "sha256:replay-window-1",
         },
         "promotion_gate": {"status": "ready_for_operator_review"},
@@ -176,6 +183,18 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
         ]
         == ["readout-hash-1", "readout-hash-2"]
     )
+    assert (
+        language_state["synapse_regeneration"]["last_regeneration"]["replay_regeneration_permit"][
+            "source_metadata_hash"
+        ]
+        == "source-metadata-hash-1"
+    )
+    assert (
+        language_state["synapse_regeneration"]["last_regeneration"]["replay_regeneration_permit"][
+            "emission_lineage"
+        ]["emission_hash"]
+        == "emission-hash-1"
+    )
     assert language_state["synapse_regeneration"]["recent_events"][0]["regenerated_synapses"][0]["synapse"] == "1:3"
     local_edge = language_state["synapse_regeneration"]["recent_events"][0][
         "regenerated_synapses"
@@ -191,6 +210,8 @@ def test_regeneration_applies_bounded_local_edges_and_persists_ledger(tmp_path: 
     assert provenance["replay_artifact_id"] == "artifact-1"
     assert provenance["replay_window_hash"] == "window-hash-1"
     assert provenance["readout_evidence_hashes"] == ["readout-hash-1", "readout-hash-2"]
+    assert provenance["source_metadata_hash"] == "source-metadata-hash-1"
+    assert provenance["emission_lineage"]["emission_hash"] == "emission-hash-1"
     assert provenance["local_edge_provenance"] == local_edge
     assert language_state["synapse_regeneration"]["recent_events"][0]["committed_checkpoint_path"].endswith(
         ".regeneration.committed.pt"

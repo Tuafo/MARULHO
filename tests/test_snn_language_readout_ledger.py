@@ -2638,6 +2638,112 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
                     "replay_artifact_hash": "artifact-hash-1",
                     "replay_window_hash": "window-hash-1",
                     "readout_evidence_hashes": [evidence_hash],
+                    "source_metadata_hash": "source-metadata-hash-1",
+                    "emission_lineage": {
+                        "emission_hash": "emission-hash-1",
+                        "readout_evidence_hash": evidence_hash,
+                        "prediction_hash": "prediction-audit",
+                        "design_hash": "design-hash-1",
+                    },
+                    "local_edge_provenance": {
+                        "source_synapse_id": "snn-rollout-local:1:3:0",
+                        "source_trace_index": 0,
+                        "source_rollout_step_index": 10,
+                        "target_rollout_step_index": 20,
+                        "source_active_indices_hash": "source-active-hash-1",
+                        "target_active_indices_hash": "target-active-hash-1",
+                    },
+                }
+            },
+        }
+    )
+    replay_regeneration_matching_restore = ledger.synapse_provenance_audit(
+        plasticity_runtime_state=deepcopy(
+            {
+                "surface": "snn_language_plasticity_runtime_state.v1",
+                "owned_by_hecsn": True,
+                "sparse_transition_weights": {"1:3": 0.03},
+                "synapse_provenance_by_key": {
+                    "1:3": {
+                        "provenance_type": "replay_regeneration",
+                        "permit_id": "permit-1",
+                        "replay_artifact_id": "artifact-1",
+                        "replay_artifact_hash": "artifact-hash-1",
+                        "replay_window_hash": "window-hash-1",
+                        "readout_evidence_hashes": [evidence_hash],
+                        "source_metadata_hash": "source-metadata-hash-1",
+                        "emission_lineage": {
+                            "emission_hash": "emission-hash-1",
+                            "readout_evidence_hash": evidence_hash,
+                            "prediction_hash": "prediction-audit",
+                        },
+                        "local_edge_provenance": {
+                            "source_synapse_id": "snn-rollout-local:1:3:0",
+                            "source_rollout_step_index": 10,
+                            "target_rollout_step_index": 20,
+                            "source_active_indices_hash": "source-active-hash-1",
+                            "target_active_indices_hash": "target-active-hash-1",
+                        },
+                    }
+                },
+            }
+        ),
+        applied_replay_lineage_restore_validation={
+            "surface": "snn_applied_replay_lineage_restore_validation.v1",
+            "summary_matches_restored_state": True,
+        },
+    )
+    replay_regeneration_mismatched_restore = ledger.synapse_provenance_audit(
+        plasticity_runtime_state=deepcopy(
+            {
+                "surface": "snn_language_plasticity_runtime_state.v1",
+                "owned_by_hecsn": True,
+                "sparse_transition_weights": {"1:3": 0.03},
+                "synapse_provenance_by_key": {
+                    "1:3": {
+                        "provenance_type": "replay_regeneration",
+                        "permit_id": "permit-1",
+                        "replay_artifact_id": "artifact-1",
+                        "replay_artifact_hash": "artifact-hash-1",
+                        "replay_window_hash": "window-hash-1",
+                        "readout_evidence_hashes": [evidence_hash],
+                        "source_metadata_hash": "source-metadata-hash-1",
+                        "emission_lineage": {
+                            "emission_hash": "emission-hash-1",
+                            "readout_evidence_hash": evidence_hash,
+                            "prediction_hash": "prediction-audit",
+                        },
+                        "local_edge_provenance": {
+                            "source_synapse_id": "snn-rollout-local:1:3:0",
+                            "source_rollout_step_index": 10,
+                            "target_rollout_step_index": 20,
+                            "source_active_indices_hash": "source-active-hash-1",
+                            "target_active_indices_hash": "target-active-hash-1",
+                        },
+                    }
+                },
+            }
+        ),
+        applied_replay_lineage_restore_validation={
+            "surface": "snn_applied_replay_lineage_restore_validation.v1",
+            "summary_matches_restored_state": False,
+        },
+    )
+    replay_incomplete_lineage = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_hecsn": True,
+            "sparse_transition_weights": {"1:3": 0.03},
+            "synapse_provenance_by_key": {
+                "1:3": {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": "permit-1",
+                    "replay_artifact_id": "artifact-1",
+                    "replay_artifact_hash": "artifact-hash-1",
+                    "replay_window_hash": "window-hash-1",
+                    "readout_evidence_hashes": [evidence_hash],
+                    "source_metadata_hash": "source-metadata-hash-1",
+                    "emission_lineage": {"emission_hash": "emission-hash-1"},
                     "local_edge_provenance": {
                         "source_synapse_id": "snn-rollout-local:1:3:0",
                         "source_trace_index": 0,
@@ -2716,6 +2822,13 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     assert replay_regeneration["audit_summary"]["replay_regeneration_synapse_count"] == 1
     assert replay_regeneration["audit_summary"]["local_edge_provenance_count"] == 1
     assert replay_regeneration["audit_summary"]["complete_local_edge_provenance_count"] == 1
+    assert replay_regeneration["audit_summary"]["replay_artifact_lineage_count"] == 1
+    assert replay_regeneration["audit_summary"]["complete_replay_artifact_lineage_count"] == 1
+    assert replay_regeneration["audit_summary"]["restore_validation_available"] is False
+    assert replay_regeneration["audit_summary"]["restore_validation_blocks_audit"] is False
+    assert replay_regeneration["audited_synapses"][0]["source_metadata_hash"] == "source-metadata-hash-1"
+    assert replay_regeneration["audited_synapses"][0]["emission_lineage"]["emission_hash"] == "emission-hash-1"
+    assert replay_regeneration["audited_synapses"][0]["replay_artifact_lineage_complete"] is True
     assert replay_regeneration["audited_synapses"][0]["local_edge_provenance_complete"] is True
     assert replay_regeneration["audited_synapses"][0][
         "local_edge_rollout_step_order_valid"
@@ -2725,11 +2838,41 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     assert replay_regeneration["audited_synapses"][0][
         "source_active_indices_hash"
     ] == "source-active-hash-1"
+    assert replay_regeneration_matching_restore["promotion_gate"][
+        "eligible_for_readout_synapse_audit_review"
+    ] is True
+    assert replay_regeneration_matching_restore["promotion_gate"]["required_evidence"][
+        "applied_replay_lineage_restore_validation_not_mismatched"
+    ] is True
+    assert replay_regeneration_matching_restore["audit_summary"][
+        "restore_validation_available"
+    ] is True
+    assert replay_regeneration_matching_restore["audit_summary"][
+        "restore_validation_blocks_audit"
+    ] is False
+    assert replay_regeneration_mismatched_restore["promotion_gate"][
+        "eligible_for_readout_synapse_audit_review"
+    ] is False
+    assert replay_regeneration_mismatched_restore["promotion_gate"]["required_evidence"][
+        "applied_replay_lineage_restore_validation_not_mismatched"
+    ] is False
+    assert replay_regeneration_mismatched_restore["audit_summary"][
+        "restore_validation_available"
+    ] is True
+    assert replay_regeneration_mismatched_restore["audit_summary"][
+        "restore_validation_blocks_audit"
+    ] is True
     assert replay_missing_local_edge["promotion_gate"][
         "eligible_for_readout_synapse_audit_review"
     ] is False
     assert replay_missing_local_edge["promotion_gate"]["required_evidence"][
         "audited_replay_regeneration_local_edge_provenance_complete"
+    ] is False
+    assert replay_incomplete_lineage["promotion_gate"][
+        "eligible_for_readout_synapse_audit_review"
+    ] is False
+    assert replay_incomplete_lineage["promotion_gate"]["required_evidence"][
+        "audited_replay_regeneration_artifact_lineage_complete"
     ] is False
     assert tampered_ledger["promotion_gate"]["eligible_for_readout_synapse_audit_review"] is False
     assert tampered_ledger["promotion_gate"]["required_evidence"]["audited_synapses_match_ledger_fields"] is True

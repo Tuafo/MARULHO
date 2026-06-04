@@ -544,6 +544,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_applied_provenance["applies_plasticity"])
         self.assertFalse(status_applied_provenance["mutates_runtime_state"])
         self.assertFalse(status_applied_provenance["writes_checkpoint"])
+        self.assertFalse(status_applied_provenance["restore_validation_available"])
+        self.assertFalse(status_applied_provenance["restore_validation_blocks_audit"])
         self.assertEqual(
             terminus_applied_provenance["artifact_kind"],
             status_applied_provenance["artifact_kind"],
@@ -555,6 +557,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(
             terminus_applied_provenance["synapse_provenance_count"],
             status_applied_provenance["synapse_provenance_count"],
+        )
+        self.assertEqual(
+            terminus_applied_provenance["restore_validation_blocks_audit"],
+            status_applied_provenance["restore_validation_blocks_audit"],
         )
         for forbidden_key in (
             "rollout",
@@ -921,6 +927,10 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "confirmation": True,
                     },
                 )
+                emission_replay_consolidation_priority_response = client.get(
+                    "/terminus/snn-language-sequence/replay-consolidation-priority-queue",
+                    params={"limit": 4},
+                )
                 ledger_response = client.get("/terminus/snn-language-sequence/readout-ledger")
                 replay_priority_response = client.get(
                     "/terminus/snn-language-sequence/readout-ledger/replay-priority"
@@ -1145,6 +1155,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(emission_replay_design_response.status_code, 200)
         self.assertEqual(blocked_emission_replay_context_response.status_code, 200)
         self.assertEqual(emission_replay_context_response.status_code, 200)
+        self.assertEqual(emission_replay_consolidation_priority_response.status_code, 200)
         self.assertEqual(ledger_response.status_code, 200)
         self.assertEqual(replay_priority_response.status_code, 200)
         self.assertEqual(rehearsal_evaluation_response.status_code, 200)
@@ -1183,6 +1194,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         emission_replay_design = emission_replay_design_response.json()
         blocked_emission_replay_context = blocked_emission_replay_context_response.json()
         emission_replay_context = emission_replay_context_response.json()
+        emission_replay_consolidation_priority = (
+            emission_replay_consolidation_priority_response.json()
+        )
         ledger = ledger_response.json()
         replay_priority = replay_priority_response.json()
         rehearsal_evaluation = rehearsal_evaluation_response.json()
@@ -1500,6 +1514,11 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(
             emission_replay_context["review"]["replay_evaluation_context_hash"]
         )
+        self.assertIsNotNone(
+            emission_replay_context["review"][
+                "replay_evaluation_context_source_metadata_hash"
+            ]
+        )
         self.assertFalse(
             emission_replay_context["promotion_gate"][
                 "eligible_for_replay_context_recording"
@@ -1509,6 +1528,53 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             emission_replay_context["promotion_gate"]["next_gate"],
             "/terminus/snn-language-sequence/replay-consolidation-priority-queue",
         )
+        recorded_context = next(
+            iter(app.state.hecsn_manager._replay_controller.snn_replay_evaluation_contexts)
+        )
+        self.assertEqual(
+            recorded_context["source_metadata"]["emission_hash"],
+            emission["emission_hash"],
+        )
+        self.assertEqual(
+            recorded_context["source_metadata"]["readout_evidence_hash"],
+            record["recorded_event"]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            recorded_context["source_metadata"]["prediction_hash"],
+            prediction_report["provenance_evidence"]["prediction_hash"],
+        )
+        self.assertEqual(
+            recorded_context["source_metadata_hash"],
+            emission_replay_context["review"][
+                "replay_evaluation_context_source_metadata_hash"
+            ],
+        )
+        self.assertEqual(
+            emission_replay_consolidation_priority["surface"],
+            "snn_replay_consolidation_priority_queue.v1",
+        )
+        self.assertEqual(emission_replay_consolidation_priority["candidate_count"], 1)
+        emission_replay_candidate = emission_replay_consolidation_priority["candidates"][0]
+        self.assertEqual(
+            emission_replay_candidate["source_metadata_hash"],
+            emission_replay_context["review"][
+                "replay_evaluation_context_source_metadata_hash"
+            ],
+        )
+        self.assertEqual(
+            emission_replay_candidate["emission_lineage"]["emission_hash"],
+            emission["emission_hash"],
+        )
+        self.assertEqual(
+            emission_replay_candidate["emission_lineage"]["readout_evidence_hash"],
+            record["recorded_event"]["readout_evidence_hash"],
+        )
+        self.assertEqual(
+            emission_replay_candidate["emission_lineage"]["prediction_hash"],
+            prediction_report["provenance_evidence"]["prediction_hash"],
+        )
+        self.assertNotIn("source_metadata", emission_replay_candidate)
+        self.assertNotIn("operator_id", emission_replay_candidate["emission_lineage"])
         self.assertFalse(blocked_emission_review["accepted"])
         self.assertFalse(
             blocked_emission_review["promotion_gate"]["required_evidence"][
@@ -2295,6 +2361,31 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 missing_provenance_audit = client.get(
                     "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
                 ).json()
+
+                trainer, metadata = load_trainer_checkpoint(complete_checkpoint["path"])
+                mismatched_restore_metadata = deepcopy(metadata)
+                mismatched_restore_service_state = dict(
+                    mismatched_restore_metadata.get("service_state") or {}
+                )
+                mismatched_restore_service_state[
+                    "snn_applied_replay_lineage_checkpoint_summary"
+                ] = {
+                    "surface": "snn_applied_replay_lineage_checkpoint_summary.v1",
+                    "applied_replay_lineage_count": 0,
+                    "lineage_material_hash": "tampered",
+                }
+                mismatched_restore_metadata["service_state"] = (
+                    mismatched_restore_service_state
+                )
+                mismatched_restore_path = save_trainer_checkpoint(
+                    root / "readout-mismatched-restore-lineage.pt",
+                    trainer,
+                    metadata=mismatched_restore_metadata,
+                )
+                runtime.restore_checkpoint(str(mismatched_restore_path))
+                mismatched_restore_audit = client.get(
+                    "/terminus/snn-language-sequence/readout-ledger/synapse-provenance-audit"
+                ).json()
             manager.close()
 
         self.assertTrue(
@@ -2319,6 +2410,22 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(
             missing_provenance_audit["promotion_gate"]["required_evidence"][
                 "no_unprovenanced_weights"
+            ]
+        )
+        self.assertFalse(
+            mismatched_restore_audit["promotion_gate"][
+                "eligible_for_readout_synapse_audit_review"
+            ]
+        )
+        self.assertTrue(
+            mismatched_restore_audit["audit_summary"]["restore_validation_available"]
+        )
+        self.assertTrue(
+            mismatched_restore_audit["audit_summary"]["restore_validation_blocks_audit"]
+        )
+        self.assertFalse(
+            mismatched_restore_audit["promotion_gate"]["required_evidence"][
+                "applied_replay_lineage_restore_validation_not_mismatched"
             ]
         )
 

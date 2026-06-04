@@ -152,6 +152,27 @@ class ReplayController:
     def _runtime_trace_export_safe_value(self, value: Any) -> Any:
         return self._dependencies.runtime_trace_export_safe_value(value)
 
+    @staticmethod
+    def _snn_replay_context_emission_lineage(
+        source_metadata: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        metadata = dict(source_metadata or {})
+        lineage_keys = (
+            "source",
+            "surface",
+            "design_hash",
+            "seed_hash",
+            "emission_review_hash",
+            "emission_hash",
+            "readout_evidence_hash",
+            "prediction_hash",
+        )
+        return {
+            key: metadata[key]
+            for key in lineage_keys
+            if metadata.get(key) not in (None, "")
+        }
+
     @property
     def history(self) -> deque[dict[str, Any]]:
         return self._replay_sample_history
@@ -286,11 +307,13 @@ class ReplayController:
         *,
         mismatch_report: Mapping[str, Any],
         pressure_report: Mapping[str, Any],
+        source_metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Record server-recomputed mismatch and pressure evidence for replay review."""
 
         mismatch = dict(mismatch_report)
         pressure = dict(pressure_report)
+        metadata = dict(source_metadata or {})
         error = mismatch.get("prediction_error") if isinstance(mismatch.get("prediction_error"), Mapping) else {}
         pressure_gate = (
             pressure.get("promotion_gate")
@@ -317,6 +340,9 @@ class ReplayController:
                 "recorded_state_revision": recorded_revision,
                 "mismatch_hash": self._sha256_json(mismatch),
                 "pressure_hash": self._sha256_json(pressure),
+                "source_metadata_hash": (
+                    self._sha256_json(metadata) if metadata else None
+                ),
             }
             evidence_hash = self._sha256_json(material)
             context = {
@@ -330,6 +356,7 @@ class ReplayController:
                 "evidence_hash": evidence_hash,
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
                 **material,
+                "source_metadata": deepcopy(metadata),
                 "mismatch_report": mismatch,
                 "pressure_report": pressure,
             }
@@ -353,6 +380,7 @@ class ReplayController:
                 "recorded_state_revision": int(context.get("recorded_state_revision", -1)),
                 "mismatch_hash": context.get("mismatch_hash"),
                 "pressure_hash": context.get("pressure_hash"),
+                "source_metadata_hash": context.get("source_metadata_hash"),
             }
             return (
                 deepcopy(context)
@@ -365,6 +393,13 @@ class ReplayController:
                     == self._sha256_json(dict(context.get("mismatch_report") or {}))
                     and str(context.get("pressure_hash") or "")
                     == self._sha256_json(dict(context.get("pressure_report") or {}))
+                    and (
+                        context.get("source_metadata_hash") is None
+                        or str(context.get("source_metadata_hash") or "")
+                        == self._sha256_json(
+                            dict(context.get("source_metadata") or {})
+                        )
+                    )
                 )
                 else None
             )
@@ -432,6 +467,12 @@ class ReplayController:
                     if isinstance(pressure.get("plasticity_pressure"), Mapping)
                     else {}
                 )
+                source_metadata = (
+                    context.get("source_metadata")
+                    if isinstance(context.get("source_metadata"), Mapping)
+                    else {}
+                )
+                emission_lineage = self._snn_replay_context_emission_lineage(source_metadata)
                 mismatch_score = max(0.0, min(1.0, float(error.get("mismatch_score", 0.0) or 0.0)))
                 pressure_score = max(
                     0.0,
@@ -455,6 +496,9 @@ class ReplayController:
                         "recorded_state_revision": int(context.get("recorded_state_revision", -1)),
                         "mismatch_hash": context.get("mismatch_hash"),
                         "pressure_hash": context.get("pressure_hash"),
+                        "source_metadata_hash": context.get("source_metadata_hash"),
+                        "emission_lineage": emission_lineage,
+                        "emission_lineage_available": bool(emission_lineage),
                         "priority_score": float(score),
                         "priority_components": {
                             "prediction_error": float(mismatch_score),
@@ -618,6 +662,29 @@ class ReplayController:
             ready = False
         else:
             required["candidate_context_verified_current_revision"] = bool(recommended_context)
+        recommended_source_metadata_hash = top.get("source_metadata_hash") if top else None
+        recommended_emission_lineage = (
+            dict(top.get("emission_lineage"))
+            if top and isinstance(top.get("emission_lineage"), Mapping)
+            else {}
+        )
+        context_lineage = (
+            self._snn_replay_context_emission_lineage(
+                recommended_context.get("source_metadata")
+                if isinstance(recommended_context, Mapping)
+                and isinstance(recommended_context.get("source_metadata"), Mapping)
+                else {}
+            )
+            if recommended_context
+            else {}
+        )
+        required["candidate_lineage_matches_verified_context"] = (
+            bool(recommended_context)
+            and recommended_source_metadata_hash
+            == recommended_context.get("source_metadata_hash")
+            and recommended_emission_lineage == context_lineage
+        )
+        ready = ready and bool(required["candidate_lineage_matches_verified_context"])
         return {
             "artifact_kind": "terminus_snn_replay_artifact_recording_policy_proposal",
             "surface": "snn_replay_artifact_recording_policy_proposal.v1",
@@ -650,6 +717,8 @@ class ReplayController:
                 "review_action": "operator_review_snn_transition_memory_replay_artifact_recording",
                 "replay_evaluation_context_id": recommended_context_id or None,
                 "replay_evaluation_context_hash": top.get("replay_evaluation_context_hash") if top else None,
+                "source_metadata_hash": recommended_source_metadata_hash,
+                "emission_lineage": recommended_emission_lineage,
                 "priority_score": float(top.get("priority_score", 0.0) or 0.0) if top else 0.0,
                 "reason_codes": [str(value) for value in list(top.get("reason_codes") or [])],
             },
@@ -717,6 +786,24 @@ class ReplayController:
             context.get("evidence_hash") or ""
         ):
             raise ValueError("SNN replay artifact recording review ticket requires a verified replay context.")
+        context_lineage = self._snn_replay_context_emission_lineage(
+            context.get("source_metadata")
+            if isinstance(context.get("source_metadata"), Mapping)
+            else {}
+        )
+        review_lineage = (
+            dict(review.get("emission_lineage"))
+            if isinstance(review.get("emission_lineage"), Mapping)
+            else {}
+        )
+        if str(review.get("source_metadata_hash") or "") != str(context.get("source_metadata_hash") or ""):
+            raise ValueError(
+                "SNN replay artifact recording review ticket requires replay context source lineage."
+            )
+        if review_lineage != context_lineage:
+            raise ValueError(
+                "SNN replay artifact recording review ticket requires replay context source lineage."
+            )
         if due_cycle_review_proposal is not None and (
             due_cycle_proposal.get("surface")
             != "snn_due_cycle_replay_artifact_recording_review_proposal.v1"
@@ -750,6 +837,8 @@ class ReplayController:
                 "policy_proposal_hash": self._sha256_json(proposal),
                 "replay_evaluation_context_id": context["replay_evaluation_context_id"],
                 "replay_evaluation_context_hash": context["evidence_hash"],
+                "source_metadata_hash": context.get("source_metadata_hash"),
+                "emission_lineage": context_lineage,
             }
             if due_cycle_review_proposal is not None:
                 material["due_cycle_review_proposal_hash"] = due_cycle_provenance[
@@ -816,6 +905,12 @@ class ReplayController:
                 "policy_proposal_hash": ticket.get("policy_proposal_hash"),
                 "replay_evaluation_context_id": ticket.get("replay_evaluation_context_id"),
                 "replay_evaluation_context_hash": ticket.get("replay_evaluation_context_hash"),
+                "source_metadata_hash": ticket.get("source_metadata_hash"),
+                "emission_lineage": (
+                    dict(ticket.get("emission_lineage"))
+                    if isinstance(ticket.get("emission_lineage"), Mapping)
+                    else {}
+                ),
             }
             if ticket.get("due_cycle_review_proposal_hash"):
                 material["due_cycle_review_proposal_hash"] = ticket.get(
@@ -3914,6 +4009,15 @@ class ReplayController:
                 "review_ticket_hash": metadata.get("review_ticket_hash"),
                 "readout_evidence_hashes": readout_evidence_hashes,
             }
+            source_metadata_hash = metadata.get("source_metadata_hash")
+            emission_lineage = (
+                dict(metadata.get("emission_lineage"))
+                if isinstance(metadata.get("emission_lineage"), Mapping)
+                else {}
+            )
+            if source_metadata_hash or emission_lineage:
+                material["source_metadata_hash"] = source_metadata_hash
+                material["emission_lineage"] = emission_lineage
             evidence_hash = self._sha256_json(material)
             artifact = {
                 "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
@@ -3976,6 +4080,33 @@ class ReplayController:
             raise ValueError("Evaluated SNN replay artifact proposal requires a verified server-held evaluation context.")
         if ticket is None:
             raise ValueError("Evaluated SNN replay artifact proposal requires a verified review ticket.")
+        context_lineage = self._snn_replay_context_emission_lineage(
+            context.get("source_metadata")
+            if isinstance(context.get("source_metadata"), Mapping)
+            else {}
+        )
+        proposal_lineage = (
+            dict(proposal.get("emission_lineage"))
+            if isinstance(proposal.get("emission_lineage"), Mapping)
+            else {}
+        )
+        ticket_lineage = (
+            dict(ticket.get("emission_lineage"))
+            if isinstance(ticket.get("emission_lineage"), Mapping)
+            else {}
+        )
+        if str(proposal.get("source_metadata_hash") or "") != str(
+            context.get("source_metadata_hash") or ""
+        ) or str(ticket.get("source_metadata_hash") or "") != str(
+            context.get("source_metadata_hash") or ""
+        ):
+            raise ValueError(
+                "Evaluated SNN replay artifact proposal requires verified replay context source lineage."
+            )
+        if proposal_lineage != context_lineage or ticket_lineage != context_lineage:
+            raise ValueError(
+                "Evaluated SNN replay artifact proposal requires verified replay context source lineage."
+            )
         if not replay_window or not all(
             bool(item.get("grounded"))
             and str(item.get("readout_evidence_hash") or "") in known_hashes
@@ -4005,6 +4136,8 @@ class ReplayController:
                 "replay_evaluation_context_hash": context["evidence_hash"],
                 "review_ticket_id": ticket["review_ticket_id"],
                 "review_ticket_hash": ticket["evidence_hash"],
+                "source_metadata_hash": context.get("source_metadata_hash"),
+                "emission_lineage": context_lineage,
                 "readout_evidence_hashes": [
                     str(item.get("readout_evidence_hash") or "")
                     for item in replay_window
@@ -4057,6 +4190,13 @@ class ReplayController:
                 "regeneration_design_hash": self._sha256_json(design),
                 "regeneration_design_candidate_count": len(design["candidate_synapses"]),
             }
+            if artifact.get("source_metadata_hash") or artifact.get("emission_lineage"):
+                material["source_metadata_hash"] = artifact.get("source_metadata_hash")
+                material["emission_lineage"] = (
+                    dict(artifact.get("emission_lineage"))
+                    if isinstance(artifact.get("emission_lineage"), Mapping)
+                    else {}
+                )
             evidence_hash = self._sha256_json(material)
             permit = {
                 "artifact_kind": "terminus_snn_language_transition_memory_regeneration_permit",
@@ -4106,6 +4246,13 @@ class ReplayController:
                     permit.get("regeneration_design_candidate_count", 0) or 0
                 ),
             }
+            if permit.get("source_metadata_hash") or permit.get("emission_lineage"):
+                material["source_metadata_hash"] = permit.get("source_metadata_hash")
+                material["emission_lineage"] = (
+                    dict(permit.get("emission_lineage"))
+                    if isinstance(permit.get("emission_lineage"), Mapping)
+                    else {}
+                )
             try:
                 proposal_design = self._normalize_regeneration_design(
                     proposal.get("regeneration_design")
@@ -4174,6 +4321,13 @@ class ReplayController:
             "review_ticket_hash": artifact.get("review_ticket_hash"),
             "readout_evidence_hashes": list(artifact.get("readout_evidence_hashes") or []),
         }
+        if artifact.get("source_metadata_hash") or artifact.get("emission_lineage"):
+            material["source_metadata_hash"] = artifact.get("source_metadata_hash")
+            material["emission_lineage"] = (
+                dict(artifact.get("emission_lineage"))
+                if isinstance(artifact.get("emission_lineage"), Mapping)
+                else {}
+            )
         expected_mismatch_hash = mismatch_hash or (
             self._sha256_json(dict(mismatch)) if mismatch is not None else str(artifact.get("mismatch_hash") or "")
         )
@@ -4188,6 +4342,21 @@ class ReplayController:
             replay_evaluation_context_id=str(artifact.get("replay_evaluation_context_id") or ""),
             operator_id=operator_id,
         )
+        context_lineage = (
+            self._snn_replay_context_emission_lineage(
+                context.get("source_metadata")
+                if isinstance(context, Mapping)
+                and isinstance(context.get("source_metadata"), Mapping)
+                else {}
+            )
+            if context is not None
+            else {}
+        )
+        artifact_lineage = (
+            dict(artifact.get("emission_lineage"))
+            if isinstance(artifact.get("emission_lineage"), Mapping)
+            else {}
+        )
         return artifact if bool(
             artifact.get("ready")
             and artifact.get("owned_by_hecsn")
@@ -4200,6 +4369,17 @@ class ReplayController:
             and str(artifact.get("review_ticket_hash") or "") == str(ticket.get("evidence_hash") or "")
             and str(artifact.get("replay_evaluation_context_hash") or "")
             == str(context.get("evidence_hash") or "")
+            and str(artifact.get("source_metadata_hash") or "")
+            == str(context.get("source_metadata_hash") or "")
+            and str(artifact.get("source_metadata_hash") or "")
+            == str(ticket.get("source_metadata_hash") or "")
+            and artifact_lineage == context_lineage
+            and artifact_lineage
+            == (
+                dict(ticket.get("emission_lineage"))
+                if isinstance(ticket.get("emission_lineage"), Mapping)
+                else {}
+            )
             and str(artifact.get("mismatch_hash") or "") == str(context.get("mismatch_hash") or "")
             and str(artifact.get("pressure_hash") or "") == str(context.get("pressure_hash") or "")
             and int(artifact.get("recorded_state_revision", -1)) == int(expected_revision)

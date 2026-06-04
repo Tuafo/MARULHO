@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -49,6 +50,19 @@ class _FakePersistenceManager:
         self._concept_store = _FakeConceptStore()
         self._snn_language_plasticity_state = {
             "sparse_transition_weights": {"1:2": 0.5},
+            "synapse_provenance_by_key": {
+                "1:2": {
+                    "provenance_type": "replay_regeneration",
+                    "permit_id": "permit-1",
+                    "replay_artifact_id": "artifact-1",
+                    "source_metadata_hash": "source-metadata-hash-1",
+                    "emission_lineage": {
+                        "emission_hash": "emission-hash-1",
+                        "readout_evidence_hash": "readout-hash-1",
+                        "prediction_hash": "prediction-hash-1",
+                    },
+                }
+            },
             "homeostatic_maintenance": {
                 "maintenance_count": 1,
                 "recent_events": [{"event_index": 1, "pruned_synapse_count": 0}],
@@ -266,6 +280,29 @@ class RuntimePersistenceTests(unittest.TestCase):
             )
             self.assertEqual(service_state["snn_language_plasticity"]["sparse_transition_weights"]["1:2"], 0.5)
             self.assertEqual(
+                service_state["snn_language_plasticity"]["synapse_provenance_by_key"]["1:2"][
+                    "source_metadata_hash"
+                ],
+                "source-metadata-hash-1",
+            )
+            self.assertEqual(
+                service_state["snn_language_plasticity"]["synapse_provenance_by_key"]["1:2"][
+                    "emission_lineage"
+                ]["emission_hash"],
+                "emission-hash-1",
+            )
+            lineage_summary = service_state["snn_applied_replay_lineage_checkpoint_summary"]
+            self.assertEqual(
+                lineage_summary["surface"],
+                "snn_applied_replay_lineage_checkpoint_summary.v1",
+            )
+            self.assertEqual(lineage_summary["applied_replay_lineage_count"], 1)
+            self.assertEqual(lineage_summary["complete_applied_replay_lineage_count"], 1)
+            self.assertEqual(lineage_summary["incomplete_applied_replay_lineage_count"], 0)
+            self.assertTrue(lineage_summary["lineage_material_hash"])
+            self.assertTrue(lineage_summary["raw_text_absent"])
+            self.assertTrue(lineage_summary["operator_identity_absent"])
+            self.assertEqual(
                 service_state["snn_language_plasticity"]["homeostatic_maintenance"]["recent_events"][0]["event_index"],
                 1,
             )
@@ -277,6 +314,48 @@ class RuntimePersistenceTests(unittest.TestCase):
             manifest = result["current_checkpoint_manifest"]
             self.assertTrue(Path(manifest["checkpoint_path"]).is_file())
             self.assertIn("objects", Path(manifest["checkpoint_path"]).parts)
+
+    def test_applied_replay_lineage_restore_validation_compares_saved_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _FakePersistenceManager(root)
+            persistence = _runtime_persistence(manager)
+            summary = persistence._applied_replay_lineage_checkpoint_summary(
+                manager._snn_language_plasticity_state
+            )
+            metadata = {
+                "service_state": {
+                    "snn_applied_replay_lineage_checkpoint_summary": summary,
+                }
+            }
+
+            validation = persistence._applied_replay_lineage_restore_validation(metadata)
+            tampered_metadata = deepcopy(metadata)
+            tampered_metadata["service_state"][
+                "snn_applied_replay_lineage_checkpoint_summary"
+            ]["lineage_material_hash"] = "tampered"
+            tampered = persistence._applied_replay_lineage_restore_validation(
+                tampered_metadata
+            )
+
+            self.assertEqual(
+                validation["surface"],
+                "snn_applied_replay_lineage_restore_validation.v1",
+            )
+            self.assertTrue(validation["saved_summary_available"])
+            self.assertTrue(validation["summary_counts_match_restored_state"])
+            self.assertTrue(validation["summary_hash_matches_restored_state"])
+            self.assertTrue(validation["summary_matches_restored_state"])
+            self.assertEqual(
+                validation["restored_summary"]["lineage_material_hash"],
+                summary["lineage_material_hash"],
+            )
+            self.assertFalse(validation["runs_replay"])
+            self.assertFalse(validation["applies_plasticity"])
+            self.assertFalse(validation["issues_regeneration_permit"])
+            self.assertFalse(tampered["summary_hash_matches_restored_state"])
+            self.assertFalse(tampered["summary_matches_restored_state"])
+            self.assertTrue(tampered["summary_counts_match_restored_state"])
 
     def test_failed_manifest_publication_preserves_previous_current_pointer(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

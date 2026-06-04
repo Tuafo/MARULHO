@@ -216,9 +216,27 @@ class RuntimeFacade:
             runtime_truth_delta=kwargs.pop("runtime_truth_delta", None),
             rollback_policy=kwargs.pop("rollback_policy", None),
         )
+        source_metadata = {
+            "source": "runtime_facade.snn_language_readout_emission_replay_context_review",
+            "surface": design.get("surface"),
+            "design_hash": design_payload.get("design_hash"),
+            "seed_hash": matched_seed.get("replay_context_seed_hash")
+            if matched_seed
+            else None,
+            "emission_review_hash": matched_seed.get("emission_review_hash")
+            if matched_seed
+            else None,
+            "emission_hash": matched_seed.get("emission_hash") if matched_seed else None,
+            "readout_evidence_hash": matched_seed.get("readout_evidence_hash")
+            if matched_seed
+            else None,
+            "prediction_hash": prediction_hash,
+            "operator_id": operator_id,
+        }
         context = self._root._replay_controller.record_snn_replay_evaluation_context(
             mismatch_report=mismatch,
             pressure_report=pressure,
+            source_metadata=source_metadata,
         )
         review_material = {
             "design_hash": design_payload.get("design_hash"),
@@ -268,6 +286,9 @@ class RuntimeFacade:
                     "replay_evaluation_context_id"
                 ),
                 "replay_evaluation_context_hash": context.get("evidence_hash"),
+                "replay_evaluation_context_source_metadata_hash": context.get(
+                    "source_metadata_hash"
+                ),
                 "mismatch_hash": context.get("mismatch_hash"),
                 "pressure_hash": context.get("pressure_hash"),
             },
@@ -326,6 +347,17 @@ class RuntimeFacade:
     def snn_language_readout_synapse_provenance_audit(self, **kwargs: Any) -> dict[str, Any]:
         if kwargs.get("plasticity_runtime_state") is None:
             kwargs["plasticity_runtime_state"] = self.snn_language_plasticity_runtime_state()
+        if kwargs.get("applied_replay_lineage_restore_validation") is None:
+            service_state = (
+                self._root._metadata.get("service_state")
+                if isinstance(self._root._metadata.get("service_state"), Mapping)
+                else {}
+            )
+            validation = service_state.get(
+                "snn_applied_replay_lineage_restore_validation"
+            )
+            if isinstance(validation, Mapping):
+                kwargs["applied_replay_lineage_restore_validation"] = dict(validation)
         return self._root._snn_language_readout_ledger.synapse_provenance_audit(**kwargs)
 
     def snn_language_readout_evidence_ledger_record(self, **kwargs: Any) -> dict[str, Any]:
@@ -1011,6 +1043,14 @@ class RuntimeFacade:
         )
         proposal["replay_evaluation_context_id"] = context["replay_evaluation_context_id"]
         proposal["replay_evaluation_context_hash"] = context["evidence_hash"]
+        proposal["source_metadata_hash"] = context.get("source_metadata_hash")
+        proposal["emission_lineage"] = (
+            self._root._replay_controller._snn_replay_context_emission_lineage(
+                context.get("source_metadata")
+                if isinstance(context.get("source_metadata"), Mapping)
+                else {}
+            )
+        )
         return proposal
 
     def snn_transition_memory_evaluated_replay_artifact(self, **kwargs: Any) -> dict[str, Any]:

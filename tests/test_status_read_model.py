@@ -212,6 +212,7 @@ def _build_read_model(
     *,
     language_plasticity_state_fn: Callable[[], dict[str, Any]] | None = None,
     readout_ledger_state_fn: Callable[[], dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
     cfg = _build_config()
     trainer = HECSNTrainer(HECSNModel(cfg), cfg)
@@ -224,7 +225,7 @@ def _build_read_model(
         runtime_state=runtime_state,
         trainer=trainer,
         trace_history=deque(maxlen=200),
-        metadata={},
+        metadata=deepcopy(metadata or {}),
         checkpoint_path_str="/tmp/test.pt",
         trace_dir_str="/tmp/traces",
         concept_store_snapshot_fn=lambda: deepcopy({"top_concepts": [], "total_concepts": 0}),
@@ -3269,6 +3270,31 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             "sparse_transition_weights",
         ):
             self.assertNotIn(forbidden_key, applied_provenance)
+        self.assertIn(
+            "snn_applied_replay_lineage_restore_validation",
+            truth["evidence"],
+        )
+        restore_validation = truth["evidence"][
+            "snn_applied_replay_lineage_restore_validation"
+        ]
+        self.assertEqual(
+            restore_validation["artifact_kind"],
+            "terminus_snn_applied_replay_lineage_restore_validation_evidence",
+        )
+        self.assertEqual(
+            restore_validation["surface"],
+            "snn_applied_replay_lineage_restore_validation_evidence.v1",
+        )
+        self.assertTrue(restore_validation["advisory"])
+        self.assertFalse(restore_validation["executable"])
+        self.assertFalse(restore_validation["runs_replay"])
+        self.assertFalse(restore_validation["applies_plasticity"])
+        self.assertFalse(restore_validation["mutates_runtime_state"])
+        self.assertFalse(restore_validation["writes_checkpoint"])
+        self.assertFalse(restore_validation["issues_regeneration_permit"])
+        self.assertFalse(
+            restore_validation["eligible_for_readout_synapse_audit_review"]
+        )
 
     def test_runtime_truth_binding_reports_server_transition_memory_without_mutation(self) -> None:
         memory_state = {
@@ -3316,6 +3342,12 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
                     "provenance_type": "replay_regeneration",
                     "permit_id": "permit-1",
                     "replay_artifact_id": "artifact-1",
+                    "source_metadata_hash": "source-metadata-hash-1",
+                    "emission_lineage": {
+                        "emission_hash": "emission-hash-1",
+                        "readout_evidence_hash": "readout-hash-1",
+                        "prediction_hash": "prediction-hash-1",
+                    },
                     "local_edge_provenance": {
                         "source_synapse_id": "snn-rollout-local:1:3:0",
                         "source_trace_index": 0,
@@ -3345,8 +3377,13 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(evidence["complete_local_edge_provenance_count"], 1)
         self.assertEqual(evidence["missing_local_edge_provenance_count"], 0)
         self.assertEqual(evidence["invalid_rollout_step_order_count"], 0)
+        self.assertEqual(evidence["replay_artifact_lineage_count"], 1)
+        self.assertEqual(evidence["complete_replay_artifact_lineage_count"], 1)
+        self.assertEqual(evidence["incomplete_replay_artifact_lineage_count"], 0)
         self.assertEqual(evidence["orphan_weight_count"], 0)
         self.assertEqual(evidence["dangling_provenance_count"], 0)
+        self.assertFalse(evidence["restore_validation_available"])
+        self.assertFalse(evidence["restore_validation_blocks_audit"])
         self.assertTrue(evidence["eligible_for_readout_synapse_audit_review"])
         self.assertEqual(
             evidence["promotion_status"],
@@ -3370,6 +3407,205 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             blocked["promotion_gate"]["required_evidence"][
                 "replay_regeneration_local_edge_provenance_complete"
             ]
+        )
+
+        incomplete_lineage = deepcopy(memory_state)
+        incomplete_lineage["synapse_provenance_by_key"]["1:3"]["emission_lineage"] = {
+            "emission_hash": "emission-hash-1"
+        }
+        incomplete_model, _, _, _ = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(incomplete_lineage)
+        )
+        lineage_blocked = incomplete_model.status()["runtime_truth"]["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+
+        self.assertEqual(lineage_blocked["incomplete_replay_artifact_lineage_count"], 1)
+        self.assertFalse(lineage_blocked["eligible_for_readout_synapse_audit_review"])
+        self.assertFalse(
+            lineage_blocked["promotion_gate"]["required_evidence"][
+                "replay_regeneration_artifact_lineage_complete"
+            ]
+        )
+
+    def test_runtime_truth_applied_synapse_provenance_blocks_audit_when_restore_lineage_mismatches(
+        self,
+    ) -> None:
+        memory_state = {
+            "sparse_transition_weights": {"1:3": 0.1},
+            "synapse_provenance_by_key": {
+                "1:3": {
+                    "provenance_type": "replay_regeneration",
+                    "source_metadata_hash": "source-metadata-hash-1",
+                    "emission_lineage": {
+                        "emission_hash": "emission-hash-1",
+                        "readout_evidence_hash": "readout-hash-1",
+                        "prediction_hash": "prediction-hash-1",
+                    },
+                    "local_edge_provenance": {
+                        "source_synapse_id": "snn-rollout-local:1:3:0",
+                        "source_rollout_step_index": 10,
+                        "target_rollout_step_index": 20,
+                        "source_active_indices_hash": "source-active-hash-1",
+                        "target_active_indices_hash": "target-active-hash-1",
+                    },
+                }
+            },
+        }
+        metadata = {
+            "service_state": {
+                "snn_applied_replay_lineage_restore_validation": {
+                    "surface": "snn_applied_replay_lineage_restore_validation.v1",
+                    "saved_summary_available": True,
+                    "summary_counts_match_restored_state": True,
+                    "summary_hash_matches_restored_state": True,
+                    "summary_matches_restored_state": True,
+                    "saved_summary": {
+                        "applied_replay_lineage_count": 1,
+                        "lineage_material_hash": "lineage-hash-1",
+                    },
+                    "restored_summary": {
+                        "applied_replay_lineage_count": 1,
+                        "lineage_material_hash": "lineage-hash-1",
+                    },
+                }
+            }
+        }
+        matching_model, _, _, _ = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state),
+            metadata=metadata,
+        )
+
+        matching = matching_model.status()["runtime_truth"]["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+
+        self.assertTrue(matching["restore_validation_available"])
+        self.assertTrue(matching["restore_lineage_matches_restored_state"])
+        self.assertFalse(matching["restore_validation_blocks_audit"])
+        self.assertTrue(matching["eligible_for_readout_synapse_audit_review"])
+
+        tampered = deepcopy(metadata)
+        validation = tampered["service_state"][
+            "snn_applied_replay_lineage_restore_validation"
+        ]
+        validation["summary_hash_matches_restored_state"] = False
+        validation["summary_matches_restored_state"] = False
+        validation["restored_summary"]["lineage_material_hash"] = "tampered"
+        tampered_model, _, _, _ = _build_read_model(
+            language_plasticity_state_fn=lambda: deepcopy(memory_state),
+            metadata=tampered,
+        )
+
+        blocked = tampered_model.status()["runtime_truth"]["evidence"][
+            "snn_readout_applied_synapse_provenance"
+        ]
+
+        self.assertTrue(blocked["restore_validation_available"])
+        self.assertFalse(blocked["restore_lineage_matches_restored_state"])
+        self.assertTrue(blocked["restore_validation_blocks_audit"])
+        self.assertFalse(blocked["eligible_for_readout_synapse_audit_review"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "restore_validation_not_mismatched"
+            ]
+        )
+        self.assertEqual(
+            blocked["promotion_status"],
+            "waiting_for_matching_applied_replay_lineage_restore_validation",
+        )
+
+    def test_runtime_truth_restore_validation_reports_checkpoint_lineage_match_without_mutation(
+        self,
+    ) -> None:
+        metadata = {
+            "service_state": {
+                "snn_applied_replay_lineage_restore_validation": {
+                    "surface": "snn_applied_replay_lineage_restore_validation.v1",
+                    "saved_summary_available": True,
+                    "summary_counts_match_restored_state": True,
+                    "summary_hash_matches_restored_state": True,
+                    "summary_matches_restored_state": True,
+                    "saved_summary": {
+                        "applied_replay_lineage_count": 1,
+                        "lineage_material_hash": "lineage-hash-1",
+                    },
+                    "restored_summary": {
+                        "applied_replay_lineage_count": 1,
+                        "lineage_material_hash": "lineage-hash-1",
+                    },
+                }
+            }
+        }
+        model, _, _, runtime_state = _build_read_model(metadata=metadata)
+        rev_before = runtime_state.state_revision
+        runtime_state.mark_clean()
+
+        evidence = model.status()["runtime_truth"]["evidence"][
+            "snn_applied_replay_lineage_restore_validation"
+        ]
+
+        self.assertEqual(runtime_state.state_revision, rev_before)
+        self.assertFalse(runtime_state.dirty_state)
+        self.assertTrue(evidence["available"])
+        self.assertTrue(evidence["saved_summary_available"])
+        self.assertTrue(evidence["summary_counts_match_restored_state"])
+        self.assertTrue(evidence["summary_hash_matches_restored_state"])
+        self.assertTrue(evidence["summary_matches_restored_state"])
+        self.assertEqual(evidence["saved_lineage_count"], 1)
+        self.assertEqual(evidence["restored_lineage_count"], 1)
+        self.assertEqual(evidence["saved_lineage_material_hash"], "lineage-hash-1")
+        self.assertEqual(evidence["restored_lineage_material_hash"], "lineage-hash-1")
+        self.assertTrue(evidence["eligible_for_readout_synapse_audit_review"])
+        self.assertFalse(evidence["eligible_for_plasticity_application"])
+        self.assertFalse(evidence["eligible_for_live_replay"])
+        self.assertFalse(evidence["eligible_for_fact_promotion"])
+        self.assertFalse(evidence["eligible_for_action"])
+        self.assertEqual(
+            evidence["promotion_status"],
+            "ready_for_readout_synapse_provenance_audit",
+        )
+        self.assertTrue(
+            evidence["promotion_gate"]["required_evidence"][
+                "summary_hash_matches_restored_state"
+            ]
+        )
+        self.assertTrue(
+            evidence["promotion_gate"]["required_evidence"][
+                "runtime_mutation_absent"
+            ]
+        )
+        self.assertTrue(
+            evidence["promotion_gate"]["required_evidence"][
+                "replay_execution_absent"
+            ]
+        )
+
+        tampered = deepcopy(metadata)
+        validation = tampered["service_state"][
+            "snn_applied_replay_lineage_restore_validation"
+        ]
+        validation["summary_hash_matches_restored_state"] = False
+        validation["summary_matches_restored_state"] = False
+        validation["restored_summary"]["lineage_material_hash"] = "tampered"
+        tampered_model, _, _, _ = _build_read_model(metadata=tampered)
+
+        blocked = tampered_model.status()["runtime_truth"]["evidence"][
+            "snn_applied_replay_lineage_restore_validation"
+        ]
+
+        self.assertFalse(blocked["summary_hash_matches_restored_state"])
+        self.assertFalse(blocked["summary_matches_restored_state"])
+        self.assertEqual(blocked["restored_lineage_material_hash"], "tampered")
+        self.assertFalse(blocked["eligible_for_readout_synapse_audit_review"])
+        self.assertFalse(
+            blocked["promotion_gate"]["required_evidence"][
+                "summary_hash_matches_restored_state"
+            ]
+        )
+        self.assertEqual(
+            blocked["promotion_status"],
+            "waiting_for_matching_applied_replay_lineage_restore_validation",
         )
 
     def test_runtime_truth_consolidation_path_reports_recorded_rollout_without_execution(self) -> None:
