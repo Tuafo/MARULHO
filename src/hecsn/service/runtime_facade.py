@@ -174,6 +174,51 @@ class RuntimeFacade:
             **kwargs
         )
 
+    def snn_language_calibrated_dense_label_confidence_operator_display_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_operator_display_review(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_internal_stability_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_internal_stability_review(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_replay_review_design(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_replay_review_preflight(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_calibrated_dense_label_confidence_autonomous_replay_review(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_recalibration_design(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_recalibration_preflight(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_calibrated_dense_label_confidence_autonomous_recalibration(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_recalibration_application_review(
+            **kwargs
+        )
+
     def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
 

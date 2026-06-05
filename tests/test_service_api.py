@@ -586,6 +586,142 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "execution_policy": {"max_selected_candidates": 1},
                     },
                 )
+                calibrated_dense_label_confidence_operator_display_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-operator-display-review",
+                    json={
+                        "calibrated_dense_label_confidence_use_executor": (
+                            calibrated_dense_label_confidence_use_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "operator_id": "service-api",
+                        "confirmation": True,
+                    },
+                )
+                calibrated_dense_label_confidence_internal_stability_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-internal-stability-review",
+                    json={
+                        "calibrated_dense_label_confidence_use_executor": (
+                            calibrated_dense_label_confidence_use_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "stability_evidence": {
+                            "cycles": [
+                                {
+                                    "selected_candidate_hashes": ["c" * 64],
+                                    "selected_confidence": 0.7,
+                                }
+                            ]
+                        },
+                        "review_policy": {"min_cycles": 3},
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_replay_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-replay-review-design",
+                    json={
+                        "calibrated_dense_label_confidence_internal_stability_review": (
+                            calibrated_dense_label_confidence_internal_stability_review_response.json()
+                        ),
+                        "replay_policy": {"max_replay_cycles": 4},
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_replay_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-replay-review-preflight",
+                    json={
+                        "calibrated_dense_label_confidence_autonomous_replay_review_design": (
+                            calibrated_dense_label_confidence_autonomous_replay_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "executor_capabilities": {
+                            "autonomous_confidence_replay_review_executor": False
+                        },
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_replay_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-replay-review-executor",
+                    json={
+                        "calibrated_dense_label_confidence_autonomous_replay_review_preflight": (
+                            calibrated_dense_label_confidence_autonomous_replay_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "replay_cycle_evidence": {
+                            "cycles": [
+                                {
+                                    "cycle_index": 0,
+                                    "selected_candidate_hashes": ["c" * 64],
+                                    "selected_confidence": 0.7,
+                                }
+                            ]
+                        },
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_recalibration_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-design",
+                    json={
+                        "calibrated_dense_label_confidence_autonomous_replay_review_executor": (
+                            calibrated_dense_label_confidence_autonomous_replay_executor_response.json()
+                        ),
+                        "recalibration_policy": {
+                            "method": "bounded_temperature_scaling",
+                            "max_temperature_delta": 0.05,
+                            "max_confidence_rescale_delta": 0.05,
+                        },
+                        "rollback_policy": {
+                            "can_restore_previous_calibration": True
+                        },
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_recalibration_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-preflight",
+                    json={
+                        "calibrated_dense_label_confidence_autonomous_recalibration_design": (
+                            calibrated_dense_label_confidence_autonomous_recalibration_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "service_api"},
+                        "executor_capabilities": {
+                            "autonomous_confidence_recalibration_executor": False
+                        },
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_recalibration_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-executor",
+                    json={
+                        "calibrated_dense_label_confidence_autonomous_recalibration_preflight": (
+                            calibrated_dense_label_confidence_autonomous_recalibration_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                    },
+                )
+                calibrated_dense_label_confidence_autonomous_recalibration_application_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-application-review",
+                    json={
+                        "calibrated_dense_label_confidence_autonomous_recalibration_executor": (
+                            calibrated_dense_label_confidence_autonomous_recalibration_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "max_temperature_delta": 0.05,
+                            "max_confidence_rescale_delta": 0.05,
+                        },
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
@@ -679,6 +815,42 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             calibrated_dense_label_confidence_use_executor_response.status_code,
             200,
         )
+        self.assertEqual(
+            calibrated_dense_label_confidence_operator_display_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_internal_stability_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_replay_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_replay_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_replay_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review_response.status_code,
+            200,
+        )
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
         capacity_expansion_design = capacity_expansion_response.json()
@@ -763,6 +935,33 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         calibrated_dense_label_confidence_use_executor = (
             calibrated_dense_label_confidence_use_executor_response.json()
+        )
+        calibrated_dense_label_confidence_operator_display_review = (
+            calibrated_dense_label_confidence_operator_display_review_response.json()
+        )
+        calibrated_dense_label_confidence_internal_stability_review = (
+            calibrated_dense_label_confidence_internal_stability_review_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_replay_design = (
+            calibrated_dense_label_confidence_autonomous_replay_design_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_replay_preflight = (
+            calibrated_dense_label_confidence_autonomous_replay_preflight_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_replay_executor = (
+            calibrated_dense_label_confidence_autonomous_replay_executor_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_recalibration_design = (
+            calibrated_dense_label_confidence_autonomous_recalibration_design_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_recalibration_preflight = (
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_recalibration_executor = (
+            calibrated_dense_label_confidence_autonomous_recalibration_executor_response.json()
+        )
+        calibrated_dense_label_confidence_autonomous_recalibration_application_review = (
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review_response.json()
         )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
@@ -1554,6 +1753,644 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             calibrated_dense_label_confidence_use_executor["promotion_gate"][
                 "eligible_for_language_generation"
             ]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_operator_display_review["surface"],
+            "snn_language_calibrated_dense_label_confidence_operator_display_review.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_operator_display_review["ready"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review["executable"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review["generates_text"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review["decodes_text"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review["promotion_gate"][
+                "eligible_for_operator_display_only"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_operator_display_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_internal_stability_review["surface"],
+            "snn_language_calibrated_dense_label_confidence_internal_stability_review.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_internal_stability_review["ready"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review["executable"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review["generates_text"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review["decodes_text"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_replay_review"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_internal_stability_review[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_replay_design["surface"],
+            "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_autonomous_replay_design["ready"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design["executable"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design["runs_replay"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design["writes_checkpoint"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design["generates_text"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design["decodes_text"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_replay_review_preflight"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_design[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_replay_preflight["surface"],
+            "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_autonomous_replay_preflight["ready"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight["executable"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "runs_replay"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "decodes_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_replay_review_executor"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_preflight[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_replay_executor["surface"],
+            "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor.v1",
+        )
+        self.assertFalse(calibrated_dense_label_confidence_autonomous_replay_executor["ready"])
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor["executable"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor["runs_replay"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "runs_live_replay"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "decodes_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_recalibration_design"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_replay_executor[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "surface"
+            ],
+            "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design.v1",
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design["ready"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "advisory"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "executable"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "runs_replay"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "runs_recalibration"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "decodes_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_recalibration_preflight"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_recalibration_executor"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_design[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "surface"
+            ],
+            "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight.v1",
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight["ready"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "advisory"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "executable"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "runs_replay"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "runs_recalibration"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "decodes_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_recalibration_executor"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "surface"
+            ],
+            "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "runs_replay"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "runs_recalibration"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "decodes_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "promotion_gate"
+            ]["eligible_for_autonomous_confidence_recalibration_application_review"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
+        )
+        self.assertEqual(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "surface"
+            ],
+            "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review.v1",
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "ready"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "executable"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "runs_replay"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "runs_recalibration"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "decodes_text"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "promotion_gate"
+            ]["eligible_for_autonomous_post_calibration_observation_window"]
+        )
+        self.assertFalse(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review[
+                "promotion_gate"
+            ]["eligible_for_language_generation"]
         )
         self.assertFalse(capacity_compatibility["adds_neurons"])
         self.assertFalse(

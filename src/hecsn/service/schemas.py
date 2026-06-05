@@ -404,6 +404,83 @@ class SNNLanguageCalibratedDenseLabelConfidenceUseExecutorRequest(BaseModel):
     execution_policy: dict[str, Any] | None = None
 
 
+class SNNLanguageCalibratedDenseLabelConfidenceOperatorDisplayReviewRequest(BaseModel):
+    calibrated_dense_label_confidence_use_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    operator_id: str = Field(..., min_length=1, max_length=160)
+    confirmation: bool = False
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceInternalStabilityReviewRequest(BaseModel):
+    calibrated_dense_label_confidence_use_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    stability_evidence: dict[str, Any] | None = None
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewDesignRequest(BaseModel):
+    calibrated_dense_label_confidence_internal_stability_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    replay_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewPreflightRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_replay_review_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewExecutorRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_replay_review_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    replay_cycle_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationDesignRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_replay_review_executor: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    recalibration_policy: dict[str, Any] | None = None
+    rollback_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationPreflightRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_recalibration_design: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationExecutorRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_recalibration_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationApplicationReviewRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_recalibration_executor: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
 class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)

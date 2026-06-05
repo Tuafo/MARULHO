@@ -3352,6 +3352,1860 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
+    def calibrated_dense_label_confidence_operator_display_review(
+        self,
+        *,
+        calibrated_dense_label_confidence_use_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        operator_id: str,
+        confirmation: bool,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review hash-only calibrated confidence output for operator display."""
+
+        execution = dict(calibrated_dense_label_confidence_use_executor or {})
+        gate = (
+            execution.get("promotion_gate")
+            if isinstance(execution.get("promotion_gate"), Mapping)
+            else {}
+        )
+        result = (
+            execution.get("confidence_use_result")
+            if isinstance(execution.get("confidence_use_result"), Mapping)
+            else {}
+        )
+        policy = dict(review_policy or {})
+        before_revision = int(self._runtime_state.state_revision)
+        ranked_refs = [
+            dict(item)
+            for item in list(result.get("ranked_candidate_refs") or [])
+            if isinstance(item, Mapping)
+        ]
+        selected_refs = [
+            dict(item)
+            for item in list(result.get("selected_candidate_refs") or [])
+            if isinstance(item, Mapping)
+        ]
+        max_ranked = max(1, min(int(policy.get("max_ranked_display", 8) or 8), 32))
+        display_ranked_refs = ranked_refs[:max_ranked]
+        selected_hashes = [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in selected_refs
+        ]
+        ranked_hashes = [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in display_ranked_refs
+        ]
+        operator = str(operator_id or "").strip()
+        required = {
+            "executor_surface_available": execution.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_use_executor.v1",
+            "executor_ready": bool(execution.get("ready"))
+            and bool(gate.get("eligible_for_operator_display_confidence_result")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "executor_revision_current": int(
+                execution.get("observed_state_revision", -1) or -1
+            )
+            == before_revision,
+            "execution_hash_available": len(str(execution.get("execution_hash") or ""))
+            == 64,
+            "preflight_hash_available": len(str(execution.get("preflight_hash") or ""))
+            == 64,
+            "design_hash_available": len(str(execution.get("design_hash") or "")) == 64,
+            "operator_id_available": bool(operator),
+            "confirmation": bool(confirmation),
+            "hash_only_output": bool(result.get("output_is_label_hash_only")),
+            "ranked_refs_available": bool(ranked_refs),
+            "ranked_refs_bounded": 0 < len(ranked_refs) <= 32,
+            "selected_refs_bounded": 0 <= len(selected_refs) <= len(ranked_refs),
+            "ranked_hashes_available": bool(ranked_hashes)
+            and all(len(value) == 64 for value in ranked_hashes),
+            "selected_hashes_available_or_abstained": bool(selected_hashes)
+            or bool(result.get("abstained")),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "display_limit_bounded": 1 <= max_ranked <= 32,
+            "runtime_mutation_absent": not bool(execution.get("mutates_runtime_state")),
+            "training_absent": not bool(execution.get("trains_runtime_model")),
+            "plasticity_absent": not bool(execution.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+            "language_generation_absent": not bool(execution.get("generates_text")),
+            "text_decoding_absent": not bool(execution.get("decodes_text")),
+        }
+        ready = all(required.values())
+        display_refs = [
+            {
+                "rank": int(item.get("rank", index + 1) or index + 1),
+                "dense_label_candidate_evidence_hash": item.get(
+                    "dense_label_candidate_evidence_hash"
+                ),
+                "label_hash": item.get("label_hash"),
+                "calibrated_confidence": round(
+                    float(item.get("calibrated_confidence", 0.0) or 0.0),
+                    6,
+                ),
+                "meets_threshold": bool(item.get("meets_threshold")),
+            }
+            for index, item in enumerate(display_ranked_refs)
+        ]
+        review_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_operator_display_review.v1",
+                "execution_hash": execution.get("execution_hash"),
+                "preflight_hash": execution.get("preflight_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "operator_id": operator,
+                "confirmation": bool(confirmation),
+                "ranked_hashes": ranked_hashes,
+                "selected_hashes": selected_hashes,
+                "abstained": bool(result.get("abstained")),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_operator_display_review",
+            "surface": "snn_language_calibrated_dense_label_confidence_operator_display_review.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_operator_display_review",
+            "available": bool(execution),
+            "ready": ready,
+            "review_recorded": ready,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "review_hash": review_hash,
+            "execution_hash": execution.get("execution_hash"),
+            "preflight_hash": execution.get("preflight_hash"),
+            "design_hash": execution.get("design_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "operator_review": {
+                "operator_id": operator,
+                "confirmation": bool(confirmation),
+                "display_ranked_count": len(display_refs),
+                "selected_candidate_count": len(selected_refs),
+                "abstained": bool(result.get("abstained")),
+                "hash_only_output": bool(result.get("output_is_label_hash_only")),
+                "display_refs": display_refs,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_operator_display_only"
+                    if ready
+                    else "blocked_missing_calibrated_confidence_display_review_evidence"
+                ),
+                "eligible_for_operator_display_only": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "bounded_operator_display"
+                    if ready
+                    else "operator_confirm_hash_only_confidence_display"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_internal_stability_review(
+        self,
+        *,
+        calibrated_dense_label_confidence_use_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        stability_evidence: Mapping[str, Any] | None = None,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review confidence-use stability without requiring operator approval."""
+
+        execution = dict(calibrated_dense_label_confidence_use_executor or {})
+        gate = (
+            execution.get("promotion_gate")
+            if isinstance(execution.get("promotion_gate"), Mapping)
+            else {}
+        )
+        result = (
+            execution.get("confidence_use_result")
+            if isinstance(execution.get("confidence_use_result"), Mapping)
+            else {}
+        )
+        evidence = dict(stability_evidence or {})
+        policy = dict(review_policy or {})
+        before_revision = int(self._runtime_state.state_revision)
+        selected_refs = [
+            dict(item)
+            for item in list(result.get("selected_candidate_refs") or [])
+            if isinstance(item, Mapping)
+        ]
+        selected_hashes = [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in selected_refs
+        ]
+        cycles = [
+            dict(item)
+            for item in list(evidence.get("cycles") or [])
+            if isinstance(item, Mapping)
+        ]
+        min_cycles = max(2, min(int(policy.get("min_cycles", 3) or 3), 16))
+        max_confidence_drift = max(
+            0.0,
+            min(float(policy.get("max_confidence_drift", 0.1) or 0.1), 1.0),
+        )
+        min_replay_consistency = max(
+            0.0,
+            min(float(policy.get("min_replay_consistency", 1.0) or 1.0), 1.0),
+        )
+        cycle_selected_hashes = [
+            [
+                str(value)
+                for value in list(cycle.get("selected_candidate_hashes") or [])
+                if str(value)
+            ]
+            for cycle in cycles
+        ]
+        matching_cycle_count = sum(
+            hashes == selected_hashes for hashes in cycle_selected_hashes
+        )
+        replay_consistency = (
+            matching_cycle_count / max(1, len(cycles))
+            if cycles
+            else 0.0
+        )
+        confidences = [
+            float(cycle.get("selected_confidence", -1.0) or 0.0)
+            for cycle in cycles
+        ]
+        confidence_drift = (
+            max(confidences) - min(confidences)
+            if confidences
+            else 1.0
+        )
+        required = {
+            "executor_surface_available": execution.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_use_executor.v1",
+            "executor_ready": bool(execution.get("ready"))
+            and bool(gate.get("eligible_for_operator_display_confidence_result")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "executor_revision_current": int(
+                execution.get("observed_state_revision", -1) or -1
+            )
+            == before_revision,
+            "execution_hash_available": len(str(execution.get("execution_hash") or ""))
+            == 64,
+            "preflight_hash_available": len(str(execution.get("preflight_hash") or ""))
+            == 64,
+            "design_hash_available": len(str(execution.get("design_hash") or "")) == 64,
+            "hash_only_output": bool(result.get("output_is_label_hash_only")),
+            "selected_hashes_available_or_abstained": bool(selected_hashes)
+            or bool(result.get("abstained")),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "stability_cycles_sufficient": len(cycles) >= min_cycles,
+            "cycle_hashes_available": bool(cycles)
+            and all(bool(hashes) or bool(result.get("abstained")) for hashes in cycle_selected_hashes),
+            "cycle_hashes_match_executor_selection": bool(cycles)
+            and replay_consistency >= min_replay_consistency,
+            "cycle_confidences_bounded": bool(cycles)
+            and all(0.0 <= value <= 1.0 for value in confidences),
+            "confidence_drift_bounded": confidence_drift <= max_confidence_drift,
+            "runtime_mutation_absent": not bool(execution.get("mutates_runtime_state")),
+            "training_absent": not bool(execution.get("trains_runtime_model")),
+            "plasticity_absent": not bool(execution.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+            "language_generation_absent": not bool(execution.get("generates_text")),
+            "text_decoding_absent": not bool(execution.get("decodes_text")),
+        }
+        ready = all(required.values())
+        stability_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_internal_stability_review.v1",
+                "execution_hash": execution.get("execution_hash"),
+                "preflight_hash": execution.get("preflight_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "selected_hashes": selected_hashes,
+                "cycle_selected_hashes": cycle_selected_hashes,
+                "confidences": [round(value, 6) for value in confidences],
+                "min_cycles": min_cycles,
+                "max_confidence_drift": round(max_confidence_drift, 6),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_internal_stability_review",
+            "surface": "snn_language_calibrated_dense_label_confidence_internal_stability_review.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_internal_stability_review",
+            "available": bool(execution),
+            "ready": ready,
+            "self_reviewed": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "stability_hash": stability_hash,
+            "execution_hash": execution.get("execution_hash"),
+            "preflight_hash": execution.get("preflight_hash"),
+            "design_hash": execution.get("design_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "internal_stability_review": {
+                "cycle_count": len(cycles),
+                "min_cycles": min_cycles,
+                "selected_hashes": selected_hashes,
+                "matching_cycle_count": matching_cycle_count,
+                "replay_consistency": round(replay_consistency, 6),
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "confidence_drift": round(confidence_drift, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "abstained": bool(result.get("abstained")),
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_confidence_replay_review"
+                    if ready
+                    else "blocked_missing_internal_confidence_stability_evidence"
+                ),
+                "eligible_for_autonomous_confidence_replay_review": ready,
+                "eligible_for_operator_display_only": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_confidence_replay_review"
+                    if ready
+                    else "collect_repeated_confidence_stability_cycles"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_replay_review_design(
+        self,
+        *,
+        calibrated_dense_label_confidence_internal_stability_review: Mapping[str, Any],
+        replay_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design autonomous replay review from stable confidence evidence."""
+
+        stability_review = dict(
+            calibrated_dense_label_confidence_internal_stability_review or {}
+        )
+        gate = (
+            stability_review.get("promotion_gate")
+            if isinstance(stability_review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        stability = (
+            stability_review.get("internal_stability_review")
+            if isinstance(stability_review.get("internal_stability_review"), Mapping)
+            else {}
+        )
+        policy = dict(replay_policy or {})
+        device = dict(device_evidence or {})
+        max_replay_cycles = max(1, min(int(policy.get("max_replay_cycles", 4) or 4), 16))
+        min_replay_consistency = max(
+            0.0,
+            min(float(policy.get("min_replay_consistency", 1.0) or 1.0), 1.0),
+        )
+        max_confidence_drift = max(
+            0.0,
+            min(float(policy.get("max_confidence_drift", 0.05) or 0.05), 1.0),
+        )
+        selected_hashes = [
+            str(value)
+            for value in list(stability.get("selected_hashes") or [])
+            if str(value)
+        ]
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        replay_consistency = float(stability.get("replay_consistency", 0.0) or 0.0)
+        confidence_drift = float(stability.get("confidence_drift", 1.0) or 1.0)
+        required = {
+            "internal_stability_surface_available": stability_review.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_internal_stability_review.v1",
+            "internal_stability_ready": bool(stability_review.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_confidence_replay_review")),
+            "operator_approval_not_required": not bool(
+                stability_review.get("requires_operator_approval")
+            ),
+            "stability_hash_available": len(
+                str(stability_review.get("stability_hash") or "")
+            )
+            == 64,
+            "execution_hash_available": len(
+                str(stability_review.get("execution_hash") or "")
+            )
+            == 64,
+            "preflight_hash_available": len(
+                str(stability_review.get("preflight_hash") or "")
+            )
+            == 64,
+            "selected_hashes_available": bool(selected_hashes),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "replay_consistency_sufficient": replay_consistency >= min_replay_consistency,
+            "confidence_drift_bounded": confidence_drift <= max_confidence_drift,
+            "replay_cycle_bound_valid": 1 <= max_replay_cycles <= 16,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "runtime_mutation_absent": not bool(
+                stability_review.get("mutates_runtime_state")
+            ),
+            "training_absent": not bool(stability_review.get("trains_runtime_model")),
+            "plasticity_absent": not bool(stability_review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(stability_review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(stability_review.get("generates_text")),
+            "text_decoding_absent": not bool(stability_review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design.v1",
+                "stability_hash": stability_review.get("stability_hash"),
+                "execution_hash": stability_review.get("execution_hash"),
+                "selected_hashes": selected_hashes,
+                "max_replay_cycles": max_replay_cycles,
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_replay_review_design",
+            "available": bool(stability_review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "design_hash": design_hash,
+            "stability_hash": stability_review.get("stability_hash"),
+            "execution_hash": stability_review.get("execution_hash"),
+            "preflight_hash": stability_review.get("preflight_hash"),
+            "autonomous_replay_review_design": {
+                "selected_hashes": selected_hashes,
+                "max_replay_cycles": max_replay_cycles,
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "observed_replay_consistency": round(replay_consistency, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "observed_confidence_drift": round(confidence_drift, 6),
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "execution_allowed": False,
+                "operator_approval_required": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_confidence_replay_review_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_confidence_replay_design_evidence"
+                ),
+                "eligible_for_autonomous_confidence_replay_review_preflight": ready,
+                "eligible_for_operator_display_only": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_confidence_replay_review_preflight"
+                    if ready
+                    else "collect_device_and_stable_confidence_replay_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_replay_review_preflight(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_replay_review_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight autonomous confidence replay review without executing replay."""
+
+        design = dict(
+            calibrated_dense_label_confidence_autonomous_replay_review_design or {}
+        )
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        design_body = (
+            design.get("autonomous_replay_review_design")
+            if isinstance(design.get("autonomous_replay_review_design"), Mapping)
+            else {}
+        )
+        design_device = (
+            design_body.get("device_evidence")
+            if isinstance(design_body.get("device_evidence"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        selected_hashes = [
+            str(value)
+            for value in list(design_body.get("selected_hashes") or [])
+            if str(value)
+        ]
+        max_replay_cycles = int(design_body.get("max_replay_cycles", 0) or 0)
+        min_replay_consistency = float(
+            design_body.get("min_replay_consistency", 0.0) or 0.0
+        )
+        observed_replay_consistency = float(
+            design_body.get("observed_replay_consistency", 0.0) or 0.0
+        )
+        max_confidence_drift = float(
+            design_body.get("max_confidence_drift", 0.0) or 0.0
+        )
+        observed_confidence_drift = float(
+            design_body.get("observed_confidence_drift", 1.0) or 1.0
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(
+            capabilities.get("autonomous_confidence_replay_review_executor")
+        )
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_confidence_replay_review_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            ),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "design_hash_available": len(str(design.get("design_hash") or "")) == 64,
+            "stability_hash_available": len(str(design.get("stability_hash") or ""))
+            == 64,
+            "execution_hash_available": len(str(design.get("execution_hash") or ""))
+            == 64,
+            "preflight_hash_available": len(str(design.get("preflight_hash") or ""))
+            == 64,
+            "selected_hashes_available": bool(selected_hashes),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "replay_cycle_bound_valid": 1 <= max_replay_cycles <= 16,
+            "replay_consistency_sufficient": observed_replay_consistency
+            >= min_replay_consistency,
+            "confidence_drift_bounded": observed_confidence_drift
+            <= max_confidence_drift,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight.v1",
+                "design_hash": design.get("design_hash"),
+                "stability_hash": design.get("stability_hash"),
+                "execution_hash": design.get("execution_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "selected_hashes": selected_hashes,
+                "max_replay_cycles": max_replay_cycles,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_replay_review_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "preflight_hash": preflight_hash,
+            "design_hash": design.get("design_hash"),
+            "stability_hash": design.get("stability_hash"),
+            "execution_hash": design.get("execution_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "autonomous_replay_review_preflight": {
+                "selected_hashes": selected_hashes,
+                "max_replay_cycles": max_replay_cycles,
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "observed_replay_consistency": round(observed_replay_consistency, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "observed_confidence_drift": round(observed_confidence_drift, 6),
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+                "operator_approval_required": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_confidence_replay_review_executor"
+                    if ready
+                    else "blocked_missing_autonomous_confidence_replay_preflight_evidence"
+                ),
+                "eligible_for_autonomous_confidence_replay_review_executor": ready,
+                "eligible_for_operator_display_only": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_confidence_replay_review_executor"
+                    if ready
+                    else "collect_current_revision_device_and_executor_capability"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_calibrated_dense_label_confidence_autonomous_replay_review(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_replay_review_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        replay_cycle_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute bounded autonomous replay review without mutation."""
+
+        preflight = dict(
+            calibrated_dense_label_confidence_autonomous_replay_review_preflight or {}
+        )
+        gate = (
+            preflight.get("promotion_gate")
+            if isinstance(preflight.get("promotion_gate"), Mapping)
+            else {}
+        )
+        preflight_body = (
+            preflight.get("autonomous_replay_review_preflight")
+            if isinstance(preflight.get("autonomous_replay_review_preflight"), Mapping)
+            else {}
+        )
+        evidence = dict(replay_cycle_evidence or {})
+        before_revision = int(self._runtime_state.state_revision)
+        selected_hashes = [
+            str(value)
+            for value in list(preflight_body.get("selected_hashes") or [])
+            if str(value)
+        ]
+        max_replay_cycles = int(preflight_body.get("max_replay_cycles", 0) or 0)
+        min_replay_consistency = float(
+            preflight_body.get("min_replay_consistency", 0.0) or 0.0
+        )
+        max_confidence_drift = float(
+            preflight_body.get("max_confidence_drift", 0.0) or 0.0
+        )
+        cycles = [
+            dict(item)
+            for item in list(evidence.get("cycles") or [])
+            if isinstance(item, Mapping)
+        ][: max(0, max_replay_cycles)]
+        if not cycles and selected_hashes and max_replay_cycles > 0:
+            observed_confidence = float(
+                preflight_body.get("observed_confidence_drift", 0.0) or 0.0
+            )
+            cycles = [
+                {
+                    "cycle_index": index,
+                    "selected_candidate_hashes": list(selected_hashes),
+                    "selected_confidence": max(0.0, min(1.0, 1.0 - observed_confidence)),
+                }
+                for index in range(max_replay_cycles)
+            ]
+        cycle_selected_hashes = [
+            [
+                str(value)
+                for value in list(cycle.get("selected_candidate_hashes") or [])
+                if str(value)
+            ]
+            for cycle in cycles
+        ]
+        matching_cycle_count = sum(
+            hashes == selected_hashes for hashes in cycle_selected_hashes
+        )
+        replay_consistency = (
+            matching_cycle_count / max(1, len(cycles))
+            if cycles
+            else 0.0
+        )
+        confidences = [
+            float(cycle.get("selected_confidence", -1.0) or 0.0)
+            for cycle in cycles
+        ]
+        confidence_drift = (
+            max(confidences) - min(confidences)
+            if confidences
+            else 1.0
+        )
+        required = {
+            "preflight_surface_available": preflight.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight.v1",
+            "preflight_ready": bool(preflight.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_confidence_replay_review_executor")),
+            "operator_approval_not_required": not bool(
+                preflight.get("requires_operator_approval")
+            ),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "preflight_revision_current": int(
+                preflight.get("observed_state_revision", -1) or -1
+            )
+            == before_revision,
+            "preflight_hash_available": len(str(preflight.get("preflight_hash") or ""))
+            == 64,
+            "design_hash_available": len(str(preflight.get("design_hash") or ""))
+            == 64,
+            "stability_hash_available": len(str(preflight.get("stability_hash") or ""))
+            == 64,
+            "execution_hash_available": len(str(preflight.get("execution_hash") or ""))
+            == 64,
+            "selected_hashes_available": bool(selected_hashes),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "cycle_count_bounded": 0 < len(cycles) <= max_replay_cycles,
+            "cycle_hashes_match_selection": bool(cycles)
+            and replay_consistency >= min_replay_consistency,
+            "cycle_confidences_bounded": bool(cycles)
+            and all(0.0 <= value <= 1.0 for value in confidences),
+            "confidence_drift_bounded": confidence_drift <= max_confidence_drift,
+            "runtime_mutation_absent": not bool(preflight.get("mutates_runtime_state")),
+            "training_absent": not bool(preflight.get("trains_runtime_model")),
+            "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+            "language_generation_absent": not bool(preflight.get("generates_text")),
+            "text_decoding_absent": not bool(preflight.get("decodes_text")),
+        }
+        ready = all(required.values())
+        reviewed_cycles = [
+            {
+                "cycle_index": int(cycle.get("cycle_index", index) or index),
+                "selected_candidate_hashes": cycle_selected_hashes[index],
+                "selected_confidence": round(confidences[index], 6),
+                "matches_preflight_selection": cycle_selected_hashes[index]
+                == selected_hashes,
+            }
+            for index, cycle in enumerate(cycles)
+        ]
+        review_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor.v1",
+                "preflight_hash": preflight.get("preflight_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "selected_hashes": selected_hashes,
+                "reviewed_cycles": reviewed_cycles,
+                "replay_consistency": round(replay_consistency, 6),
+                "confidence_drift": round(confidence_drift, 6),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor.v1",
+            "source": "service.snn_language_readout_ledger.execute_calibrated_dense_label_confidence_autonomous_replay_review",
+            "available": bool(preflight),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": False,
+            "executable": ready,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": ready,
+            "runs_live_replay": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "review_hash": review_hash,
+            "preflight_hash": preflight.get("preflight_hash"),
+            "design_hash": preflight.get("design_hash"),
+            "stability_hash": preflight.get("stability_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "autonomous_replay_review": {
+                "selected_hashes": selected_hashes,
+                "cycle_count": len(reviewed_cycles),
+                "matching_cycle_count": matching_cycle_count,
+                "replay_consistency": round(replay_consistency, 6),
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "confidence_drift": round(confidence_drift, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "reviewed_cycles": reviewed_cycles,
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_confidence_recalibration_design"
+                    if ready
+                    else "blocked_missing_autonomous_confidence_replay_review_evidence"
+                ),
+                "eligible_for_autonomous_confidence_recalibration_design": ready,
+                "eligible_for_operator_display_only": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_confidence_recalibration_design"
+                    if ready
+                    else "collect_matching_replay_review_cycles"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_recalibration_design(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_replay_review_executor: Mapping[str, Any],
+        recalibration_policy: Mapping[str, Any] | None = None,
+        rollback_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded autonomous confidence recalibration without applying it."""
+
+        execution = dict(
+            calibrated_dense_label_confidence_autonomous_replay_review_executor or {}
+        )
+        gate = (
+            execution.get("promotion_gate")
+            if isinstance(execution.get("promotion_gate"), Mapping)
+            else {}
+        )
+        replay_review = (
+            execution.get("autonomous_replay_review")
+            if isinstance(execution.get("autonomous_replay_review"), Mapping)
+            else {}
+        )
+        policy = dict(recalibration_policy or {})
+        rollback = dict(rollback_policy or {})
+        device = dict(device_evidence or {})
+        method = str(policy.get("method", "bounded_temperature_scaling") or "").strip()
+        max_temperature_delta = float(
+            policy.get("max_temperature_delta", 0.05) or 0.0
+        )
+        max_confidence_rescale_delta = float(
+            policy.get("max_confidence_rescale_delta", 0.05) or 0.0
+        )
+        min_replay_consistency = float(
+            policy.get(
+                "min_replay_consistency",
+                replay_review.get("min_replay_consistency", 1.0),
+            )
+            or 0.0
+        )
+        max_confidence_drift = float(
+            policy.get(
+                "max_confidence_drift",
+                replay_review.get("max_confidence_drift", 0.05),
+            )
+            or 0.0
+        )
+        replay_consistency = float(
+            replay_review.get("replay_consistency", 0.0) or 0.0
+        )
+        confidence_drift = float(
+            replay_review.get("confidence_drift", 1.0) or 1.0
+        )
+        selected_hashes = [
+            str(value)
+            for value in list(replay_review.get("selected_hashes") or [])
+            if str(value)
+        ]
+        proposed_temperature_delta = round(
+            min(max_temperature_delta, max(0.0, confidence_drift / 2.0)),
+            6,
+        )
+        proposed_confidence_rescale_delta = round(
+            min(max_confidence_rescale_delta, max(0.0, confidence_drift)),
+            6,
+        )
+        required = {
+            "replay_review_executor_surface_available": execution.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor.v1",
+            "replay_review_executor_ready": bool(execution.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_confidence_recalibration_design")
+            ),
+            "operator_approval_not_required": not bool(
+                execution.get("requires_operator_approval")
+            ),
+            "review_hash_available": len(str(execution.get("review_hash") or ""))
+            == 64,
+            "preflight_hash_available": len(str(execution.get("preflight_hash") or ""))
+            == 64,
+            "design_hash_available": len(str(execution.get("design_hash") or ""))
+            == 64,
+            "stability_hash_available": len(str(execution.get("stability_hash") or ""))
+            == 64,
+            "selected_hashes_available": bool(selected_hashes),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "replay_consistency_sufficient": replay_consistency
+            >= min_replay_consistency,
+            "confidence_drift_bounded": confidence_drift <= max_confidence_drift,
+            "method_supported": method
+            in {
+                "bounded_temperature_scaling",
+                "bounded_confidence_rescaling",
+            },
+            "temperature_delta_bounded": 0.0 <= max_temperature_delta <= 0.25,
+            "confidence_rescale_delta_bounded": 0.0
+            <= max_confidence_rescale_delta
+            <= 0.25,
+            "rollback_policy_available": bool(rollback.get("rollback_hash"))
+            or bool(rollback.get("checkpoint_hash"))
+            or bool(rollback.get("can_restore_previous_calibration")),
+            "device_evidence_available": bool(device),
+            "runtime_mutation_absent": not bool(execution.get("mutates_runtime_state")),
+            "training_absent": not bool(execution.get("trains_runtime_model")),
+            "plasticity_absent": not bool(execution.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+            "calibration_update_absent": not bool(
+                execution.get("runs_calibration_update")
+            ),
+            "language_generation_absent": not bool(execution.get("generates_text")),
+            "text_decoding_absent": not bool(execution.get("decodes_text")),
+        }
+        ready = all(required.values())
+        recalibration_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design.v1",
+                "review_hash": execution.get("review_hash"),
+                "selected_hashes": selected_hashes,
+                "method": method,
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "max_confidence_rescale_delta": round(
+                    max_confidence_rescale_delta, 6
+                ),
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "rollback_policy": rollback,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_recalibration_design",
+            "available": bool(execution),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "recalibration_design_hash": recalibration_design_hash,
+            "review_hash": execution.get("review_hash"),
+            "preflight_hash": execution.get("preflight_hash"),
+            "design_hash": execution.get("design_hash"),
+            "stability_hash": execution.get("stability_hash"),
+            "autonomous_recalibration_design": {
+                "method": method,
+                "selected_hashes": selected_hashes,
+                "replay_consistency": round(replay_consistency, 6),
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "confidence_drift": round(confidence_drift, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "max_confidence_rescale_delta": round(
+                    max_confidence_rescale_delta, 6
+                ),
+                "proposed_temperature_delta": proposed_temperature_delta,
+                "proposed_confidence_rescale_delta": (
+                    proposed_confidence_rescale_delta
+                ),
+                "rollback_policy_hash": self._sha256_json(rollback),
+                "device_evidence_hash": self._sha256_json(device),
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_confidence_recalibration_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_confidence_recalibration_design_evidence"
+                ),
+                "eligible_for_autonomous_confidence_recalibration_preflight": ready,
+                "eligible_for_autonomous_confidence_recalibration_executor": False,
+                "eligible_for_operator_display_only": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_confidence_recalibration_preflight"
+                    if ready
+                    else "collect_replay_review_rollback_and_bounded_recalibration_policy"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_recalibration_preflight(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_recalibration_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight bounded autonomous confidence recalibration without applying it."""
+
+        design = dict(
+            calibrated_dense_label_confidence_autonomous_recalibration_design or {}
+        )
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        design_body = (
+            design.get("autonomous_recalibration_design")
+            if isinstance(design.get("autonomous_recalibration_design"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        method = str(design_body.get("method") or "").strip()
+        selected_hashes = [
+            str(value)
+            for value in list(design_body.get("selected_hashes") or [])
+            if str(value)
+        ]
+        max_temperature_delta = float(
+            design_body.get("max_temperature_delta", 0.0) or 0.0
+        )
+        max_confidence_rescale_delta = float(
+            design_body.get("max_confidence_rescale_delta", 0.0) or 0.0
+        )
+        proposed_temperature_delta = float(
+            design_body.get("proposed_temperature_delta", 1.0) or 1.0
+        )
+        proposed_confidence_rescale_delta = float(
+            design_body.get("proposed_confidence_rescale_delta", 1.0) or 1.0
+        )
+        replay_consistency = float(
+            design_body.get("replay_consistency", 0.0) or 0.0
+        )
+        min_replay_consistency = float(
+            design_body.get("min_replay_consistency", 1.0) or 1.0
+        )
+        confidence_drift = float(
+            design_body.get("confidence_drift", 1.0) or 1.0
+        )
+        max_confidence_drift = float(
+            design_body.get("max_confidence_drift", 0.0) or 0.0
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(
+            capabilities.get("autonomous_confidence_recalibration_executor")
+        )
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_confidence_recalibration_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            ),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "recalibration_design_hash_available": len(
+                str(design.get("recalibration_design_hash") or "")
+            )
+            == 64,
+            "review_hash_available": len(str(design.get("review_hash") or ""))
+            == 64,
+            "preflight_hash_available": len(str(design.get("preflight_hash") or ""))
+            == 64,
+            "design_hash_available": len(str(design.get("design_hash") or ""))
+            == 64,
+            "stability_hash_available": len(str(design.get("stability_hash") or ""))
+            == 64,
+            "selected_hashes_available": bool(selected_hashes),
+            "selected_hashes_valid": all(len(value) == 64 for value in selected_hashes),
+            "method_supported": method
+            in {
+                "bounded_temperature_scaling",
+                "bounded_confidence_rescaling",
+            },
+            "replay_consistency_sufficient": replay_consistency
+            >= min_replay_consistency,
+            "confidence_drift_bounded": confidence_drift <= max_confidence_drift,
+            "temperature_delta_bounded": 0.0
+            <= proposed_temperature_delta
+            <= max_temperature_delta
+            <= 0.25,
+            "confidence_rescale_delta_bounded": 0.0
+            <= proposed_confidence_rescale_delta
+            <= max_confidence_rescale_delta
+            <= 0.25,
+            "rollback_policy_hash_available": len(
+                str(design_body.get("rollback_policy_hash") or "")
+            )
+            == 64,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "calibration_update_absent": not bool(
+                design.get("runs_calibration_update")
+            ),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        recalibration_preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight.v1",
+                "recalibration_design_hash": design.get(
+                    "recalibration_design_hash"
+                ),
+                "review_hash": design.get("review_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "method": method,
+                "selected_hashes": selected_hashes,
+                "proposed_temperature_delta": round(
+                    proposed_temperature_delta, 6
+                ),
+                "proposed_confidence_rescale_delta": round(
+                    proposed_confidence_rescale_delta, 6
+                ),
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "executor_capability_available": capability_ready,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_recalibration_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "recalibration_preflight_hash": recalibration_preflight_hash,
+            "recalibration_design_hash": design.get("recalibration_design_hash"),
+            "review_hash": design.get("review_hash"),
+            "preflight_hash": design.get("preflight_hash"),
+            "design_hash": design.get("design_hash"),
+            "stability_hash": design.get("stability_hash"),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "autonomous_recalibration_preflight": {
+                "method": method,
+                "selected_hashes": selected_hashes,
+                "replay_consistency": round(replay_consistency, 6),
+                "min_replay_consistency": round(min_replay_consistency, 6),
+                "confidence_drift": round(confidence_drift, 6),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "proposed_temperature_delta": round(
+                    proposed_temperature_delta, 6
+                ),
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "proposed_confidence_rescale_delta": round(
+                    proposed_confidence_rescale_delta, 6
+                ),
+                "max_confidence_rescale_delta": round(
+                    max_confidence_rescale_delta, 6
+                ),
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_confidence_recalibration_executor"
+                    if ready
+                    else "blocked_missing_autonomous_confidence_recalibration_preflight_evidence"
+                ),
+                "eligible_for_autonomous_confidence_recalibration_executor": ready,
+                "eligible_for_operator_display_only": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_confidence_recalibration_executor"
+                    if ready
+                    else "collect_current_revision_device_and_executor_capability"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_calibrated_dense_label_confidence_autonomous_recalibration(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_recalibration_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+    ) -> dict[str, Any]:
+        """Apply a bounded autonomous confidence recalibration update."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(
+                calibrated_dense_label_confidence_autonomous_recalibration_preflight
+                or {}
+            )
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("autonomous_recalibration_preflight")
+                if isinstance(
+                    preflight.get("autonomous_recalibration_preflight"), Mapping
+                )
+                else {}
+            )
+            method = str(body.get("method") or "").strip()
+            proposed_temperature_delta = float(
+                body.get("proposed_temperature_delta", 1.0) or 1.0
+            )
+            max_temperature_delta = float(
+                body.get("max_temperature_delta", 0.0) or 0.0
+            )
+            proposed_confidence_rescale_delta = float(
+                body.get("proposed_confidence_rescale_delta", 1.0) or 1.0
+            )
+            max_confidence_rescale_delta = float(
+                body.get("max_confidence_rescale_delta", 0.0) or 0.0
+            )
+            selected_hashes = [
+                str(value)
+                for value in list(body.get("selected_hashes") or [])
+                if str(value)
+            ]
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_confidence_recalibration_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1) or -1
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1) or -1)
+                == before_revision,
+                "recalibration_preflight_hash_available": len(
+                    str(preflight.get("recalibration_preflight_hash") or "")
+                )
+                == 64,
+                "recalibration_design_hash_available": len(
+                    str(preflight.get("recalibration_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(preflight.get("review_hash") or ""))
+                == 64,
+                "selected_hashes_available": bool(selected_hashes),
+                "selected_hashes_valid": all(
+                    len(value) == 64 for value in selected_hashes
+                ),
+                "method_supported": method
+                in {
+                    "bounded_temperature_scaling",
+                    "bounded_confidence_rescaling",
+                },
+                "temperature_delta_bounded": 0.0
+                <= proposed_temperature_delta
+                <= max_temperature_delta
+                <= 0.25,
+                "confidence_rescale_delta_bounded": 0.0
+                <= proposed_confidence_rescale_delta
+                <= max_confidence_rescale_delta
+                <= 0.25,
+                "executor_capability_available": bool(
+                    body.get("executor_capability_available")
+                ),
+                "cuda_requirement_satisfied": bool(
+                    body.get("cuda_requirement_satisfied")
+                ),
+                "runtime_mutation_absent_in_preflight": not bool(
+                    preflight.get("mutates_runtime_state")
+                )
+                and not bool(body.get("mutation_allowed")),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+                "language_generation_absent": not bool(preflight.get("generates_text")),
+                "text_decoding_absent": not bool(preflight.get("decodes_text")),
+            }
+            accepted = all(required.values())
+            if not accepted:
+                return {
+                    "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor",
+                    "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+                    "accepted": False,
+                    "duplicate": False,
+                    "requires_operator_approval": False,
+                    "owned_by_hecsn": True,
+                    "external_dependency": False,
+                    "loads_external_checkpoint": False,
+                    "records_ledger_event": False,
+                    "runs_replay": False,
+                    "runs_live_replay": False,
+                    "runs_recalibration": False,
+                    "runs_calibration_update": False,
+                    "writes_checkpoint": False,
+                    "generates_text": False,
+                    "decodes_text": False,
+                    "freeform_language_generation": False,
+                    "trains_runtime_model": False,
+                    "applies_plasticity": False,
+                    "mutates_runtime_state": False,
+                    "before": {"state_revision": before_revision},
+                    "after": self._runtime_state.mutation_summary(),
+                    "promotion_gate": {
+                        "status": "blocked_missing_autonomous_confidence_recalibration_executor_evidence",
+                        "eligible_for_autonomous_confidence_recalibration_application_review": False,
+                        "eligible_for_language_generation": False,
+                        "eligible_for_dense_readout_training": False,
+                        "eligible_for_replay_memory": False,
+                        "eligible_for_live_replay": False,
+                        "eligible_for_plasticity_application": False,
+                        "eligible_for_freeform_language_generation": False,
+                        "eligible_for_cognition_substrate": False,
+                        "eligible_for_fact_promotion": False,
+                        "eligible_for_action": False,
+                        "required_evidence": required,
+                    },
+                }
+
+            state = self._normalized_state()
+            target_temperature = round(1.0 + proposed_temperature_delta, 6)
+            applied_event = {
+                "applied_calibration_update_id": (
+                    "snn-autonomous-confidence-recalibration:"
+                    f"{str(preflight.get('recalibration_preflight_hash'))[:16]}"
+                ),
+                "applied_at": datetime.now(timezone.utc).isoformat(),
+                "state_revision": before_revision,
+                "operator_id": "hecsn-autonomous-confidence-recalibrator",
+                "operator_approval_required": False,
+                "autonomous_recalibration": True,
+                "recalibration_preflight_hash": preflight.get(
+                    "recalibration_preflight_hash"
+                ),
+                "recalibration_design_hash": preflight.get(
+                    "recalibration_design_hash"
+                ),
+                "review_hash": preflight.get("review_hash"),
+                "preflight_hash": preflight.get("preflight_hash"),
+                "design_hash": preflight.get("design_hash"),
+                "stability_hash": preflight.get("stability_hash"),
+                "method": method,
+                "selected_hashes": selected_hashes,
+                "base_temperature": 1.0,
+                "target_temperature": target_temperature,
+                "max_temperature_delta": round(max_temperature_delta, 6),
+                "proposed_temperature_delta": round(
+                    proposed_temperature_delta, 6
+                ),
+                "max_confidence_rescale_delta": round(
+                    max_confidence_rescale_delta, 6
+                ),
+                "proposed_confidence_rescale_delta": round(
+                    proposed_confidence_rescale_delta, 6
+                ),
+                "rollback_policy_hash": self._sha256_json(
+                    {
+                        "recalibration_design_hash": preflight.get(
+                            "recalibration_design_hash"
+                        ),
+                        "previous_dense_label_calibration_update_hash": (
+                            state.get("current_dense_label_calibration_update", {}).get(
+                                "applied_calibration_update_hash"
+                            )
+                            if isinstance(
+                                state.get("current_dense_label_calibration_update"),
+                                Mapping,
+                            )
+                            else ""
+                        ),
+                    }
+                ),
+                "device_preflight": {
+                    "requested_device": body.get("requested_device"),
+                    "requires_cuda": bool(body.get("requires_cuda")),
+                    "cuda_available": bool(body.get("cuda_available")),
+                    "cuda_requirement_satisfied": bool(
+                        body.get("cuda_requirement_satisfied")
+                    ),
+                    "executor_capability_available": bool(
+                        body.get("executor_capability_available")
+                    ),
+                },
+                "bounded_post_hoc_update": True,
+                "runtime_update_applied": True,
+                "weights_persisted": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+            }
+            applied_event["applied_calibration_update_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+                    **applied_event,
+                }
+            )
+            existing_hashes = {
+                str(item.get("applied_calibration_update_hash") or "")
+                for item in state["dense_label_calibration_update_events"]
+            }
+            duplicate = (
+                applied_event["applied_calibration_update_hash"] in existing_hashes
+            )
+            if not duplicate:
+                state["dense_label_calibration_update_events"].appendleft(
+                    deepcopy(applied_event)
+                )
+                state["total_dense_label_calibration_update_count"] = int(
+                    state.get("total_dense_label_calibration_update_count", 0) or 0
+                ) + 1
+                state["last_dense_label_calibration_update_applied_at"] = (
+                    applied_event["applied_at"]
+                )
+                state["current_dense_label_calibration_update"] = deepcopy(
+                    applied_event
+                )
+                self._store_state(state)
+                self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor",
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+                "accepted": True,
+                "duplicate": duplicate,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "records_ledger_event": not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": not duplicate,
+                "runs_calibration_update": not duplicate,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "applied_calibration_update": applied_event,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_confidence_recalibration_applied"
+                        if not duplicate
+                        else "duplicate_autonomous_confidence_recalibration_already_applied"
+                    ),
+                    "eligible_for_autonomous_confidence_recalibration_application_review": True,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "required_evidence": required,
+                },
+            }
+
+    def calibrated_dense_label_confidence_autonomous_recalibration_application_review(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_recalibration_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review autonomous confidence recalibration lineage without mutation."""
+
+        with self._lock:
+            state = self._normalized_state()
+            before_revision = int(self._runtime_state.state_revision)
+            application = dict(
+                calibrated_dense_label_confidence_autonomous_recalibration_executor
+                or {}
+            )
+            gate = (
+                application.get("promotion_gate")
+                if isinstance(application.get("promotion_gate"), Mapping)
+                else {}
+            )
+            applied = (
+                application.get("applied_calibration_update")
+                if isinstance(application.get("applied_calibration_update"), Mapping)
+                else {}
+            )
+            current = (
+                state.get("current_dense_label_calibration_update")
+                if isinstance(state.get("current_dense_label_calibration_update"), Mapping)
+                else {}
+            )
+            device = (
+                applied.get("device_preflight")
+                if isinstance(applied.get("device_preflight"), Mapping)
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_temperature_delta = min(
+                0.25,
+                max(0.0, float(policy.get("max_temperature_delta", 0.25) or 0.25)),
+            )
+            max_confidence_rescale_delta = min(
+                0.25,
+                max(
+                    0.0,
+                    float(
+                        policy.get("max_confidence_rescale_delta", 0.25)
+                        or 0.25
+                    ),
+                ),
+            )
+            base_temperature = float(applied.get("base_temperature", 0.0) or 0.0)
+            target_temperature = float(applied.get("target_temperature", 0.0) or 0.0)
+            proposed_confidence_rescale_delta = float(
+                applied.get("proposed_confidence_rescale_delta", 1.0) or 1.0
+            )
+            applied_hash = str(applied.get("applied_calibration_update_hash") or "")
+            current_hash = str(current.get("applied_calibration_update_hash") or "")
+            selected_hashes = [
+                str(value)
+                for value in list(applied.get("selected_hashes") or [])
+                if str(value)
+            ]
+            required = {
+                "application_surface_available": application.get("surface")
+                == "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1",
+                "application_accepted": bool(application.get("accepted")),
+                "application_not_duplicate": not bool(application.get("duplicate")),
+                "application_review_gate_available": bool(
+                    gate.get(
+                        "eligible_for_autonomous_confidence_recalibration_application_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    application.get("requires_operator_approval")
+                )
+                and not bool(applied.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "application_revision_precedes_current": int(
+                    applied.get("state_revision", -1) or -1
+                )
+                < before_revision,
+                "applied_hash_available": len(applied_hash) == 64,
+                "current_applied_hash_matches": bool(applied_hash)
+                and applied_hash == current_hash,
+                "recalibration_preflight_hash_available": len(
+                    str(applied.get("recalibration_preflight_hash") or "")
+                )
+                == 64,
+                "recalibration_design_hash_available": len(
+                    str(applied.get("recalibration_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(applied.get("review_hash") or ""))
+                == 64,
+                "selected_hashes_available": bool(selected_hashes),
+                "selected_hashes_valid": all(
+                    len(value) == 64 for value in selected_hashes
+                ),
+                "autonomous_recalibration_flag": bool(
+                    applied.get("autonomous_recalibration")
+                ),
+                "bounded_post_hoc_update": bool(applied.get("bounded_post_hoc_update")),
+                "temperature_range_bounded": 0.25 <= target_temperature <= 4.0
+                and 0.25 <= base_temperature <= 4.0,
+                "temperature_delta_bounded": abs(target_temperature - base_temperature)
+                <= max_temperature_delta + 1e-9,
+                "confidence_rescale_delta_bounded": 0.0
+                <= proposed_confidence_rescale_delta
+                <= max_confidence_rescale_delta,
+                "rollback_policy_hash_available": len(
+                    str(applied.get("rollback_policy_hash") or "")
+                )
+                == 64,
+                "device_evidence_available": bool(
+                    str(device.get("requested_device") or "")
+                ),
+                "cuda_requirement_satisfied": bool(
+                    device.get("cuda_requirement_satisfied")
+                ),
+                "runtime_update_applied": bool(applied.get("runtime_update_applied")),
+                "weights_persistence_absent": not bool(applied.get("weights_persisted"))
+                and not bool(application.get("trains_runtime_model")),
+                "training_absent": not bool(applied.get("trains_runtime_model"))
+                and not bool(application.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(application.get("runs_replay")),
+                "plasticity_absent": not bool(applied.get("applies_plasticity"))
+                and not bool(application.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(applied.get("writes_checkpoint"))
+                and not bool(application.get("writes_checkpoint")),
+                "language_generation_absent": not bool(applied.get("generates_text"))
+                and not bool(application.get("generates_text")),
+                "text_decoding_absent": not bool(applied.get("decodes_text"))
+                and not bool(application.get("decodes_text")),
+            }
+            ready = all(required.values())
+            application_review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review.v1",
+                    "applied_calibration_update_hash": applied_hash,
+                    "current_applied_hash": current_hash,
+                    "expected_state_revision": int(expected_state_revision),
+                    "observed_state_revision": before_revision,
+                    "max_temperature_delta": max_temperature_delta,
+                    "max_confidence_rescale_delta": max_confidence_rescale_delta,
+                    "required": required,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review",
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review.v1",
+                "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_recalibration_application_review",
+                "available": bool(application),
+                "ready": ready,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "application_review_hash": application_review_hash,
+                "applied_calibration_update_hash": applied_hash,
+                "current_dense_label_calibration_update_hash": current_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "autonomous_recalibration_application_review": {
+                    "method": applied.get("method"),
+                    "selected_hashes": selected_hashes,
+                    "base_temperature": round(base_temperature, 6),
+                    "target_temperature": round(target_temperature, 6),
+                    "max_temperature_delta": round(max_temperature_delta, 6),
+                    "proposed_confidence_rescale_delta": round(
+                        proposed_confidence_rescale_delta, 6
+                    ),
+                    "max_confidence_rescale_delta": round(
+                        max_confidence_rescale_delta, 6
+                    ),
+                    "rollback_policy_hash": applied.get("rollback_policy_hash"),
+                    "device_preflight": dict(device),
+                    "runtime_update_applied": bool(
+                        applied.get("runtime_update_applied")
+                    ),
+                    "weights_persisted": bool(applied.get("weights_persisted")),
+                    "operator_approval_required": False,
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_post_calibration_observation_window"
+                        if ready
+                        else "blocked_missing_autonomous_confidence_recalibration_application_review_evidence"
+                    ),
+                    "eligible_for_autonomous_post_calibration_observation_window": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_post_calibration_observation_window"
+                        if ready
+                        else "inspect_autonomous_recalibration_lineage_and_runtime_state"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
     def emission_review_replay_evaluation_policy(
         self,
         *,

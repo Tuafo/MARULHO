@@ -44,6 +44,15 @@ from .schemas import (
     RuntimeTraceExportResponse,
     SNNLanguageHeldoutEvaluationRequest,
     SNNLanguagePlasticityApplicationDesignRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewDesignRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewExecutorRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewPreflightRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationApplicationReviewRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationDesignRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationExecutorRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationPreflightRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceInternalStabilityReviewRequest,
+    SNNLanguageCalibratedDenseLabelConfidenceOperatorDisplayReviewRequest,
     SNNLanguageCalibratedDenseLabelConfidenceUseDesignRequest,
     SNNLanguageCalibratedDenseLabelConfidenceUseExecutorRequest,
     SNNLanguageCalibratedDenseLabelConfidenceUsePreflightRequest,
@@ -729,6 +738,119 @@ def create_app(
             expected_state_revision=request.expected_state_revision,
             candidate_evidence=request.candidate_evidence,
             execution_policy=request.execution_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-operator-display-review")
+    def terminus_snn_language_calibrated_dense_label_confidence_operator_display_review(
+        request: SNNLanguageCalibratedDenseLabelConfidenceOperatorDisplayReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_operator_display_review(
+            calibrated_dense_label_confidence_use_executor=(
+                request.calibrated_dense_label_confidence_use_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            operator_id=request.operator_id,
+            confirmation=request.confirmation,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-internal-stability-review")
+    def terminus_snn_language_calibrated_dense_label_confidence_internal_stability_review(
+        request: SNNLanguageCalibratedDenseLabelConfidenceInternalStabilityReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_internal_stability_review(
+            calibrated_dense_label_confidence_use_executor=(
+                request.calibrated_dense_label_confidence_use_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            stability_evidence=request.stability_evidence,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-replay-review-design")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design(
+            calibrated_dense_label_confidence_internal_stability_review=(
+                request.calibrated_dense_label_confidence_internal_stability_review
+            ),
+            replay_policy=request.replay_policy,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-replay-review-preflight")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight(
+            calibrated_dense_label_confidence_autonomous_replay_review_design=(
+                request.calibrated_dense_label_confidence_autonomous_replay_review_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-replay-review-executor")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousReplayReviewExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor(
+            calibrated_dense_label_confidence_autonomous_replay_review_preflight=(
+                request.calibrated_dense_label_confidence_autonomous_replay_review_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            replay_cycle_evidence=request.replay_cycle_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-design")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design(
+            calibrated_dense_label_confidence_autonomous_replay_review_executor=(
+                request.calibrated_dense_label_confidence_autonomous_replay_review_executor
+            ),
+            recalibration_policy=request.recalibration_policy,
+            rollback_policy=request.rollback_policy,
+            device_evidence=request.device_evidence,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-preflight")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight(
+            calibrated_dense_label_confidence_autonomous_recalibration_design=(
+                request.calibrated_dense_label_confidence_autonomous_recalibration_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-executor")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight=(
+                request.calibrated_dense_label_confidence_autonomous_recalibration_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/calibrated-dense-label-confidence-autonomous-recalibration-application-review")
+    def terminus_snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review(
+        request: SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationApplicationReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor=(
+                request.calibrated_dense_label_confidence_autonomous_recalibration_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            review_policy=request.review_policy,
         )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/rehearsal-evaluation")

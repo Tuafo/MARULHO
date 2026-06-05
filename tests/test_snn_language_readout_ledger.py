@@ -1237,6 +1237,215 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
         },
         execution_policy={"max_selected_candidates": 1},
     )
+    blocked_confidence_display_review = (
+        ledger.calibrated_dense_label_confidence_operator_display_review(
+            calibrated_dense_label_confidence_use_executor=confidence_use_executor,
+            expected_state_revision=runtime_state.state_revision,
+            operator_id="operator-dense-label",
+            confirmation=False,
+        )
+    )
+    confidence_display_review = (
+        ledger.calibrated_dense_label_confidence_operator_display_review(
+            calibrated_dense_label_confidence_use_executor=confidence_use_executor,
+            expected_state_revision=runtime_state.state_revision,
+            operator_id="operator-dense-label",
+            confirmation=True,
+            review_policy={"max_ranked_display": 4},
+        )
+    )
+    selected_hash = _sha256_json(["candidate", "ready"])
+    blocked_internal_stability_review = (
+        ledger.calibrated_dense_label_confidence_internal_stability_review(
+            calibrated_dense_label_confidence_use_executor=confidence_use_executor,
+            expected_state_revision=runtime_state.state_revision,
+            stability_evidence={
+                "cycles": [
+                    {
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.75,
+                    }
+                ]
+            },
+            review_policy={"min_cycles": 3, "max_confidence_drift": 0.05},
+        )
+    )
+    internal_stability_review = (
+        ledger.calibrated_dense_label_confidence_internal_stability_review(
+            calibrated_dense_label_confidence_use_executor=confidence_use_executor,
+            expected_state_revision=runtime_state.state_revision,
+            stability_evidence={
+                "cycles": [
+                    {
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.75,
+                    },
+                    {
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.74,
+                    },
+                    {
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.76,
+                    },
+                ]
+            },
+            review_policy={"min_cycles": 3, "max_confidence_drift": 0.05},
+        )
+    )
+    blocked_autonomous_replay_design = (
+        ledger.calibrated_dense_label_confidence_autonomous_replay_review_design(
+            calibrated_dense_label_confidence_internal_stability_review=(
+                internal_stability_review
+            ),
+            replay_policy={"max_replay_cycles": 4},
+            device_evidence={},
+        )
+    )
+    autonomous_replay_design = (
+        ledger.calibrated_dense_label_confidence_autonomous_replay_review_design(
+            calibrated_dense_label_confidence_internal_stability_review=(
+                internal_stability_review
+            ),
+            replay_policy={
+                "max_replay_cycles": 4,
+                "min_replay_consistency": 1.0,
+                "max_confidence_drift": 0.05,
+            },
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+    )
+    blocked_autonomous_replay_preflight = (
+        ledger.calibrated_dense_label_confidence_autonomous_replay_review_preflight(
+            calibrated_dense_label_confidence_autonomous_replay_review_design=(
+                autonomous_replay_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_confidence_replay_review_executor": False
+            },
+        )
+    )
+    autonomous_replay_preflight = (
+        ledger.calibrated_dense_label_confidence_autonomous_replay_review_preflight(
+            calibrated_dense_label_confidence_autonomous_replay_review_design=(
+                autonomous_replay_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_confidence_replay_review_executor": True
+            },
+        )
+    )
+    blocked_autonomous_replay_executor = (
+        ledger.execute_calibrated_dense_label_confidence_autonomous_replay_review(
+            calibrated_dense_label_confidence_autonomous_replay_review_preflight=(
+                blocked_autonomous_replay_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            replay_cycle_evidence={
+                "cycles": [
+                    {
+                        "cycle_index": 0,
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.75,
+                    }
+                ]
+            },
+        )
+    )
+    autonomous_replay_executor = (
+        ledger.execute_calibrated_dense_label_confidence_autonomous_replay_review(
+            calibrated_dense_label_confidence_autonomous_replay_review_preflight=(
+                autonomous_replay_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            replay_cycle_evidence={
+                "cycles": [
+                    {
+                        "cycle_index": 0,
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.75,
+                    },
+                    {
+                        "cycle_index": 1,
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.74,
+                    },
+                    {
+                        "cycle_index": 2,
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.76,
+                    },
+                    {
+                        "cycle_index": 3,
+                        "selected_candidate_hashes": [selected_hash],
+                        "selected_confidence": 0.75,
+                    },
+                ]
+            },
+        )
+    )
+    blocked_autonomous_recalibration_design = (
+        ledger.calibrated_dense_label_confidence_autonomous_recalibration_design(
+            calibrated_dense_label_confidence_autonomous_replay_review_executor=(
+                blocked_autonomous_replay_executor
+            ),
+            recalibration_policy={"method": "unbounded_self_training"},
+            rollback_policy={},
+            device_evidence={},
+        )
+    )
+    autonomous_recalibration_design = (
+        ledger.calibrated_dense_label_confidence_autonomous_recalibration_design(
+            calibrated_dense_label_confidence_autonomous_replay_review_executor=(
+                autonomous_replay_executor
+            ),
+            recalibration_policy={
+                "method": "bounded_temperature_scaling",
+                "max_temperature_delta": 0.05,
+                "max_confidence_rescale_delta": 0.05,
+                "min_replay_consistency": 1.0,
+                "max_confidence_drift": 0.05,
+            },
+            rollback_policy={"can_restore_previous_calibration": True},
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+    )
+    blocked_autonomous_recalibration_preflight = (
+        ledger.calibrated_dense_label_confidence_autonomous_recalibration_preflight(
+            calibrated_dense_label_confidence_autonomous_recalibration_design=(
+                autonomous_recalibration_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_confidence_recalibration_executor": False
+            },
+        )
+    )
+    autonomous_recalibration_preflight = (
+        ledger.calibrated_dense_label_confidence_autonomous_recalibration_preflight(
+            calibrated_dense_label_confidence_autonomous_recalibration_design=(
+                autonomous_recalibration_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_confidence_recalibration_executor": True
+            },
+        )
+    )
+    blocked_autonomous_recalibration_executor = (
+        ledger.execute_calibrated_dense_label_confidence_autonomous_recalibration(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight=(
+                blocked_autonomous_recalibration_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+        )
+    )
 
     assert blocked_application["accepted"] is False
     assert blocked_application["mutates_runtime_state"] is False
@@ -1499,6 +1708,422 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     ] is False
     assert confidence_use_executor["promotion_gate"]["eligible_for_fact_promotion"] is False
     assert confidence_use_executor["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_confidence_display_review["ready"] is False
+    assert blocked_confidence_display_review["promotion_gate"]["required_evidence"][
+        "confirmation"
+    ] is False
+    assert confidence_display_review["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_operator_display_review.v1"
+    )
+    assert confidence_display_review["ready"] is True
+    assert confidence_display_review["review_recorded"] is True
+    assert confidence_display_review["advisory"] is True
+    assert confidence_display_review["executable"] is False
+    assert confidence_display_review["records_ledger_event"] is False
+    assert confidence_display_review["runs_replay"] is False
+    assert confidence_display_review["runs_calibration_update"] is False
+    assert confidence_display_review["writes_checkpoint"] is False
+    assert confidence_display_review["generates_text"] is False
+    assert confidence_display_review["decodes_text"] is False
+    assert confidence_display_review["trains_runtime_model"] is False
+    assert confidence_display_review["applies_plasticity"] is False
+    assert confidence_display_review["mutates_runtime_state"] is False
+    display = confidence_display_review["operator_review"]
+    assert display["hash_only_output"] is True
+    assert display["display_ranked_count"] == 1
+    assert display["selected_candidate_count"] == 1
+    assert display["abstained"] is False
+    assert display["display_refs"][0]["calibrated_confidence"] == 0.75
+    assert "label_hash" in display["display_refs"][0]
+    assert "label" not in display["display_refs"][0]
+    assert confidence_display_review["promotion_gate"][
+        "eligible_for_operator_display_only"
+    ] is True
+    assert confidence_display_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert confidence_display_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert confidence_display_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert confidence_display_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert confidence_display_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert confidence_display_review["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_internal_stability_review["ready"] is False
+    assert blocked_internal_stability_review["requires_operator_approval"] is False
+    assert blocked_internal_stability_review["promotion_gate"]["required_evidence"][
+        "stability_cycles_sufficient"
+    ] is False
+    assert internal_stability_review["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_internal_stability_review.v1"
+    )
+    assert internal_stability_review["ready"] is True
+    assert internal_stability_review["self_reviewed"] is True
+    assert internal_stability_review["requires_operator_approval"] is False
+    assert internal_stability_review["advisory"] is True
+    assert internal_stability_review["executable"] is False
+    assert internal_stability_review["records_ledger_event"] is False
+    assert internal_stability_review["runs_replay"] is False
+    assert internal_stability_review["runs_calibration_update"] is False
+    assert internal_stability_review["writes_checkpoint"] is False
+    assert internal_stability_review["generates_text"] is False
+    assert internal_stability_review["decodes_text"] is False
+    assert internal_stability_review["trains_runtime_model"] is False
+    assert internal_stability_review["applies_plasticity"] is False
+    assert internal_stability_review["mutates_runtime_state"] is False
+    stability = internal_stability_review["internal_stability_review"]
+    assert stability["cycle_count"] == 3
+    assert stability["matching_cycle_count"] == 3
+    assert stability["replay_consistency"] == 1.0
+    assert stability["confidence_drift"] <= 0.05
+    assert internal_stability_review["promotion_gate"][
+        "eligible_for_autonomous_confidence_replay_review"
+    ] is True
+    assert internal_stability_review["promotion_gate"]["eligible_for_operator_display_only"] is False
+    assert internal_stability_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert internal_stability_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert internal_stability_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert internal_stability_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert internal_stability_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert internal_stability_review["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_autonomous_replay_design["ready"] is False
+    assert blocked_autonomous_replay_design["requires_operator_approval"] is False
+    assert blocked_autonomous_replay_design["promotion_gate"]["required_evidence"][
+        "device_evidence_available"
+    ] is False
+    assert autonomous_replay_design["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_design.v1"
+    )
+    assert autonomous_replay_design["ready"] is True
+    assert autonomous_replay_design["requires_operator_approval"] is False
+    assert autonomous_replay_design["advisory"] is True
+    assert autonomous_replay_design["executable"] is False
+    assert autonomous_replay_design["records_ledger_event"] is False
+    assert autonomous_replay_design["runs_replay"] is False
+    assert autonomous_replay_design["runs_calibration_update"] is False
+    assert autonomous_replay_design["writes_checkpoint"] is False
+    assert autonomous_replay_design["generates_text"] is False
+    assert autonomous_replay_design["decodes_text"] is False
+    assert autonomous_replay_design["trains_runtime_model"] is False
+    assert autonomous_replay_design["applies_plasticity"] is False
+    assert autonomous_replay_design["mutates_runtime_state"] is False
+    replay_design = autonomous_replay_design["autonomous_replay_review_design"]
+    assert replay_design["max_replay_cycles"] == 4
+    assert replay_design["observed_replay_consistency"] == 1.0
+    assert replay_design["observed_confidence_drift"] <= 0.05
+    assert replay_design["operator_approval_required"] is False
+    assert autonomous_replay_design["promotion_gate"][
+        "eligible_for_autonomous_confidence_replay_review_preflight"
+    ] is True
+    assert autonomous_replay_design["promotion_gate"]["eligible_for_operator_display_only"] is False
+    assert autonomous_replay_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_replay_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_replay_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_replay_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_replay_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_replay_design["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_autonomous_replay_preflight["ready"] is False
+    assert blocked_autonomous_replay_preflight["requires_operator_approval"] is False
+    assert blocked_autonomous_replay_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert autonomous_replay_preflight["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_preflight.v1"
+    )
+    assert autonomous_replay_preflight["ready"] is True
+    assert autonomous_replay_preflight["requires_operator_approval"] is False
+    assert autonomous_replay_preflight["advisory"] is True
+    assert autonomous_replay_preflight["executable"] is False
+    assert autonomous_replay_preflight["records_ledger_event"] is False
+    assert autonomous_replay_preflight["runs_replay"] is False
+    assert autonomous_replay_preflight["runs_calibration_update"] is False
+    assert autonomous_replay_preflight["writes_checkpoint"] is False
+    assert autonomous_replay_preflight["generates_text"] is False
+    assert autonomous_replay_preflight["decodes_text"] is False
+    assert autonomous_replay_preflight["trains_runtime_model"] is False
+    assert autonomous_replay_preflight["applies_plasticity"] is False
+    assert autonomous_replay_preflight["mutates_runtime_state"] is False
+    replay_preflight = autonomous_replay_preflight[
+        "autonomous_replay_review_preflight"
+    ]
+    assert replay_preflight["max_replay_cycles"] == 4
+    assert replay_preflight["operator_approval_required"] is False
+    assert replay_preflight["executor_capability_available"] is True
+    assert autonomous_replay_preflight["promotion_gate"][
+        "eligible_for_autonomous_confidence_replay_review_executor"
+    ] is True
+    assert autonomous_replay_preflight["promotion_gate"]["eligible_for_operator_display_only"] is False
+    assert autonomous_replay_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_replay_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_replay_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_replay_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_replay_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_replay_preflight["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_autonomous_replay_executor["ready"] is False
+    assert blocked_autonomous_replay_executor["requires_operator_approval"] is False
+    assert blocked_autonomous_replay_executor["promotion_gate"]["required_evidence"][
+        "preflight_ready"
+    ] is False
+    assert autonomous_replay_executor["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_replay_review_executor.v1"
+    )
+    assert autonomous_replay_executor["ready"] is True
+    assert autonomous_replay_executor["requires_operator_approval"] is False
+    assert autonomous_replay_executor["advisory"] is False
+    assert autonomous_replay_executor["executable"] is True
+    assert autonomous_replay_executor["records_ledger_event"] is False
+    assert autonomous_replay_executor["runs_replay"] is True
+    assert autonomous_replay_executor["runs_live_replay"] is False
+    assert autonomous_replay_executor["runs_calibration_update"] is False
+    assert autonomous_replay_executor["writes_checkpoint"] is False
+    assert autonomous_replay_executor["generates_text"] is False
+    assert autonomous_replay_executor["decodes_text"] is False
+    assert autonomous_replay_executor["trains_runtime_model"] is False
+    assert autonomous_replay_executor["applies_plasticity"] is False
+    assert autonomous_replay_executor["mutates_runtime_state"] is False
+    replay_review = autonomous_replay_executor["autonomous_replay_review"]
+    assert replay_review["cycle_count"] == 4
+    assert replay_review["matching_cycle_count"] == 4
+    assert replay_review["replay_consistency"] == 1.0
+    assert replay_review["confidence_drift"] <= 0.05
+    assert replay_review["mutation_allowed"] is False
+    assert autonomous_replay_executor["promotion_gate"][
+        "eligible_for_autonomous_confidence_recalibration_design"
+    ] is True
+    assert autonomous_replay_executor["promotion_gate"]["eligible_for_operator_display_only"] is False
+    assert autonomous_replay_executor["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_replay_executor["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_replay_executor["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_replay_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_replay_executor["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_replay_executor["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_autonomous_recalibration_design["ready"] is False
+    assert blocked_autonomous_recalibration_design[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_recalibration_design["promotion_gate"][
+        "required_evidence"
+    ]["replay_review_executor_ready"] is False
+    assert autonomous_recalibration_design["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_design.v1"
+    )
+    assert autonomous_recalibration_design["ready"] is True
+    assert autonomous_recalibration_design["requires_operator_approval"] is False
+    assert autonomous_recalibration_design["advisory"] is True
+    assert autonomous_recalibration_design["executable"] is False
+    assert autonomous_recalibration_design["records_ledger_event"] is False
+    assert autonomous_recalibration_design["runs_replay"] is False
+    assert autonomous_recalibration_design["runs_recalibration"] is False
+    assert autonomous_recalibration_design["runs_calibration_update"] is False
+    assert autonomous_recalibration_design["writes_checkpoint"] is False
+    assert autonomous_recalibration_design["generates_text"] is False
+    assert autonomous_recalibration_design["decodes_text"] is False
+    assert autonomous_recalibration_design["trains_runtime_model"] is False
+    assert autonomous_recalibration_design["applies_plasticity"] is False
+    assert autonomous_recalibration_design["mutates_runtime_state"] is False
+    recalibration_design = autonomous_recalibration_design[
+        "autonomous_recalibration_design"
+    ]
+    assert recalibration_design["method"] == "bounded_temperature_scaling"
+    assert recalibration_design["operator_approval_required"] is False
+    assert recalibration_design["mutation_allowed"] is False
+    assert recalibration_design["proposed_temperature_delta"] <= 0.05
+    assert autonomous_recalibration_design["promotion_gate"][
+        "eligible_for_autonomous_confidence_recalibration_preflight"
+    ] is True
+    assert autonomous_recalibration_design["promotion_gate"][
+        "eligible_for_autonomous_confidence_recalibration_executor"
+    ] is False
+    assert autonomous_recalibration_design["promotion_gate"]["eligible_for_operator_display_only"] is False
+    assert autonomous_recalibration_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_recalibration_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_recalibration_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_recalibration_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_recalibration_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_recalibration_design["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_autonomous_recalibration_preflight["ready"] is False
+    assert blocked_autonomous_recalibration_preflight[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_recalibration_preflight["promotion_gate"][
+        "required_evidence"
+    ]["executor_capability_available"] is False
+    assert autonomous_recalibration_preflight["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_preflight.v1"
+    )
+    assert autonomous_recalibration_preflight["ready"] is True
+    assert autonomous_recalibration_preflight["requires_operator_approval"] is False
+    assert autonomous_recalibration_preflight["advisory"] is True
+    assert autonomous_recalibration_preflight["executable"] is False
+    assert autonomous_recalibration_preflight["records_ledger_event"] is False
+    assert autonomous_recalibration_preflight["runs_replay"] is False
+    assert autonomous_recalibration_preflight["runs_recalibration"] is False
+    assert autonomous_recalibration_preflight["runs_calibration_update"] is False
+    assert autonomous_recalibration_preflight["writes_checkpoint"] is False
+    assert autonomous_recalibration_preflight["generates_text"] is False
+    assert autonomous_recalibration_preflight["decodes_text"] is False
+    assert autonomous_recalibration_preflight["trains_runtime_model"] is False
+    assert autonomous_recalibration_preflight["applies_plasticity"] is False
+    assert autonomous_recalibration_preflight["mutates_runtime_state"] is False
+    recalibration_preflight = autonomous_recalibration_preflight[
+        "autonomous_recalibration_preflight"
+    ]
+    assert recalibration_preflight["method"] == "bounded_temperature_scaling"
+    assert recalibration_preflight["executor_capability_available"] is True
+    assert recalibration_preflight["operator_approval_required"] is False
+    assert recalibration_preflight["mutation_allowed"] is False
+    assert autonomous_recalibration_preflight["promotion_gate"][
+        "eligible_for_autonomous_confidence_recalibration_executor"
+    ] is True
+    assert autonomous_recalibration_preflight["promotion_gate"]["eligible_for_operator_display_only"] is False
+    assert autonomous_recalibration_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_recalibration_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_recalibration_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_recalibration_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_recalibration_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_recalibration_preflight["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_autonomous_recalibration_executor["accepted"] is False
+    assert blocked_autonomous_recalibration_executor[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_recalibration_executor["promotion_gate"][
+        "required_evidence"
+    ]["preflight_ready"] is False
+    revision_before_autonomous_recalibration = runtime_state.state_revision
+    autonomous_recalibration_executor = (
+        ledger.execute_calibrated_dense_label_confidence_autonomous_recalibration(
+            calibrated_dense_label_confidence_autonomous_recalibration_preflight=(
+                autonomous_recalibration_preflight
+            ),
+            expected_state_revision=revision_before_autonomous_recalibration,
+        )
+    )
+    assert autonomous_recalibration_executor["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_executor.v1"
+    )
+    assert autonomous_recalibration_executor["accepted"] is True
+    assert autonomous_recalibration_executor["duplicate"] is False
+    assert autonomous_recalibration_executor["requires_operator_approval"] is False
+    assert autonomous_recalibration_executor["records_ledger_event"] is True
+    assert autonomous_recalibration_executor["runs_replay"] is False
+    assert autonomous_recalibration_executor["runs_recalibration"] is True
+    assert autonomous_recalibration_executor["runs_calibration_update"] is True
+    assert autonomous_recalibration_executor["writes_checkpoint"] is False
+    assert autonomous_recalibration_executor["generates_text"] is False
+    assert autonomous_recalibration_executor["decodes_text"] is False
+    assert autonomous_recalibration_executor["trains_runtime_model"] is False
+    assert autonomous_recalibration_executor["applies_plasticity"] is False
+    assert autonomous_recalibration_executor["mutates_runtime_state"] is True
+    assert autonomous_recalibration_executor["before"]["state_revision"] == (
+        revision_before_autonomous_recalibration
+    )
+    assert autonomous_recalibration_executor["after"]["state_revision"] == (
+        revision_before_autonomous_recalibration + 1
+    )
+    assert runtime_state.state_revision == revision_before_autonomous_recalibration + 1
+    autonomous_update = autonomous_recalibration_executor[
+        "applied_calibration_update"
+    ]
+    assert autonomous_update["autonomous_recalibration"] is True
+    assert autonomous_update["operator_approval_required"] is False
+    assert autonomous_update["operator_id"] == "hecsn-autonomous-confidence-recalibrator"
+    assert autonomous_update["runtime_update_applied"] is True
+    assert autonomous_update["weights_persisted"] is False
+    assert autonomous_recalibration_executor["ledger_summary"][
+        "dense_label_calibration_update_event_count"
+    ] == 2
+    assert autonomous_recalibration_executor["promotion_gate"][
+        "eligible_for_autonomous_confidence_recalibration_application_review"
+    ] is True
+    assert autonomous_recalibration_executor["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_recalibration_executor["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_recalibration_executor["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_recalibration_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_recalibration_executor["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_recalibration_executor["promotion_gate"]["eligible_for_action"] is False
+    blocked_autonomous_application_review = (
+        ledger.calibrated_dense_label_confidence_autonomous_recalibration_application_review(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor={
+                **autonomous_recalibration_executor,
+                "applied_calibration_update": {
+                    **autonomous_update,
+                    "applied_calibration_update_hash": "0" * 64,
+                },
+            },
+            expected_state_revision=runtime_state.state_revision,
+        )
+    )
+    autonomous_application_review = (
+        ledger.calibrated_dense_label_confidence_autonomous_recalibration_application_review(
+            calibrated_dense_label_confidence_autonomous_recalibration_executor=(
+                autonomous_recalibration_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_temperature_delta": 0.05,
+                "max_confidence_rescale_delta": 0.05,
+            },
+        )
+    )
+    assert blocked_autonomous_application_review["ready"] is False
+    assert blocked_autonomous_application_review[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_application_review["promotion_gate"][
+        "required_evidence"
+    ]["current_applied_hash_matches"] is False
+    assert autonomous_application_review["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review.v1"
+    )
+    assert autonomous_application_review["ready"] is True
+    assert autonomous_application_review["requires_operator_approval"] is False
+    assert autonomous_application_review["advisory"] is True
+    assert autonomous_application_review["executable"] is False
+    assert autonomous_application_review["records_ledger_event"] is False
+    assert autonomous_application_review["runs_replay"] is False
+    assert autonomous_application_review["runs_recalibration"] is False
+    assert autonomous_application_review["runs_calibration_update"] is False
+    assert autonomous_application_review["writes_checkpoint"] is False
+    assert autonomous_application_review["generates_text"] is False
+    assert autonomous_application_review["decodes_text"] is False
+    assert autonomous_application_review["trains_runtime_model"] is False
+    assert autonomous_application_review["applies_plasticity"] is False
+    assert autonomous_application_review["mutates_runtime_state"] is False
+    assert autonomous_application_review["applied_calibration_update_hash"] == (
+        autonomous_update["applied_calibration_update_hash"]
+    )
+    assert autonomous_application_review[
+        "current_dense_label_calibration_update_hash"
+    ] == autonomous_update["applied_calibration_update_hash"]
+    reviewed_autonomous_update = autonomous_application_review[
+        "autonomous_recalibration_application_review"
+    ]
+    assert reviewed_autonomous_update["runtime_update_applied"] is True
+    assert reviewed_autonomous_update["weights_persisted"] is False
+    assert reviewed_autonomous_update["operator_approval_required"] is False
+    assert autonomous_application_review["promotion_gate"][
+        "eligible_for_autonomous_post_calibration_observation_window"
+    ] is True
+    assert autonomous_application_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_application_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_application_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_application_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_application_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_application_review["promotion_gate"]["eligible_for_action"] is False
 
 
 def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surface() -> None:
