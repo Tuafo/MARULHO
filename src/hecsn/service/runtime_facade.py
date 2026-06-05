@@ -219,6 +219,146 @@ class RuntimeFacade:
             **kwargs
         )
 
+    def snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_observation_window(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_post_calibration_observation_window(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_stability_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_post_calibration_stability_review(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_use_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_use_design(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_use_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_use_preflight(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_use_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_calibrated_dense_label_confidence_use(
+            **kwargs
+        )
+
+    def snn_language_calibrated_dense_label_confidence_autonomous_use_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_calibrated_dense_label_confidence_use_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_hash_readout_binding_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_hash_readout_binding_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_hash_readout_binding_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_hash_readout_binding_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_hash_readout_binding_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_hash_readout_binding(
+            **kwargs
+        )
+
+    def snn_language_autonomous_hash_readout_binding_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_hash_readout_binding_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bound_readout_observation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bound_readout_observation_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bound_readout_observation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bound_readout_observation_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bound_readout_observation_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_bound_readout_observation(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bound_readout_observation_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bound_readout_observation_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_readout_training_window_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_readout_training_window_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_readout_training_window_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_readout_training_window_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_readout_training_window_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_readout_training_window(
+            **kwargs
+        )
+
+    def snn_language_autonomous_readout_training_window_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_readout_training_window_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoder_probe_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_decoder_probe_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoder_probe_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_decoder_probe_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoder_probe_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_decoder_probe(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoder_probe_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_decoder_probe_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_language_output_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_language_output_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_language_output_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_language_output_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_language_output_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_language_output(
+            **kwargs
+        )
+
+    def snn_language_autonomous_language_output_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_language_output_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoded_output_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_decoded_output_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoded_output_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_decoded_output_preflight(
+            **kwargs
+        )
+
     def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
 

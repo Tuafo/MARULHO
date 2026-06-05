@@ -423,6 +423,90 @@ _Avoid_: treating autonomous recalibration as language learning, skipping the au
 **SNN Calibrated Dense Label Confidence Autonomous Recalibration Application Review** — the no-operator, read-only lineage audit after an autonomous confidence recalibration update. It verifies that the applied autonomous update is current in the runtime calibration ledger, bounded, rollback-backed, device-compatible, and still non-training/non-generative before any autonomous post-calibration observation window.
 _Avoid_: routing autonomous updates through human display approval, treating an applied calibration event as proof of language ability, skipping current-ledger hash matching, or letting post-update review apply another calibration update
 
+**SNN Calibrated Dense Label Confidence Autonomous Post-Calibration Observation Window** — the no-operator observation surface that measures bounded post-update confidence behavior after an autonomous recalibration. It checks sample hashes, confidence bounds, expected calibration error, and confidence drift before later autonomous stability review, but it cannot apply another update, train, replay, apply plasticity, write checkpoints, generate language, promote facts/actions, or mutate runtime state.
+_Avoid_: treating a passing observation window as generated language, hiding additional calibration updates inside monitoring, using too few post-update samples, skipping hash-backed observations, or making human approval the routine path after autonomous recalibration
+
+**SNN Calibrated Dense Label Confidence Autonomous Post-Calibration Stability Review** — the no-operator review that turns an autonomous post-calibration observation window into stability evidence. It verifies sample sufficiency, hash-backed observations, expected calibration error, confidence drift, and absence of hidden replay/training/mutation before allowing an autonomous calibrated-confidence use design.
+_Avoid_: treating one passing metric as language readiness, applying another recalibration during stability review, skipping sample hashes, routing stability back through operator review, or promoting unstable confidence into facts/actions
+
+**SNN Calibrated Dense Label Confidence Autonomous Use Design** — the no-operator design surface for using stable, post-calibrated dense-label confidence as hash-level ranking/threshold/abstention metadata. It consumes autonomous post-calibration stability evidence and can plan bounded candidate-hash selection, but it cannot decode text, generate language, train, replay, apply plasticity, write checkpoints, promote facts/actions, or mutate runtime state.
+_Avoid_: treating calibrated confidence as language understanding, using selected hashes as words, routing routine confidence-use planning through operator approval, or turning abstention into hidden retry/generation
+
+**SNN Calibrated Dense Label Confidence Autonomous Use Preflight** — the no-operator current-revision, candidate, device, and executor-capability audit before bounded autonomous calibrated-confidence use. It verifies design lineage, candidate hashes, confidence thresholds, CUDA/device fit, and executor availability while still remaining advisory and non-mutating.
+_Avoid_: treating preflight as execution, selecting candidates without current revision evidence, allowing confidence use to generate text, or making executor capability a proxy for training/plasticity authority
+
+**SNN Calibrated Dense Label Confidence Autonomous Use Executor** — the no-operator ledger writer that records bounded hash-level calibrated-confidence use after autonomous preflight. It ranks/selects/abstains over candidate hashes, writes an autonomous confidence-use event, and advances Runtime State, but it still cannot decode text, generate language, train, replay, apply plasticity, write checkpoints, or promote facts/actions.
+_Avoid_: treating selected hashes as words, allowing candidate text payloads, using a confidence-use event as replay memory or fact evidence, or hiding training/plasticity behind autonomous execution
+
+**SNN Calibrated Dense Label Confidence Autonomous Use Event Review** — the no-operator read-only audit of a recorded autonomous confidence-use event. It verifies current Runtime State, ledger presence, event hash integrity, bounded selected/ranked candidate hashes, abstention consistency, and hash-only output before any later autonomous hash-to-readout binding design.
+_Avoid_: treating event review as language generation, reviewing unrecorded events, allowing selected text payloads, or promoting a confidence-use event directly into replay memory, facts, or actions
+
+**SNN Autonomous Hash Readout Binding Design** — the no-operator design surface that binds reviewed autonomous candidate hashes to bounded readout slot hashes. It preserves the bridge from sparse confidence evidence to later readout vocabulary compatibility while remaining design-only: no text decoding, language generation, training, replay, plasticity, checkpoints, facts/actions, or runtime mutation.
+_Avoid_: treating a slot binding as generated language, binding unreviewed candidate hashes, exposing slot labels as model output, or using binding design as a shortcut to dense readout training
+
+**SNN Autonomous Hash Readout Binding Preflight** — the no-operator current-revision, device, CUDA, executor-capability, and binding-integrity audit before applying an autonomous hash-to-readout binding. It verifies reviewed candidate hashes still match bounded readout slot hashes and remains non-generative, non-training, non-replay, non-plastic, and non-mutating.
+_Avoid_: executing stale binding designs, treating preflight as slot training, skipping CUDA/device evidence, or allowing hash bindings to become emitted language/facts/actions
+
+**SNN Autonomous Hash Readout Binding Executor** — the no-operator ledger writer that records a current hash-to-readout binding event after binding preflight. It advances Runtime State and preserves candidate-hash/readout-slot-hash compatibility as durable evidence, but it still does not train, replay, apply plasticity, decode text, generate language, write checkpoints, or promote facts/actions.
+_Avoid_: treating a binding event as a learned word, writing synaptic weights from binding execution, reusing stale preflights, or routing binding evidence directly into language generation
+
+**SNN Autonomous Hash Readout Binding Event Review** — the no-operator read-only audit of a recorded hash-to-readout binding event. It verifies the binding event is present in the ledger, current with Runtime State, hash-only, bounded, and non-generative before any later autonomous bound-readout observation design.
+_Avoid_: reviewing unrecorded bindings, treating binding review as language output, skipping event hash integrity, or promoting binding evidence directly into replay memory, facts, or actions
+
+**SNN Autonomous Bound Readout Observation Design** — the no-operator design surface for observing bound candidate-hash/readout-slot-hash pairs across sparse SNN cycles. It plans activation-sparsity, slot-drift, and binding-reactivation checks before any readout observation execution while refusing text decoding, language generation, training, replay, plasticity, checkpoint writes, facts/actions, or runtime mutation.
+_Avoid_: treating observation design as generated language, running hidden readout execution, ignoring activation sparsity, or turning bound-slot observations into training/plasticity without later gates
+
+**SNN Autonomous Bound Readout Observation Preflight** — the no-operator current-revision, device, CUDA, executor-capability, and target-integrity audit before observing bound readout slots. It verifies target hashes, candidate hashes, slot hashes, observation cycles, sparsity/drift/reactivation thresholds, and non-generative/non-training boundaries before any observation executor.
+_Avoid_: observing stale designs, skipping executor/device evidence, treating preflight as readout output, or letting observation become replay/plasticity/training without later gates
+
+**SNN Autonomous Bound Readout Observation Executor** — the no-operator ledger writer that records bounded sparse observation metrics for reviewed bound readout slots. It accepts only current-revision hash observations whose activation sparsity, slot drift, binding reactivation, candidate hashes, and slot hashes match the preflight window, then opens only an event-review gate.
+_Avoid_: treating recorded sparse observation metrics as generated language, decoded text, dense-readout training, replay memory, plasticity, checkpoints, facts/actions, or cognition substrate
+
+**SNN Autonomous Bound Readout Observation Event Review** — the no-operator read-only audit of a recorded bound-readout observation event. It verifies ledger presence, revision freshness, hash-only samples, activation sparsity, slot drift, and binding reactivation before any later autonomous readout training-window design.
+_Avoid_: treating observation review as language generation, dense-readout training, replay execution, plasticity approval, checkpoint permission, fact/action promotion, or a cognition-substrate claim
+
+**SNN Autonomous Readout Training Window Design** — the no-operator design surface that turns reviewed sparse bound-readout observation evidence into a bounded SNN training-window plan. It chooses sample windows, truncated temporal credit assignment, micro-batching, learning-rate ceilings, CUDA/device constraints, and spike-memory controls before any training executor exists.
+_Avoid_: treating a training-window design as training execution, generated language, replay memory, plasticity approval, checkpoint permission, fact/action promotion, or a cognition-substrate claim
+
+**SNN Autonomous Readout Training Window Preflight** — the no-operator current-revision and device audit before an autonomous sparse readout training-window executor. It verifies design hashes, sample hashes, target hashes, temporal bounds, CUDA/memory readiness, executor capability, and non-generative/non-plasticity boundaries before any training mutation can run.
+_Avoid_: treating preflight readiness as completed training, generated language, replay memory, plasticity approval, checkpoint permission, fact/action promotion, or a cognition-substrate claim
+
+**SNN Autonomous Readout Training Window Executor** — the no-operator ledger writer for a bounded sparse readout training update. It accepts only current preflight windows with matching sample hashes, bounded loss/gradient/weight-delta/spike-sparsity metrics, runtime weight-update evidence, and no checkpoint/text/replay/plasticity side effects.
+_Avoid_: treating training evidence as language generation, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Readout Training Window Event Review** — the no-operator read-only audit of a recorded sparse readout training update. It verifies ledger presence, revision freshness, bounded loss movement, gradient norm, weight delta, spike sparsity, update hashes, and no text/replay/plasticity/checkpoint side effects before any autonomous decoder probe design.
+_Avoid_: treating a reviewed training event as generated language, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Decoder Probe Design** — the no-operator design surface for probing a reviewed autonomous sparse readout update without emitting language. It binds training-event hashes, update hashes, sample hashes, and target hashes into bounded hash-rank or slot-activation probe targets before any decoder probe preflight.
+_Avoid_: treating decoder probe design as generated text, free-form language, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Decoder Probe Preflight** — the no-operator current-revision and device audit before a bounded autonomous decoder probe executor. It verifies decoder-probe design hashes, probe targets, update hashes, CUDA/device fit, executor capability, and hash-only output boundaries before any decoder probe execution.
+_Avoid_: treating decoder probe preflight as decoded text, generated language, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Decoder Probe Executor** — the no-operator ledger writer for bounded hash-only decoder probe results from a reviewed trained sparse readout. It records probe target hashes, output hashes, rank hashes, score, spike sparsity, and slot drift without decoding text or generating language.
+_Avoid_: treating hash-only probe results as free-form language, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Decoder Probe Event Review** — the no-operator read-only audit that verifies a recorded autonomous decoder probe event is present in the ledger, hash-only, bounded, sparse, current, and free of checkpoint, replay, plasticity, or text-generation side effects before any autonomous language-output design can be reviewed. It cannot decode text, generate language, mutate runtime state, record replay artifacts, write checkpoints, promote facts/actions, or claim cognition.
+_Avoid_: treating reviewed hash-only probe results as generated language or direct semantic understanding; they are only evidence for the next autonomous language-output design gate
+
+**SNN Autonomous Language Output Design** — the no-operator read-only design that turns reviewed autonomous decoder probe hashes into bounded language-output slots for a later preflight. It binds output mode, output length, candidate hashes, sparsity/score/drift thresholds, and device evidence without decoding tokens or emitting text.
+_Avoid_: treating output-slot design as generated language, free-form text, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Language Output Preflight** — the no-operator current-revision, device, CUDA, slot-hash, and executor-capability audit before bounded autonomous language-output execution. It verifies the output design can be executed as hash-only output slots without decoding tokens, emitting text, mutating runtime state, applying plasticity, recording replay, or writing checkpoints.
+_Avoid_: treating output preflight as generated language, decoded text, free-form language generation, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Language Output Executor** — the no-operator ledger writer for bounded hash-only language-output slot results. It records candidate hashes, output-slot hashes, emitted hashes, rank hashes, confidence, spike sparsity, and slot drift without decoded text, generated text, replay execution, plasticity, checkpoint writes, fact/action promotion, or cognition claims.
+_Avoid_: treating recorded hash-only output slots as human-readable language, free-form generation, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Language Output Event Review** — the no-operator read-only audit that verifies a recorded autonomous language-output event is present in the ledger, revision-adjacent, hash-only, bounded, sparse, and free of decoded text, generated text, replay, plasticity, or checkpoint side effects before any autonomous decoded-output design can be reviewed.
+_Avoid_: treating reviewed hash-only output slots as decoded language, free-form generation, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Decoded Output Design** — the no-operator read-only design that binds reviewed hash-only language-output slots to constrained token-candidate hashes, tokenizer hash, vocabulary hash, and decode-constraint hash before a later decoded-output preflight. It defines a bounded decode map without returning token strings, decoded text, or generated language.
+_Avoid_: treating decode-map design as decoded text, generated language, free-form generation, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
+**SNN Autonomous Decoded Output Preflight** — the no-operator current-revision, device, CUDA, vocabulary/tokenizer/constraint-hash, decode-slot, and executor-capability audit before constrained decoded-output execution. It verifies a bounded decode map is executable without returning token strings, decoded text, generated language, replay artifacts, plasticity, checkpoint writes, facts/actions, or cognition claims.
+_Avoid_: treating decoded-output preflight as decoded text, generated language, free-form generation, replay memory, structural plasticity, checkpoint persistence, fact/action promotion, or a full cognition substrate
+
 **SNN Readout Emission Review History Evidence** — the compact Runtime Truth visibility summary for reviewed bounded SNN language emissions. It reports review counts, unique emission/trajectory/transition-memory counts, latest hashes, and the next operator-inspection gate without exposing raw text/labels or becoming a ledger writer, replay source, plasticity signal, fact/action authority, checkpoint command, or cognition-substrate claim.
 _Avoid_: exposing display text inside status, treating a reviewed emission as replay memory, applying plasticity from review history, or using compact Runtime Truth evidence as a substitute for the dedicated emission-review ledger
 

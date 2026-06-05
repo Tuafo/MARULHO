@@ -481,6 +481,230 @@ class SNNLanguageCalibratedDenseLabelConfidenceAutonomousRecalibrationApplicatio
     review_policy: dict[str, Any] | None = None
 
 
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousPostCalibrationObservationWindowRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_recalibration_application_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    observation_evidence: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    window_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousPostCalibrationStabilityReviewRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_post_calibration_observation_window: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    stability_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousUseDesignRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_post_calibration_stability_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    confidence_use_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousUsePreflightRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_use_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    candidate_evidence: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousUseExecutorRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_use_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    candidate_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageCalibratedDenseLabelConfidenceAutonomousUseEventReviewRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_use_executor: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousHashReadoutBindingDesignRequest(BaseModel):
+    calibrated_dense_label_confidence_autonomous_use_event_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    readout_vocabulary_slots: list[SNNLanguageHeldoutReadoutSlot] = Field(
+        ..., min_length=1, max_length=32
+    )
+    binding_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousHashReadoutBindingPreflightRequest(BaseModel):
+    autonomous_hash_readout_binding_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousHashReadoutBindingExecutorRequest(BaseModel):
+    autonomous_hash_readout_binding_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousHashReadoutBindingEventReviewRequest(BaseModel):
+    autonomous_hash_readout_binding_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundReadoutObservationDesignRequest(BaseModel):
+    autonomous_hash_readout_binding_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    observation_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundReadoutObservationPreflightRequest(BaseModel):
+    autonomous_bound_readout_observation_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundReadoutObservationExecutorRequest(BaseModel):
+    autonomous_bound_readout_observation_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    observation_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundReadoutObservationEventReviewRequest(BaseModel):
+    autonomous_bound_readout_observation_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousReadoutTrainingWindowDesignRequest(BaseModel):
+    autonomous_bound_readout_observation_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    training_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousReadoutTrainingWindowPreflightRequest(BaseModel):
+    autonomous_readout_training_window_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousReadoutTrainingWindowExecutorRequest(BaseModel):
+    autonomous_readout_training_window_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    training_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousReadoutTrainingWindowEventReviewRequest(BaseModel):
+    autonomous_readout_training_window_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecoderProbeDesignRequest(BaseModel):
+    autonomous_readout_training_window_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    probe_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecoderProbePreflightRequest(BaseModel):
+    autonomous_decoder_probe_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecoderProbeExecutorRequest(BaseModel):
+    autonomous_decoder_probe_preflight: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    probe_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecoderProbeEventReviewRequest(BaseModel):
+    autonomous_decoder_probe_executor: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousLanguageOutputDesignRequest(BaseModel):
+    autonomous_decoder_probe_event_review: dict[str, Any] = Field(..., min_length=1)
+    output_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousLanguageOutputPreflightRequest(BaseModel):
+    autonomous_language_output_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousLanguageOutputExecutorRequest(BaseModel):
+    autonomous_language_output_preflight: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    output_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousLanguageOutputEventReviewRequest(BaseModel):
+    autonomous_language_output_executor: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecodedOutputDesignRequest(BaseModel):
+    autonomous_language_output_event_review: dict[str, Any] = Field(..., min_length=1)
+    vocabulary_binding: dict[str, Any] | None = None
+    decode_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecodedOutputPreflightRequest(BaseModel):
+    autonomous_decoded_output_design: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
 class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)

@@ -4746,10 +4746,10 @@ class SNNLanguageReadoutEvidenceLedger:
                 "expected_revision_current": int(expected_state_revision)
                 == before_revision,
                 "preflight_revision_current": int(
-                    preflight.get("observed_state_revision", -1) or -1
+                    preflight.get("observed_state_revision", -1)
                 )
                 == before_revision
-                and int(preflight.get("expected_state_revision", -1) or -1)
+                and int(preflight.get("expected_state_revision", -1))
                 == before_revision,
                 "recalibration_preflight_hash_available": len(
                     str(preflight.get("recalibration_preflight_hash") or "")
@@ -5206,6 +5206,6505 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
+    def calibrated_dense_label_confidence_autonomous_post_calibration_observation_window(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_recalibration_application_review: Mapping[str, Any],
+        observation_evidence: Mapping[str, Any],
+        expected_state_revision: int,
+        window_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate autonomous post-calibration observations without mutation."""
+
+        review = dict(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review
+            or {}
+        )
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        evidence = dict(observation_evidence or {})
+        policy = dict(window_policy or {})
+        samples = [
+            dict(item)
+            for item in list(
+                evidence.get("samples") or evidence.get("observations") or []
+            )
+            if isinstance(item, Mapping)
+        ][:64]
+        min_samples = max(1, min(int(policy.get("min_samples", 3) or 3), 64))
+        max_expected_calibration_error = max(
+            0.0,
+            min(
+                float(policy.get("max_expected_calibration_error", 0.2) or 0.2),
+                1.0,
+            ),
+        )
+        max_confidence_drift = max(
+            0.0,
+            min(float(policy.get("max_confidence_drift", 0.2) or 0.2), 1.0),
+        )
+        before_revision = int(self._runtime_state.state_revision)
+        observed_samples: list[dict[str, Any]] = []
+        total_gap = 0.0
+        total_drift = 0.0
+        bounded = True
+        hashes_available = True
+        for index, sample in enumerate(samples):
+            calibrated_confidence = max(
+                0.0,
+                min(float(sample.get("calibrated_confidence", 0.0) or 0.0), 1.0),
+            )
+            pre_calibration_confidence = max(
+                0.0,
+                min(
+                    float(
+                        sample.get(
+                            "pre_calibration_confidence",
+                            sample.get("raw_confidence", calibrated_confidence),
+                        )
+                        or 0.0
+                    ),
+                    1.0,
+                ),
+            )
+            correct = bool(sample.get("correct") or sample.get("label_match"))
+            accuracy = 1.0 if correct else 0.0
+            gap = abs(calibrated_confidence - accuracy)
+            drift = abs(calibrated_confidence - pre_calibration_confidence)
+            total_gap += gap
+            total_drift += drift
+            sample_hash = str(sample.get("sample_hash") or sample.get("evidence_hash") or "")
+            label_hash = str(sample.get("label_hash") or "")
+            hashes_available = hashes_available and len(sample_hash) == 64
+            bounded = (
+                bounded
+                and 0.0 <= calibrated_confidence <= 1.0
+                and 0.0 <= pre_calibration_confidence <= 1.0
+                and (not label_hash or len(label_hash) == 64)
+            )
+            observed_samples.append(
+                {
+                    "observation_index": index,
+                    "sample_hash": sample_hash,
+                    "label_hash": label_hash or None,
+                    "calibrated_confidence": round(calibrated_confidence, 6),
+                    "pre_calibration_confidence": round(
+                        pre_calibration_confidence, 6
+                    ),
+                    "correct": correct,
+                    "calibration_gap": round(gap, 6),
+                    "confidence_drift": round(drift, 6),
+                }
+            )
+        sample_count = len(observed_samples)
+        expected_calibration_error = (
+            round(total_gap / sample_count, 6) if sample_count else None
+        )
+        mean_confidence_drift = (
+            round(total_drift / sample_count, 6) if sample_count else None
+        )
+        applied_hash = str(review.get("applied_calibration_update_hash") or "")
+        required = {
+            "application_review_surface_available": review.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_recalibration_application_review.v1",
+            "application_review_ready": bool(review.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_post_calibration_observation_window"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            ),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "application_review_hash_available": len(
+                str(review.get("application_review_hash") or "")
+            )
+            == 64,
+            "applied_calibration_hash_available": len(applied_hash) == 64,
+            "sample_count_sufficient": sample_count >= min_samples,
+            "sample_hashes_available": bool(samples) and hashes_available,
+            "confidence_values_bounded": bounded,
+            "expected_calibration_error_within_policy": (
+                expected_calibration_error is not None
+                and expected_calibration_error <= max_expected_calibration_error
+            ),
+            "confidence_drift_within_policy": (
+                mean_confidence_drift is not None
+                and mean_confidence_drift <= max_confidence_drift
+            ),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        observation_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_observation_window.v1",
+                "application_review_hash": review.get("application_review_hash"),
+                "applied_calibration_update_hash": applied_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "sample_hashes": [item["sample_hash"] for item in observed_samples],
+                "expected_calibration_error": expected_calibration_error,
+                "mean_confidence_drift": mean_confidence_drift,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_observation_window",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_observation_window.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_post_calibration_observation_window",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "observation_hash": observation_hash,
+            "application_review_hash": review.get("application_review_hash"),
+            "applied_calibration_update_hash": applied_hash,
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "sample_count": sample_count,
+            "metrics": {
+                "expected_calibration_error": expected_calibration_error,
+                "mean_confidence_drift": mean_confidence_drift,
+                "max_expected_calibration_error": max_expected_calibration_error,
+                "max_confidence_drift": max_confidence_drift,
+                "min_samples": min_samples,
+            },
+            "observed_samples": observed_samples,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_post_calibration_stability_review"
+                    if ready
+                    else "blocked_missing_autonomous_post_calibration_observation_evidence"
+                ),
+                "eligible_for_autonomous_post_calibration_stability_review": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_post_calibration_stability_review"
+                    if ready
+                    else "collect_autonomous_post_calibration_observations"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_post_calibration_stability_review(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_post_calibration_observation_window: Mapping[str, Any],
+        expected_state_revision: int,
+        stability_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review autonomous post-calibration stability without mutation."""
+
+        observation = dict(
+            calibrated_dense_label_confidence_autonomous_post_calibration_observation_window
+            or {}
+        )
+        gate = (
+            observation.get("promotion_gate")
+            if isinstance(observation.get("promotion_gate"), Mapping)
+            else {}
+        )
+        metrics = (
+            observation.get("metrics")
+            if isinstance(observation.get("metrics"), Mapping)
+            else {}
+        )
+        policy = dict(stability_policy or {})
+        before_revision = int(self._runtime_state.state_revision)
+        min_samples = max(1, min(int(policy.get("min_samples", 3) or 3), 64))
+        max_expected_calibration_error = max(
+            0.0,
+            min(
+                float(policy.get("max_expected_calibration_error", 0.2) or 0.2),
+                1.0,
+            ),
+        )
+        max_confidence_drift = max(
+            0.0,
+            min(float(policy.get("max_confidence_drift", 0.2) or 0.2), 1.0),
+        )
+        sample_count = int(observation.get("sample_count", 0) or 0)
+        expected_calibration_error = metrics.get("expected_calibration_error")
+        mean_confidence_drift = metrics.get("mean_confidence_drift")
+        ece_value = (
+            float(expected_calibration_error)
+            if expected_calibration_error is not None
+            else None
+        )
+        drift_value = (
+            float(mean_confidence_drift)
+            if mean_confidence_drift is not None
+            else None
+        )
+        observed_samples = [
+            dict(item)
+            for item in list(observation.get("observed_samples") or [])
+            if isinstance(item, Mapping)
+        ][:64]
+        sample_hashes = [
+            str(item.get("sample_hash") or "")
+            for item in observed_samples
+            if str(item.get("sample_hash") or "")
+        ]
+        required = {
+            "observation_surface_available": observation.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_observation_window.v1",
+            "observation_ready": bool(observation.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_post_calibration_stability_review"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                observation.get("requires_operator_approval")
+            ),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "observation_hash_available": len(
+                str(observation.get("observation_hash") or "")
+            )
+            == 64,
+            "application_review_hash_available": len(
+                str(observation.get("application_review_hash") or "")
+            )
+            == 64,
+            "applied_calibration_hash_available": len(
+                str(observation.get("applied_calibration_update_hash") or "")
+            )
+            == 64,
+            "sample_count_sufficient": sample_count >= min_samples,
+            "sample_hashes_available": bool(sample_hashes)
+            and len(sample_hashes) == sample_count
+            and all(len(value) == 64 for value in sample_hashes),
+            "expected_calibration_error_stable": ece_value is not None
+            and ece_value <= max_expected_calibration_error,
+            "confidence_drift_stable": drift_value is not None
+            and drift_value <= max_confidence_drift,
+            "runtime_mutation_absent": not bool(observation.get("mutates_runtime_state")),
+            "recalibration_absent": not bool(observation.get("runs_recalibration"))
+            and not bool(observation.get("runs_calibration_update")),
+            "training_absent": not bool(observation.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(observation.get("runs_replay")),
+            "plasticity_absent": not bool(observation.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(observation.get("writes_checkpoint")),
+            "language_generation_absent": not bool(observation.get("generates_text")),
+            "text_decoding_absent": not bool(observation.get("decodes_text")),
+        }
+        ready = all(required.values())
+        stability_review_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_stability_review.v1",
+                "observation_hash": observation.get("observation_hash"),
+                "application_review_hash": observation.get("application_review_hash"),
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "sample_hashes": sample_hashes,
+                "expected_calibration_error": ece_value,
+                "mean_confidence_drift": drift_value,
+                "required": required,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_stability_review",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_stability_review.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_post_calibration_stability_review",
+            "available": bool(observation),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "stability_review_hash": stability_review_hash,
+            "observation_hash": observation.get("observation_hash"),
+            "application_review_hash": observation.get("application_review_hash"),
+            "applied_calibration_update_hash": observation.get(
+                "applied_calibration_update_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "autonomous_post_calibration_stability_review": {
+                "sample_count": sample_count,
+                "sample_hashes": sample_hashes,
+                "expected_calibration_error": (
+                    round(ece_value, 6) if ece_value is not None else None
+                ),
+                "max_expected_calibration_error": round(
+                    max_expected_calibration_error, 6
+                ),
+                "mean_confidence_drift": (
+                    round(drift_value, 6) if drift_value is not None else None
+                ),
+                "max_confidence_drift": round(max_confidence_drift, 6),
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_calibrated_confidence_use_design"
+                    if ready
+                    else "blocked_missing_autonomous_post_calibration_stability_evidence"
+                ),
+                "eligible_for_autonomous_calibrated_confidence_use_design": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_calibrated_confidence_use_design"
+                    if ready
+                    else "collect_stable_autonomous_post_calibration_observations"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_use_design(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_post_calibration_stability_review: Mapping[str, Any],
+        confidence_use_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design no-operator calibrated confidence use after stability review."""
+
+        stability = dict(
+            calibrated_dense_label_confidence_autonomous_post_calibration_stability_review
+            or {}
+        )
+        gate = (
+            stability.get("promotion_gate")
+            if isinstance(stability.get("promotion_gate"), Mapping)
+            else {}
+        )
+        stability_body = (
+            stability.get("autonomous_post_calibration_stability_review")
+            if isinstance(
+                stability.get("autonomous_post_calibration_stability_review"), Mapping
+            )
+            else {}
+        )
+        policy = dict(confidence_use_policy or {})
+        device = dict(device_evidence or {})
+        allowed_use_modes = {
+            "rank_only",
+            "threshold_and_abstain",
+            "autonomous_hash_selection",
+        }
+        use_mode = str(policy.get("use_mode") or "threshold_and_abstain").strip()
+        min_confidence_threshold = max(
+            0.0,
+            min(float(policy.get("min_confidence_threshold", 0.6) or 0.6), 1.0),
+        )
+        max_candidates = max(1, min(int(policy.get("max_candidates", 8) or 8), 32))
+        stability_hash = str(stability.get("stability_review_hash") or "")
+        observation_hash = str(stability.get("observation_hash") or "")
+        application_review_hash = str(stability.get("application_review_hash") or "")
+        applied_hash = str(stability.get("applied_calibration_update_hash") or "")
+        sample_hashes = [
+            str(value)
+            for value in list(stability_body.get("sample_hashes") or [])
+            if str(value)
+        ]
+        expected_calibration_error = stability_body.get("expected_calibration_error")
+        mean_confidence_drift = stability_body.get("mean_confidence_drift")
+        required = {
+            "stability_review_surface_available": stability.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_stability_review.v1",
+            "stability_review_ready": bool(stability.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_calibrated_confidence_use_design")
+            ),
+            "operator_approval_not_required": not bool(
+                stability.get("requires_operator_approval")
+            )
+            and not bool(stability_body.get("operator_approval_required")),
+            "stability_hash_available": len(stability_hash) == 64,
+            "observation_hash_available": len(observation_hash) == 64,
+            "application_review_hash_available": len(application_review_hash) == 64,
+            "applied_calibration_hash_available": len(applied_hash) == 64,
+            "sample_hashes_available": bool(sample_hashes)
+            and all(len(value) == 64 for value in sample_hashes),
+            "stability_metrics_available": expected_calibration_error is not None
+            and mean_confidence_drift is not None,
+            "use_mode_supported": use_mode in allowed_use_modes,
+            "confidence_threshold_bounded": 0.0 <= min_confidence_threshold <= 1.0,
+            "candidate_limit_bounded": 1 <= max_candidates <= 32,
+            "device_evidence_available": bool(
+                str(device.get("device") or device.get("tensor_device") or "")
+            ),
+            "runtime_mutation_absent": not bool(stability.get("mutates_runtime_state")),
+            "recalibration_absent": not bool(stability.get("runs_recalibration"))
+            and not bool(stability.get("runs_calibration_update")),
+            "training_absent": not bool(stability.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(stability.get("runs_replay")),
+            "plasticity_absent": not bool(stability.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(stability.get("writes_checkpoint")),
+            "language_generation_absent": not bool(stability.get("generates_text")),
+            "text_decoding_absent": not bool(stability.get("decodes_text")),
+        }
+        ready = all(required.values())
+        autonomous_confidence_use_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_design.v1",
+                "stability_review_hash": stability_hash,
+                "observation_hash": observation_hash,
+                "application_review_hash": application_review_hash,
+                "applied_calibration_update_hash": applied_hash,
+                "sample_hashes": sample_hashes,
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "max_candidates": max_candidates,
+                "device": device.get("device") or device.get("tensor_device"),
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_use_design",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_design.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_use_design",
+            "available": bool(stability),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "autonomous_confidence_use_design_hash": autonomous_confidence_use_design_hash,
+            "stability_review_hash": stability_hash,
+            "observation_hash": observation_hash,
+            "application_review_hash": application_review_hash,
+            "applied_calibration_update_hash": applied_hash,
+            "autonomous_confidence_use_design": {
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "max_candidates": max_candidates,
+                "allowed_operations": [
+                    "rank_dense_label_candidate_hashes",
+                    "select_candidate_hashes_above_threshold",
+                    "abstain_below_threshold",
+                ],
+                "disallowed_operations": [
+                    "decode_text",
+                    "sample_text",
+                    "generate_language",
+                    "train_dense_readout",
+                    "apply_plasticity",
+                    "record_replay_memory",
+                    "promote_facts_or_actions",
+                ],
+                "stability_metrics": {
+                    "expected_calibration_error": expected_calibration_error,
+                    "mean_confidence_drift": mean_confidence_drift,
+                    "sample_count": stability_body.get("sample_count"),
+                    "sample_hashes": sample_hashes,
+                },
+                "device_evidence": device,
+                "operator_approval_required": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_calibrated_confidence_use_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_calibrated_confidence_use_design_evidence"
+                ),
+                "eligible_for_autonomous_calibrated_confidence_use_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_calibrated_confidence_use_preflight"
+                    if ready
+                    else "collect_autonomous_stability_device_and_confidence_policy"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def calibrated_dense_label_confidence_autonomous_use_preflight(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_use_design: Mapping[str, Any],
+        expected_state_revision: int,
+        candidate_evidence: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight no-operator calibrated-confidence use without running it."""
+
+        design = dict(calibrated_dense_label_confidence_autonomous_use_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        design_body = (
+            design.get("autonomous_confidence_use_design")
+            if isinstance(design.get("autonomous_confidence_use_design"), Mapping)
+            else {}
+        )
+        design_device = (
+            design_body.get("device_evidence")
+            if isinstance(design_body.get("device_evidence"), Mapping)
+            else {}
+        )
+        evidence = dict(candidate_evidence or {})
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        use_mode = str(design_body.get("use_mode") or "").strip()
+        allowed_use_modes = {
+            "rank_only",
+            "threshold_and_abstain",
+            "autonomous_hash_selection",
+        }
+        min_confidence_threshold = float(
+            design_body.get("min_confidence_threshold", 0.0) or 0.0
+        )
+        max_candidates = int(design_body.get("max_candidates", 0) or 0)
+        candidates = [
+            dict(candidate)
+            for candidate in list(evidence.get("candidates") or [])
+            if isinstance(candidate, Mapping)
+        ]
+        bounded_candidates = candidates[: max(0, max_candidates)]
+
+        def _confidence(candidate: Mapping[str, Any]) -> float:
+            return float(candidate.get("calibrated_confidence", -1.0) or 0.0)
+
+        candidate_confidences = [_confidence(candidate) for candidate in bounded_candidates]
+        passing_candidate_count = sum(
+            confidence >= min_confidence_threshold for confidence in candidate_confidences
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(
+            capabilities.get("autonomous_calibrated_confidence_use_executor")
+        )
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_use_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_calibrated_confidence_use_preflight")
+            ),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(design_body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "autonomous_confidence_use_design_hash_available": len(
+                str(design.get("autonomous_confidence_use_design_hash") or "")
+            )
+            == 64,
+            "stability_review_hash_available": len(
+                str(design.get("stability_review_hash") or "")
+            )
+            == 64,
+            "observation_hash_available": len(str(design.get("observation_hash") or ""))
+            == 64,
+            "application_review_hash_available": len(
+                str(design.get("application_review_hash") or "")
+            )
+            == 64,
+            "applied_calibration_hash_available": len(
+                str(design.get("applied_calibration_update_hash") or "")
+            )
+            == 64,
+            "use_mode_supported": use_mode in allowed_use_modes,
+            "confidence_threshold_bounded": 0.0 <= min_confidence_threshold <= 1.0,
+            "candidate_limit_bounded": 1 <= max_candidates <= 32,
+            "candidate_count_bounded": 0 < len(candidates) <= max_candidates,
+            "candidate_hashes_available": bool(candidates)
+            and all(
+                len(str(candidate.get("dense_label_candidate_evidence_hash") or "")) == 64
+                and len(str(candidate.get("label_hash") or "")) == 64
+                for candidate in candidates
+            ),
+            "candidate_confidences_bounded": bool(candidates)
+            and all(0.0 <= _confidence(candidate) <= 1.0 for candidate in candidates),
+            "threshold_mode_has_passing_candidate": use_mode != "threshold_and_abstain"
+            or passing_candidate_count > 0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "recalibration_absent": not bool(design.get("runs_recalibration"))
+            and not bool(design.get("runs_calibration_update")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        autonomous_confidence_use_preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_preflight.v1",
+                "autonomous_confidence_use_design_hash": design.get(
+                    "autonomous_confidence_use_design_hash"
+                ),
+                "stability_review_hash": design.get("stability_review_hash"),
+                "observation_hash": design.get("observation_hash"),
+                "applied_calibration_update_hash": design.get(
+                    "applied_calibration_update_hash"
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "max_candidates": max_candidates,
+                "candidate_hashes": [
+                    candidate.get("dense_label_candidate_evidence_hash")
+                    for candidate in bounded_candidates
+                ],
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_use_preflight",
+            "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_preflight.v1",
+            "source": "service.snn_language_readout_ledger.calibrated_dense_label_confidence_autonomous_use_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "autonomous_confidence_use_preflight_hash": autonomous_confidence_use_preflight_hash,
+            "autonomous_confidence_use_design_hash": design.get(
+                "autonomous_confidence_use_design_hash"
+            ),
+            "stability_review_hash": design.get("stability_review_hash"),
+            "observation_hash": design.get("observation_hash"),
+            "application_review_hash": design.get("application_review_hash"),
+            "applied_calibration_update_hash": design.get(
+                "applied_calibration_update_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "candidate_preflight": {
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "candidate_count": len(candidates),
+                "passing_candidate_count": passing_candidate_count,
+                "max_candidates": max_candidates,
+                "candidate_hashes": [
+                    candidate.get("dense_label_candidate_evidence_hash")
+                    for candidate in bounded_candidates
+                ],
+                "operator_approval_required": False,
+            },
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_calibrated_confidence_use_executor"
+                    if ready
+                    else "blocked_missing_autonomous_calibrated_confidence_use_preflight_evidence"
+                ),
+                "eligible_for_autonomous_calibrated_confidence_use_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_calibrated_confidence_use_executor"
+                    if ready
+                    else "collect_autonomous_candidate_device_executor_revision_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_calibrated_dense_label_confidence_use(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_use_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        candidate_evidence: Mapping[str, Any] | None = None,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record bounded no-operator calibrated-confidence hash use."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(
+                calibrated_dense_label_confidence_autonomous_use_preflight or {}
+            )
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            candidate_preflight = (
+                preflight.get("candidate_preflight")
+                if isinstance(preflight.get("candidate_preflight"), Mapping)
+                else {}
+            )
+            evidence = dict(candidate_evidence or {})
+            policy = dict(execution_policy or {})
+            use_mode = str(candidate_preflight.get("use_mode") or "").strip()
+            min_confidence_threshold = float(
+                candidate_preflight.get("min_confidence_threshold", 0.0) or 0.0
+            )
+            max_candidates = int(candidate_preflight.get("max_candidates", 0) or 0)
+            requested_candidate_hashes = [
+                str(value)
+                for value in list(candidate_preflight.get("candidate_hashes") or [])
+                if str(value)
+            ]
+            candidates = [
+                dict(candidate)
+                for candidate in list(evidence.get("candidates") or [])
+                if isinstance(candidate, Mapping)
+            ][: max(0, max_candidates)]
+            candidate_hashes = [
+                str(candidate.get("dense_label_candidate_evidence_hash") or "")
+                for candidate in candidates
+            ]
+
+            def _confidence(candidate: Mapping[str, Any]) -> float:
+                return float(candidate.get("calibrated_confidence", -1.0) or 0.0)
+
+            ranked_candidates = sorted(
+                candidates,
+                key=lambda candidate: (
+                    _confidence(candidate),
+                    str(candidate.get("dense_label_candidate_evidence_hash") or ""),
+                ),
+                reverse=True,
+            )
+            if use_mode == "threshold_and_abstain":
+                selectable_candidates = [
+                    candidate
+                    for candidate in ranked_candidates
+                    if _confidence(candidate) >= min_confidence_threshold
+                ]
+            else:
+                selectable_candidates = ranked_candidates
+            max_selected = max(
+                1,
+                min(
+                    int(
+                        policy.get("max_selected_candidates", max_candidates)
+                        or max_candidates
+                    ),
+                    max_candidates or 1,
+                ),
+            )
+            selected_candidates = selectable_candidates[:max_selected]
+            abstained = use_mode == "threshold_and_abstain" and not selected_candidates
+            expected_candidate_count = int(
+                candidate_preflight.get("candidate_count", 0) or 0
+            )
+            preflight_hash = str(
+                preflight.get("autonomous_confidence_use_preflight_hash") or ""
+            )
+            contains_text_payload = any(
+                any(key in candidate for key in ("text", "label", "labels"))
+                for candidate in candidates
+            )
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_calibrated_dense_label_confidence_autonomous_use_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_calibrated_confidence_use_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                ),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(
+                    str(preflight.get("autonomous_confidence_use_design_hash") or "")
+                )
+                == 64,
+                "candidate_count_matches_preflight": len(candidates)
+                == expected_candidate_count,
+                "candidate_hashes_match_preflight": bool(requested_candidate_hashes)
+                and candidate_hashes == requested_candidate_hashes,
+                "candidate_confidences_bounded": bool(candidates)
+                and all(0.0 <= _confidence(candidate) <= 1.0 for candidate in candidates),
+                "selected_candidate_count_bounded": 0
+                <= len(selected_candidates)
+                <= max_candidates,
+                "threshold_mode_does_not_select_below_threshold": use_mode
+                != "threshold_and_abstain"
+                or all(
+                    _confidence(candidate) >= min_confidence_threshold
+                    for candidate in selected_candidates
+                ),
+                "text_payload_absent": not contains_text_payload,
+                "runtime_mutation_absent_in_preflight": not bool(
+                    preflight.get("mutates_runtime_state")
+                ),
+                "recalibration_absent": not bool(preflight.get("runs_recalibration"))
+                and not bool(preflight.get("runs_calibration_update")),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+                "language_generation_absent": not bool(preflight.get("generates_text")),
+                "text_decoding_absent": not bool(preflight.get("decodes_text")),
+            }
+            accepted = all(required.values())
+            ranked_candidate_refs = [
+                {
+                    "rank": index + 1,
+                    "dense_label_candidate_evidence_hash": candidate.get(
+                        "dense_label_candidate_evidence_hash"
+                    ),
+                    "label_hash": candidate.get("label_hash"),
+                    "calibrated_confidence": round(_confidence(candidate), 6),
+                    "meets_threshold": _confidence(candidate)
+                    >= min_confidence_threshold,
+                }
+                for index, candidate in enumerate(ranked_candidates)
+            ]
+            selected_candidate_refs = [
+                {
+                    "selection_rank": index + 1,
+                    "dense_label_candidate_evidence_hash": candidate.get(
+                        "dense_label_candidate_evidence_hash"
+                    ),
+                    "label_hash": candidate.get("label_hash"),
+                    "calibrated_confidence": round(_confidence(candidate), 6),
+                }
+                for index, candidate in enumerate(selected_candidates)
+            ]
+            event = {
+                "autonomous_confidence_use_event_id": (
+                    f"snn-autonomous-confidence-use:{preflight_hash[:16]}"
+                ),
+                "used_at": datetime.now(timezone.utc).isoformat(),
+                "state_revision": before_revision,
+                "preflight_hash": preflight_hash,
+                "autonomous_confidence_use_design_hash": preflight.get(
+                    "autonomous_confidence_use_design_hash"
+                ),
+                "stability_review_hash": preflight.get("stability_review_hash"),
+                "observation_hash": preflight.get("observation_hash"),
+                "application_review_hash": preflight.get("application_review_hash"),
+                "applied_calibration_update_hash": preflight.get(
+                    "applied_calibration_update_hash"
+                ),
+                "use_mode": use_mode,
+                "min_confidence_threshold": round(min_confidence_threshold, 6),
+                "candidate_count": len(candidates),
+                "selected_candidate_count": len(selected_candidate_refs),
+                "abstained": abstained,
+                "ranked_candidate_refs": ranked_candidate_refs,
+                "selected_candidate_refs": selected_candidate_refs,
+                "output_is_label_hash_only": True,
+                "operator_approval_required": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+                "runs_replay": False,
+                "runs_recalibration": False,
+            }
+            event["autonomous_confidence_use_event_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_executor.v1",
+                    **event,
+                }
+            )
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(item.get("autonomous_confidence_use_event_hash") or "")
+                    for item in state["autonomous_confidence_use_events"]
+                }
+                duplicate = (
+                    event["autonomous_confidence_use_event_hash"] in existing_hashes
+                )
+                if not duplicate:
+                    state["autonomous_confidence_use_events"].appendleft(
+                        deepcopy(event)
+                    )
+                    state["total_autonomous_confidence_use_count"] = int(
+                        state.get("total_autonomous_confidence_use_count", 0) or 0
+                    ) + 1
+                    state["last_autonomous_confidence_used_at"] = event["used_at"]
+                    self._store_state(state)
+                    self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_use_executor",
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_executor.v1",
+                "source": "service.snn_language_readout_ledger.execute_autonomous_calibrated_dense_label_confidence_use",
+                "available": bool(preflight),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "ready": accepted,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": accepted,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_confidence_use_event_hash": event[
+                    "autonomous_confidence_use_event_hash"
+                ],
+                "autonomous_confidence_use_event": event if accepted else None,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_calibrated_confidence_use_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_calibrated_confidence_use_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_calibrated_confidence_use_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_confidence_use_event_review": accepted,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_confidence_use_event_review"
+                        if accepted
+                        else "collect_preflight_matched_autonomous_candidate_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_calibrated_dense_label_confidence_use_event_review(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_use_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded autonomous confidence-use event without mutation."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            execution = dict(
+                calibrated_dense_label_confidence_autonomous_use_executor or {}
+            )
+            gate = (
+                execution.get("promotion_gate")
+                if isinstance(execution.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                execution.get("autonomous_confidence_use_event")
+                if isinstance(execution.get("autonomous_confidence_use_event"), Mapping)
+                else {}
+            )
+            policy = dict(review_policy or {})
+            min_selected = max(0, int(policy.get("min_selected_candidates", 0) or 0))
+            max_selected = min(
+                32,
+                max(1, int(policy.get("max_selected_candidates", 32) or 32)),
+            )
+            selected_refs = [
+                dict(item)
+                for item in list(event.get("selected_candidate_refs") or [])
+                if isinstance(item, Mapping)
+            ]
+            ranked_refs = [
+                dict(item)
+                for item in list(event.get("ranked_candidate_refs") or [])
+                if isinstance(item, Mapping)
+            ]
+            event_hash = str(event.get("autonomous_confidence_use_event_hash") or "")
+            state = self._normalized_state()
+            matching_events = [
+                dict(item)
+                for item in list(state["autonomous_confidence_use_events"])
+                if str(item.get("autonomous_confidence_use_event_hash") or "")
+                == event_hash
+            ]
+            ledger_event = matching_events[0] if matching_events else {}
+            event_revision = int(event.get("state_revision", -1))
+            selected_hashes = [
+                str(item.get("dense_label_candidate_evidence_hash") or "")
+                for item in selected_refs
+            ]
+            ranked_hashes = [
+                str(item.get("dense_label_candidate_evidence_hash") or "")
+                for item in ranked_refs
+            ]
+            selected_confidences = [
+                float(item.get("calibrated_confidence", -1.0) or 0.0)
+                for item in selected_refs
+            ]
+            ranked_confidences = [
+                float(item.get("calibrated_confidence", -1.0) or 0.0)
+                for item in ranked_refs
+            ]
+            contains_text_payload = any(
+                any(key in item for key in ("text", "label", "labels"))
+                for item in selected_refs + ranked_refs
+            )
+            abstained = bool(event.get("abstained"))
+            required = {
+                "executor_surface_available": execution.get("surface")
+                == "snn_language_calibrated_dense_label_confidence_autonomous_use_executor.v1",
+                "executor_accepted": bool(execution.get("accepted"))
+                and bool(
+                    gate.get("eligible_for_autonomous_confidence_use_event_review")
+                ),
+                "operator_approval_not_required": not bool(
+                    execution.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_recorded_in_ledger": bool(matching_events),
+                "event_hash_matches_executor": event_hash
+                == str(execution.get("autonomous_confidence_use_event_hash") or ""),
+                "event_revision_precedes_current_revision": event_revision
+                == before_revision - 1,
+                "ledger_event_hash_matches_payload": bool(ledger_event)
+                and ledger_event == dict(event),
+                "preflight_hash_available": len(str(event.get("preflight_hash") or ""))
+                == 64,
+                "selected_count_bounded": min_selected
+                <= len(selected_refs)
+                <= max_selected,
+                "abstention_consistent": not abstained or len(selected_refs) == 0,
+                "selected_hashes_available_or_abstained": abstained
+                or (
+                    bool(selected_hashes)
+                    and all(len(value) == 64 for value in selected_hashes)
+                ),
+                "ranked_hashes_available": bool(ranked_hashes)
+                and all(len(value) == 64 for value in ranked_hashes),
+                "confidences_bounded": all(
+                    0.0 <= value <= 1.0
+                    for value in selected_confidences + ranked_confidences
+                ),
+                "hash_only_output": bool(event.get("output_is_label_hash_only"))
+                and not contains_text_payload,
+                "runtime_mutation_absent_in_review": not bool(
+                    execution.get("mutates_runtime_state")
+                )
+                or bool(execution.get("records_ledger_event")),
+                "recalibration_absent": not bool(execution.get("runs_recalibration"))
+                and not bool(execution.get("runs_calibration_update")),
+                "training_absent": not bool(execution.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(execution.get("runs_replay")),
+                "plasticity_absent": not bool(execution.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+                "language_generation_absent": not bool(execution.get("generates_text")),
+                "text_decoding_absent": not bool(execution.get("decodes_text")),
+            }
+            ready = all(required.values())
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_event_review.v1",
+                    "autonomous_confidence_use_event_hash": event_hash,
+                    "expected_state_revision": int(expected_state_revision),
+                    "observed_state_revision": before_revision,
+                    "selected_candidate_hashes": selected_hashes,
+                    "abstained": abstained,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_calibrated_dense_label_confidence_autonomous_use_event_review",
+                "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_event_review.v1",
+                "source": "service.snn_language_readout_ledger.autonomous_calibrated_dense_label_confidence_use_event_review",
+                "available": bool(execution),
+                "ready": ready,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "review_hash": review_hash,
+                "autonomous_confidence_use_event_hash": event_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "autonomous_confidence_use_event_review": {
+                    "event_recorded_in_ledger": bool(matching_events),
+                    "event_revision": event_revision,
+                    "selected_candidate_count": len(selected_refs),
+                    "ranked_candidate_count": len(ranked_refs),
+                    "abstained": abstained,
+                    "selected_candidate_hashes": selected_hashes,
+                    "ranked_candidate_hashes": ranked_hashes,
+                    "output_is_label_hash_only": True,
+                    "operator_approval_required": False,
+                    "mutation_allowed": False,
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_hash_readout_binding_design"
+                        if ready
+                        else "blocked_missing_autonomous_confidence_use_event_review_evidence"
+                    ),
+                    "eligible_for_autonomous_hash_readout_binding_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_hash_readout_binding_design"
+                        if ready
+                        else "collect_recorded_hash_only_autonomous_confidence_use_event"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_hash_readout_binding_design(
+        self,
+        *,
+        calibrated_dense_label_confidence_autonomous_use_event_review: Mapping[str, Any],
+        readout_vocabulary_slots: Sequence[Mapping[str, Any]],
+        binding_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design hash-to-readout-slot bindings without decoding or training."""
+
+        review = dict(
+            calibrated_dense_label_confidence_autonomous_use_event_review or {}
+        )
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        event_review = (
+            review.get("autonomous_confidence_use_event_review")
+            if isinstance(review.get("autonomous_confidence_use_event_review"), Mapping)
+            else {}
+        )
+        policy = dict(binding_policy or {})
+        device = dict(device_evidence or {})
+        selected_hashes = [
+            str(value)
+            for value in list(event_review.get("selected_candidate_hashes") or [])
+            if str(value)
+        ]
+        slots = [
+            dict(slot)
+            for slot in list(readout_vocabulary_slots or [])
+            if isinstance(slot, Mapping)
+        ][:32]
+        max_bindings = max(1, min(int(policy.get("max_bindings", 8) or 8), 32))
+        binding_count = min(len(selected_hashes), len(slots), max_bindings)
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        slot_refs = [
+            {
+                "slot_index": index,
+                "slot_id": str(slot.get("slot_id") or f"slot:{index}"),
+                "label_hash": self._sha256_json(
+                    [
+                        str(slot.get("label") or ""),
+                        str(slot.get("pressure_band") or "low"),
+                        bool(slot.get("grounded", True)),
+                    ]
+                ),
+                "pressure_band": str(slot.get("pressure_band") or "low"),
+                "grounded": bool(slot.get("grounded", True)),
+            }
+            for index, slot in enumerate(slots)
+        ]
+        bindings = [
+            {
+                "binding_index": index,
+                "dense_label_candidate_evidence_hash": selected_hashes[index],
+                "readout_slot_hash": slot_refs[index]["label_hash"],
+                "readout_slot_id": slot_refs[index]["slot_id"],
+                "pressure_band": slot_refs[index]["pressure_band"],
+                "grounded": slot_refs[index]["grounded"],
+            }
+            for index in range(binding_count)
+        ]
+        slot_labels_valid = bool(slots) and all(
+            bool(str(slot.get("label") or "").strip()) for slot in slots
+        )
+        required = {
+            "event_review_surface_available": review.get("surface")
+            == "snn_language_calibrated_dense_label_confidence_autonomous_use_event_review.v1",
+            "event_review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_hash_readout_binding_design")),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            )
+            and not bool(event_review.get("operator_approval_required")),
+            "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+            "event_hash_available": len(
+                str(review.get("autonomous_confidence_use_event_hash") or "")
+            )
+            == 64,
+            "selected_candidate_hashes_available": bool(selected_hashes),
+            "selected_candidate_hashes_valid": all(
+                len(value) == 64 for value in selected_hashes
+            ),
+            "readout_slots_available": bool(slots),
+            "readout_slots_bounded": 1 <= len(slots) <= 32,
+            "readout_slot_labels_available": slot_labels_valid,
+            "binding_count_nonzero": binding_count > 0,
+            "binding_count_bounded": 1 <= binding_count <= max_bindings <= 32,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "event_output_hash_only": bool(
+                event_review.get("output_is_label_hash_only")
+            ),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        binding_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_hash_readout_binding_design.v1",
+                "review_hash": review.get("review_hash"),
+                "autonomous_confidence_use_event_hash": review.get(
+                    "autonomous_confidence_use_event_hash"
+                ),
+                "bindings": bindings,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_hash_readout_binding_design",
+            "surface": "snn_language_autonomous_hash_readout_binding_design.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_hash_readout_binding_design",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "binding_design_hash": binding_design_hash,
+            "review_hash": review.get("review_hash"),
+            "autonomous_confidence_use_event_hash": review.get(
+                "autonomous_confidence_use_event_hash"
+            ),
+            "autonomous_hash_readout_binding_design": {
+                "binding_count": binding_count,
+                "max_bindings": max_bindings,
+                "selected_candidate_hashes": selected_hashes[:binding_count],
+                "readout_slot_refs": slot_refs[:binding_count],
+                "bindings": bindings,
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_binding_only": True,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_hash_readout_binding_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_hash_readout_binding_design_evidence"
+                ),
+                "eligible_for_autonomous_hash_readout_binding_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_hash_readout_binding_preflight"
+                    if ready
+                    else "collect_reviewed_selected_hashes_readout_slots_and_device"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_hash_readout_binding_preflight(
+        self,
+        *,
+        autonomous_hash_readout_binding_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight autonomous hash-to-readout binding without execution."""
+
+        design = dict(autonomous_hash_readout_binding_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design.get("autonomous_hash_readout_binding_design")
+            if isinstance(design.get("autonomous_hash_readout_binding_design"), Mapping)
+            else {}
+        )
+        design_device = (
+            body.get("device_evidence")
+            if isinstance(body.get("device_evidence"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        bindings = [
+            dict(item)
+            for item in list(body.get("bindings") or [])
+            if isinstance(item, Mapping)
+        ]
+        selected_hashes = [
+            str(value)
+            for value in list(body.get("selected_candidate_hashes") or [])
+            if str(value)
+        ]
+        slot_refs = [
+            dict(item)
+            for item in list(body.get("readout_slot_refs") or [])
+            if isinstance(item, Mapping)
+        ]
+        binding_count = int(body.get("binding_count", 0) or 0)
+        max_bindings = int(body.get("max_bindings", 0) or 0)
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(
+            capabilities.get("autonomous_hash_readout_binding_executor")
+        )
+        binding_candidate_hashes = [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in bindings
+        ]
+        binding_slot_hashes = [
+            str(item.get("readout_slot_hash") or "") for item in bindings
+        ]
+        slot_ref_hashes = [str(item.get("label_hash") or "") for item in slot_refs]
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_autonomous_hash_readout_binding_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_hash_readout_binding_preflight")),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "binding_design_hash_available": len(
+                str(design.get("binding_design_hash") or "")
+            )
+            == 64,
+            "review_hash_available": len(str(design.get("review_hash") or "")) == 64,
+            "event_hash_available": len(
+                str(design.get("autonomous_confidence_use_event_hash") or "")
+            )
+            == 64,
+            "binding_count_matches_payload": binding_count == len(bindings),
+            "binding_count_bounded": 1 <= binding_count <= max_bindings <= 32,
+            "selected_hashes_match_bindings": selected_hashes
+            == binding_candidate_hashes,
+            "binding_candidate_hashes_valid": bool(binding_candidate_hashes)
+            and all(len(value) == 64 for value in binding_candidate_hashes),
+            "binding_slot_hashes_valid": bool(binding_slot_hashes)
+            and all(len(value) == 64 for value in binding_slot_hashes),
+            "slot_refs_match_bindings": slot_ref_hashes[:binding_count]
+            == binding_slot_hashes,
+            "hash_binding_only": bool(body.get("output_is_hash_binding_only")),
+            "execution_not_already_allowed": not bool(body.get("execution_allowed")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        binding_preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_hash_readout_binding_preflight.v1",
+                "binding_design_hash": design.get("binding_design_hash"),
+                "review_hash": design.get("review_hash"),
+                "autonomous_confidence_use_event_hash": design.get(
+                    "autonomous_confidence_use_event_hash"
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "binding_hashes": binding_candidate_hashes,
+                "slot_hashes": binding_slot_hashes,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_hash_readout_binding_preflight",
+            "surface": "snn_language_autonomous_hash_readout_binding_preflight.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_hash_readout_binding_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "binding_preflight_hash": binding_preflight_hash,
+            "binding_design_hash": design.get("binding_design_hash"),
+            "review_hash": design.get("review_hash"),
+            "autonomous_confidence_use_event_hash": design.get(
+                "autonomous_confidence_use_event_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "binding_preflight": {
+                "binding_count": binding_count,
+                "max_bindings": max_bindings,
+                "binding_candidate_hashes": binding_candidate_hashes,
+                "binding_slot_hashes": binding_slot_hashes,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_binding_only": True,
+            },
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_hash_readout_binding_executor"
+                    if ready
+                    else "blocked_missing_autonomous_hash_readout_binding_preflight_evidence"
+                ),
+                "eligible_for_autonomous_hash_readout_binding_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_hash_readout_binding_executor"
+                    if ready
+                    else "collect_binding_design_device_executor_revision_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_hash_readout_binding(
+        self,
+        *,
+        autonomous_hash_readout_binding_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record autonomous hash-to-readout binding evidence without training."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_hash_readout_binding_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            binding_preflight = (
+                preflight.get("binding_preflight")
+                if isinstance(preflight.get("binding_preflight"), Mapping)
+                else {}
+            )
+            policy = dict(execution_policy or {})
+            binding_candidate_hashes = [
+                str(value)
+                for value in list(
+                    binding_preflight.get("binding_candidate_hashes") or []
+                )
+                if str(value)
+            ]
+            binding_slot_hashes = [
+                str(value)
+                for value in list(binding_preflight.get("binding_slot_hashes") or [])
+                if str(value)
+            ]
+            binding_count = int(binding_preflight.get("binding_count", 0) or 0)
+            max_bindings = int(binding_preflight.get("max_bindings", 0) or 0)
+            max_commit_bindings = max(
+                1,
+                min(
+                    int(policy.get("max_commit_bindings", binding_count) or binding_count),
+                    max_bindings or 1,
+                ),
+            )
+            committed_candidate_hashes = binding_candidate_hashes[:max_commit_bindings]
+            committed_slot_hashes = binding_slot_hashes[:max_commit_bindings]
+            preflight_hash = str(preflight.get("binding_preflight_hash") or "")
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_hash_readout_binding_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(gate.get("eligible_for_autonomous_hash_readout_binding_executor")),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(binding_preflight.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "binding_design_hash_available": len(
+                    str(preflight.get("binding_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(preflight.get("review_hash") or ""))
+                == 64,
+                "event_hash_available": len(
+                    str(preflight.get("autonomous_confidence_use_event_hash") or "")
+                )
+                == 64,
+                "binding_count_matches_hashes": binding_count
+                == len(binding_candidate_hashes)
+                == len(binding_slot_hashes),
+                "binding_count_bounded": 1 <= binding_count <= max_bindings <= 32,
+                "commit_count_bounded": 1
+                <= len(committed_candidate_hashes)
+                <= binding_count,
+                "candidate_hashes_valid": all(
+                    len(value) == 64 for value in committed_candidate_hashes
+                ),
+                "slot_hashes_valid": all(len(value) == 64 for value in committed_slot_hashes),
+                "hash_binding_only": bool(
+                    binding_preflight.get("output_is_hash_binding_only")
+                ),
+                "execution_not_already_allowed_in_preflight": not bool(
+                    binding_preflight.get("execution_allowed")
+                ),
+                "runtime_mutation_absent_in_preflight": not bool(
+                    preflight.get("mutates_runtime_state")
+                ),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+                "language_generation_absent": not bool(preflight.get("generates_text")),
+                "text_decoding_absent": not bool(preflight.get("decodes_text")),
+            }
+            accepted = all(required.values())
+            bindings = [
+                {
+                    "binding_index": index,
+                    "dense_label_candidate_evidence_hash": committed_candidate_hashes[
+                        index
+                    ],
+                    "readout_slot_hash": committed_slot_hashes[index],
+                }
+                for index in range(len(committed_candidate_hashes))
+            ]
+            event = {
+                "autonomous_hash_readout_binding_event_id": (
+                    f"snn-autonomous-hash-readout-binding:{preflight_hash[:16]}"
+                ),
+                "bound_at": datetime.now(timezone.utc).isoformat(),
+                "state_revision": before_revision,
+                "binding_preflight_hash": preflight_hash,
+                "binding_design_hash": preflight.get("binding_design_hash"),
+                "review_hash": preflight.get("review_hash"),
+                "autonomous_confidence_use_event_hash": preflight.get(
+                    "autonomous_confidence_use_event_hash"
+                ),
+                "binding_count": len(bindings),
+                "bindings": bindings,
+                "operator_approval_required": False,
+                "output_is_hash_binding_only": True,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+                "runs_replay": False,
+                "runs_recalibration": False,
+            }
+            event["autonomous_hash_readout_binding_event_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_hash_readout_binding_executor.v1",
+                    **event,
+                }
+            )
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(item.get("autonomous_hash_readout_binding_event_hash") or "")
+                    for item in state["autonomous_hash_readout_binding_events"]
+                }
+                duplicate = (
+                    event["autonomous_hash_readout_binding_event_hash"]
+                    in existing_hashes
+                )
+                if not duplicate:
+                    state["autonomous_hash_readout_binding_events"].appendleft(
+                        deepcopy(event)
+                    )
+                    state["total_autonomous_hash_readout_binding_count"] = int(
+                        state.get("total_autonomous_hash_readout_binding_count", 0)
+                        or 0
+                    ) + 1
+                    state["last_autonomous_hash_readout_bound_at"] = event["bound_at"]
+                    self._store_state(state)
+                    self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_hash_readout_binding_executor",
+                "surface": "snn_language_autonomous_hash_readout_binding_executor.v1",
+                "source": "service.snn_language_readout_ledger.execute_autonomous_hash_readout_binding",
+                "available": bool(preflight),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "ready": accepted,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": accepted,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_hash_readout_binding_event_hash": event[
+                    "autonomous_hash_readout_binding_event_hash"
+                ],
+                "autonomous_hash_readout_binding_event": event if accepted else None,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_hash_readout_binding_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_hash_readout_binding_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_hash_readout_binding_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_hash_readout_binding_event_review": accepted,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_hash_readout_binding_event_review"
+                        if accepted
+                        else "collect_current_hash_readout_binding_preflight"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_hash_readout_binding_event_review(
+        self,
+        *,
+        autonomous_hash_readout_binding_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review recorded autonomous hash-readout binding evidence."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            execution = dict(autonomous_hash_readout_binding_executor or {})
+            gate = (
+                execution.get("promotion_gate")
+                if isinstance(execution.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                execution.get("autonomous_hash_readout_binding_event")
+                if isinstance(execution.get("autonomous_hash_readout_binding_event"), Mapping)
+                else {}
+            )
+            policy = dict(review_policy or {})
+            min_bindings = max(1, int(policy.get("min_bindings", 1) or 1))
+            max_bindings = min(32, max(1, int(policy.get("max_bindings", 32) or 32)))
+            bindings = [
+                dict(item)
+                for item in list(event.get("bindings") or [])
+                if isinstance(item, Mapping)
+            ]
+            event_hash = str(event.get("autonomous_hash_readout_binding_event_hash") or "")
+            state = self._normalized_state()
+            matching_events = [
+                dict(item)
+                for item in list(state["autonomous_hash_readout_binding_events"])
+                if str(item.get("autonomous_hash_readout_binding_event_hash") or "")
+                == event_hash
+            ]
+            ledger_event = matching_events[0] if matching_events else {}
+            event_revision = int(event.get("state_revision", -1))
+            candidate_hashes = [
+                str(item.get("dense_label_candidate_evidence_hash") or "")
+                for item in bindings
+            ]
+            slot_hashes = [str(item.get("readout_slot_hash") or "") for item in bindings]
+            required = {
+                "executor_surface_available": execution.get("surface")
+                == "snn_language_autonomous_hash_readout_binding_executor.v1",
+                "executor_accepted": bool(execution.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_hash_readout_binding_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    execution.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_recorded_in_ledger": bool(matching_events),
+                "event_hash_matches_executor": event_hash
+                == str(execution.get("autonomous_hash_readout_binding_event_hash") or ""),
+                "event_revision_precedes_current_revision": event_revision
+                == before_revision - 1,
+                "ledger_event_hash_matches_payload": bool(ledger_event)
+                and ledger_event == dict(event),
+                "preflight_hash_available": len(
+                    str(event.get("binding_preflight_hash") or "")
+                )
+                == 64,
+                "binding_design_hash_available": len(
+                    str(event.get("binding_design_hash") or "")
+                )
+                == 64,
+                "binding_count_matches_payload": int(
+                    event.get("binding_count", 0) or 0
+                )
+                == len(bindings),
+                "binding_count_bounded": min_bindings
+                <= len(bindings)
+                <= max_bindings,
+                "candidate_hashes_valid": bool(candidate_hashes)
+                and all(len(value) == 64 for value in candidate_hashes),
+                "slot_hashes_valid": bool(slot_hashes)
+                and all(len(value) == 64 for value in slot_hashes),
+                "hash_binding_only": bool(event.get("output_is_hash_binding_only")),
+                "runtime_mutation_is_ledger_only": bool(
+                    execution.get("records_ledger_event")
+                )
+                and bool(execution.get("mutates_runtime_state")),
+                "recalibration_absent": not bool(execution.get("runs_recalibration"))
+                and not bool(execution.get("runs_calibration_update")),
+                "training_absent": not bool(execution.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(execution.get("runs_replay")),
+                "plasticity_absent": not bool(execution.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+                "language_generation_absent": not bool(execution.get("generates_text")),
+                "text_decoding_absent": not bool(execution.get("decodes_text")),
+            }
+            ready = all(required.values())
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_hash_readout_binding_event_review.v1",
+                    "autonomous_hash_readout_binding_event_hash": event_hash,
+                    "expected_state_revision": int(expected_state_revision),
+                    "observed_state_revision": before_revision,
+                    "candidate_hashes": candidate_hashes,
+                    "slot_hashes": slot_hashes,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_hash_readout_binding_event_review",
+                "surface": "snn_language_autonomous_hash_readout_binding_event_review.v1",
+                "source": "service.snn_language_readout_ledger.autonomous_hash_readout_binding_event_review",
+                "available": bool(execution),
+                "ready": ready,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "review_hash": review_hash,
+                "autonomous_hash_readout_binding_event_hash": event_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "autonomous_hash_readout_binding_event_review": {
+                    "event_recorded_in_ledger": bool(matching_events),
+                    "event_revision": event_revision,
+                    "binding_count": len(bindings),
+                    "candidate_hashes": candidate_hashes,
+                    "slot_hashes": slot_hashes,
+                    "output_is_hash_binding_only": True,
+                    "operator_approval_required": False,
+                    "mutation_allowed": False,
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_bound_readout_observation_design"
+                        if ready
+                        else "blocked_missing_autonomous_hash_readout_binding_event_review_evidence"
+                    ),
+                    "eligible_for_autonomous_bound_readout_observation_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_bound_readout_observation_design"
+                        if ready
+                        else "collect_recorded_hash_readout_binding_event"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_bound_readout_observation_design(
+        self,
+        *,
+        autonomous_hash_readout_binding_event_review: Mapping[str, Any],
+        observation_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded SNN readout observation window without execution."""
+
+        review = dict(autonomous_hash_readout_binding_event_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            review.get("autonomous_hash_readout_binding_event_review")
+            if isinstance(
+                review.get("autonomous_hash_readout_binding_event_review"), Mapping
+            )
+            else {}
+        )
+        policy = dict(observation_policy or {})
+        device = dict(device_evidence or {})
+        candidate_hashes = [
+            str(value) for value in list(body.get("candidate_hashes") or []) if str(value)
+        ]
+        slot_hashes = [
+            str(value) for value in list(body.get("slot_hashes") or []) if str(value)
+        ]
+        binding_count = int(body.get("binding_count", 0) or 0)
+        observation_cycles = max(
+            1, min(int(policy.get("observation_cycles", 4) or 4), 32)
+        )
+        min_activation_sparsity = max(
+            0.0, min(float(policy.get("min_activation_sparsity", 0.5) or 0.5), 1.0)
+        )
+        max_slot_drift = max(
+            0.0, min(float(policy.get("max_slot_drift", 0.15) or 0.15), 1.0)
+        )
+        min_binding_reactivation = max(
+            0.0,
+            min(float(policy.get("min_binding_reactivation", 0.5) or 0.5), 1.0),
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        observation_targets = [
+            {
+                "target_index": index,
+                "dense_label_candidate_evidence_hash": candidate_hashes[index],
+                "readout_slot_hash": slot_hashes[index],
+                "binding_observation_hash": self._sha256_json(
+                    [candidate_hashes[index], slot_hashes[index], index]
+                ),
+            }
+            for index in range(min(binding_count, len(candidate_hashes), len(slot_hashes)))
+        ]
+        required = {
+            "binding_event_review_surface_available": review.get("surface")
+            == "snn_language_autonomous_hash_readout_binding_event_review.v1",
+            "binding_event_review_ready": bool(review.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_bound_readout_observation_design")
+            ),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+            "binding_event_hash_available": len(
+                str(review.get("autonomous_hash_readout_binding_event_hash") or "")
+            )
+            == 64,
+            "binding_count_matches_hashes": binding_count
+            == len(candidate_hashes)
+            == len(slot_hashes),
+            "binding_count_bounded": 1 <= binding_count <= 32,
+            "candidate_hashes_valid": bool(candidate_hashes)
+            and all(len(value) == 64 for value in candidate_hashes),
+            "slot_hashes_valid": bool(slot_hashes)
+            and all(len(value) == 64 for value in slot_hashes),
+            "observation_target_count_matches_binding_count": len(observation_targets)
+            == binding_count,
+            "observation_cycles_bounded": 1 <= observation_cycles <= 32,
+            "activation_sparsity_threshold_bounded": 0.0
+            <= min_activation_sparsity
+            <= 1.0,
+            "slot_drift_threshold_bounded": 0.0 <= max_slot_drift <= 1.0,
+            "binding_reactivation_threshold_bounded": 0.0
+            <= min_binding_reactivation
+            <= 1.0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "hash_binding_only": bool(body.get("output_is_hash_binding_only")),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        observation_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_bound_readout_observation_design.v1",
+                "review_hash": review.get("review_hash"),
+                "binding_event_hash": review.get(
+                    "autonomous_hash_readout_binding_event_hash"
+                ),
+                "observation_targets": observation_targets,
+                "observation_cycles": observation_cycles,
+                "min_activation_sparsity": round(min_activation_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "min_binding_reactivation": round(min_binding_reactivation, 6),
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_bound_readout_observation_design",
+            "surface": "snn_language_autonomous_bound_readout_observation_design.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_bound_readout_observation_design",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "observation_design_hash": observation_design_hash,
+            "review_hash": review.get("review_hash"),
+            "autonomous_hash_readout_binding_event_hash": review.get(
+                "autonomous_hash_readout_binding_event_hash"
+            ),
+            "autonomous_bound_readout_observation_design": {
+                "binding_count": binding_count,
+                "observation_cycles": observation_cycles,
+                "min_activation_sparsity": round(min_activation_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "min_binding_reactivation": round(min_binding_reactivation, 6),
+                "observation_targets": observation_targets,
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_observation_only": True,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_bound_readout_observation_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_bound_readout_observation_design_evidence"
+                ),
+                "eligible_for_autonomous_bound_readout_observation_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_bound_readout_observation_preflight"
+                    if ready
+                    else "collect_reviewed_binding_hashes_observation_policy_and_device"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_bound_readout_observation_preflight(
+        self,
+        *,
+        autonomous_bound_readout_observation_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a bounded readout observation window without execution."""
+
+        design = dict(autonomous_bound_readout_observation_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design.get("autonomous_bound_readout_observation_design")
+            if isinstance(
+                design.get("autonomous_bound_readout_observation_design"), Mapping
+            )
+            else {}
+        )
+        design_device = (
+            body.get("device_evidence")
+            if isinstance(body.get("device_evidence"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        observation_targets = [
+            dict(item)
+            for item in list(body.get("observation_targets") or [])
+            if isinstance(item, Mapping)
+        ]
+        binding_count = int(body.get("binding_count", 0) or 0)
+        observation_cycles = int(body.get("observation_cycles", 0) or 0)
+        min_activation_sparsity = float(
+            body.get("min_activation_sparsity", -1.0) or 0.0
+        )
+        max_slot_drift = float(body.get("max_slot_drift", -1.0) or 0.0)
+        min_binding_reactivation = float(
+            body.get("min_binding_reactivation", -1.0) or 0.0
+        )
+        candidate_hashes = [
+            str(item.get("dense_label_candidate_evidence_hash") or "")
+            for item in observation_targets
+        ]
+        slot_hashes = [str(item.get("readout_slot_hash") or "") for item in observation_targets]
+        target_hashes = [
+            str(item.get("binding_observation_hash") or "")
+            for item in observation_targets
+        ]
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        capability_ready = bool(
+            capabilities.get("autonomous_bound_readout_observation_executor")
+        )
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_autonomous_bound_readout_observation_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_bound_readout_observation_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "observation_design_hash_available": len(
+                str(design.get("observation_design_hash") or "")
+            )
+            == 64,
+            "review_hash_available": len(str(design.get("review_hash") or "")) == 64,
+            "binding_event_hash_available": len(
+                str(design.get("autonomous_hash_readout_binding_event_hash") or "")
+            )
+            == 64,
+            "binding_count_matches_targets": binding_count == len(observation_targets),
+            "binding_count_bounded": 1 <= binding_count <= 32,
+            "target_hashes_valid": bool(target_hashes)
+            and all(len(value) == 64 for value in target_hashes),
+            "candidate_hashes_valid": bool(candidate_hashes)
+            and all(len(value) == 64 for value in candidate_hashes),
+            "slot_hashes_valid": bool(slot_hashes)
+            and all(len(value) == 64 for value in slot_hashes),
+            "observation_cycles_bounded": 1 <= observation_cycles <= 32,
+            "activation_sparsity_threshold_bounded": 0.0
+            <= min_activation_sparsity
+            <= 1.0,
+            "slot_drift_threshold_bounded": 0.0 <= max_slot_drift <= 1.0,
+            "binding_reactivation_threshold_bounded": 0.0
+            <= min_binding_reactivation
+            <= 1.0,
+            "hash_observation_only": bool(body.get("output_is_hash_observation_only")),
+            "execution_not_already_allowed": not bool(body.get("execution_allowed")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": capability_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        observation_preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_bound_readout_observation_preflight.v1",
+                "observation_design_hash": design.get("observation_design_hash"),
+                "review_hash": design.get("review_hash"),
+                "binding_event_hash": design.get(
+                    "autonomous_hash_readout_binding_event_hash"
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "target_hashes": target_hashes,
+                "candidate_hashes": candidate_hashes,
+                "slot_hashes": slot_hashes,
+                "observation_cycles": observation_cycles,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_bound_readout_observation_preflight",
+            "surface": "snn_language_autonomous_bound_readout_observation_preflight.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_bound_readout_observation_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "observation_preflight_hash": observation_preflight_hash,
+            "observation_design_hash": design.get("observation_design_hash"),
+            "review_hash": design.get("review_hash"),
+            "autonomous_hash_readout_binding_event_hash": design.get(
+                "autonomous_hash_readout_binding_event_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "observation_preflight": {
+                "binding_count": binding_count,
+                "observation_cycles": observation_cycles,
+                "min_activation_sparsity": round(min_activation_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "min_binding_reactivation": round(min_binding_reactivation, 6),
+                "target_hashes": target_hashes,
+                "candidate_hashes": candidate_hashes,
+                "slot_hashes": slot_hashes,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_observation_only": True,
+            },
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": capability_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_bound_readout_observation_executor"
+                    if ready
+                    else "blocked_missing_autonomous_bound_readout_observation_preflight_evidence"
+                ),
+                "eligible_for_autonomous_bound_readout_observation_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_bound_readout_observation_executor"
+                    if ready
+                    else "collect_observation_design_device_executor_revision_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_bound_readout_observation(
+        self,
+        *,
+        autonomous_bound_readout_observation_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        observation_evidence: Mapping[str, Any] | None = None,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record bounded sparse readout observation metrics without training."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_bound_readout_observation_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("observation_preflight")
+                if isinstance(preflight.get("observation_preflight"), Mapping)
+                else {}
+            )
+            evidence = dict(observation_evidence or {})
+            policy = dict(execution_policy or {})
+            target_hashes = [
+                str(value) for value in list(body.get("target_hashes") or []) if str(value)
+            ]
+            candidate_hashes = [
+                str(value)
+                for value in list(body.get("candidate_hashes") or [])
+                if str(value)
+            ]
+            slot_hashes = [
+                str(value) for value in list(body.get("slot_hashes") or []) if str(value)
+            ]
+            samples = [
+                dict(item)
+                for item in list(evidence.get("samples") or [])
+                if isinstance(item, Mapping)
+            ]
+            binding_count = int(body.get("binding_count", 0) or 0)
+            observation_cycles = int(body.get("observation_cycles", 0) or 0)
+            expected_sample_count = binding_count * observation_cycles
+            max_samples = min(
+                1024,
+                max(
+                    expected_sample_count,
+                    int(policy.get("max_samples", expected_sample_count) or expected_sample_count),
+                ),
+            )
+            samples = samples[:max_samples]
+            min_activation_sparsity = float(
+                body.get("min_activation_sparsity", 0.0) or 0.0
+            )
+            max_slot_drift = float(body.get("max_slot_drift", 1.0) or 1.0)
+            min_binding_reactivation = float(
+                body.get("min_binding_reactivation", 0.0) or 0.0
+            )
+
+            def _bounded_metric(sample: Mapping[str, Any], key: str, default: float) -> float:
+                value = sample.get(key, default)
+                return float(default if value is None else value)
+
+            activation_values = [
+                _bounded_metric(sample, "activation_sparsity", -1.0)
+                for sample in samples
+            ]
+            drift_values = [
+                _bounded_metric(sample, "slot_drift", 2.0) for sample in samples
+            ]
+            reactivation_values = [
+                _bounded_metric(sample, "binding_reactivation", -1.0)
+                for sample in samples
+            ]
+            target_sample_hashes = [
+                str(sample.get("binding_observation_hash") or "") for sample in samples
+            ]
+            sample_candidate_hashes = [
+                str(sample.get("dense_label_candidate_evidence_hash") or "")
+                for sample in samples
+            ]
+            sample_slot_hashes = [
+                str(sample.get("readout_slot_hash") or "") for sample in samples
+            ]
+            observed_targets = set(target_sample_hashes)
+            mean_activation_sparsity = (
+                sum(activation_values) / len(activation_values) if activation_values else 0.0
+            )
+            max_observed_slot_drift = max(drift_values) if drift_values else 1.0
+            mean_binding_reactivation = (
+                sum(reactivation_values) / len(reactivation_values)
+                if reactivation_values
+                else 0.0
+            )
+            preflight_hash = str(preflight.get("observation_preflight_hash") or "")
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_bound_readout_observation_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_bound_readout_observation_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "observation_design_hash_available": len(
+                    str(preflight.get("observation_design_hash") or "")
+                )
+                == 64,
+                "sample_count_matches_expected_window": len(samples)
+                == expected_sample_count,
+                "sample_count_bounded": 1 <= len(samples) <= 1024,
+                "target_hashes_observed": bool(target_hashes)
+                and set(target_hashes).issubset(observed_targets),
+                "sample_target_hashes_valid": all(
+                    len(value) == 64 for value in target_sample_hashes
+                ),
+                "sample_candidate_hashes_valid": all(
+                    len(value) == 64 for value in sample_candidate_hashes
+                ),
+                "sample_slot_hashes_valid": all(
+                    len(value) == 64 for value in sample_slot_hashes
+                ),
+                "sample_candidate_hashes_known": set(sample_candidate_hashes).issubset(
+                    set(candidate_hashes)
+                ),
+                "sample_slot_hashes_known": set(sample_slot_hashes).issubset(
+                    set(slot_hashes)
+                ),
+                "activation_sparsity_bounded": all(
+                    0.0 <= value <= 1.0 for value in activation_values
+                ),
+                "slot_drift_bounded": all(0.0 <= value <= 1.0 for value in drift_values),
+                "binding_reactivation_bounded": all(
+                    0.0 <= value <= 1.0 for value in reactivation_values
+                ),
+                "activation_sparsity_sufficient": mean_activation_sparsity
+                >= min_activation_sparsity,
+                "slot_drift_within_limit": max_observed_slot_drift <= max_slot_drift,
+                "binding_reactivation_sufficient": mean_binding_reactivation
+                >= min_binding_reactivation,
+                "hash_observation_only": bool(body.get("output_is_hash_observation_only")),
+                "runtime_mutation_absent_in_preflight": not bool(
+                    preflight.get("mutates_runtime_state")
+                ),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+                "language_generation_absent": not bool(preflight.get("generates_text")),
+                "text_decoding_absent": not bool(preflight.get("decodes_text")),
+            }
+            accepted = all(required.values())
+            event = {
+                "autonomous_bound_readout_observation_event_id": (
+                    f"snn-autonomous-bound-readout-observation:{preflight_hash[:16]}"
+                ),
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+                "state_revision": before_revision,
+                "observation_preflight_hash": preflight_hash,
+                "observation_design_hash": preflight.get("observation_design_hash"),
+                "review_hash": preflight.get("review_hash"),
+                "autonomous_hash_readout_binding_event_hash": preflight.get(
+                    "autonomous_hash_readout_binding_event_hash"
+                ),
+                "binding_count": binding_count,
+                "observation_cycles": observation_cycles,
+                "sample_count": len(samples),
+                "mean_activation_sparsity": round(mean_activation_sparsity, 6),
+                "max_slot_drift": round(max_observed_slot_drift, 6),
+                "mean_binding_reactivation": round(mean_binding_reactivation, 6),
+                "target_hashes": target_hashes,
+                "sample_hashes": [
+                    self._sha256_json(sample) for sample in samples
+                ],
+                "output_is_hash_observation_only": True,
+                "operator_approval_required": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+                "runs_replay": False,
+                "runs_recalibration": False,
+            }
+            event["autonomous_bound_readout_observation_event_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_bound_readout_observation_executor.v1",
+                    **event,
+                }
+            )
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(item.get("autonomous_bound_readout_observation_event_hash") or "")
+                    for item in state["autonomous_bound_readout_observation_events"]
+                }
+                duplicate = (
+                    event["autonomous_bound_readout_observation_event_hash"]
+                    in existing_hashes
+                )
+                if not duplicate:
+                    state["autonomous_bound_readout_observation_events"].appendleft(
+                        deepcopy(event)
+                    )
+                    state["total_autonomous_bound_readout_observation_count"] = int(
+                        state.get("total_autonomous_bound_readout_observation_count", 0)
+                        or 0
+                    ) + 1
+                    state["last_autonomous_bound_readout_observed_at"] = event[
+                        "observed_at"
+                    ]
+                    self._store_state(state)
+                    self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_bound_readout_observation_executor",
+                "surface": "snn_language_autonomous_bound_readout_observation_executor.v1",
+                "source": "service.snn_language_readout_ledger.execute_autonomous_bound_readout_observation",
+                "available": bool(preflight),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "ready": accepted,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": accepted,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_bound_readout_observation_event_hash": event[
+                    "autonomous_bound_readout_observation_event_hash"
+                ],
+                "autonomous_bound_readout_observation_event": event
+                if accepted
+                else None,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_bound_readout_observation_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_bound_readout_observation_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_bound_readout_observation_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_bound_readout_observation_event_review": accepted,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_bound_readout_observation_event_review"
+                        if accepted
+                        else "collect_current_hash_only_bound_observation_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_bound_readout_observation_event_review(
+        self,
+        *,
+        autonomous_bound_readout_observation_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review recorded autonomous bound readout observation evidence."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            execution = dict(autonomous_bound_readout_observation_executor or {})
+            gate = (
+                execution.get("promotion_gate")
+                if isinstance(execution.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                execution.get("autonomous_bound_readout_observation_event")
+                if isinstance(
+                    execution.get("autonomous_bound_readout_observation_event"),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(review_policy or {})
+            min_samples = max(1, int(policy.get("min_samples", 1) or 1))
+            max_samples = min(1024, max(1, int(policy.get("max_samples", 1024) or 1024)))
+            min_activation_sparsity = max(
+                0.0,
+                min(float(policy.get("min_activation_sparsity", 0.5) or 0.5), 1.0),
+            )
+            max_slot_drift = max(
+                0.0, min(float(policy.get("max_slot_drift", 0.15) or 0.15), 1.0)
+            )
+            min_binding_reactivation = max(
+                0.0,
+                min(float(policy.get("min_binding_reactivation", 0.5) or 0.5), 1.0),
+            )
+            event_hash = str(
+                event.get("autonomous_bound_readout_observation_event_hash") or ""
+            )
+            state = self._normalized_state()
+            matching_events = [
+                dict(item)
+                for item in list(state["autonomous_bound_readout_observation_events"])
+                if str(
+                    item.get("autonomous_bound_readout_observation_event_hash") or ""
+                )
+                == event_hash
+            ]
+            ledger_event = matching_events[0] if matching_events else {}
+            event_revision = int(event.get("state_revision", -1))
+            sample_count = int(event.get("sample_count", 0) or 0)
+            binding_count = int(event.get("binding_count", 0) or 0)
+            observation_cycles = int(event.get("observation_cycles", 0) or 0)
+            expected_sample_count = binding_count * observation_cycles
+            target_hashes = [
+                str(value) for value in list(event.get("target_hashes") or []) if str(value)
+            ]
+            sample_hashes = [
+                str(value) for value in list(event.get("sample_hashes") or []) if str(value)
+            ]
+            mean_activation_sparsity = float(
+                event.get("mean_activation_sparsity", -1.0)
+                if event.get("mean_activation_sparsity") is not None
+                else -1.0
+            )
+            max_observed_slot_drift = float(
+                event.get("max_slot_drift", 2.0)
+                if event.get("max_slot_drift") is not None
+                else 2.0
+            )
+            mean_binding_reactivation = float(
+                event.get("mean_binding_reactivation", -1.0)
+                if event.get("mean_binding_reactivation") is not None
+                else -1.0
+            )
+            required = {
+                "executor_surface_available": execution.get("surface")
+                == "snn_language_autonomous_bound_readout_observation_executor.v1",
+                "executor_accepted": bool(execution.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_bound_readout_observation_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    execution.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_recorded_in_ledger": bool(matching_events),
+                "event_hash_matches_executor": event_hash
+                == str(
+                    execution.get(
+                        "autonomous_bound_readout_observation_event_hash"
+                    )
+                    or ""
+                ),
+                "event_revision_precedes_current_revision": event_revision
+                == before_revision - 1,
+                "ledger_event_hash_matches_payload": bool(ledger_event)
+                and ledger_event == dict(event),
+                "preflight_hash_available": len(
+                    str(event.get("observation_preflight_hash") or "")
+                )
+                == 64,
+                "observation_design_hash_available": len(
+                    str(event.get("observation_design_hash") or "")
+                )
+                == 64,
+                "binding_event_hash_available": len(
+                    str(event.get("autonomous_hash_readout_binding_event_hash") or "")
+                )
+                == 64,
+                "binding_count_bounded": 1 <= binding_count <= 32,
+                "observation_cycles_bounded": 1 <= observation_cycles <= 32,
+                "sample_count_matches_window": sample_count == expected_sample_count,
+                "sample_count_bounded": min_samples <= sample_count <= max_samples,
+                "target_hashes_valid": bool(target_hashes)
+                and all(len(value) == 64 for value in target_hashes),
+                "sample_hashes_valid": bool(sample_hashes)
+                and len(sample_hashes) == sample_count
+                and all(len(value) == 64 for value in sample_hashes),
+                "activation_sparsity_bounded": 0.0
+                <= mean_activation_sparsity
+                <= 1.0,
+                "slot_drift_bounded": 0.0 <= max_observed_slot_drift <= 1.0,
+                "binding_reactivation_bounded": 0.0
+                <= mean_binding_reactivation
+                <= 1.0,
+                "activation_sparsity_sufficient": mean_activation_sparsity
+                >= min_activation_sparsity,
+                "slot_drift_within_limit": max_observed_slot_drift <= max_slot_drift,
+                "binding_reactivation_sufficient": mean_binding_reactivation
+                >= min_binding_reactivation,
+                "hash_observation_only": bool(
+                    event.get("output_is_hash_observation_only")
+                ),
+                "runtime_mutation_is_ledger_only": bool(
+                    execution.get("records_ledger_event")
+                )
+                and bool(execution.get("mutates_runtime_state")),
+                "recalibration_absent": not bool(execution.get("runs_recalibration"))
+                and not bool(execution.get("runs_calibration_update")),
+                "training_absent": not bool(execution.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(execution.get("runs_replay")),
+                "plasticity_absent": not bool(execution.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(execution.get("writes_checkpoint")),
+                "language_generation_absent": not bool(execution.get("generates_text")),
+                "text_decoding_absent": not bool(execution.get("decodes_text")),
+            }
+            ready = all(required.values())
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_bound_readout_observation_event_review.v1",
+                    "autonomous_bound_readout_observation_event_hash": event_hash,
+                    "expected_state_revision": int(expected_state_revision),
+                    "observed_state_revision": before_revision,
+                    "sample_count": sample_count,
+                    "mean_activation_sparsity": round(mean_activation_sparsity, 6),
+                    "max_slot_drift": round(max_observed_slot_drift, 6),
+                    "mean_binding_reactivation": round(
+                        mean_binding_reactivation, 6
+                    ),
+                    "target_hashes": target_hashes,
+                    "sample_hashes": sample_hashes,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_bound_readout_observation_event_review",
+                "surface": "snn_language_autonomous_bound_readout_observation_event_review.v1",
+                "source": "service.snn_language_readout_ledger.autonomous_bound_readout_observation_event_review",
+                "available": bool(execution),
+                "ready": ready,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "review_hash": review_hash,
+                "autonomous_bound_readout_observation_event_hash": event_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "autonomous_bound_readout_observation_event_review": {
+                    "event_recorded_in_ledger": bool(matching_events),
+                    "event_revision": event_revision,
+                    "binding_count": binding_count,
+                    "observation_cycles": observation_cycles,
+                    "sample_count": sample_count,
+                    "mean_activation_sparsity": round(mean_activation_sparsity, 6),
+                    "max_slot_drift": round(max_observed_slot_drift, 6),
+                    "mean_binding_reactivation": round(
+                        mean_binding_reactivation, 6
+                    ),
+                    "target_hashes": target_hashes,
+                    "sample_hashes": sample_hashes,
+                    "output_is_hash_observation_only": True,
+                    "operator_approval_required": False,
+                    "mutation_allowed": False,
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_readout_training_window_design"
+                        if ready
+                        else "blocked_missing_autonomous_bound_readout_observation_event_review_evidence"
+                    ),
+                    "eligible_for_autonomous_readout_training_window_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_readout_training_window_design"
+                        if ready
+                        else "collect_recorded_bound_readout_observation_event"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_readout_training_window_design(
+        self,
+        *,
+        autonomous_bound_readout_observation_event_review: Mapping[str, Any],
+        training_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design an autonomous sparse readout training window without training."""
+
+        review = dict(autonomous_bound_readout_observation_event_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            review.get("autonomous_bound_readout_observation_event_review")
+            if isinstance(
+                review.get("autonomous_bound_readout_observation_event_review"),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(training_policy or {})
+        device = dict(device_evidence or {})
+        target_hashes = [
+            str(value) for value in list(body.get("target_hashes") or []) if str(value)
+        ]
+        sample_hashes = [
+            str(value) for value in list(body.get("sample_hashes") or []) if str(value)
+        ]
+        binding_count = int(body.get("binding_count", 0) or 0)
+        observation_cycles = int(body.get("observation_cycles", 0) or 0)
+        sample_count = int(body.get("sample_count", 0) or 0)
+        mean_activation_sparsity = float(
+            body.get("mean_activation_sparsity", -1.0)
+            if body.get("mean_activation_sparsity") is not None
+            else -1.0
+        )
+        max_slot_drift = float(
+            body.get("max_slot_drift", 2.0)
+            if body.get("max_slot_drift") is not None
+            else 2.0
+        )
+        mean_binding_reactivation = float(
+            body.get("mean_binding_reactivation", -1.0)
+            if body.get("mean_binding_reactivation") is not None
+            else -1.0
+        )
+        training_window_steps = max(
+            1, min(int(policy.get("training_window_steps", sample_count or 1) or 1), 1024)
+        )
+        truncated_bptt_steps = max(
+            1,
+            min(
+                int(policy.get("truncated_bptt_steps", observation_cycles or 1) or 1),
+                training_window_steps,
+            ),
+        )
+        micro_batch_size = max(
+            1, min(int(policy.get("micro_batch_size", binding_count or 1) or 1), 64)
+        )
+        max_learning_rate = max(
+            0.0,
+            min(float(policy.get("max_learning_rate", 0.0003) or 0.0003), 0.01),
+        )
+        min_activation_sparsity = max(
+            0.0,
+            min(
+                float(
+                    policy.get(
+                        "min_activation_sparsity",
+                        max(0.5, mean_activation_sparsity),
+                    )
+                    or 0.5
+                ),
+                1.0,
+            ),
+        )
+        max_training_slot_drift = max(
+            0.0,
+            min(float(policy.get("max_slot_drift", max_slot_drift) or max_slot_drift), 1.0),
+        )
+        min_binding_reactivation = max(
+            0.0,
+            min(
+                float(
+                    policy.get(
+                        "min_binding_reactivation",
+                        max(0.5, mean_binding_reactivation),
+                    )
+                    or 0.5
+                ),
+                1.0,
+            ),
+        )
+        learning_rule = str(policy.get("learning_rule") or "surrogate_gradient").strip()
+        allowed_learning_rules = {
+            "surrogate_gradient",
+            "truncated_bptt",
+            "forward_online",
+        }
+        use_spike_compression = bool(policy.get("use_spike_compression", True))
+        use_gradient_checkpointing = bool(
+            policy.get("use_gradient_checkpointing", True)
+        )
+        max_cuda_memory_mb = max(
+            0, int(policy.get("max_cuda_memory_mb", 0) or 0)
+        )
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        expected_sample_count = binding_count * observation_cycles
+        required = {
+            "observation_event_review_surface_available": review.get("surface")
+            == "snn_language_autonomous_bound_readout_observation_event_review.v1",
+            "observation_event_review_ready": bool(review.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_readout_training_window_design")
+            ),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+            "observation_event_hash_available": len(
+                str(
+                    review.get(
+                        "autonomous_bound_readout_observation_event_hash"
+                    )
+                    or ""
+                )
+            )
+            == 64,
+            "event_recorded_in_ledger": bool(body.get("event_recorded_in_ledger")),
+            "binding_count_bounded": 1 <= binding_count <= 32,
+            "observation_cycles_bounded": 1 <= observation_cycles <= 32,
+            "sample_count_matches_window": sample_count == expected_sample_count,
+            "sample_count_bounded": 1 <= sample_count <= 1024,
+            "target_hashes_valid": bool(target_hashes)
+            and all(len(value) == 64 for value in target_hashes),
+            "sample_hashes_valid": bool(sample_hashes)
+            and len(sample_hashes) == sample_count
+            and all(len(value) == 64 for value in sample_hashes),
+            "activation_sparsity_sufficient": 0.0
+            <= mean_activation_sparsity
+            <= 1.0
+            and mean_activation_sparsity >= min_activation_sparsity,
+            "slot_drift_within_limit": 0.0
+            <= max_slot_drift
+            <= 1.0
+            and max_slot_drift <= max_training_slot_drift,
+            "binding_reactivation_sufficient": 0.0
+            <= mean_binding_reactivation
+            <= 1.0
+            and mean_binding_reactivation >= min_binding_reactivation,
+            "learning_rule_supported": learning_rule in allowed_learning_rules,
+            "training_window_steps_bounded": sample_count
+            <= training_window_steps
+            <= 1024,
+            "truncated_bptt_steps_bounded": 1
+            <= truncated_bptt_steps
+            <= training_window_steps,
+            "micro_batch_size_bounded": 1 <= micro_batch_size <= 64,
+            "learning_rate_bounded": 0.0 < max_learning_rate <= 0.01,
+            "memory_plan_available": use_spike_compression
+            or use_gradient_checkpointing
+            or max_cuda_memory_mb > 0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "hash_observation_only": bool(
+                body.get("output_is_hash_observation_only")
+            ),
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "training_absent": not bool(review.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        training_window_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_readout_training_window_design.v1",
+                "review_hash": review.get("review_hash"),
+                "observation_event_hash": review.get(
+                    "autonomous_bound_readout_observation_event_hash"
+                ),
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "training_window_steps": training_window_steps,
+                "truncated_bptt_steps": truncated_bptt_steps,
+                "micro_batch_size": micro_batch_size,
+                "max_learning_rate": round(max_learning_rate, 8),
+                "learning_rule": learning_rule,
+                "use_spike_compression": use_spike_compression,
+                "use_gradient_checkpointing": use_gradient_checkpointing,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_readout_training_window_design",
+            "surface": "snn_language_autonomous_readout_training_window_design.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_readout_training_window_design",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "training_window_design_hash": training_window_design_hash,
+            "review_hash": review.get("review_hash"),
+            "autonomous_bound_readout_observation_event_hash": review.get(
+                "autonomous_bound_readout_observation_event_hash"
+            ),
+            "autonomous_readout_training_window_design": {
+                "binding_count": binding_count,
+                "observation_cycles": observation_cycles,
+                "sample_count": sample_count,
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "training_window_steps": training_window_steps,
+                "truncated_bptt_steps": truncated_bptt_steps,
+                "micro_batch_size": micro_batch_size,
+                "max_learning_rate": round(max_learning_rate, 8),
+                "learning_rule": learning_rule,
+                "mean_activation_sparsity": round(mean_activation_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "mean_binding_reactivation": round(mean_binding_reactivation, 6),
+                "min_activation_sparsity": round(min_activation_sparsity, 6),
+                "max_training_slot_drift": round(max_training_slot_drift, 6),
+                "min_binding_reactivation": round(min_binding_reactivation, 6),
+                "memory_plan": {
+                    "use_spike_compression": use_spike_compression,
+                    "use_gradient_checkpointing": use_gradient_checkpointing,
+                    "max_cuda_memory_mb": max_cuda_memory_mb,
+                },
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_training_window_plan_only": True,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_readout_training_window_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_readout_training_window_design_evidence"
+                ),
+                "eligible_for_autonomous_readout_training_window_preflight": ready,
+                "eligible_for_autonomous_readout_training_execution": False,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_readout_training_window_preflight"
+                    if ready
+                    else "collect_reviewed_sparse_observation_training_policy_and_device"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_readout_training_window_preflight(
+        self,
+        *,
+        autonomous_readout_training_window_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight an autonomous sparse readout training window without training."""
+
+        design = dict(autonomous_readout_training_window_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design.get("autonomous_readout_training_window_design")
+            if isinstance(design.get("autonomous_readout_training_window_design"), Mapping)
+            else {}
+        )
+        design_device = (
+            body.get("device_evidence")
+            if isinstance(body.get("device_evidence"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        target_hashes = [
+            str(value) for value in list(body.get("target_hashes") or []) if str(value)
+        ]
+        sample_hashes = [
+            str(value) for value in list(body.get("sample_hashes") or []) if str(value)
+        ]
+        binding_count = int(body.get("binding_count", 0) or 0)
+        observation_cycles = int(body.get("observation_cycles", 0) or 0)
+        sample_count = int(body.get("sample_count", 0) or 0)
+        training_window_steps = int(body.get("training_window_steps", 0) or 0)
+        truncated_bptt_steps = int(body.get("truncated_bptt_steps", 0) or 0)
+        micro_batch_size = int(body.get("micro_batch_size", 0) or 0)
+        max_learning_rate = float(body.get("max_learning_rate", 0.0) or 0.0)
+        learning_rule = str(body.get("learning_rule") or "").strip()
+        mean_activation_sparsity = float(
+            body.get("mean_activation_sparsity", -1.0)
+            if body.get("mean_activation_sparsity") is not None
+            else -1.0
+        )
+        max_slot_drift = float(
+            body.get("max_slot_drift", 2.0)
+            if body.get("max_slot_drift") is not None
+            else 2.0
+        )
+        mean_binding_reactivation = float(
+            body.get("mean_binding_reactivation", -1.0)
+            if body.get("mean_binding_reactivation") is not None
+            else -1.0
+        )
+        min_activation_sparsity = float(
+            body.get("min_activation_sparsity", 0.0) or 0.0
+        )
+        max_training_slot_drift = float(
+            body.get("max_training_slot_drift", 1.0) or 1.0
+        )
+        min_binding_reactivation = float(
+            body.get("min_binding_reactivation", 0.0) or 0.0
+        )
+        memory_plan = (
+            body.get("memory_plan")
+            if isinstance(body.get("memory_plan"), Mapping)
+            else {}
+        )
+        use_spike_compression = bool(memory_plan.get("use_spike_compression"))
+        use_gradient_checkpointing = bool(memory_plan.get("use_gradient_checkpointing"))
+        max_cuda_memory_mb = int(memory_plan.get("max_cuda_memory_mb", 0) or 0)
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(body.get("requires_cuda")) or bool(
+            device.get("requires_cuda")
+        ) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        cuda_memory_satisfied = True
+        cuda_total_memory_mb: int | None = None
+        if requires_cuda and cuda_available:
+            try:
+                cuda_total_memory_mb = int(
+                    torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
+                )
+                cuda_memory_satisfied = (
+                    max_cuda_memory_mb <= 0
+                    or max_cuda_memory_mb <= cuda_total_memory_mb
+                )
+            except Exception:
+                cuda_memory_satisfied = max_cuda_memory_mb <= 0
+        executor_ready = bool(
+            capabilities.get("autonomous_readout_training_window_executor")
+        )
+        expected_sample_count = binding_count * observation_cycles
+        allowed_learning_rules = {
+            "surrogate_gradient",
+            "truncated_bptt",
+            "forward_online",
+        }
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_autonomous_readout_training_window_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_readout_training_window_preflight")
+            ),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "training_window_design_hash_available": len(
+                str(design.get("training_window_design_hash") or "")
+            )
+            == 64,
+            "review_hash_available": len(str(design.get("review_hash") or "")) == 64,
+            "observation_event_hash_available": len(
+                str(
+                    design.get(
+                        "autonomous_bound_readout_observation_event_hash"
+                    )
+                    or ""
+                )
+            )
+            == 64,
+            "binding_count_bounded": 1 <= binding_count <= 32,
+            "observation_cycles_bounded": 1 <= observation_cycles <= 32,
+            "sample_count_matches_window": sample_count == expected_sample_count,
+            "sample_count_bounded": 1 <= sample_count <= 1024,
+            "target_hashes_valid": bool(target_hashes)
+            and all(len(value) == 64 for value in target_hashes),
+            "sample_hashes_valid": bool(sample_hashes)
+            and len(sample_hashes) == sample_count
+            and all(len(value) == 64 for value in sample_hashes),
+            "training_window_steps_bounded": sample_count
+            <= training_window_steps
+            <= 1024,
+            "truncated_bptt_steps_bounded": 1
+            <= truncated_bptt_steps
+            <= training_window_steps,
+            "micro_batch_size_bounded": 1 <= micro_batch_size <= 64,
+            "learning_rule_supported": learning_rule in allowed_learning_rules,
+            "learning_rate_bounded": 0.0 < max_learning_rate <= 0.01,
+            "activation_sparsity_sufficient": 0.0
+            <= mean_activation_sparsity
+            <= 1.0
+            and mean_activation_sparsity >= min_activation_sparsity,
+            "slot_drift_within_limit": 0.0
+            <= max_slot_drift
+            <= 1.0
+            and max_slot_drift <= max_training_slot_drift,
+            "binding_reactivation_sufficient": 0.0
+            <= mean_binding_reactivation
+            <= 1.0
+            and mean_binding_reactivation >= min_binding_reactivation,
+            "memory_plan_available": use_spike_compression
+            or use_gradient_checkpointing
+            or max_cuda_memory_mb > 0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "cuda_memory_budget_satisfied_or_unspecified": cuda_memory_satisfied,
+            "executor_capability_available": executor_ready,
+            "training_plan_only": bool(body.get("output_is_training_window_plan_only")),
+            "execution_not_already_allowed": not bool(body.get("execution_allowed")),
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_readout_training_window_preflight.v1",
+                "training_window_design_hash": design.get(
+                    "training_window_design_hash"
+                ),
+                "review_hash": design.get("review_hash"),
+                "observation_event_hash": design.get(
+                    "autonomous_bound_readout_observation_event_hash"
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "training_window_steps": training_window_steps,
+                "truncated_bptt_steps": truncated_bptt_steps,
+                "micro_batch_size": micro_batch_size,
+                "max_learning_rate": round(max_learning_rate, 8),
+                "learning_rule": learning_rule,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "executor_ready": executor_ready,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_readout_training_window_preflight",
+            "surface": "snn_language_autonomous_readout_training_window_preflight.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_readout_training_window_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "preflight_hash": preflight_hash,
+            "training_window_design_hash": design.get(
+                "training_window_design_hash"
+            ),
+            "review_hash": design.get("review_hash"),
+            "autonomous_bound_readout_observation_event_hash": design.get(
+                "autonomous_bound_readout_observation_event_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "training_window_preflight": {
+                "binding_count": binding_count,
+                "observation_cycles": observation_cycles,
+                "sample_count": sample_count,
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "training_window_steps": training_window_steps,
+                "truncated_bptt_steps": truncated_bptt_steps,
+                "micro_batch_size": micro_batch_size,
+                "max_learning_rate": round(max_learning_rate, 8),
+                "learning_rule": learning_rule,
+                "mean_activation_sparsity": round(mean_activation_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "mean_binding_reactivation": round(mean_binding_reactivation, 6),
+                "memory_plan": {
+                    "use_spike_compression": use_spike_compression,
+                    "use_gradient_checkpointing": use_gradient_checkpointing,
+                    "max_cuda_memory_mb": max_cuda_memory_mb,
+                },
+                "output_is_training_window_plan_only": True,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+            },
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "cuda_total_memory_mb": cuda_total_memory_mb,
+                "cuda_memory_budget_satisfied": cuda_memory_satisfied,
+                "executor_capability_available": executor_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_readout_training_window_executor"
+                    if ready
+                    else "blocked_missing_autonomous_readout_training_window_preflight_evidence"
+                ),
+                "eligible_for_autonomous_readout_training_window_executor": ready,
+                "eligible_for_autonomous_readout_training_execution": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_readout_training_window_executor"
+                    if ready
+                    else "collect_current_training_window_device_executor_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_readout_training_window(
+        self,
+        *,
+        autonomous_readout_training_window_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        training_evidence: Mapping[str, Any] | None = None,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record bounded autonomous sparse readout training evidence."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_readout_training_window_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("training_window_preflight")
+                if isinstance(preflight.get("training_window_preflight"), Mapping)
+                else {}
+            )
+            evidence = dict(training_evidence or {})
+            policy = dict(execution_policy or {})
+            target_hashes = [
+                str(value) for value in list(body.get("target_hashes") or []) if str(value)
+            ]
+            sample_hashes = [
+                str(value) for value in list(body.get("sample_hashes") or []) if str(value)
+            ]
+            evidence_sample_hashes = [
+                str(value)
+                for value in list(evidence.get("sample_hashes") or [])
+                if str(value)
+            ]
+            training_window_steps = int(body.get("training_window_steps", 0) or 0)
+            truncated_bptt_steps = int(body.get("truncated_bptt_steps", 0) or 0)
+            micro_batch_size = int(body.get("micro_batch_size", 0) or 0)
+            sample_count = int(body.get("sample_count", 0) or 0)
+            learning_rule = str(body.get("learning_rule") or "").strip()
+            max_learning_rate = float(body.get("max_learning_rate", 0.0) or 0.0)
+            observed_learning_rate = float(
+                evidence.get("learning_rate", max_learning_rate) or 0.0
+            )
+            loss_before = float(
+                evidence.get("loss_before", 0.0)
+                if evidence.get("loss_before") is not None
+                else 0.0
+            )
+            loss_after = float(
+                evidence.get("loss_after", 0.0)
+                if evidence.get("loss_after") is not None
+                else 0.0
+            )
+            mean_gradient_norm = float(
+                evidence.get("mean_gradient_norm", 0.0)
+                if evidence.get("mean_gradient_norm") is not None
+                else 0.0
+            )
+            max_weight_delta = float(
+                evidence.get("max_weight_delta", 0.0)
+                if evidence.get("max_weight_delta") is not None
+                else 0.0
+            )
+            observed_spike_sparsity = float(
+                evidence.get(
+                    "observed_spike_sparsity",
+                    body.get("mean_activation_sparsity", 0.0),
+                )
+                if evidence.get("observed_spike_sparsity") is not None
+                else 0.0
+            )
+            max_loss_increase = max(
+                0.0, float(policy.get("max_loss_increase", 0.02) or 0.02)
+            )
+            max_gradient_norm = max(
+                0.0, float(policy.get("max_gradient_norm", 10.0) or 10.0)
+            )
+            max_weight_delta_limit = max(
+                0.0, float(policy.get("max_weight_delta", 0.05) or 0.05)
+            )
+            min_spike_sparsity = max(
+                0.0,
+                min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0),
+            )
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            weight_update_hash = str(evidence.get("weight_update_hash") or "")
+            gradient_update_hash = str(evidence.get("gradient_update_hash") or "")
+            optimizer_state_hash = str(evidence.get("optimizer_state_hash") or "")
+            device_trace_hash = str(evidence.get("device_trace_hash") or "")
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_readout_training_window_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(
+                    gate.get("eligible_for_autonomous_readout_training_window_executor")
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "training_window_design_hash_available": len(
+                    str(preflight.get("training_window_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(preflight.get("review_hash") or ""))
+                == 64,
+                "observation_event_hash_available": len(
+                    str(
+                        preflight.get(
+                            "autonomous_bound_readout_observation_event_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "target_hashes_valid": bool(target_hashes)
+                and all(len(value) == 64 for value in target_hashes),
+                "sample_hashes_match_preflight": bool(sample_hashes)
+                and evidence_sample_hashes == sample_hashes,
+                "training_window_steps_bounded": sample_count
+                <= training_window_steps
+                <= 1024,
+                "truncated_bptt_steps_bounded": 1
+                <= truncated_bptt_steps
+                <= training_window_steps,
+                "micro_batch_size_bounded": 1 <= micro_batch_size <= 64,
+                "learning_rate_within_design": 0.0
+                < observed_learning_rate
+                <= max_learning_rate
+                <= 0.01,
+                "loss_values_bounded": 0.0 <= loss_before <= 1_000_000.0
+                and 0.0 <= loss_after <= 1_000_000.0,
+                "loss_not_regressed_beyond_policy": loss_after
+                <= loss_before + max_loss_increase,
+                "gradient_norm_bounded": 0.0
+                <= mean_gradient_norm
+                <= max_gradient_norm,
+                "weight_delta_bounded": 0.0
+                <= max_weight_delta
+                <= max_weight_delta_limit,
+                "spike_sparsity_sufficient": 0.0
+                <= observed_spike_sparsity
+                <= 1.0
+                and observed_spike_sparsity >= min_spike_sparsity,
+                "weight_update_hash_available": len(weight_update_hash) == 64,
+                "gradient_update_hash_available": len(gradient_update_hash) == 64,
+                "optimizer_state_hash_available": len(optimizer_state_hash) == 64,
+                "device_trace_hash_available": len(device_trace_hash) == 64,
+                "runtime_weights_updated": bool(evidence.get("runtime_weights_updated")),
+                "checkpoint_not_written": not bool(evidence.get("checkpoint_written")),
+                "language_generation_absent": not bool(
+                    evidence.get("generated_text")
+                )
+                and not bool(preflight.get("generates_text")),
+                "text_decoding_absent": not bool(evidence.get("decoded_text"))
+                and not bool(preflight.get("decodes_text")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "checkpoint_write_absent": not bool(preflight.get("writes_checkpoint")),
+            }
+            accepted = all(required.values())
+            trained_at = datetime.now(timezone.utc).isoformat()
+            event = {
+                "autonomous_readout_training_window_event_id": (
+                    f"snn-autonomous-readout-training-window:{preflight_hash[:16]}"
+                ),
+                "trained_at": trained_at,
+                "state_revision": before_revision,
+                "preflight_hash": preflight_hash,
+                "training_window_design_hash": preflight.get(
+                    "training_window_design_hash"
+                ),
+                "review_hash": preflight.get("review_hash"),
+                "autonomous_bound_readout_observation_event_hash": preflight.get(
+                    "autonomous_bound_readout_observation_event_hash"
+                ),
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "training_window_steps": training_window_steps,
+                "truncated_bptt_steps": truncated_bptt_steps,
+                "micro_batch_size": micro_batch_size,
+                "learning_rule": learning_rule,
+                "learning_rate": round(observed_learning_rate, 8),
+                "loss_before": round(loss_before, 8),
+                "loss_after": round(loss_after, 8),
+                "mean_gradient_norm": round(mean_gradient_norm, 8),
+                "max_weight_delta": round(max_weight_delta, 8),
+                "observed_spike_sparsity": round(observed_spike_sparsity, 6),
+                "weight_update_hash": weight_update_hash,
+                "gradient_update_hash": gradient_update_hash,
+                "optimizer_state_hash": optimizer_state_hash,
+                "device_trace_hash": device_trace_hash,
+                "runtime_weights_updated": bool(
+                    evidence.get("runtime_weights_updated")
+                ),
+                "operator_approval_required": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+                "runs_replay": False,
+                "applies_plasticity": False,
+                "trains_runtime_model": True,
+            }
+            event["autonomous_readout_training_window_event_hash"] = (
+                self._sha256_json(
+                    {
+                        "surface": "snn_language_autonomous_readout_training_window_executor.v1",
+                        **event,
+                    }
+                )
+            )
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(item.get("autonomous_readout_training_window_event_hash") or "")
+                    for item in state["autonomous_readout_training_window_events"]
+                }
+                duplicate = (
+                    event["autonomous_readout_training_window_event_hash"]
+                    in existing_hashes
+                )
+                if not duplicate:
+                    state["autonomous_readout_training_window_events"].appendleft(
+                        deepcopy(event)
+                    )
+                    state["total_autonomous_readout_training_window_count"] = int(
+                        state.get(
+                            "total_autonomous_readout_training_window_count", 0
+                        )
+                        or 0
+                    ) + 1
+                    state[
+                        "last_autonomous_readout_training_window_trained_at"
+                    ] = trained_at
+                    self._store_state(state)
+                    self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_readout_training_window_executor",
+                "surface": "snn_language_autonomous_readout_training_window_executor.v1",
+                "source": "service.snn_language_readout_ledger.execute_autonomous_readout_training_window",
+                "available": bool(preflight),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "ready": accepted,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": accepted,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": accepted,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_readout_training_window_event_hash": event[
+                    "autonomous_readout_training_window_event_hash"
+                ],
+                "autonomous_readout_training_window_event": event
+                if accepted
+                else None,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_readout_training_window_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_readout_training_window_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_readout_training_window_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_readout_training_window_event_review": accepted,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_readout_training_window_event_review"
+                        if accepted
+                        else "collect_current_bounded_training_update_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_readout_training_window_event_review(
+        self,
+        *,
+        autonomous_readout_training_window_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review recorded autonomous readout training-window evidence."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            execution = dict(autonomous_readout_training_window_executor or {})
+            gate = (
+                execution.get("promotion_gate")
+                if isinstance(execution.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                execution.get("autonomous_readout_training_window_event")
+                if isinstance(
+                    execution.get("autonomous_readout_training_window_event"),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_loss_increase = max(
+                0.0, float(policy.get("max_loss_increase", 0.02) or 0.02)
+            )
+            max_gradient_norm = max(
+                0.0, float(policy.get("max_gradient_norm", 10.0) or 10.0)
+            )
+            max_weight_delta = max(
+                0.0, float(policy.get("max_weight_delta", 0.05) or 0.05)
+            )
+            min_spike_sparsity = max(
+                0.0,
+                min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0),
+            )
+            event_hash = str(
+                event.get("autonomous_readout_training_window_event_hash") or ""
+            )
+            state = self._normalized_state()
+            matching_events = [
+                dict(item)
+                for item in list(state["autonomous_readout_training_window_events"])
+                if str(item.get("autonomous_readout_training_window_event_hash") or "")
+                == event_hash
+            ]
+            ledger_event = matching_events[0] if matching_events else {}
+            event_revision = int(event.get("state_revision", -1))
+            target_hashes = [
+                str(value) for value in list(event.get("target_hashes") or []) if str(value)
+            ]
+            sample_hashes = [
+                str(value) for value in list(event.get("sample_hashes") or []) if str(value)
+            ]
+            loss_before = float(
+                event.get("loss_before", 0.0)
+                if event.get("loss_before") is not None
+                else 0.0
+            )
+            loss_after = float(
+                event.get("loss_after", 0.0)
+                if event.get("loss_after") is not None
+                else 0.0
+            )
+            mean_gradient_norm = float(
+                event.get("mean_gradient_norm", 0.0)
+                if event.get("mean_gradient_norm") is not None
+                else 0.0
+            )
+            observed_max_weight_delta = float(
+                event.get("max_weight_delta", 0.0)
+                if event.get("max_weight_delta") is not None
+                else 0.0
+            )
+            observed_spike_sparsity = float(
+                event.get("observed_spike_sparsity", -1.0)
+                if event.get("observed_spike_sparsity") is not None
+                else -1.0
+            )
+            required = {
+                "executor_surface_available": execution.get("surface")
+                == "snn_language_autonomous_readout_training_window_executor.v1",
+                "executor_accepted": bool(execution.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_readout_training_window_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    execution.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_recorded_in_ledger": bool(matching_events),
+                "event_hash_matches_executor": event_hash
+                == str(
+                    execution.get(
+                        "autonomous_readout_training_window_event_hash"
+                    )
+                    or ""
+                ),
+                "event_revision_precedes_current_revision": event_revision
+                == before_revision - 1,
+                "ledger_event_hash_matches_payload": bool(ledger_event)
+                and ledger_event == dict(event),
+                "preflight_hash_available": len(str(event.get("preflight_hash") or ""))
+                == 64,
+                "training_window_design_hash_available": len(
+                    str(event.get("training_window_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(event.get("review_hash") or ""))
+                == 64,
+                "observation_event_hash_available": len(
+                    str(
+                        event.get(
+                            "autonomous_bound_readout_observation_event_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "target_hashes_valid": bool(target_hashes)
+                and all(len(value) == 64 for value in target_hashes),
+                "sample_hashes_valid": bool(sample_hashes)
+                and all(len(value) == 64 for value in sample_hashes),
+                "training_window_steps_bounded": 1
+                <= int(event.get("training_window_steps", 0) or 0)
+                <= 1024,
+                "learning_rate_bounded": 0.0
+                < float(event.get("learning_rate", 0.0) or 0.0)
+                <= 0.01,
+                "loss_values_bounded": 0.0 <= loss_before <= 1_000_000.0
+                and 0.0 <= loss_after <= 1_000_000.0,
+                "loss_not_regressed_beyond_policy": loss_after
+                <= loss_before + max_loss_increase,
+                "gradient_norm_bounded": 0.0
+                <= mean_gradient_norm
+                <= max_gradient_norm,
+                "weight_delta_bounded": 0.0
+                <= observed_max_weight_delta
+                <= max_weight_delta,
+                "spike_sparsity_sufficient": 0.0
+                <= observed_spike_sparsity
+                <= 1.0
+                and observed_spike_sparsity >= min_spike_sparsity,
+                "weight_update_hash_available": len(
+                    str(event.get("weight_update_hash") or "")
+                )
+                == 64,
+                "gradient_update_hash_available": len(
+                    str(event.get("gradient_update_hash") or "")
+                )
+                == 64,
+                "optimizer_state_hash_available": len(
+                    str(event.get("optimizer_state_hash") or "")
+                )
+                == 64,
+                "device_trace_hash_available": len(
+                    str(event.get("device_trace_hash") or "")
+                )
+                == 64,
+                "runtime_weights_updated": bool(event.get("runtime_weights_updated")),
+                "training_recorded": bool(event.get("trains_runtime_model"))
+                and bool(execution.get("trains_runtime_model")),
+                "runtime_mutation_is_ledger_only": bool(
+                    execution.get("records_ledger_event")
+                )
+                and bool(execution.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(execution.get("writes_checkpoint")),
+                "language_generation_absent": not bool(event.get("generates_text"))
+                and not bool(execution.get("generates_text")),
+                "text_decoding_absent": not bool(event.get("decodes_text"))
+                and not bool(execution.get("decodes_text")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(execution.get("runs_replay")),
+                "plasticity_absent": not bool(event.get("applies_plasticity"))
+                and not bool(execution.get("applies_plasticity")),
+            }
+            ready = all(required.values())
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_readout_training_window_event_review.v1",
+                    "autonomous_readout_training_window_event_hash": event_hash,
+                    "expected_state_revision": int(expected_state_revision),
+                    "observed_state_revision": before_revision,
+                    "loss_before": round(loss_before, 8),
+                    "loss_after": round(loss_after, 8),
+                    "mean_gradient_norm": round(mean_gradient_norm, 8),
+                    "max_weight_delta": round(observed_max_weight_delta, 8),
+                    "observed_spike_sparsity": round(observed_spike_sparsity, 6),
+                    "target_hashes": target_hashes,
+                    "sample_hashes": sample_hashes,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_readout_training_window_event_review",
+                "surface": "snn_language_autonomous_readout_training_window_event_review.v1",
+                "source": "service.snn_language_readout_ledger.autonomous_readout_training_window_event_review",
+                "available": bool(execution),
+                "ready": ready,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "review_hash": review_hash,
+                "autonomous_readout_training_window_event_hash": event_hash,
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "autonomous_readout_training_window_event_review": {
+                    "event_recorded_in_ledger": bool(matching_events),
+                    "event_revision": event_revision,
+                    "target_hashes": target_hashes,
+                    "sample_hashes": sample_hashes,
+                    "loss_before": round(loss_before, 8),
+                    "loss_after": round(loss_after, 8),
+                    "mean_gradient_norm": round(mean_gradient_norm, 8),
+                    "max_weight_delta": round(observed_max_weight_delta, 8),
+                    "observed_spike_sparsity": round(observed_spike_sparsity, 6),
+                    "weight_update_hash": event.get("weight_update_hash"),
+                    "gradient_update_hash": event.get("gradient_update_hash"),
+                    "optimizer_state_hash": event.get("optimizer_state_hash"),
+                    "device_trace_hash": event.get("device_trace_hash"),
+                    "runtime_weights_updated": bool(
+                        event.get("runtime_weights_updated")
+                    ),
+                    "operator_approval_required": False,
+                    "mutation_allowed": False,
+                },
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_decoder_probe_design"
+                        if ready
+                        else "blocked_missing_autonomous_readout_training_window_event_review_evidence"
+                    ),
+                    "eligible_for_autonomous_decoder_probe_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_decoder_probe_design"
+                        if ready
+                        else "collect_recorded_autonomous_training_window_event"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_decoder_probe_design(
+        self,
+        *,
+        autonomous_readout_training_window_event_review: Mapping[str, Any],
+        probe_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded autonomous decoder probe without generating text."""
+
+        review = dict(autonomous_readout_training_window_event_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            review.get("autonomous_readout_training_window_event_review")
+            if isinstance(
+                review.get("autonomous_readout_training_window_event_review"),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(probe_policy or {})
+        device = dict(device_evidence or {})
+        target_hashes = [
+            str(value) for value in list(body.get("target_hashes") or []) if str(value)
+        ]
+        sample_hashes = [
+            str(value) for value in list(body.get("sample_hashes") or []) if str(value)
+        ]
+        weight_update_hash = str(body.get("weight_update_hash") or "")
+        gradient_update_hash = str(body.get("gradient_update_hash") or "")
+        optimizer_state_hash = str(body.get("optimizer_state_hash") or "")
+        device_trace_hash = str(body.get("device_trace_hash") or "")
+        max_probe_steps = max(1, min(int(policy.get("max_probe_steps", 4) or 4), 32))
+        top_k = max(1, min(int(policy.get("top_k", 4) or 4), 16))
+        min_spike_sparsity = max(
+            0.0,
+            min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0),
+        )
+        max_slot_drift = max(
+            0.0, min(float(policy.get("max_slot_drift", 0.2) or 0.2), 1.0)
+        )
+        probe_mode = str(policy.get("probe_mode") or "hash_rank_probe").strip()
+        allowed_probe_modes = {
+            "hash_rank_probe",
+            "slot_activation_probe",
+            "transition_hash_probe",
+        }
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        required = {
+            "training_event_review_surface_available": review.get("surface")
+            == "snn_language_autonomous_readout_training_window_event_review.v1",
+            "training_event_review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_decoder_probe_design")),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "review_hash_available": len(str(review.get("review_hash") or "")) == 64,
+            "training_event_hash_available": len(
+                str(review.get("autonomous_readout_training_window_event_hash") or "")
+            )
+            == 64,
+            "event_recorded_in_ledger": bool(body.get("event_recorded_in_ledger")),
+            "runtime_weights_updated": bool(body.get("runtime_weights_updated")),
+            "target_hashes_valid": bool(target_hashes)
+            and all(len(value) == 64 for value in target_hashes),
+            "sample_hashes_valid": bool(sample_hashes)
+            and all(len(value) == 64 for value in sample_hashes),
+            "weight_update_hash_available": len(weight_update_hash) == 64,
+            "gradient_update_hash_available": len(gradient_update_hash) == 64,
+            "optimizer_state_hash_available": len(optimizer_state_hash) == 64,
+            "device_trace_hash_available": len(device_trace_hash) == 64,
+            "probe_mode_supported": probe_mode in allowed_probe_modes,
+            "probe_steps_bounded": 1 <= max_probe_steps <= 32,
+            "top_k_bounded": 1 <= top_k <= 16,
+            "spike_sparsity_threshold_bounded": 0.0 <= min_spike_sparsity <= 1.0,
+            "slot_drift_threshold_bounded": 0.0 <= max_slot_drift <= 1.0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        probe_targets = [
+            {
+                "probe_target_index": index,
+                "target_hash": target_hash,
+                "sample_hash": sample_hashes[index % len(sample_hashes)]
+                if sample_hashes
+                else None,
+                "probe_target_hash": self._sha256_json(
+                    [
+                        target_hash,
+                        sample_hashes[index % len(sample_hashes)]
+                        if sample_hashes
+                        else "",
+                        weight_update_hash,
+                        index,
+                    ]
+                ),
+            }
+            for index, target_hash in enumerate(target_hashes[:top_k])
+        ]
+        decoder_probe_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_decoder_probe_design.v1",
+                "review_hash": review.get("review_hash"),
+                "training_event_hash": review.get(
+                    "autonomous_readout_training_window_event_hash"
+                ),
+                "weight_update_hash": weight_update_hash,
+                "gradient_update_hash": gradient_update_hash,
+                "optimizer_state_hash": optimizer_state_hash,
+                "device_trace_hash": device_trace_hash,
+                "probe_mode": probe_mode,
+                "max_probe_steps": max_probe_steps,
+                "top_k": top_k,
+                "min_spike_sparsity": round(min_spike_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "probe_targets": probe_targets,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_decoder_probe_design",
+            "surface": "snn_language_autonomous_decoder_probe_design.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_decoder_probe_design",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "decoder_probe_design_hash": decoder_probe_design_hash,
+            "review_hash": review.get("review_hash"),
+            "autonomous_readout_training_window_event_hash": review.get(
+                "autonomous_readout_training_window_event_hash"
+            ),
+            "autonomous_decoder_probe_design": {
+                "probe_mode": probe_mode,
+                "max_probe_steps": max_probe_steps,
+                "top_k": top_k,
+                "min_spike_sparsity": round(min_spike_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "weight_update_hash": weight_update_hash,
+                "gradient_update_hash": gradient_update_hash,
+                "optimizer_state_hash": optimizer_state_hash,
+                "device_trace_hash": device_trace_hash,
+                "probe_targets": probe_targets,
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_probe_only": True,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_decoder_probe_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_decoder_probe_design_evidence"
+                ),
+                "eligible_for_autonomous_decoder_probe_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_decoder_probe_preflight"
+                    if ready
+                    else "collect_reviewed_training_update_probe_policy_and_device"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_decoder_probe_preflight(
+        self,
+        *,
+        autonomous_decoder_probe_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a bounded autonomous decoder probe without execution."""
+
+        design = dict(autonomous_decoder_probe_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design.get("autonomous_decoder_probe_design")
+            if isinstance(design.get("autonomous_decoder_probe_design"), Mapping)
+            else {}
+        )
+        design_device = (
+            body.get("device_evidence")
+            if isinstance(body.get("device_evidence"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or design_device or {})
+        capabilities = dict(executor_capabilities or {})
+        before_revision = int(self._runtime_state.state_revision)
+        probe_mode = str(body.get("probe_mode") or "").strip()
+        allowed_probe_modes = {
+            "hash_rank_probe",
+            "slot_activation_probe",
+            "transition_hash_probe",
+        }
+        target_hashes = [
+            str(value) for value in list(body.get("target_hashes") or []) if str(value)
+        ]
+        sample_hashes = [
+            str(value) for value in list(body.get("sample_hashes") or []) if str(value)
+        ]
+        probe_targets = [
+            dict(item)
+            for item in list(body.get("probe_targets") or [])
+            if isinstance(item, Mapping)
+        ]
+        probe_target_hashes = [
+            str(item.get("probe_target_hash") or "") for item in probe_targets
+        ]
+        max_probe_steps = int(body.get("max_probe_steps", 0) or 0)
+        top_k = int(body.get("top_k", 0) or 0)
+        min_spike_sparsity = float(body.get("min_spike_sparsity", 0.0) or 0.0)
+        max_slot_drift = float(body.get("max_slot_drift", 0.0) or 0.0)
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(body.get("requires_cuda")) or bool(
+            device.get("requires_cuda")
+        ) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        executor_ready = bool(capabilities.get("autonomous_decoder_probe_executor"))
+        required = {
+            "design_surface_available": design.get("surface")
+            == "snn_language_autonomous_decoder_probe_design.v1",
+            "design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_decoder_probe_preflight")),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "decoder_probe_design_hash_available": len(
+                str(design.get("decoder_probe_design_hash") or "")
+            )
+            == 64,
+            "review_hash_available": len(str(design.get("review_hash") or "")) == 64,
+            "training_event_hash_available": len(
+                str(design.get("autonomous_readout_training_window_event_hash") or "")
+            )
+            == 64,
+            "target_hashes_valid": bool(target_hashes)
+            and all(len(value) == 64 for value in target_hashes),
+            "sample_hashes_valid": bool(sample_hashes)
+            and all(len(value) == 64 for value in sample_hashes),
+            "update_hashes_available": len(str(body.get("weight_update_hash") or ""))
+            == 64
+            and len(str(body.get("gradient_update_hash") or "")) == 64
+            and len(str(body.get("optimizer_state_hash") or "")) == 64
+            and len(str(body.get("device_trace_hash") or "")) == 64,
+            "probe_mode_supported": probe_mode in allowed_probe_modes,
+            "probe_steps_bounded": 1 <= max_probe_steps <= 32,
+            "top_k_bounded": 1 <= top_k <= 16,
+            "probe_target_count_bounded": 1 <= len(probe_targets) <= top_k,
+            "probe_target_hashes_valid": bool(probe_target_hashes)
+            and all(len(value) == 64 for value in probe_target_hashes),
+            "spike_sparsity_threshold_bounded": 0.0 <= min_spike_sparsity <= 1.0,
+            "slot_drift_threshold_bounded": 0.0 <= max_slot_drift <= 1.0,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": executor_ready,
+            "hash_probe_only": bool(body.get("output_is_hash_probe_only")),
+            "execution_not_already_allowed": not bool(body.get("execution_allowed")),
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "training_absent": not bool(design.get("trains_runtime_model")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_decoder_probe_preflight.v1",
+                "decoder_probe_design_hash": design.get(
+                    "decoder_probe_design_hash"
+                ),
+                "review_hash": design.get("review_hash"),
+                "training_event_hash": design.get(
+                    "autonomous_readout_training_window_event_hash"
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "observed_state_revision": before_revision,
+                "probe_mode": probe_mode,
+                "max_probe_steps": max_probe_steps,
+                "top_k": top_k,
+                "probe_target_hashes": probe_target_hashes,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "executor_ready": executor_ready,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_decoder_probe_preflight",
+            "surface": "snn_language_autonomous_decoder_probe_preflight.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_decoder_probe_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "preflight_hash": preflight_hash,
+            "decoder_probe_design_hash": design.get("decoder_probe_design_hash"),
+            "review_hash": design.get("review_hash"),
+            "autonomous_readout_training_window_event_hash": design.get(
+                "autonomous_readout_training_window_event_hash"
+            ),
+            "expected_state_revision": int(expected_state_revision),
+            "observed_state_revision": before_revision,
+            "decoder_probe_preflight": {
+                "probe_mode": probe_mode,
+                "max_probe_steps": max_probe_steps,
+                "top_k": top_k,
+                "target_hashes": target_hashes,
+                "sample_hashes": sample_hashes,
+                "probe_targets": probe_targets,
+                "probe_target_hashes": probe_target_hashes,
+                "min_spike_sparsity": round(min_spike_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "weight_update_hash": body.get("weight_update_hash"),
+                "gradient_update_hash": body.get("gradient_update_hash"),
+                "optimizer_state_hash": body.get("optimizer_state_hash"),
+                "device_trace_hash": body.get("device_trace_hash"),
+                "output_is_hash_probe_only": True,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+            },
+            "device_preflight": {
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "cuda_available": cuda_available,
+                "cuda_requirement_satisfied": cuda_satisfied,
+                "executor_capability_available": executor_ready,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_decoder_probe_executor"
+                    if ready
+                    else "blocked_missing_autonomous_decoder_probe_preflight_evidence"
+                ),
+                "eligible_for_autonomous_decoder_probe_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_decoder_probe_executor"
+                    if ready
+                    else "collect_current_decoder_probe_device_executor_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_decoder_probe(
+        self,
+        *,
+        autonomous_decoder_probe_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        probe_evidence: Mapping[str, Any] | None = None,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record bounded autonomous decoder probe hashes without text decoding."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_decoder_probe_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("decoder_probe_preflight")
+                if isinstance(preflight.get("decoder_probe_preflight"), Mapping)
+                else {}
+            )
+            evidence = dict(probe_evidence or {})
+            policy = dict(execution_policy or {})
+            probe_targets = [
+                dict(item)
+                for item in list(body.get("probe_targets") or [])
+                if isinstance(item, Mapping)
+            ]
+            expected_probe_target_hashes = [
+                str(value)
+                for value in list(body.get("probe_target_hashes") or [])
+                if str(value)
+            ]
+            result_items = [
+                dict(item)
+                for item in list(evidence.get("probe_results") or [])
+                if isinstance(item, Mapping)
+            ]
+            max_probe_steps = int(body.get("max_probe_steps", 0) or 0)
+            top_k = int(body.get("top_k", 0) or 0)
+            max_results = min(
+                max(1, int(policy.get("max_results", top_k or 1) or 1)),
+                max(1, top_k or 1),
+                16,
+            )
+            result_items = result_items[:max_results]
+            result_target_hashes = [
+                str(item.get("probe_target_hash") or "") for item in result_items
+            ]
+            result_output_hashes = [
+                str(item.get("output_hash") or "") for item in result_items
+            ]
+            rank_hashes = [
+                str(value)
+                for item in result_items
+                for value in list(item.get("rank_hashes") or [])
+                if str(value)
+            ]
+
+            def _bounded_metric(item: Mapping[str, Any], key: str, default: float) -> float:
+                value = item.get(key, default)
+                return float(default if value is None else value)
+
+            top_scores = [_bounded_metric(item, "top_score", -1.0) for item in result_items]
+            spike_sparsities = [
+                _bounded_metric(item, "spike_sparsity", -1.0)
+                for item in result_items
+            ]
+            slot_drifts = [
+                _bounded_metric(item, "slot_drift", 2.0) for item in result_items
+            ]
+            mean_top_score = (
+                sum(top_scores) / len(top_scores) if top_scores else 0.0
+            )
+            mean_spike_sparsity = (
+                sum(spike_sparsities) / len(spike_sparsities)
+                if spike_sparsities
+                else 0.0
+            )
+            max_observed_slot_drift = max(slot_drifts) if slot_drifts else 1.0
+            min_top_score = max(
+                0.0, min(float(policy.get("min_top_score", 0.0) or 0.0), 1.0)
+            )
+            min_spike_sparsity = float(body.get("min_spike_sparsity", 0.0) or 0.0)
+            max_slot_drift = float(body.get("max_slot_drift", 1.0) or 1.0)
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_decoder_probe_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(gate.get("eligible_for_autonomous_decoder_probe_executor")),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "decoder_probe_design_hash_available": len(
+                    str(preflight.get("decoder_probe_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(preflight.get("review_hash") or ""))
+                == 64,
+                "training_event_hash_available": len(
+                    str(
+                        preflight.get(
+                            "autonomous_readout_training_window_event_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "probe_targets_available": bool(probe_targets)
+                and bool(expected_probe_target_hashes),
+                "probe_result_count_bounded": 1
+                <= len(result_items)
+                <= max(1, top_k)
+                <= 16,
+                "probe_target_hashes_match_preflight": set(result_target_hashes)
+                == set(expected_probe_target_hashes[: len(result_items)]),
+                "probe_target_hashes_valid": all(
+                    len(value) == 64 for value in result_target_hashes
+                ),
+                "output_hashes_valid": bool(result_output_hashes)
+                and all(len(value) == 64 for value in result_output_hashes),
+                "rank_hashes_valid": bool(rank_hashes)
+                and all(len(value) == 64 for value in rank_hashes),
+                "top_scores_bounded": bool(top_scores)
+                and all(0.0 <= value <= 1.0 for value in top_scores),
+                "top_score_sufficient": mean_top_score >= min_top_score,
+                "spike_sparsity_bounded": bool(spike_sparsities)
+                and all(0.0 <= value <= 1.0 for value in spike_sparsities),
+                "spike_sparsity_sufficient": mean_spike_sparsity
+                >= min_spike_sparsity,
+                "slot_drift_bounded": bool(slot_drifts)
+                and all(0.0 <= value <= 1.0 for value in slot_drifts),
+                "slot_drift_within_limit": max_observed_slot_drift <= max_slot_drift,
+                "hash_probe_only": bool(body.get("output_is_hash_probe_only")),
+                "checkpoint_write_absent": not bool(evidence.get("checkpoint_written"))
+                and not bool(preflight.get("writes_checkpoint")),
+                "language_generation_absent": not bool(evidence.get("generated_text"))
+                and not bool(preflight.get("generates_text")),
+                "text_decoding_absent": not bool(evidence.get("decoded_text"))
+                and not bool(preflight.get("decodes_text")),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+            }
+            accepted = all(required.values())
+            probed_at = datetime.now(timezone.utc).isoformat()
+            event = {
+                "autonomous_decoder_probe_event_id": (
+                    f"snn-autonomous-decoder-probe:{preflight_hash[:16]}"
+                ),
+                "probed_at": probed_at,
+                "state_revision": before_revision,
+                "preflight_hash": preflight_hash,
+                "decoder_probe_design_hash": preflight.get("decoder_probe_design_hash"),
+                "review_hash": preflight.get("review_hash"),
+                "autonomous_readout_training_window_event_hash": preflight.get(
+                    "autonomous_readout_training_window_event_hash"
+                ),
+                "probe_mode": body.get("probe_mode"),
+                "max_probe_steps": max_probe_steps,
+                "top_k": top_k,
+                "probe_result_count": len(result_items),
+                "probe_target_hashes": result_target_hashes,
+                "output_hashes": result_output_hashes,
+                "rank_hashes": rank_hashes,
+                "mean_top_score": round(mean_top_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(max_observed_slot_drift, 6),
+                "probe_results": [deepcopy(dict(item)) for item in result_items],
+                "output_is_hash_probe_only": True,
+                "operator_approval_required": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+                "runs_replay": False,
+                "applies_plasticity": False,
+                "trains_runtime_model": False,
+            }
+            event["autonomous_decoder_probe_event_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_decoder_probe_executor.v1",
+                    **event,
+                }
+            )
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(item.get("autonomous_decoder_probe_event_hash") or "")
+                    for item in state["autonomous_decoder_probe_events"]
+                }
+                duplicate = event["autonomous_decoder_probe_event_hash"] in existing_hashes
+                if not duplicate:
+                    state["autonomous_decoder_probe_events"].appendleft(deepcopy(event))
+                    state["total_autonomous_decoder_probe_count"] = int(
+                        state.get("total_autonomous_decoder_probe_count", 0) or 0
+                    ) + 1
+                    state["last_autonomous_decoder_probed_at"] = probed_at
+                    self._store_state(state)
+                    self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_decoder_probe_executor",
+                "surface": "snn_language_autonomous_decoder_probe_executor.v1",
+                "source": "service.snn_language_readout_ledger.execute_autonomous_decoder_probe",
+                "available": bool(preflight),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "ready": accepted,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": accepted,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_decoder_probe_event_hash": event[
+                    "autonomous_decoder_probe_event_hash"
+                ],
+                "autonomous_decoder_probe_event": event if accepted else None,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_decoder_probe_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_decoder_probe_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_decoder_probe_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_decoder_probe_event_review": accepted,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_decoder_probe_event_review"
+                        if accepted
+                        else "collect_current_hash_only_decoder_probe_results"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_decoder_probe_event_review(
+        self,
+        *,
+        autonomous_decoder_probe_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded autonomous decoder probe event without interpreting text."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(autonomous_decoder_probe_executor or {})
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(executor.get("autonomous_decoder_probe_event"))
+                if isinstance(executor.get("autonomous_decoder_probe_event"), Mapping)
+                else {}
+            )
+            policy = dict(review_policy or {})
+            min_results = max(1, int(policy.get("min_probe_results", 1) or 1))
+            max_results = min(
+                16, max(min_results, int(policy.get("max_probe_results", 16) or 16))
+            )
+            min_top_score = max(
+                0.0, min(float(policy.get("min_top_score", 0.0) or 0.0), 1.0)
+            )
+            min_spike_sparsity = max(
+                0.0,
+                min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0),
+            )
+            max_slot_drift = max(
+                0.0, min(float(policy.get("max_slot_drift", 0.2) or 0.2), 1.0)
+            )
+            event_hash = str(event.get("autonomous_decoder_probe_event_hash") or "")
+            executor_event_hash = str(
+                executor.get("autonomous_decoder_probe_event_hash") or ""
+            )
+            event_revision = int(event.get("state_revision", -1) or -1)
+            probe_target_hashes = [
+                str(value)
+                for value in list(event.get("probe_target_hashes") or [])
+                if str(value)
+            ]
+            output_hashes = [
+                str(value) for value in list(event.get("output_hashes") or []) if str(value)
+            ]
+            rank_hashes = [
+                str(value) for value in list(event.get("rank_hashes") or []) if str(value)
+            ]
+            probe_result_count = int(event.get("probe_result_count", 0) or 0)
+            mean_top_score = float(event.get("mean_top_score", -1.0) or -1.0)
+            mean_spike_sparsity = float(
+                event.get("mean_spike_sparsity", -1.0) or -1.0
+            )
+            observed_slot_drift = float(event.get("max_slot_drift", 2.0) or 2.0)
+            state = self._normalized_state()
+            recorded_event = next(
+                (
+                    deepcopy(dict(item))
+                    for item in list(state["autonomous_decoder_probe_events"])
+                    if str(item.get("autonomous_decoder_probe_event_hash") or "")
+                    == event_hash
+                ),
+                None,
+            )
+            event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == "snn_language_autonomous_decoder_probe_executor.v1",
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(gate.get("eligible_for_autonomous_decoder_probe_event_review")),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_previous": event_revision == before_revision - 1,
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_matches_executor": bool(event_hash)
+                and event_hash == executor_event_hash,
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "preflight_hash_available": len(str(event.get("preflight_hash") or ""))
+                == 64,
+                "decoder_probe_design_hash_available": len(
+                    str(event.get("decoder_probe_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(event.get("review_hash") or "")) == 64,
+                "training_event_hash_available": len(
+                    str(event.get("autonomous_readout_training_window_event_hash") or "")
+                )
+                == 64,
+                "probe_result_count_bounded": min_results
+                <= probe_result_count
+                <= max_results,
+                "probe_target_hashes_valid": bool(probe_target_hashes)
+                and all(len(value) == 64 for value in probe_target_hashes),
+                "output_hashes_valid": bool(output_hashes)
+                and all(len(value) == 64 for value in output_hashes),
+                "rank_hashes_valid": bool(rank_hashes)
+                and all(len(value) == 64 for value in rank_hashes),
+                "top_score_bounded": 0.0 <= mean_top_score <= 1.0,
+                "top_score_sufficient": mean_top_score >= min_top_score,
+                "spike_sparsity_bounded": 0.0 <= mean_spike_sparsity <= 1.0,
+                "spike_sparsity_sufficient": mean_spike_sparsity
+                >= min_spike_sparsity,
+                "slot_drift_bounded": 0.0 <= observed_slot_drift <= 1.0,
+                "slot_drift_within_limit": observed_slot_drift <= max_slot_drift,
+                "hash_probe_only": bool(event.get("output_is_hash_probe_only")),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(executor.get("writes_checkpoint")),
+                "language_generation_absent": not bool(event.get("generates_text"))
+                and not bool(executor.get("generates_text")),
+                "text_decoding_absent": not bool(event.get("decodes_text"))
+                and not bool(executor.get("decodes_text")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(executor.get("runs_replay")),
+                "plasticity_absent": not bool(event.get("applies_plasticity"))
+                and not bool(executor.get("applies_plasticity")),
+                "training_absent": not bool(event.get("trains_runtime_model"))
+                and not bool(executor.get("trains_runtime_model")),
+            }
+            ready = all(required.values())
+            review = {
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "event_revision": event_revision if event else None,
+                "autonomous_decoder_probe_event_hash": event_hash,
+                "probe_result_count": probe_result_count,
+                "probe_target_hashes": probe_target_hashes,
+                "output_hashes": output_hashes,
+                "rank_hashes": rank_hashes,
+                "mean_top_score": round(mean_top_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(observed_slot_drift, 6),
+                "output_is_hash_probe_only": bool(event.get("output_is_hash_probe_only")),
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+                "review_policy": {
+                    "min_probe_results": min_results,
+                    "max_probe_results": max_results,
+                    "min_top_score": min_top_score,
+                    "min_spike_sparsity": min_spike_sparsity,
+                    "max_slot_drift": max_slot_drift,
+                },
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_decoder_probe_event_review.v1",
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_decoder_probe_event_review": review,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_decoder_probe_event_review",
+                "surface": "snn_language_autonomous_decoder_probe_event_review.v1",
+                "source": "service.snn_language_readout_ledger.autonomous_decoder_probe_event_review",
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "observed_state_revision": before_revision,
+                "expected_state_revision": int(expected_state_revision),
+                "autonomous_decoder_probe_event_hash": event_hash,
+                "autonomous_decoder_probe_event_review": review,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_language_output_design"
+                        if ready
+                        else "blocked_missing_autonomous_decoder_probe_event_evidence"
+                    ),
+                    "eligible_for_autonomous_language_output_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_language_output_design"
+                        if ready
+                        else "collect_recorded_hash_only_decoder_probe_event"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_language_output_design(
+        self,
+        *,
+        autonomous_decoder_probe_event_review: Mapping[str, Any],
+        output_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded autonomous language output from sparse probe hashes."""
+
+        review = dict(autonomous_decoder_probe_event_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            review.get("autonomous_decoder_probe_event_review")
+            if isinstance(
+                review.get("autonomous_decoder_probe_event_review"),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(output_policy or {})
+        device = dict(device_evidence or {})
+        output_mode = str(policy.get("output_mode") or "token_hash_sequence").strip()
+        allowed_output_modes = {
+            "token_hash_sequence",
+            "ranked_token_hash_sequence",
+            "slot_activation_sequence",
+        }
+        max_output_tokens = max(
+            1, min(int(policy.get("max_output_tokens", 8) or 8), 32)
+        )
+        min_top_score = max(
+            0.0, min(float(policy.get("min_top_score", 0.0) or 0.0), 1.0)
+        )
+        min_spike_sparsity = max(
+            0.0, min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0)
+        )
+        max_slot_drift = max(
+            0.0, min(float(policy.get("max_slot_drift", 0.2) or 0.2), 1.0)
+        )
+        probe_result_count = int(body.get("probe_result_count", 0) or 0)
+        mean_top_score = float(body.get("mean_top_score", -1.0) or -1.0)
+        mean_spike_sparsity = float(body.get("mean_spike_sparsity", -1.0) or -1.0)
+        observed_slot_drift = float(body.get("max_slot_drift", 2.0) or 2.0)
+        probe_target_hashes = [
+            str(value)
+            for value in list(body.get("probe_target_hashes") or [])
+            if str(value)
+        ]
+        output_hashes = [
+            str(value) for value in list(body.get("output_hashes") or []) if str(value)
+        ]
+        rank_hashes = [
+            str(value) for value in list(body.get("rank_hashes") or []) if str(value)
+        ]
+        candidate_hashes = (output_hashes + rank_hashes)[:max_output_tokens]
+        event_hash = str(review.get("autonomous_decoder_probe_event_hash") or "")
+        review_hash = str(review.get("review_hash") or "")
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        required = {
+            "decoder_probe_event_review_surface_available": review.get("surface")
+            == "snn_language_autonomous_decoder_probe_event_review.v1",
+            "decoder_probe_event_review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_language_output_design")),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "review_hash_available": len(review_hash) == 64,
+            "decoder_probe_event_hash_available": len(event_hash) == 64,
+            "event_recorded_in_ledger": bool(body.get("event_recorded_in_ledger")),
+            "probe_result_count_available": probe_result_count >= 1,
+            "probe_target_hashes_valid": bool(probe_target_hashes)
+            and all(len(value) == 64 for value in probe_target_hashes),
+            "output_hashes_valid": bool(output_hashes)
+            and all(len(value) == 64 for value in output_hashes),
+            "rank_hashes_valid": bool(rank_hashes)
+            and all(len(value) == 64 for value in rank_hashes),
+            "candidate_hashes_available": bool(candidate_hashes),
+            "output_mode_supported": output_mode in allowed_output_modes,
+            "output_length_bounded": 1 <= max_output_tokens <= 32,
+            "top_score_bounded": 0.0 <= mean_top_score <= 1.0,
+            "top_score_sufficient": mean_top_score >= min_top_score,
+            "spike_sparsity_bounded": 0.0 <= mean_spike_sparsity <= 1.0,
+            "spike_sparsity_sufficient": mean_spike_sparsity >= min_spike_sparsity,
+            "slot_drift_bounded": 0.0 <= observed_slot_drift <= 1.0,
+            "slot_drift_within_limit": observed_slot_drift <= max_slot_drift,
+            "hash_probe_only": bool(body.get("output_is_hash_probe_only")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        output_slots = [
+            {
+                "slot_index": index,
+                "candidate_hash": candidate_hash,
+                "source": "decoder_probe_output_hash"
+                if candidate_hash in output_hashes
+                else "decoder_probe_rank_hash",
+                "language_output_slot_hash": self._sha256_json(
+                    [event_hash, review_hash, candidate_hash, output_mode, index]
+                ),
+            }
+            for index, candidate_hash in enumerate(candidate_hashes)
+        ]
+        language_output_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_language_output_design.v1",
+                "review_hash": review_hash,
+                "autonomous_decoder_probe_event_hash": event_hash,
+                "output_mode": output_mode,
+                "max_output_tokens": max_output_tokens,
+                "min_top_score": round(min_top_score, 6),
+                "min_spike_sparsity": round(min_spike_sparsity, 6),
+                "max_slot_drift": round(max_slot_drift, 6),
+                "candidate_hashes": candidate_hashes,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_language_output_design",
+            "surface": "snn_language_autonomous_language_output_design.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_language_output_design",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "language_output_design_hash": language_output_design_hash,
+            "review_hash": review_hash,
+            "autonomous_decoder_probe_event_hash": event_hash,
+            "autonomous_language_output_design": {
+                "output_mode": output_mode,
+                "max_output_tokens": max_output_tokens,
+                "candidate_hashes": candidate_hashes,
+                "output_slots": output_slots,
+                "probe_target_hashes": probe_target_hashes,
+                "output_hashes": output_hashes,
+                "rank_hashes": rank_hashes,
+                "mean_top_score": round(mean_top_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(observed_slot_drift, 6),
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_probe_only": True,
+                "decoded_text_allowed": False,
+                "generated_text_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_language_output_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_language_output_design_evidence"
+                ),
+                "eligible_for_autonomous_language_output_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_language_output_preflight"
+                    if ready
+                    else "collect_reviewed_decoder_probe_output_policy_and_device"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_language_output_preflight(
+        self,
+        *,
+        autonomous_language_output_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight bounded autonomous language output slots without emitting text."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design = dict(autonomous_language_output_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design.get("autonomous_language_output_design")
+            if isinstance(design.get("autonomous_language_output_design"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or body.get("device_evidence") or {})
+        capabilities = dict(executor_capabilities or {})
+        output_mode = str(body.get("output_mode") or "").strip()
+        candidate_hashes = [
+            str(value)
+            for value in list(body.get("candidate_hashes") or [])
+            if str(value)
+        ]
+        output_slots = [
+            dict(item)
+            for item in list(body.get("output_slots") or [])
+            if isinstance(item, Mapping)
+        ]
+        output_slot_hashes = [
+            str(item.get("language_output_slot_hash") or "") for item in output_slots
+        ]
+        output_hashes = [
+            str(value) for value in list(body.get("output_hashes") or []) if str(value)
+        ]
+        rank_hashes = [
+            str(value) for value in list(body.get("rank_hashes") or []) if str(value)
+        ]
+        max_output_tokens = int(body.get("max_output_tokens", 0) or 0)
+        mean_top_score = float(body.get("mean_top_score", -1.0) or -1.0)
+        mean_spike_sparsity = float(body.get("mean_spike_sparsity", -1.0) or -1.0)
+        observed_slot_drift = float(body.get("max_slot_drift", 2.0) or 2.0)
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or bool(
+            body.get("requires_cuda")
+        ) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        executor_ready = bool(capabilities.get("autonomous_language_output_executor"))
+        language_output_design_hash = str(design.get("language_output_design_hash") or "")
+        review_hash = str(design.get("review_hash") or "")
+        event_hash = str(design.get("autonomous_decoder_probe_event_hash") or "")
+        allowed_output_modes = {
+            "token_hash_sequence",
+            "ranked_token_hash_sequence",
+            "slot_activation_sequence",
+        }
+        required = {
+            "language_output_design_surface_available": design.get("surface")
+            == "snn_language_autonomous_language_output_design.v1",
+            "language_output_design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_language_output_preflight")),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "language_output_design_hash_available": len(language_output_design_hash)
+            == 64,
+            "review_hash_available": len(review_hash) == 64,
+            "decoder_probe_event_hash_available": len(event_hash) == 64,
+            "output_mode_supported": output_mode in allowed_output_modes,
+            "candidate_hashes_valid": bool(candidate_hashes)
+            and all(len(value) == 64 for value in candidate_hashes),
+            "output_slots_valid": bool(output_slots)
+            and all(len(value) == 64 for value in output_slot_hashes)
+            and len(output_slots) == len(candidate_hashes),
+            "source_output_hashes_valid": bool(output_hashes)
+            and all(len(value) == 64 for value in output_hashes),
+            "rank_hashes_valid": bool(rank_hashes)
+            and all(len(value) == 64 for value in rank_hashes),
+            "output_length_bounded": 1
+            <= len(candidate_hashes)
+            <= max(1, max_output_tokens)
+            <= 32,
+            "top_score_bounded": 0.0 <= mean_top_score <= 1.0,
+            "spike_sparsity_bounded": 0.0 <= mean_spike_sparsity <= 1.0,
+            "slot_drift_bounded": 0.0 <= observed_slot_drift <= 1.0,
+            "hash_probe_only": bool(body.get("output_is_hash_probe_only")),
+            "decoded_text_disallowed": not bool(body.get("decoded_text_allowed")),
+            "generated_text_disallowed": not bool(body.get("generated_text_allowed")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": executor_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_language_output_preflight.v1",
+                "state_revision": before_revision,
+                "language_output_design_hash": language_output_design_hash,
+                "review_hash": review_hash,
+                "autonomous_decoder_probe_event_hash": event_hash,
+                "output_mode": output_mode,
+                "candidate_hashes": candidate_hashes,
+                "output_slot_hashes": output_slot_hashes,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_language_output_preflight",
+            "surface": "snn_language_autonomous_language_output_preflight.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_language_output_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "preflight_hash": preflight_hash,
+            "language_output_design_hash": language_output_design_hash,
+            "review_hash": review_hash,
+            "autonomous_decoder_probe_event_hash": event_hash,
+            "autonomous_language_output_preflight": {
+                "output_mode": output_mode,
+                "max_output_tokens": max_output_tokens,
+                "candidate_hashes": candidate_hashes,
+                "output_slot_hashes": output_slot_hashes,
+                "output_slots": output_slots,
+                "mean_top_score": round(mean_top_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(observed_slot_drift, 6),
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "output_is_hash_probe_only": True,
+                "decoded_text_allowed": False,
+                "generated_text_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_language_output_executor"
+                    if ready
+                    else "blocked_missing_autonomous_language_output_preflight_evidence"
+                ),
+                "eligible_for_autonomous_language_output_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_language_output_executor"
+                    if ready
+                    else "collect_current_language_output_design_device_and_executor"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_language_output(
+        self,
+        *,
+        autonomous_language_output_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        output_evidence: Mapping[str, Any] | None = None,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record bounded autonomous language output hashes without decoding text."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_language_output_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("autonomous_language_output_preflight")
+                if isinstance(preflight.get("autonomous_language_output_preflight"), Mapping)
+                else {}
+            )
+            evidence = dict(output_evidence or {})
+            policy = dict(execution_policy or {})
+            candidate_hashes = [
+                str(value)
+                for value in list(body.get("candidate_hashes") or [])
+                if str(value)
+            ]
+            output_slot_hashes = [
+                str(value)
+                for value in list(body.get("output_slot_hashes") or [])
+                if str(value)
+            ]
+            output_slots = [
+                dict(item)
+                for item in list(body.get("output_slots") or [])
+                if isinstance(item, Mapping)
+            ]
+            result_items = [
+                dict(item)
+                for item in list(evidence.get("output_slot_results") or [])
+                if isinstance(item, Mapping)
+            ]
+            max_output_tokens = int(body.get("max_output_tokens", 0) or 0)
+            max_results = min(
+                max(1, int(policy.get("max_results", max_output_tokens or 1) or 1)),
+                max(1, max_output_tokens or 1),
+                32,
+            )
+            result_items = result_items[:max_results]
+            result_slot_hashes = [
+                str(item.get("language_output_slot_hash") or "")
+                for item in result_items
+            ]
+            result_candidate_hashes = [
+                str(item.get("candidate_hash") or "") for item in result_items
+            ]
+            emitted_hashes = [
+                str(item.get("emitted_hash") or "") for item in result_items
+            ]
+            rank_hashes = [
+                str(value)
+                for item in result_items
+                for value in list(item.get("rank_hashes") or [])
+                if str(value)
+            ]
+
+            def _bounded_metric(item: Mapping[str, Any], key: str, default: float) -> float:
+                value = item.get(key, default)
+                return float(default if value is None else value)
+
+            confidence_scores = [
+                _bounded_metric(item, "confidence_score", -1.0)
+                for item in result_items
+            ]
+            spike_sparsities = [
+                _bounded_metric(item, "spike_sparsity", -1.0)
+                for item in result_items
+            ]
+            slot_drifts = [
+                _bounded_metric(item, "slot_drift", 2.0) for item in result_items
+            ]
+            mean_confidence_score = (
+                sum(confidence_scores) / len(confidence_scores)
+                if confidence_scores
+                else 0.0
+            )
+            mean_spike_sparsity = (
+                sum(spike_sparsities) / len(spike_sparsities)
+                if spike_sparsities
+                else 0.0
+            )
+            max_observed_slot_drift = max(slot_drifts) if slot_drifts else 1.0
+            min_confidence_score = max(
+                0.0,
+                min(float(policy.get("min_confidence_score", 0.0) or 0.0), 1.0),
+            )
+            min_spike_sparsity = max(
+                0.0,
+                min(
+                    float(
+                        policy.get(
+                            "min_spike_sparsity",
+                            body.get("mean_spike_sparsity", 0.0),
+                        )
+                        or 0.0
+                    ),
+                    1.0,
+                ),
+            )
+            max_slot_drift = max(
+                0.0,
+                min(
+                    float(
+                        policy.get("max_slot_drift", body.get("max_slot_drift", 1.0))
+                        or 1.0
+                    ),
+                    1.0,
+                ),
+            )
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_language_output_preflight.v1",
+                "preflight_ready": bool(preflight.get("ready"))
+                and bool(gate.get("eligible_for_autonomous_language_output_executor")),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1)) == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "language_output_design_hash_available": len(
+                    str(preflight.get("language_output_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(preflight.get("review_hash") or ""))
+                == 64,
+                "decoder_probe_event_hash_available": len(
+                    str(preflight.get("autonomous_decoder_probe_event_hash") or "")
+                )
+                == 64,
+                "candidate_hashes_valid": bool(candidate_hashes)
+                and all(len(value) == 64 for value in candidate_hashes),
+                "output_slot_hashes_valid": bool(output_slot_hashes)
+                and all(len(value) == 64 for value in output_slot_hashes),
+                "output_slot_results_bounded": 1
+                <= len(result_items)
+                <= max(1, max_output_tokens)
+                <= 32,
+                "result_slot_hashes_match_preflight": set(result_slot_hashes)
+                == set(output_slot_hashes[: len(result_items)]),
+                "result_candidate_hashes_match_preflight": set(result_candidate_hashes)
+                == set(candidate_hashes[: len(result_items)]),
+                "emitted_hashes_valid": bool(emitted_hashes)
+                and all(len(value) == 64 for value in emitted_hashes),
+                "rank_hashes_valid": bool(rank_hashes)
+                and all(len(value) == 64 for value in rank_hashes),
+                "confidence_scores_bounded": bool(confidence_scores)
+                and all(0.0 <= value <= 1.0 for value in confidence_scores),
+                "confidence_score_sufficient": mean_confidence_score
+                >= min_confidence_score,
+                "spike_sparsity_bounded": bool(spike_sparsities)
+                and all(0.0 <= value <= 1.0 for value in spike_sparsities),
+                "spike_sparsity_sufficient": mean_spike_sparsity
+                >= min_spike_sparsity,
+                "slot_drift_bounded": bool(slot_drifts)
+                and all(0.0 <= value <= 1.0 for value in slot_drifts),
+                "slot_drift_within_limit": max_observed_slot_drift <= max_slot_drift,
+                "hash_output_only": bool(body.get("output_is_hash_probe_only")),
+                "decoded_text_absent": not bool(evidence.get("decoded_text"))
+                and not bool(evidence.get("text"))
+                and not bool(preflight.get("decodes_text")),
+                "generated_text_absent": not bool(evidence.get("generated_text"))
+                and not bool(preflight.get("generates_text")),
+                "checkpoint_write_absent": not bool(evidence.get("checkpoint_written"))
+                and not bool(preflight.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(preflight.get("runs_replay")),
+                "plasticity_absent": not bool(preflight.get("applies_plasticity")),
+                "training_absent": not bool(preflight.get("trains_runtime_model")),
+            }
+            accepted = all(required.values())
+            emitted_at = datetime.now(timezone.utc).isoformat()
+            event = {
+                "autonomous_language_output_event_id": (
+                    f"snn-autonomous-language-output:{preflight_hash[:16]}"
+                ),
+                "emitted_at": emitted_at,
+                "state_revision": before_revision,
+                "preflight_hash": preflight_hash,
+                "language_output_design_hash": preflight.get(
+                    "language_output_design_hash"
+                ),
+                "review_hash": preflight.get("review_hash"),
+                "autonomous_decoder_probe_event_hash": preflight.get(
+                    "autonomous_decoder_probe_event_hash"
+                ),
+                "output_mode": body.get("output_mode"),
+                "max_output_tokens": max_output_tokens,
+                "output_slot_count": len(result_items),
+                "candidate_hashes": result_candidate_hashes,
+                "output_slot_hashes": result_slot_hashes,
+                "emitted_hashes": emitted_hashes,
+                "rank_hashes": rank_hashes,
+                "mean_confidence_score": round(mean_confidence_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(max_observed_slot_drift, 6),
+                "output_slot_results": [deepcopy(dict(item)) for item in result_items],
+                "source_output_slots": [deepcopy(dict(item)) for item in output_slots],
+                "output_is_hash_only": True,
+                "operator_approval_required": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "writes_checkpoint": False,
+                "runs_replay": False,
+                "applies_plasticity": False,
+                "trains_runtime_model": False,
+            }
+            event["autonomous_language_output_event_hash"] = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_language_output_executor.v1",
+                    **event,
+                }
+            )
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(item.get("autonomous_language_output_event_hash") or "")
+                    for item in state["autonomous_language_output_events"]
+                }
+                duplicate = event["autonomous_language_output_event_hash"] in existing_hashes
+                if not duplicate:
+                    state["autonomous_language_output_events"].appendleft(
+                        deepcopy(event)
+                    )
+                    state["total_autonomous_language_output_count"] = int(
+                        state.get("total_autonomous_language_output_count", 0) or 0
+                    ) + 1
+                    state["last_autonomous_language_output_emitted_at"] = emitted_at
+                    self._store_state(state)
+                    self._runtime_state.mark_mutated()
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_language_output_executor",
+                "surface": "snn_language_autonomous_language_output_executor.v1",
+                "source": "service.snn_language_readout_ledger.execute_autonomous_language_output",
+                "available": bool(preflight),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "ready": accepted,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": accepted,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_language_output_event_hash": event[
+                    "autonomous_language_output_event_hash"
+                ],
+                "autonomous_language_output_event": event if accepted else None,
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_language_output_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_language_output_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_language_output_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_language_output_event_review": accepted,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_language_output_event_review"
+                        if accepted
+                        else "collect_current_hash_only_language_output_results"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_language_output_event_review(
+        self,
+        *,
+        autonomous_language_output_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded autonomous language output event without decoding text."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(autonomous_language_output_executor or {})
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(executor.get("autonomous_language_output_event"))
+                if isinstance(executor.get("autonomous_language_output_event"), Mapping)
+                else {}
+            )
+            policy = dict(review_policy or {})
+            min_slots = max(1, int(policy.get("min_output_slots", 1) or 1))
+            max_slots = min(32, max(min_slots, int(policy.get("max_output_slots", 32) or 32)))
+            min_confidence_score = max(
+                0.0,
+                min(float(policy.get("min_confidence_score", 0.0) or 0.0), 1.0),
+            )
+            min_spike_sparsity = max(
+                0.0,
+                min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0),
+            )
+            max_slot_drift = max(
+                0.0, min(float(policy.get("max_slot_drift", 0.2) or 0.2), 1.0)
+            )
+            event_hash = str(event.get("autonomous_language_output_event_hash") or "")
+            executor_event_hash = str(
+                executor.get("autonomous_language_output_event_hash") or ""
+            )
+            event_revision = int(event.get("state_revision", -1) or -1)
+            candidate_hashes = [
+                str(value) for value in list(event.get("candidate_hashes") or []) if str(value)
+            ]
+            output_slot_hashes = [
+                str(value) for value in list(event.get("output_slot_hashes") or []) if str(value)
+            ]
+            emitted_hashes = [
+                str(value) for value in list(event.get("emitted_hashes") or []) if str(value)
+            ]
+            rank_hashes = [
+                str(value) for value in list(event.get("rank_hashes") or []) if str(value)
+            ]
+            output_slot_count = int(event.get("output_slot_count", 0) or 0)
+            mean_confidence_score = float(
+                event.get("mean_confidence_score", -1.0) or -1.0
+            )
+            mean_spike_sparsity = float(
+                event.get("mean_spike_sparsity", -1.0) or -1.0
+            )
+            observed_slot_drift = float(event.get("max_slot_drift", 2.0) or 2.0)
+            state = self._normalized_state()
+            recorded_event = next(
+                (
+                    deepcopy(dict(item))
+                    for item in list(state["autonomous_language_output_events"])
+                    if str(item.get("autonomous_language_output_event_hash") or "")
+                    == event_hash
+                ),
+                None,
+            )
+            event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == "snn_language_autonomous_language_output_executor.v1",
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(gate.get("eligible_for_autonomous_language_output_event_review")),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision) == before_revision,
+                "event_revision_previous": event_revision == before_revision - 1,
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_matches_executor": bool(event_hash)
+                and event_hash == executor_event_hash,
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "preflight_hash_available": len(str(event.get("preflight_hash") or "")) == 64,
+                "language_output_design_hash_available": len(
+                    str(event.get("language_output_design_hash") or "")
+                )
+                == 64,
+                "review_hash_available": len(str(event.get("review_hash") or "")) == 64,
+                "decoder_probe_event_hash_available": len(
+                    str(event.get("autonomous_decoder_probe_event_hash") or "")
+                )
+                == 64,
+                "output_slot_count_bounded": min_slots <= output_slot_count <= max_slots,
+                "candidate_hashes_valid": bool(candidate_hashes)
+                and all(len(value) == 64 for value in candidate_hashes),
+                "output_slot_hashes_valid": bool(output_slot_hashes)
+                and all(len(value) == 64 for value in output_slot_hashes),
+                "emitted_hashes_valid": bool(emitted_hashes)
+                and all(len(value) == 64 for value in emitted_hashes),
+                "rank_hashes_valid": bool(rank_hashes)
+                and all(len(value) == 64 for value in rank_hashes),
+                "slot_hash_counts_match": output_slot_count
+                == len(candidate_hashes)
+                == len(output_slot_hashes)
+                == len(emitted_hashes),
+                "confidence_score_bounded": 0.0 <= mean_confidence_score <= 1.0,
+                "confidence_score_sufficient": mean_confidence_score
+                >= min_confidence_score,
+                "spike_sparsity_bounded": 0.0 <= mean_spike_sparsity <= 1.0,
+                "spike_sparsity_sufficient": mean_spike_sparsity
+                >= min_spike_sparsity,
+                "slot_drift_bounded": 0.0 <= observed_slot_drift <= 1.0,
+                "slot_drift_within_limit": observed_slot_drift <= max_slot_drift,
+                "hash_output_only": bool(event.get("output_is_hash_only")),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(executor.get("writes_checkpoint")),
+                "language_generation_absent": not bool(event.get("generates_text"))
+                and not bool(executor.get("generates_text")),
+                "text_decoding_absent": not bool(event.get("decodes_text"))
+                and not bool(executor.get("decodes_text")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(executor.get("runs_replay")),
+                "plasticity_absent": not bool(event.get("applies_plasticity"))
+                and not bool(executor.get("applies_plasticity")),
+                "training_absent": not bool(event.get("trains_runtime_model"))
+                and not bool(executor.get("trains_runtime_model")),
+            }
+            ready = all(required.values())
+            review = {
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "event_revision": event_revision if event else None,
+                "autonomous_language_output_event_hash": event_hash,
+                "output_slot_count": output_slot_count,
+                "candidate_hashes": candidate_hashes,
+                "output_slot_hashes": output_slot_hashes,
+                "emitted_hashes": emitted_hashes,
+                "rank_hashes": rank_hashes,
+                "mean_confidence_score": round(mean_confidence_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(observed_slot_drift, 6),
+                "output_is_hash_only": bool(event.get("output_is_hash_only")),
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+                "decoded_text_allowed": False,
+                "generated_text_allowed": False,
+                "review_policy": {
+                    "min_output_slots": min_slots,
+                    "max_output_slots": max_slots,
+                    "min_confidence_score": min_confidence_score,
+                    "min_spike_sparsity": min_spike_sparsity,
+                    "max_slot_drift": max_slot_drift,
+                },
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": "snn_language_autonomous_language_output_event_review.v1",
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_language_output_event_review": review,
+                }
+            )
+            return {
+                "artifact_kind": "terminus_snn_language_autonomous_language_output_event_review",
+                "surface": "snn_language_autonomous_language_output_event_review.v1",
+                "source": "service.snn_language_readout_ledger.autonomous_language_output_event_review",
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_hecsn": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "observed_state_revision": before_revision,
+                "expected_state_revision": int(expected_state_revision),
+                "autonomous_language_output_event_hash": event_hash,
+                "autonomous_language_output_event_review": review,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_decoded_output_design"
+                        if ready
+                        else "blocked_missing_autonomous_language_output_event_evidence"
+                    ),
+                    "eligible_for_autonomous_decoded_output_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_decoded_output_design"
+                        if ready
+                        else "collect_recorded_hash_only_language_output_event"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_decoded_output_design(
+        self,
+        *,
+        autonomous_language_output_event_review: Mapping[str, Any],
+        vocabulary_binding: Mapping[str, Any] | None = None,
+        decode_policy: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design constrained decoded-output mapping without decoding text."""
+
+        review = dict(autonomous_language_output_event_review or {})
+        gate = (
+            review.get("promotion_gate")
+            if isinstance(review.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            review.get("autonomous_language_output_event_review")
+            if isinstance(
+                review.get("autonomous_language_output_event_review"),
+                Mapping,
+            )
+            else {}
+        )
+        binding = dict(vocabulary_binding or {})
+        policy = dict(decode_policy or {})
+        device = dict(device_evidence or {})
+        decode_mode = str(policy.get("decode_mode") or "constrained_token_hash_map").strip()
+        allowed_decode_modes = {
+            "constrained_token_hash_map",
+            "ranked_token_hash_map",
+            "slot_activation_token_map",
+        }
+        max_decoded_tokens = max(
+            1, min(int(policy.get("max_decoded_tokens", 8) or 8), 32)
+        )
+        min_confidence_score = max(
+            0.0,
+            min(float(policy.get("min_confidence_score", 0.0) or 0.0), 1.0),
+        )
+        min_spike_sparsity = max(
+            0.0, min(float(policy.get("min_spike_sparsity", 0.5) or 0.5), 1.0)
+        )
+        max_slot_drift = max(
+            0.0, min(float(policy.get("max_slot_drift", 0.2) or 0.2), 1.0)
+        )
+        emitted_hashes = [
+            str(value) for value in list(body.get("emitted_hashes") or []) if str(value)
+        ]
+        candidate_hashes = [
+            str(value) for value in list(body.get("candidate_hashes") or []) if str(value)
+        ]
+        output_slot_hashes = [
+            str(value)
+            for value in list(body.get("output_slot_hashes") or [])
+            if str(value)
+        ]
+        token_candidate_hashes = [
+            str(value)
+            for value in list(binding.get("token_candidate_hashes") or [])
+            if str(value)
+        ]
+        token_vocabulary_hash = str(binding.get("token_vocabulary_hash") or "")
+        tokenizer_hash = str(binding.get("tokenizer_hash") or "")
+        decode_constraint_hash = str(
+            binding.get("decode_constraint_hash")
+            or policy.get("decode_constraint_hash")
+            or ""
+        )
+        mean_confidence_score = float(
+            body.get("mean_confidence_score", -1.0) or -1.0
+        )
+        mean_spike_sparsity = float(
+            body.get("mean_spike_sparsity", -1.0) or -1.0
+        )
+        observed_slot_drift = float(body.get("max_slot_drift", 2.0) or 2.0)
+        event_hash = str(review.get("autonomous_language_output_event_hash") or "")
+        review_hash = str(review.get("review_hash") or "")
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        bounded_emitted_hashes = emitted_hashes[:max_decoded_tokens]
+        decode_slots = [
+            {
+                "decode_slot_index": index,
+                "emitted_hash": emitted_hash,
+                "candidate_hash": candidate_hashes[index % len(candidate_hashes)]
+                if candidate_hashes
+                else None,
+                "output_slot_hash": output_slot_hashes[index % len(output_slot_hashes)]
+                if output_slot_hashes
+                else None,
+                "token_candidate_hash": token_candidate_hashes[
+                    index % len(token_candidate_hashes)
+                ]
+                if token_candidate_hashes
+                else None,
+                "decoded_output_slot_hash": self._sha256_json(
+                    [
+                        event_hash,
+                        review_hash,
+                        emitted_hash,
+                        token_candidate_hashes[index % len(token_candidate_hashes)]
+                        if token_candidate_hashes
+                        else "",
+                        decode_mode,
+                        index,
+                    ]
+                ),
+            }
+            for index, emitted_hash in enumerate(bounded_emitted_hashes)
+        ]
+        required = {
+            "language_output_event_review_surface_available": review.get("surface")
+            == "snn_language_autonomous_language_output_event_review.v1",
+            "language_output_event_review_ready": bool(review.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_decoded_output_design")),
+            "operator_approval_not_required": not bool(
+                review.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "review_hash_available": len(review_hash) == 64,
+            "language_output_event_hash_available": len(event_hash) == 64,
+            "event_recorded_in_ledger": bool(body.get("event_recorded_in_ledger")),
+            "hash_output_only": bool(body.get("output_is_hash_only")),
+            "emitted_hashes_valid": bool(emitted_hashes)
+            and all(len(value) == 64 for value in emitted_hashes),
+            "candidate_hashes_valid": bool(candidate_hashes)
+            and all(len(value) == 64 for value in candidate_hashes),
+            "output_slot_hashes_valid": bool(output_slot_hashes)
+            and all(len(value) == 64 for value in output_slot_hashes),
+            "token_candidate_hashes_valid": bool(token_candidate_hashes)
+            and all(len(value) == 64 for value in token_candidate_hashes),
+            "token_vocabulary_hash_available": len(token_vocabulary_hash) == 64,
+            "tokenizer_hash_available": len(tokenizer_hash) == 64,
+            "decode_constraint_hash_available": len(decode_constraint_hash) == 64,
+            "decode_mode_supported": decode_mode in allowed_decode_modes,
+            "decoded_length_bounded": 1
+            <= len(bounded_emitted_hashes)
+            <= max_decoded_tokens
+            <= 32,
+            "decode_slots_available": bool(decode_slots),
+            "confidence_score_bounded": 0.0 <= mean_confidence_score <= 1.0,
+            "confidence_score_sufficient": mean_confidence_score
+            >= min_confidence_score,
+            "spike_sparsity_bounded": 0.0 <= mean_spike_sparsity <= 1.0,
+            "spike_sparsity_sufficient": mean_spike_sparsity >= min_spike_sparsity,
+            "slot_drift_bounded": 0.0 <= observed_slot_drift <= 1.0,
+            "slot_drift_within_limit": observed_slot_drift <= max_slot_drift,
+            "decoded_text_still_absent": not bool(body.get("decoded_text_allowed")),
+            "generated_text_still_absent": not bool(body.get("generated_text_allowed")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "runtime_mutation_absent": not bool(review.get("mutates_runtime_state")),
+            "replay_execution_absent": not bool(review.get("runs_replay")),
+            "plasticity_absent": not bool(review.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(review.get("writes_checkpoint")),
+            "language_generation_absent": not bool(review.get("generates_text")),
+            "text_decoding_absent": not bool(review.get("decodes_text")),
+        }
+        ready = all(required.values())
+        decoded_output_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_decoded_output_design.v1",
+                "review_hash": review_hash,
+                "autonomous_language_output_event_hash": event_hash,
+                "decode_mode": decode_mode,
+                "max_decoded_tokens": max_decoded_tokens,
+                "token_vocabulary_hash": token_vocabulary_hash,
+                "tokenizer_hash": tokenizer_hash,
+                "decode_constraint_hash": decode_constraint_hash,
+                "decode_slots": decode_slots,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_decoded_output_design",
+            "surface": "snn_language_autonomous_decoded_output_design.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_decoded_output_design",
+            "available": bool(review),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "decoded_output_design_hash": decoded_output_design_hash,
+            "review_hash": review_hash,
+            "autonomous_language_output_event_hash": event_hash,
+            "autonomous_decoded_output_design": {
+                "decode_mode": decode_mode,
+                "max_decoded_tokens": max_decoded_tokens,
+                "emitted_hashes": bounded_emitted_hashes,
+                "candidate_hashes": candidate_hashes,
+                "output_slot_hashes": output_slot_hashes,
+                "token_candidate_hashes": token_candidate_hashes,
+                "token_vocabulary_hash": token_vocabulary_hash,
+                "tokenizer_hash": tokenizer_hash,
+                "decode_constraint_hash": decode_constraint_hash,
+                "decode_slots": decode_slots,
+                "mean_confidence_score": round(mean_confidence_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(observed_slot_drift, 6),
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "decoded_text_allowed": False,
+                "generated_text_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_decoded_output_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_decoded_output_design_evidence"
+                ),
+                "eligible_for_autonomous_decoded_output_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_decoded_output_preflight"
+                    if ready
+                    else "collect_reviewed_output_event_decode_policy_vocabulary_and_device"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_decoded_output_preflight(
+        self,
+        *,
+        autonomous_decoded_output_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight constrained decoded-output mapping without decoding text."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design = dict(autonomous_decoded_output_design or {})
+        gate = (
+            design.get("promotion_gate")
+            if isinstance(design.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design.get("autonomous_decoded_output_design")
+            if isinstance(design.get("autonomous_decoded_output_design"), Mapping)
+            else {}
+        )
+        device = dict(device_evidence or body.get("device_evidence") or {})
+        capabilities = dict(executor_capabilities or {})
+        decode_mode = str(body.get("decode_mode") or "").strip()
+        allowed_decode_modes = {
+            "constrained_token_hash_map",
+            "ranked_token_hash_map",
+            "slot_activation_token_map",
+        }
+        emitted_hashes = [
+            str(value) for value in list(body.get("emitted_hashes") or []) if str(value)
+        ]
+        token_candidate_hashes = [
+            str(value)
+            for value in list(body.get("token_candidate_hashes") or [])
+            if str(value)
+        ]
+        decode_slots = [
+            dict(item)
+            for item in list(body.get("decode_slots") or [])
+            if isinstance(item, Mapping)
+        ]
+        decoded_output_slot_hashes = [
+            str(item.get("decoded_output_slot_hash") or "") for item in decode_slots
+        ]
+        token_vocabulary_hash = str(body.get("token_vocabulary_hash") or "")
+        tokenizer_hash = str(body.get("tokenizer_hash") or "")
+        decode_constraint_hash = str(body.get("decode_constraint_hash") or "")
+        max_decoded_tokens = int(body.get("max_decoded_tokens", 0) or 0)
+        mean_confidence_score = float(
+            body.get("mean_confidence_score", -1.0) or -1.0
+        )
+        mean_spike_sparsity = float(
+            body.get("mean_spike_sparsity", -1.0) or -1.0
+        )
+        observed_slot_drift = float(body.get("max_slot_drift", 2.0) or 2.0)
+        requested_device = str(device.get("device") or device.get("tensor_device") or "")
+        requires_cuda = bool(device.get("requires_cuda")) or bool(
+            body.get("requires_cuda")
+        ) or requested_device.startswith("cuda")
+        cuda_available = torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_available
+        executor_ready = bool(capabilities.get("autonomous_decoded_output_executor"))
+        decoded_output_design_hash = str(
+            design.get("decoded_output_design_hash") or ""
+        )
+        review_hash = str(design.get("review_hash") or "")
+        language_output_event_hash = str(
+            design.get("autonomous_language_output_event_hash") or ""
+        )
+        required = {
+            "decoded_output_design_surface_available": design.get("surface")
+            == "snn_language_autonomous_decoded_output_design.v1",
+            "decoded_output_design_ready": bool(design.get("ready"))
+            and bool(gate.get("eligible_for_autonomous_decoded_output_preflight")),
+            "operator_approval_not_required": not bool(
+                design.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision) == before_revision,
+            "decoded_output_design_hash_available": len(decoded_output_design_hash) == 64,
+            "review_hash_available": len(review_hash) == 64,
+            "language_output_event_hash_available": len(language_output_event_hash) == 64,
+            "decode_mode_supported": decode_mode in allowed_decode_modes,
+            "emitted_hashes_valid": bool(emitted_hashes)
+            and all(len(value) == 64 for value in emitted_hashes),
+            "token_candidate_hashes_valid": bool(token_candidate_hashes)
+            and all(len(value) == 64 for value in token_candidate_hashes),
+            "decode_slots_valid": bool(decode_slots)
+            and all(len(value) == 64 for value in decoded_output_slot_hashes)
+            and len(decode_slots) == len(emitted_hashes),
+            "token_vocabulary_hash_available": len(token_vocabulary_hash) == 64,
+            "tokenizer_hash_available": len(tokenizer_hash) == 64,
+            "decode_constraint_hash_available": len(decode_constraint_hash) == 64,
+            "decoded_length_bounded": 1
+            <= len(emitted_hashes)
+            <= max(1, max_decoded_tokens)
+            <= 32,
+            "confidence_score_bounded": 0.0 <= mean_confidence_score <= 1.0,
+            "spike_sparsity_bounded": 0.0 <= mean_spike_sparsity <= 1.0,
+            "slot_drift_bounded": 0.0 <= observed_slot_drift <= 1.0,
+            "decoded_text_disallowed": not bool(body.get("decoded_text_allowed")),
+            "generated_text_disallowed": not bool(body.get("generated_text_allowed")),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied_or_not_required": cuda_satisfied,
+            "executor_capability_available": executor_ready,
+            "runtime_mutation_absent": not bool(design.get("mutates_runtime_state")),
+            "replay_execution_absent": not bool(design.get("runs_replay")),
+            "plasticity_absent": not bool(design.get("applies_plasticity")),
+            "checkpoint_write_absent": not bool(design.get("writes_checkpoint")),
+            "language_generation_absent": not bool(design.get("generates_text")),
+            "text_decoding_absent": not bool(design.get("decodes_text")),
+        }
+        ready = all(required.values())
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_decoded_output_preflight.v1",
+                "state_revision": before_revision,
+                "decoded_output_design_hash": decoded_output_design_hash,
+                "review_hash": review_hash,
+                "autonomous_language_output_event_hash": language_output_event_hash,
+                "decode_mode": decode_mode,
+                "emitted_hashes": emitted_hashes,
+                "token_candidate_hashes": token_candidate_hashes,
+                "decoded_output_slot_hashes": decoded_output_slot_hashes,
+                "token_vocabulary_hash": token_vocabulary_hash,
+                "tokenizer_hash": tokenizer_hash,
+                "decode_constraint_hash": decode_constraint_hash,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+            }
+        )
+        return {
+            "artifact_kind": "terminus_snn_language_autonomous_decoded_output_preflight",
+            "surface": "snn_language_autonomous_decoded_output_preflight.v1",
+            "source": "service.snn_language_readout_ledger.autonomous_decoded_output_preflight",
+            "available": bool(design),
+            "ready": ready,
+            "requires_operator_approval": False,
+            "owned_by_hecsn": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": False,
+            "decodes_text": False,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "preflight_hash": preflight_hash,
+            "decoded_output_design_hash": decoded_output_design_hash,
+            "review_hash": review_hash,
+            "autonomous_language_output_event_hash": language_output_event_hash,
+            "autonomous_decoded_output_preflight": {
+                "decode_mode": decode_mode,
+                "max_decoded_tokens": max_decoded_tokens,
+                "emitted_hashes": emitted_hashes,
+                "token_candidate_hashes": token_candidate_hashes,
+                "decoded_output_slot_hashes": decoded_output_slot_hashes,
+                "decode_slots": decode_slots,
+                "token_vocabulary_hash": token_vocabulary_hash,
+                "tokenizer_hash": tokenizer_hash,
+                "decode_constraint_hash": decode_constraint_hash,
+                "mean_confidence_score": round(mean_confidence_score, 6),
+                "mean_spike_sparsity": round(mean_spike_sparsity, 6),
+                "max_slot_drift": round(observed_slot_drift, 6),
+                "device_evidence": device,
+                "requires_cuda": requires_cuda,
+                "operator_approval_required": False,
+                "execution_allowed": False,
+                "decoded_text_allowed": False,
+                "generated_text_allowed": False,
+            },
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_decoded_output_executor"
+                    if ready
+                    else "blocked_missing_autonomous_decoded_output_preflight_evidence"
+                ),
+                "eligible_for_autonomous_decoded_output_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_decoded_output_executor"
+                    if ready
+                    else "collect_current_decode_design_device_and_executor"
+                ),
+                "required_evidence": required,
+            },
+        }
+
     def emission_review_replay_evaluation_policy(
         self,
         *,
@@ -5648,6 +12147,36 @@ class SNNLanguageReadoutEvidenceLedger:
                 if count > 0
                 else []
             )
+            autonomous_confidence_use_events = (
+                list(state["autonomous_confidence_use_events"])[:count]
+                if count > 0
+                else []
+            )
+            autonomous_hash_readout_binding_events = (
+                list(state["autonomous_hash_readout_binding_events"])[:count]
+                if count > 0
+                else []
+            )
+            autonomous_bound_readout_observation_events = (
+                list(state["autonomous_bound_readout_observation_events"])[:count]
+                if count > 0
+                else []
+            )
+            autonomous_readout_training_window_events = (
+                list(state["autonomous_readout_training_window_events"])[:count]
+                if count > 0
+                else []
+            )
+            autonomous_decoder_probe_events = (
+                list(state["autonomous_decoder_probe_events"])[:count]
+                if count > 0
+                else []
+            )
+            autonomous_language_output_events = (
+                list(state["autonomous_language_output_events"])[:count]
+                if count > 0
+                else []
+            )
             prediction_hashes = {
                 str(item.get("prediction_hash") or "")
                 for item in state["events"]
@@ -5690,6 +12219,27 @@ class SNNLanguageReadoutEvidenceLedger:
                     "total_dense_label_calibration_update_count": int(
                         state.get("total_dense_label_calibration_update_count", 0) or 0
                     ),
+                    "total_autonomous_confidence_use_count": int(
+                        state.get("total_autonomous_confidence_use_count", 0) or 0
+                    ),
+                    "total_autonomous_hash_readout_binding_count": int(
+                        state.get("total_autonomous_hash_readout_binding_count", 0)
+                        or 0
+                    ),
+                    "total_autonomous_bound_readout_observation_count": int(
+                        state.get("total_autonomous_bound_readout_observation_count", 0)
+                        or 0
+                    ),
+                    "total_autonomous_readout_training_window_count": int(
+                        state.get("total_autonomous_readout_training_window_count", 0)
+                        or 0
+                    ),
+                    "total_autonomous_decoder_probe_count": int(
+                        state.get("total_autonomous_decoder_probe_count", 0) or 0
+                    ),
+                    "total_autonomous_language_output_count": int(
+                        state.get("total_autonomous_language_output_count", 0) or 0
+                    ),
                     "unique_prediction_count": len(prediction_hashes),
                     "unique_transition_memory_count": len(transition_memory_hashes),
                     "last_recorded_at": state.get("last_recorded_at"),
@@ -5700,6 +12250,24 @@ class SNNLanguageReadoutEvidenceLedger:
                     ),
                     "last_dense_label_calibration_update_applied_at": state.get(
                         "last_dense_label_calibration_update_applied_at"
+                    ),
+                    "last_autonomous_confidence_used_at": state.get(
+                        "last_autonomous_confidence_used_at"
+                    ),
+                    "last_autonomous_hash_readout_bound_at": state.get(
+                        "last_autonomous_hash_readout_bound_at"
+                    ),
+                    "last_autonomous_bound_readout_observed_at": state.get(
+                        "last_autonomous_bound_readout_observed_at"
+                    ),
+                    "last_autonomous_readout_training_window_trained_at": state.get(
+                        "last_autonomous_readout_training_window_trained_at"
+                    ),
+                    "last_autonomous_decoder_probed_at": state.get(
+                        "last_autonomous_decoder_probed_at"
+                    ),
+                    "last_autonomous_language_output_emitted_at": state.get(
+                        "last_autonomous_language_output_emitted_at"
                     ),
                     "current_dense_label_calibration_update_hash": (
                         state.get("current_dense_label_calibration_update", {}).get(
@@ -5722,6 +12290,27 @@ class SNNLanguageReadoutEvidenceLedger:
                 ],
                 "dense_label_calibration_update_events": [
                     deepcopy(item) for item in dense_label_calibration_update_events
+                ],
+                "autonomous_confidence_use_events": [
+                    deepcopy(item) for item in autonomous_confidence_use_events
+                ],
+                "autonomous_hash_readout_binding_events": [
+                    deepcopy(item)
+                    for item in autonomous_hash_readout_binding_events
+                ],
+                "autonomous_bound_readout_observation_events": [
+                    deepcopy(item)
+                    for item in autonomous_bound_readout_observation_events
+                ],
+                "autonomous_readout_training_window_events": [
+                    deepcopy(item)
+                    for item in autonomous_readout_training_window_events
+                ],
+                "autonomous_decoder_probe_events": [
+                    deepcopy(item) for item in autonomous_decoder_probe_events
+                ],
+                "autonomous_language_output_events": [
+                    deepcopy(item) for item in autonomous_language_output_events
                 ],
             }
 
@@ -9951,6 +16540,24 @@ class SNNLanguageReadoutEvidenceLedger:
         raw_dense_label_calibration_update_events = list(
             state.get("dense_label_calibration_update_events") or []
         )
+        raw_autonomous_confidence_use_events = list(
+            state.get("autonomous_confidence_use_events") or []
+        )
+        raw_autonomous_hash_readout_binding_events = list(
+            state.get("autonomous_hash_readout_binding_events") or []
+        )
+        raw_autonomous_bound_readout_observation_events = list(
+            state.get("autonomous_bound_readout_observation_events") or []
+        )
+        raw_autonomous_readout_training_window_events = list(
+            state.get("autonomous_readout_training_window_events") or []
+        )
+        raw_autonomous_decoder_probe_events = list(
+            state.get("autonomous_decoder_probe_events") or []
+        )
+        raw_autonomous_language_output_events = list(
+            state.get("autonomous_language_output_events") or []
+        )
         events = deque(
             (deepcopy(dict(item)) for item in raw_events if isinstance(item, Mapping)),
             maxlen=self._limit,
@@ -9983,6 +16590,54 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             maxlen=self._limit,
         )
+        autonomous_confidence_use_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_confidence_use_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_hash_readout_binding_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_hash_readout_binding_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_bound_readout_observation_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_bound_readout_observation_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_readout_training_window_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_readout_training_window_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_decoder_probe_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_decoder_probe_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_language_output_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_language_output_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
         current_dense_label_calibration_update = (
             deepcopy(dict(state.get("current_dense_label_calibration_update")))
             if isinstance(state.get("current_dense_label_calibration_update"), Mapping)
@@ -9994,6 +16649,12 @@ class SNNLanguageReadoutEvidenceLedger:
             "emission_review_events": emission_review_events,
             "dense_label_candidate_events": dense_label_candidate_events,
             "dense_label_calibration_update_events": dense_label_calibration_update_events,
+            "autonomous_confidence_use_events": autonomous_confidence_use_events,
+            "autonomous_hash_readout_binding_events": autonomous_hash_readout_binding_events,
+            "autonomous_bound_readout_observation_events": autonomous_bound_readout_observation_events,
+            "autonomous_readout_training_window_events": autonomous_readout_training_window_events,
+            "autonomous_decoder_probe_events": autonomous_decoder_probe_events,
+            "autonomous_language_output_events": autonomous_language_output_events,
             "current_dense_label_calibration_update": current_dense_label_calibration_update,
             "total_recorded_count": int(state.get("total_recorded_count", len(events)) or 0),
             "total_rollout_recorded_count": int(
@@ -10016,6 +16677,48 @@ class SNNLanguageReadoutEvidenceLedger:
                 )
                 or 0
             ),
+            "total_autonomous_confidence_use_count": int(
+                state.get(
+                    "total_autonomous_confidence_use_count",
+                    len(autonomous_confidence_use_events),
+                )
+                or 0
+            ),
+            "total_autonomous_hash_readout_binding_count": int(
+                state.get(
+                    "total_autonomous_hash_readout_binding_count",
+                    len(autonomous_hash_readout_binding_events),
+                )
+                or 0
+            ),
+            "total_autonomous_bound_readout_observation_count": int(
+                state.get(
+                    "total_autonomous_bound_readout_observation_count",
+                    len(autonomous_bound_readout_observation_events),
+                )
+                or 0
+            ),
+            "total_autonomous_readout_training_window_count": int(
+                state.get(
+                    "total_autonomous_readout_training_window_count",
+                    len(autonomous_readout_training_window_events),
+                )
+                or 0
+            ),
+            "total_autonomous_decoder_probe_count": int(
+                state.get(
+                    "total_autonomous_decoder_probe_count",
+                    len(autonomous_decoder_probe_events),
+                )
+                or 0
+            ),
+            "total_autonomous_language_output_count": int(
+                state.get(
+                    "total_autonomous_language_output_count",
+                    len(autonomous_language_output_events),
+                )
+                or 0
+            ),
             "last_recorded_at": state.get("last_recorded_at"),
             "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
             "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
@@ -10024,6 +16727,24 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "last_dense_label_calibration_update_applied_at": state.get(
                 "last_dense_label_calibration_update_applied_at"
+            ),
+            "last_autonomous_confidence_used_at": state.get(
+                "last_autonomous_confidence_used_at"
+            ),
+            "last_autonomous_hash_readout_bound_at": state.get(
+                "last_autonomous_hash_readout_bound_at"
+            ),
+            "last_autonomous_bound_readout_observed_at": state.get(
+                "last_autonomous_bound_readout_observed_at"
+            ),
+            "last_autonomous_readout_training_window_trained_at": state.get(
+                "last_autonomous_readout_training_window_trained_at"
+            ),
+            "last_autonomous_decoder_probed_at": state.get(
+                "last_autonomous_decoder_probed_at"
+            ),
+            "last_autonomous_language_output_emitted_at": state.get(
+                "last_autonomous_language_output_emitted_at"
             ),
         }
 
@@ -10064,6 +16785,42 @@ class SNNLanguageReadoutEvidenceLedger:
                 normalized.get("dense_label_calibration_update_events") or []
             )[: self._limit]
         ]
+        state["autonomous_confidence_use_events"] = [
+            deepcopy(item)
+            for item in list(normalized.get("autonomous_confidence_use_events") or [])[
+                : self._limit
+            ]
+        ]
+        state["autonomous_hash_readout_binding_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_hash_readout_binding_events") or []
+            )[: self._limit]
+        ]
+        state["autonomous_bound_readout_observation_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_bound_readout_observation_events") or []
+            )[: self._limit]
+        ]
+        state["autonomous_readout_training_window_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_readout_training_window_events") or []
+            )[: self._limit]
+        ]
+        state["autonomous_decoder_probe_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_decoder_probe_events") or []
+            )[: self._limit]
+        ]
+        state["autonomous_language_output_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_language_output_events") or []
+            )[: self._limit]
+        ]
         state["current_dense_label_calibration_update"] = deepcopy(
             dict(normalized.get("current_dense_label_calibration_update") or {})
         )
@@ -10080,6 +16837,24 @@ class SNNLanguageReadoutEvidenceLedger:
         state["total_dense_label_calibration_update_count"] = int(
             normalized.get("total_dense_label_calibration_update_count", 0) or 0
         )
+        state["total_autonomous_confidence_use_count"] = int(
+            normalized.get("total_autonomous_confidence_use_count", 0) or 0
+        )
+        state["total_autonomous_hash_readout_binding_count"] = int(
+            normalized.get("total_autonomous_hash_readout_binding_count", 0) or 0
+        )
+        state["total_autonomous_bound_readout_observation_count"] = int(
+            normalized.get("total_autonomous_bound_readout_observation_count", 0) or 0
+        )
+        state["total_autonomous_readout_training_window_count"] = int(
+            normalized.get("total_autonomous_readout_training_window_count", 0) or 0
+        )
+        state["total_autonomous_decoder_probe_count"] = int(
+            normalized.get("total_autonomous_decoder_probe_count", 0) or 0
+        )
+        state["total_autonomous_language_output_count"] = int(
+            normalized.get("total_autonomous_language_output_count", 0) or 0
+        )
         state["last_recorded_at"] = normalized.get("last_recorded_at")
         state["last_rollout_recorded_at"] = normalized.get("last_rollout_recorded_at")
         state["last_emission_reviewed_at"] = normalized.get("last_emission_reviewed_at")
@@ -10088,6 +16863,24 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         state["last_dense_label_calibration_update_applied_at"] = normalized.get(
             "last_dense_label_calibration_update_applied_at"
+        )
+        state["last_autonomous_confidence_used_at"] = normalized.get(
+            "last_autonomous_confidence_used_at"
+        )
+        state["last_autonomous_hash_readout_bound_at"] = normalized.get(
+            "last_autonomous_hash_readout_bound_at"
+        )
+        state["last_autonomous_bound_readout_observed_at"] = normalized.get(
+            "last_autonomous_bound_readout_observed_at"
+        )
+        state["last_autonomous_readout_training_window_trained_at"] = normalized.get(
+            "last_autonomous_readout_training_window_trained_at"
+        )
+        state["last_autonomous_decoder_probed_at"] = normalized.get(
+            "last_autonomous_decoder_probed_at"
+        )
+        state["last_autonomous_language_output_emitted_at"] = normalized.get(
+            "last_autonomous_language_output_emitted_at"
         )
 
     @staticmethod

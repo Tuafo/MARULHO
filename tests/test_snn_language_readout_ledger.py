@@ -2124,6 +2124,289 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     ] is False
     assert autonomous_application_review["promotion_gate"]["eligible_for_fact_promotion"] is False
     assert autonomous_application_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_autonomous_observation = (
+        ledger.calibrated_dense_label_confidence_autonomous_post_calibration_observation_window(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review=(
+                autonomous_application_review
+            ),
+            observation_evidence={"samples": observation_samples[:1]},
+            expected_state_revision=runtime_state.state_revision,
+            window_policy={"min_samples": 3},
+        )
+    )
+    autonomous_observation = (
+        ledger.calibrated_dense_label_confidence_autonomous_post_calibration_observation_window(
+            calibrated_dense_label_confidence_autonomous_recalibration_application_review=(
+                autonomous_application_review
+            ),
+            observation_evidence={"samples": observation_samples},
+            expected_state_revision=runtime_state.state_revision,
+            window_policy={
+                "min_samples": 3,
+                "max_expected_calibration_error": 0.2,
+                "max_confidence_drift": 0.7,
+            },
+        )
+    )
+    assert blocked_autonomous_observation["ready"] is False
+    assert blocked_autonomous_observation["requires_operator_approval"] is False
+    assert blocked_autonomous_observation["promotion_gate"]["required_evidence"][
+        "sample_count_sufficient"
+    ] is False
+    assert autonomous_observation["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_observation_window.v1"
+    )
+    assert autonomous_observation["ready"] is True
+    assert autonomous_observation["requires_operator_approval"] is False
+    assert autonomous_observation["advisory"] is True
+    assert autonomous_observation["executable"] is False
+    assert autonomous_observation["records_ledger_event"] is False
+    assert autonomous_observation["runs_replay"] is False
+    assert autonomous_observation["runs_recalibration"] is False
+    assert autonomous_observation["runs_calibration_update"] is False
+    assert autonomous_observation["writes_checkpoint"] is False
+    assert autonomous_observation["generates_text"] is False
+    assert autonomous_observation["decodes_text"] is False
+    assert autonomous_observation["trains_runtime_model"] is False
+    assert autonomous_observation["applies_plasticity"] is False
+    assert autonomous_observation["mutates_runtime_state"] is False
+    assert autonomous_observation["sample_count"] == 3
+    assert autonomous_observation["metrics"]["expected_calibration_error"] <= 0.2
+    assert autonomous_observation["metrics"]["mean_confidence_drift"] <= 0.7
+    assert autonomous_observation["promotion_gate"][
+        "eligible_for_autonomous_post_calibration_stability_review"
+    ] is True
+    assert autonomous_observation["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_observation["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_observation["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_observation["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_observation["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_observation["promotion_gate"]["eligible_for_action"] is False
+    blocked_autonomous_stability_review = (
+        ledger.calibrated_dense_label_confidence_autonomous_post_calibration_stability_review(
+            calibrated_dense_label_confidence_autonomous_post_calibration_observation_window=(
+                blocked_autonomous_observation
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            stability_policy={"min_samples": 3},
+        )
+    )
+    autonomous_stability_review = (
+        ledger.calibrated_dense_label_confidence_autonomous_post_calibration_stability_review(
+            calibrated_dense_label_confidence_autonomous_post_calibration_observation_window=(
+                autonomous_observation
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            stability_policy={
+                "min_samples": 3,
+                "max_expected_calibration_error": 0.2,
+                "max_confidence_drift": 0.7,
+            },
+        )
+    )
+    assert blocked_autonomous_stability_review["ready"] is False
+    assert blocked_autonomous_stability_review[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_stability_review["promotion_gate"][
+        "required_evidence"
+    ]["observation_ready"] is False
+    assert autonomous_stability_review["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_post_calibration_stability_review.v1"
+    )
+    assert autonomous_stability_review["ready"] is True
+    assert autonomous_stability_review["requires_operator_approval"] is False
+    assert autonomous_stability_review["advisory"] is True
+    assert autonomous_stability_review["executable"] is False
+    assert autonomous_stability_review["records_ledger_event"] is False
+    assert autonomous_stability_review["runs_replay"] is False
+    assert autonomous_stability_review["runs_recalibration"] is False
+    assert autonomous_stability_review["runs_calibration_update"] is False
+    assert autonomous_stability_review["writes_checkpoint"] is False
+    assert autonomous_stability_review["generates_text"] is False
+    assert autonomous_stability_review["decodes_text"] is False
+    assert autonomous_stability_review["trains_runtime_model"] is False
+    assert autonomous_stability_review["applies_plasticity"] is False
+    assert autonomous_stability_review["mutates_runtime_state"] is False
+    stability_review = autonomous_stability_review[
+        "autonomous_post_calibration_stability_review"
+    ]
+    assert stability_review["sample_count"] == 3
+    assert stability_review["operator_approval_required"] is False
+    assert stability_review["mutation_allowed"] is False
+    assert autonomous_stability_review["promotion_gate"][
+        "eligible_for_autonomous_calibrated_confidence_use_design"
+    ] is True
+    assert autonomous_stability_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_stability_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_stability_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_stability_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_stability_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_stability_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_autonomous_confidence_use_design = (
+        ledger.calibrated_dense_label_confidence_autonomous_use_design(
+            calibrated_dense_label_confidence_autonomous_post_calibration_stability_review=(
+                blocked_autonomous_stability_review
+            ),
+            confidence_use_policy={"use_mode": "generate_text"},
+            device_evidence={},
+        )
+    )
+    autonomous_confidence_use_design = (
+        ledger.calibrated_dense_label_confidence_autonomous_use_design(
+            calibrated_dense_label_confidence_autonomous_post_calibration_stability_review=(
+                autonomous_stability_review
+            ),
+            confidence_use_policy={
+                "use_mode": "threshold_and_abstain",
+                "min_confidence_threshold": 0.6,
+                "max_candidates": 4,
+            },
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+    )
+    assert blocked_autonomous_confidence_use_design["ready"] is False
+    assert blocked_autonomous_confidence_use_design[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_confidence_use_design["promotion_gate"][
+        "required_evidence"
+    ]["stability_review_ready"] is False
+    assert autonomous_confidence_use_design["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_use_design.v1"
+    )
+    assert autonomous_confidence_use_design["ready"] is True
+    assert autonomous_confidence_use_design["requires_operator_approval"] is False
+    assert autonomous_confidence_use_design["advisory"] is True
+    assert autonomous_confidence_use_design["executable"] is False
+    assert autonomous_confidence_use_design["records_ledger_event"] is False
+    assert autonomous_confidence_use_design["runs_replay"] is False
+    assert autonomous_confidence_use_design["runs_recalibration"] is False
+    assert autonomous_confidence_use_design["runs_calibration_update"] is False
+    assert autonomous_confidence_use_design["writes_checkpoint"] is False
+    assert autonomous_confidence_use_design["generates_text"] is False
+    assert autonomous_confidence_use_design["decodes_text"] is False
+    assert autonomous_confidence_use_design["trains_runtime_model"] is False
+    assert autonomous_confidence_use_design["applies_plasticity"] is False
+    assert autonomous_confidence_use_design["mutates_runtime_state"] is False
+    use_design = autonomous_confidence_use_design[
+        "autonomous_confidence_use_design"
+    ]
+    assert use_design["use_mode"] == "threshold_and_abstain"
+    assert use_design["operator_approval_required"] is False
+    assert "generate_language" in use_design["disallowed_operations"]
+    assert autonomous_confidence_use_design["promotion_gate"][
+        "eligible_for_autonomous_calibrated_confidence_use_preflight"
+    ] is True
+    assert autonomous_confidence_use_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert autonomous_confidence_use_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert autonomous_confidence_use_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert autonomous_confidence_use_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_confidence_use_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert autonomous_confidence_use_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_autonomous_confidence_use_preflight = (
+        ledger.calibrated_dense_label_confidence_autonomous_use_preflight(
+            calibrated_dense_label_confidence_autonomous_use_design=(
+                autonomous_confidence_use_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            candidate_evidence={
+                "candidates": [
+                    {
+                        "dense_label_candidate_evidence_hash": _sha256_json(
+                            ["candidate", "blocked-autonomous"]
+                        ),
+                        "label_hash": _sha256_json(["label", "blocked-autonomous"]),
+                        "calibrated_confidence": 0.4,
+                        "pre_calibration_confidence": 0.8,
+                    }
+                ]
+            },
+            executor_capabilities={
+                "autonomous_calibrated_confidence_use_executor": False
+            },
+        )
+    )
+    autonomous_confidence_use_preflight = (
+        ledger.calibrated_dense_label_confidence_autonomous_use_preflight(
+            calibrated_dense_label_confidence_autonomous_use_design=(
+                autonomous_confidence_use_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            candidate_evidence={
+                "candidates": [
+                    {
+                        "dense_label_candidate_evidence_hash": selected_hash,
+                        "label_hash": _sha256_json(["label", "ready"]),
+                        "calibrated_confidence": 0.75,
+                        "pre_calibration_confidence": 0.8,
+                    }
+                ]
+            },
+            executor_capabilities={
+                "autonomous_calibrated_confidence_use_executor": True
+            },
+        )
+    )
+    assert blocked_autonomous_confidence_use_preflight["ready"] is False
+    assert blocked_autonomous_confidence_use_preflight[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_autonomous_confidence_use_preflight["promotion_gate"][
+        "required_evidence"
+    ]["executor_capability_available"] is False
+    assert autonomous_confidence_use_preflight["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_use_preflight.v1"
+    )
+    assert autonomous_confidence_use_preflight["ready"] is True
+    assert autonomous_confidence_use_preflight[
+        "requires_operator_approval"
+    ] is False
+    assert autonomous_confidence_use_preflight["advisory"] is True
+    assert autonomous_confidence_use_preflight["executable"] is False
+    assert autonomous_confidence_use_preflight["records_ledger_event"] is False
+    assert autonomous_confidence_use_preflight["runs_replay"] is False
+    assert autonomous_confidence_use_preflight["runs_recalibration"] is False
+    assert autonomous_confidence_use_preflight["runs_calibration_update"] is False
+    assert autonomous_confidence_use_preflight["writes_checkpoint"] is False
+    assert autonomous_confidence_use_preflight["generates_text"] is False
+    assert autonomous_confidence_use_preflight["decodes_text"] is False
+    assert autonomous_confidence_use_preflight["trains_runtime_model"] is False
+    assert autonomous_confidence_use_preflight["applies_plasticity"] is False
+    assert autonomous_confidence_use_preflight["mutates_runtime_state"] is False
+    assert autonomous_confidence_use_preflight["candidate_preflight"][
+        "candidate_count"
+    ] == 1
+    assert autonomous_confidence_use_preflight["candidate_preflight"][
+        "passing_candidate_count"
+    ] == 1
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_autonomous_calibrated_confidence_use_executor"
+    ] is True
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert autonomous_confidence_use_preflight["promotion_gate"][
+        "eligible_for_action"
+    ] is False
 
 
 def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surface() -> None:
@@ -2179,6 +2462,1778 @@ def test_readout_ledger_emission_review_history_is_read_only_narrow_display_surf
     assert empty["summary"]["returned_emission_review_event_count"] == 0
     assert empty["emission_review_events"] == []
     assert empty["promotion_gate"]["eligible_for_operator_display_history_inspection"] is False
+
+
+def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_without_execution() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    candidate_hash = _sha256_json(["candidate", "autonomous-preflight"])
+    design_hash = _sha256_json(["design", "autonomous-preflight"])
+    design = {
+        "surface": "snn_language_calibrated_dense_label_confidence_autonomous_use_design.v1",
+        "ready": True,
+        "requires_operator_approval": False,
+        "advisory": True,
+        "executable": False,
+        "records_ledger_event": False,
+        "runs_replay": False,
+        "runs_recalibration": False,
+        "runs_calibration_update": False,
+        "writes_checkpoint": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "trains_runtime_model": False,
+        "applies_plasticity": False,
+        "mutates_runtime_state": False,
+        "autonomous_confidence_use_design_hash": design_hash,
+        "stability_review_hash": _sha256_json(["stability", "autonomous-preflight"]),
+        "observation_hash": _sha256_json(["observation", "autonomous-preflight"]),
+        "application_review_hash": _sha256_json(
+            ["application-review", "autonomous-preflight"]
+        ),
+        "applied_calibration_update_hash": _sha256_json(
+            ["applied", "autonomous-preflight"]
+        ),
+        "autonomous_confidence_use_design": {
+            "use_mode": "threshold_and_abstain",
+            "min_confidence_threshold": 0.6,
+            "max_candidates": 4,
+            "operator_approval_required": False,
+            "device_evidence": {"device": "cpu", "source": "unit"},
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_calibrated_confidence_use_preflight": True
+        },
+    }
+
+    blocked = ledger.calibrated_dense_label_confidence_autonomous_use_preflight(
+        calibrated_dense_label_confidence_autonomous_use_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": candidate_hash,
+                    "label_hash": _sha256_json(["label", "autonomous-preflight"]),
+                    "calibrated_confidence": 0.4,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        executor_capabilities={"autonomous_calibrated_confidence_use_executor": False},
+    )
+    ready = ledger.calibrated_dense_label_confidence_autonomous_use_preflight(
+        calibrated_dense_label_confidence_autonomous_use_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": candidate_hash,
+                    "label_hash": _sha256_json(["label", "autonomous-preflight"]),
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        executor_capabilities={"autonomous_calibrated_confidence_use_executor": True},
+    )
+
+    assert blocked["ready"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert ready["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_use_preflight.v1"
+    )
+    assert ready["ready"] is True
+    assert ready["requires_operator_approval"] is False
+    assert ready["advisory"] is True
+    assert ready["executable"] is False
+    assert ready["records_ledger_event"] is False
+    assert ready["runs_replay"] is False
+    assert ready["runs_recalibration"] is False
+    assert ready["runs_calibration_update"] is False
+    assert ready["writes_checkpoint"] is False
+    assert ready["generates_text"] is False
+    assert ready["decodes_text"] is False
+    assert ready["trains_runtime_model"] is False
+    assert ready["applies_plasticity"] is False
+    assert ready["mutates_runtime_state"] is False
+    assert ready["candidate_preflight"]["candidate_count"] == 1
+    assert ready["candidate_preflight"]["passing_candidate_count"] == 1
+    assert ready["promotion_gate"][
+        "eligible_for_autonomous_calibrated_confidence_use_executor"
+    ] is True
+    assert ready["promotion_gate"]["eligible_for_language_generation"] is False
+    assert ready["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert ready["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert ready["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert ready["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert ready["promotion_gate"]["eligible_for_action"] is False
+
+    before_revision = runtime_state.state_revision
+    execution = ledger.execute_autonomous_calibrated_dense_label_confidence_use(
+        calibrated_dense_label_confidence_autonomous_use_preflight=ready,
+        expected_state_revision=before_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": candidate_hash,
+                    "label_hash": _sha256_json(["label", "autonomous-preflight"]),
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        execution_policy={"max_selected_candidates": 1},
+    )
+    stale_execution = ledger.execute_autonomous_calibrated_dense_label_confidence_use(
+        calibrated_dense_label_confidence_autonomous_use_preflight=ready,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": candidate_hash,
+                    "label_hash": _sha256_json(["label", "autonomous-preflight"]),
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        execution_policy={"max_selected_candidates": 1},
+    )
+    blocked_execution = ledger.execute_autonomous_calibrated_dense_label_confidence_use(
+        calibrated_dense_label_confidence_autonomous_use_preflight=ready,
+        expected_state_revision=runtime_state.state_revision,
+        candidate_evidence={
+            "candidates": [
+                {
+                    "dense_label_candidate_evidence_hash": candidate_hash,
+                    "label_hash": _sha256_json(["label", "autonomous-preflight"]),
+                    "label": "text is not allowed",
+                    "calibrated_confidence": 0.75,
+                    "pre_calibration_confidence": 0.8,
+                }
+            ]
+        },
+        execution_policy={"max_selected_candidates": 1},
+    )
+
+    assert execution["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_use_executor.v1"
+    )
+    assert execution["accepted"] is True
+    assert execution["ready"] is True
+    assert execution["requires_operator_approval"] is False
+    assert execution["records_ledger_event"] is True
+    assert execution["mutates_runtime_state"] is True
+    assert execution["after"]["state_revision"] == before_revision + 1
+    assert execution["runs_replay"] is False
+    assert execution["runs_recalibration"] is False
+    assert execution["runs_calibration_update"] is False
+    assert execution["writes_checkpoint"] is False
+    assert execution["generates_text"] is False
+    assert execution["decodes_text"] is False
+    assert execution["trains_runtime_model"] is False
+    assert execution["applies_plasticity"] is False
+    event = execution["autonomous_confidence_use_event"]
+    assert event["operator_approval_required"] is False
+    assert event["output_is_label_hash_only"] is True
+    assert event["selected_candidate_count"] == 1
+    assert event["selected_candidate_refs"][0][
+        "dense_label_candidate_evidence_hash"
+    ] == candidate_hash
+    assert execution["ledger_summary"]["total_autonomous_confidence_use_count"] == 1
+    assert execution["promotion_gate"][
+        "eligible_for_autonomous_confidence_use_event_review"
+    ] is True
+    assert execution["promotion_gate"]["eligible_for_language_generation"] is False
+    assert execution["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert execution["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert execution["promotion_gate"]["eligible_for_action"] is False
+    assert stale_execution["accepted"] is False
+    assert stale_execution["records_ledger_event"] is False
+    assert stale_execution["mutates_runtime_state"] is False
+    assert stale_execution["promotion_gate"]["required_evidence"][
+        "preflight_revision_current"
+    ] is False
+    assert blocked_execution["accepted"] is False
+    assert blocked_execution["records_ledger_event"] is False
+    assert blocked_execution["promotion_gate"]["required_evidence"][
+        "text_payload_absent"
+    ] is False
+    blocked_review = (
+        ledger.autonomous_calibrated_dense_label_confidence_use_event_review(
+            calibrated_dense_label_confidence_autonomous_use_executor={
+                **execution,
+                "autonomous_confidence_use_event": {
+                    **execution["autonomous_confidence_use_event"],
+                    "autonomous_confidence_use_event_hash": "0" * 64,
+                },
+            },
+            expected_state_revision=runtime_state.state_revision,
+        )
+    )
+    review = ledger.autonomous_calibrated_dense_label_confidence_use_event_review(
+        calibrated_dense_label_confidence_autonomous_use_executor=execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={"min_selected_candidates": 1, "max_selected_candidates": 2},
+    )
+
+    assert blocked_review["ready"] is False
+    assert blocked_review["requires_operator_approval"] is False
+    assert blocked_review["promotion_gate"]["required_evidence"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert review["surface"] == (
+        "snn_language_calibrated_dense_label_confidence_autonomous_use_event_review.v1"
+    )
+    assert review["ready"] is True
+    assert review["requires_operator_approval"] is False
+    assert review["advisory"] is True
+    assert review["executable"] is False
+    assert review["records_ledger_event"] is False
+    assert review["mutates_runtime_state"] is False
+    assert review["runs_replay"] is False
+    assert review["runs_recalibration"] is False
+    assert review["runs_calibration_update"] is False
+    assert review["writes_checkpoint"] is False
+    assert review["generates_text"] is False
+    assert review["decodes_text"] is False
+    assert review["trains_runtime_model"] is False
+    assert review["applies_plasticity"] is False
+    event_review = review["autonomous_confidence_use_event_review"]
+    assert event_review["event_recorded_in_ledger"] is True
+    assert event_review["selected_candidate_count"] == 1
+    assert event_review["selected_candidate_hashes"] == [candidate_hash]
+    assert event_review["output_is_label_hash_only"] is True
+    assert event_review["operator_approval_required"] is False
+    assert event_review["mutation_allowed"] is False
+    assert review["promotion_gate"][
+        "eligible_for_autonomous_hash_readout_binding_design"
+    ] is True
+    assert review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert review["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert review["promotion_gate"]["eligible_for_action"] is False
+    blocked_binding_design = ledger.autonomous_hash_readout_binding_design(
+        calibrated_dense_label_confidence_autonomous_use_event_review=review,
+        readout_vocabulary_slots=[],
+        binding_policy={"max_bindings": 1},
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    binding_design = ledger.autonomous_hash_readout_binding_design(
+        calibrated_dense_label_confidence_autonomous_use_event_review=review,
+        readout_vocabulary_slots=[
+            {
+                "label": "autonomous concept",
+                "pressure_band": "medium",
+                "grounded": True,
+                "slot_id": "slot-autonomous-concept",
+            }
+        ],
+        binding_policy={"max_bindings": 1},
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_binding_design["ready"] is False
+    assert blocked_binding_design["promotion_gate"]["required_evidence"][
+        "readout_slots_available"
+    ] is False
+    assert binding_design["surface"] == (
+        "snn_language_autonomous_hash_readout_binding_design.v1"
+    )
+    assert binding_design["ready"] is True
+    assert binding_design["requires_operator_approval"] is False
+    assert binding_design["advisory"] is True
+    assert binding_design["executable"] is False
+    assert binding_design["records_ledger_event"] is False
+    assert binding_design["mutates_runtime_state"] is False
+    assert binding_design["runs_replay"] is False
+    assert binding_design["runs_calibration_update"] is False
+    assert binding_design["writes_checkpoint"] is False
+    assert binding_design["generates_text"] is False
+    assert binding_design["decodes_text"] is False
+    assert binding_design["trains_runtime_model"] is False
+    assert binding_design["applies_plasticity"] is False
+    binding_body = binding_design["autonomous_hash_readout_binding_design"]
+    assert binding_body["binding_count"] == 1
+    assert binding_body["selected_candidate_hashes"] == [candidate_hash]
+    assert binding_body["output_is_hash_binding_only"] is True
+    assert binding_body["operator_approval_required"] is False
+    assert binding_body["execution_allowed"] is False
+    assert binding_body["bindings"][0][
+        "dense_label_candidate_evidence_hash"
+    ] == candidate_hash
+    assert binding_design["promotion_gate"][
+        "eligible_for_autonomous_hash_readout_binding_preflight"
+    ] is True
+    assert binding_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert binding_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert binding_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert binding_design["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert binding_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert binding_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_binding_preflight = ledger.autonomous_hash_readout_binding_preflight(
+        autonomous_hash_readout_binding_design=binding_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_hash_readout_binding_executor": False},
+    )
+    binding_preflight = ledger.autonomous_hash_readout_binding_preflight(
+        autonomous_hash_readout_binding_design=binding_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_hash_readout_binding_executor": True},
+    )
+
+    assert blocked_binding_preflight["ready"] is False
+    assert blocked_binding_preflight["requires_operator_approval"] is False
+    assert blocked_binding_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert binding_preflight["surface"] == (
+        "snn_language_autonomous_hash_readout_binding_preflight.v1"
+    )
+    assert binding_preflight["ready"] is True
+    assert binding_preflight["requires_operator_approval"] is False
+    assert binding_preflight["advisory"] is True
+    assert binding_preflight["executable"] is False
+    assert binding_preflight["records_ledger_event"] is False
+    assert binding_preflight["mutates_runtime_state"] is False
+    assert binding_preflight["runs_replay"] is False
+    assert binding_preflight["runs_calibration_update"] is False
+    assert binding_preflight["writes_checkpoint"] is False
+    assert binding_preflight["generates_text"] is False
+    assert binding_preflight["decodes_text"] is False
+    assert binding_preflight["trains_runtime_model"] is False
+    assert binding_preflight["applies_plasticity"] is False
+    assert binding_preflight["binding_preflight"]["binding_count"] == 1
+    assert binding_preflight["binding_preflight"][
+        "binding_candidate_hashes"
+    ] == [candidate_hash]
+    assert binding_preflight["binding_preflight"][
+        "output_is_hash_binding_only"
+    ] is True
+    assert binding_preflight["device_preflight"][
+        "executor_capability_available"
+    ] is True
+    assert binding_preflight["promotion_gate"][
+        "eligible_for_autonomous_hash_readout_binding_executor"
+    ] is True
+    assert binding_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert binding_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert binding_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert binding_preflight["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert binding_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert binding_preflight["promotion_gate"]["eligible_for_action"] is False
+    binding_before_revision = runtime_state.state_revision
+    binding_execution = ledger.execute_autonomous_hash_readout_binding(
+        autonomous_hash_readout_binding_preflight=binding_preflight,
+        expected_state_revision=binding_before_revision,
+        execution_policy={"max_commit_bindings": 1},
+    )
+    stale_binding_execution = ledger.execute_autonomous_hash_readout_binding(
+        autonomous_hash_readout_binding_preflight=binding_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        execution_policy={"max_commit_bindings": 1},
+    )
+
+    assert binding_execution["surface"] == (
+        "snn_language_autonomous_hash_readout_binding_executor.v1"
+    )
+    assert binding_execution["accepted"] is True
+    assert binding_execution["ready"] is True
+    assert binding_execution["requires_operator_approval"] is False
+    assert binding_execution["records_ledger_event"] is True
+    assert binding_execution["mutates_runtime_state"] is True
+    assert binding_execution["after"]["state_revision"] == binding_before_revision + 1
+    assert binding_execution["runs_replay"] is False
+    assert binding_execution["runs_calibration_update"] is False
+    assert binding_execution["writes_checkpoint"] is False
+    assert binding_execution["generates_text"] is False
+    assert binding_execution["decodes_text"] is False
+    assert binding_execution["trains_runtime_model"] is False
+    assert binding_execution["applies_plasticity"] is False
+    binding_event = binding_execution["autonomous_hash_readout_binding_event"]
+    assert binding_event["operator_approval_required"] is False
+    assert binding_event["output_is_hash_binding_only"] is True
+    assert binding_event["binding_count"] == 1
+    assert binding_event["bindings"][0][
+        "dense_label_candidate_evidence_hash"
+    ] == candidate_hash
+    assert binding_execution["ledger_summary"][
+        "total_autonomous_hash_readout_binding_count"
+    ] == 1
+    assert binding_execution["promotion_gate"][
+        "eligible_for_autonomous_hash_readout_binding_event_review"
+    ] is True
+    assert binding_execution["promotion_gate"]["eligible_for_language_generation"] is False
+    assert binding_execution["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert binding_execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert binding_execution["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert binding_execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert binding_execution["promotion_gate"]["eligible_for_action"] is False
+    assert stale_binding_execution["accepted"] is False
+    assert stale_binding_execution["records_ledger_event"] is False
+    assert stale_binding_execution["mutates_runtime_state"] is False
+    assert stale_binding_execution["promotion_gate"]["required_evidence"][
+        "preflight_revision_current"
+    ] is False
+    blocked_binding_event_review = (
+        ledger.autonomous_hash_readout_binding_event_review(
+            autonomous_hash_readout_binding_executor={
+                **binding_execution,
+                "autonomous_hash_readout_binding_event": {
+                    **binding_execution["autonomous_hash_readout_binding_event"],
+                    "autonomous_hash_readout_binding_event_hash": "0" * 64,
+                },
+            },
+            expected_state_revision=runtime_state.state_revision,
+        )
+    )
+    binding_event_review = ledger.autonomous_hash_readout_binding_event_review(
+        autonomous_hash_readout_binding_executor=binding_execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={"min_bindings": 1, "max_bindings": 2},
+    )
+
+    assert blocked_binding_event_review["ready"] is False
+    assert blocked_binding_event_review["requires_operator_approval"] is False
+    assert blocked_binding_event_review["promotion_gate"]["required_evidence"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert binding_event_review["surface"] == (
+        "snn_language_autonomous_hash_readout_binding_event_review.v1"
+    )
+    assert binding_event_review["ready"] is True
+    assert binding_event_review["requires_operator_approval"] is False
+    assert binding_event_review["advisory"] is True
+    assert binding_event_review["executable"] is False
+    assert binding_event_review["records_ledger_event"] is False
+    assert binding_event_review["mutates_runtime_state"] is False
+    assert binding_event_review["runs_replay"] is False
+    assert binding_event_review["runs_calibration_update"] is False
+    assert binding_event_review["writes_checkpoint"] is False
+    assert binding_event_review["generates_text"] is False
+    assert binding_event_review["decodes_text"] is False
+    assert binding_event_review["trains_runtime_model"] is False
+    assert binding_event_review["applies_plasticity"] is False
+    binding_event_review_body = binding_event_review[
+        "autonomous_hash_readout_binding_event_review"
+    ]
+    assert binding_event_review_body["event_recorded_in_ledger"] is True
+    assert binding_event_review_body["binding_count"] == 1
+    assert binding_event_review_body["candidate_hashes"] == [candidate_hash]
+    assert binding_event_review_body["output_is_hash_binding_only"] is True
+    assert binding_event_review_body["operator_approval_required"] is False
+    assert binding_event_review_body["mutation_allowed"] is False
+    assert binding_event_review["promotion_gate"][
+        "eligible_for_autonomous_bound_readout_observation_design"
+    ] is True
+    assert binding_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert binding_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert binding_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert binding_event_review["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert binding_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert binding_event_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_observation_design = ledger.autonomous_bound_readout_observation_design(
+        autonomous_hash_readout_binding_event_review=blocked_binding_event_review,
+        observation_policy={"observation_cycles": 4},
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    observation_design = ledger.autonomous_bound_readout_observation_design(
+        autonomous_hash_readout_binding_event_review=binding_event_review,
+        observation_policy={
+            "observation_cycles": 4,
+            "min_activation_sparsity": 0.5,
+            "max_slot_drift": 0.15,
+            "min_binding_reactivation": 0.5,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_observation_design["ready"] is False
+    assert blocked_observation_design["requires_operator_approval"] is False
+    assert blocked_observation_design["promotion_gate"]["required_evidence"][
+        "binding_event_review_ready"
+    ] is False
+    assert observation_design["surface"] == (
+        "snn_language_autonomous_bound_readout_observation_design.v1"
+    )
+    assert observation_design["ready"] is True
+    assert observation_design["requires_operator_approval"] is False
+    assert observation_design["advisory"] is True
+    assert observation_design["executable"] is False
+    assert observation_design["records_ledger_event"] is False
+    assert observation_design["mutates_runtime_state"] is False
+    assert observation_design["runs_replay"] is False
+    assert observation_design["runs_calibration_update"] is False
+    assert observation_design["writes_checkpoint"] is False
+    assert observation_design["generates_text"] is False
+    assert observation_design["decodes_text"] is False
+    assert observation_design["trains_runtime_model"] is False
+    assert observation_design["applies_plasticity"] is False
+    observation_body = observation_design[
+        "autonomous_bound_readout_observation_design"
+    ]
+    assert observation_body["binding_count"] == 1
+    assert observation_body["observation_cycles"] == 4
+    assert observation_body["output_is_hash_observation_only"] is True
+    assert observation_body["operator_approval_required"] is False
+    assert observation_body["execution_allowed"] is False
+    assert observation_body["observation_targets"][0][
+        "dense_label_candidate_evidence_hash"
+    ] == candidate_hash
+    assert observation_design["promotion_gate"][
+        "eligible_for_autonomous_bound_readout_observation_preflight"
+    ] is True
+    assert observation_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert observation_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert observation_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert observation_design["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert observation_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert observation_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_observation_preflight = ledger.autonomous_bound_readout_observation_preflight(
+        autonomous_bound_readout_observation_design=observation_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_bound_readout_observation_executor": False},
+    )
+    observation_preflight = ledger.autonomous_bound_readout_observation_preflight(
+        autonomous_bound_readout_observation_design=observation_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_bound_readout_observation_executor": True},
+    )
+
+    assert blocked_observation_preflight["ready"] is False
+    assert blocked_observation_preflight["requires_operator_approval"] is False
+    assert blocked_observation_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert observation_preflight["surface"] == (
+        "snn_language_autonomous_bound_readout_observation_preflight.v1"
+    )
+    assert observation_preflight["ready"] is True
+    assert observation_preflight["requires_operator_approval"] is False
+    assert observation_preflight["advisory"] is True
+    assert observation_preflight["executable"] is False
+    assert observation_preflight["records_ledger_event"] is False
+    assert observation_preflight["mutates_runtime_state"] is False
+    assert observation_preflight["runs_replay"] is False
+    assert observation_preflight["runs_calibration_update"] is False
+    assert observation_preflight["writes_checkpoint"] is False
+    assert observation_preflight["generates_text"] is False
+    assert observation_preflight["decodes_text"] is False
+    assert observation_preflight["trains_runtime_model"] is False
+    assert observation_preflight["applies_plasticity"] is False
+    assert observation_preflight["observation_preflight"]["binding_count"] == 1
+    assert observation_preflight["observation_preflight"]["observation_cycles"] == 4
+    assert observation_preflight["observation_preflight"][
+        "output_is_hash_observation_only"
+    ] is True
+    assert observation_preflight["device_preflight"][
+        "executor_capability_available"
+    ] is True
+    assert observation_preflight["promotion_gate"][
+        "eligible_for_autonomous_bound_readout_observation_executor"
+    ] is True
+    assert observation_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert observation_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert observation_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert observation_preflight["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert observation_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert observation_preflight["promotion_gate"]["eligible_for_action"] is False
+    observation_target_hash = observation_preflight["observation_preflight"][
+        "target_hashes"
+    ][0]
+    observation_slot_hash = observation_preflight["observation_preflight"][
+        "slot_hashes"
+    ][0]
+    observation_samples = [
+        {
+            "binding_observation_hash": observation_target_hash,
+            "dense_label_candidate_evidence_hash": candidate_hash,
+            "readout_slot_hash": observation_slot_hash,
+            "activation_sparsity": 0.75,
+            "slot_drift": 0.05,
+            "binding_reactivation": 0.8,
+        }
+        for _ in range(4)
+    ]
+    low_activation_samples = [
+        {
+            **sample,
+            "activation_sparsity": 0.1,
+        }
+        for sample in observation_samples
+    ]
+    blocked_observation_execution = ledger.execute_autonomous_bound_readout_observation(
+        autonomous_bound_readout_observation_preflight=observation_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        observation_evidence={"samples": low_activation_samples},
+        execution_policy={"max_samples": 4},
+    )
+    observation_before_revision = runtime_state.state_revision
+    observation_execution = ledger.execute_autonomous_bound_readout_observation(
+        autonomous_bound_readout_observation_preflight=observation_preflight,
+        expected_state_revision=observation_before_revision,
+        observation_evidence={"samples": observation_samples},
+        execution_policy={"max_samples": 4},
+    )
+    stale_observation_execution = ledger.execute_autonomous_bound_readout_observation(
+        autonomous_bound_readout_observation_preflight=observation_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        observation_evidence={"samples": observation_samples},
+        execution_policy={"max_samples": 4},
+    )
+
+    assert blocked_observation_execution["accepted"] is False
+    assert blocked_observation_execution["records_ledger_event"] is False
+    assert blocked_observation_execution["mutates_runtime_state"] is False
+    assert blocked_observation_execution["promotion_gate"]["required_evidence"][
+        "activation_sparsity_sufficient"
+    ] is False
+    assert observation_execution["surface"] == (
+        "snn_language_autonomous_bound_readout_observation_executor.v1"
+    )
+    assert observation_execution["accepted"] is True
+    assert observation_execution["ready"] is True
+    assert observation_execution["requires_operator_approval"] is False
+    assert observation_execution["records_ledger_event"] is True
+    assert observation_execution["mutates_runtime_state"] is True
+    assert observation_execution["after"]["state_revision"] == observation_before_revision + 1
+    assert observation_execution["runs_replay"] is False
+    assert observation_execution["runs_calibration_update"] is False
+    assert observation_execution["writes_checkpoint"] is False
+    assert observation_execution["generates_text"] is False
+    assert observation_execution["decodes_text"] is False
+    assert observation_execution["trains_runtime_model"] is False
+    assert observation_execution["applies_plasticity"] is False
+    observation_event = observation_execution[
+        "autonomous_bound_readout_observation_event"
+    ]
+    assert observation_event["operator_approval_required"] is False
+    assert observation_event["output_is_hash_observation_only"] is True
+    assert observation_event["sample_count"] == 4
+    assert observation_event["mean_activation_sparsity"] == 0.75
+    assert observation_event["max_slot_drift"] == 0.05
+    assert observation_event["mean_binding_reactivation"] == 0.8
+    assert observation_execution["ledger_summary"][
+        "total_autonomous_bound_readout_observation_count"
+    ] == 1
+    assert observation_execution["promotion_gate"][
+        "eligible_for_autonomous_bound_readout_observation_event_review"
+    ] is True
+    assert observation_execution["promotion_gate"]["eligible_for_language_generation"] is False
+    assert observation_execution["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert observation_execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert observation_execution["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert observation_execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert observation_execution["promotion_gate"]["eligible_for_action"] is False
+    assert stale_observation_execution["accepted"] is False
+    assert stale_observation_execution["records_ledger_event"] is False
+    assert stale_observation_execution["mutates_runtime_state"] is False
+    assert stale_observation_execution["promotion_gate"]["required_evidence"][
+        "preflight_revision_current"
+    ] is False
+    blocked_observation_event_review = (
+        ledger.autonomous_bound_readout_observation_event_review(
+            autonomous_bound_readout_observation_executor={
+                **observation_execution,
+                "autonomous_bound_readout_observation_event": {
+                    **observation_execution[
+                        "autonomous_bound_readout_observation_event"
+                    ],
+                    "autonomous_bound_readout_observation_event_hash": "0" * 64,
+                },
+            },
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "min_samples": 4,
+                "max_samples": 4,
+                "min_activation_sparsity": 0.5,
+                "max_slot_drift": 0.15,
+                "min_binding_reactivation": 0.5,
+            },
+        )
+    )
+    observation_event_review = (
+        ledger.autonomous_bound_readout_observation_event_review(
+            autonomous_bound_readout_observation_executor=observation_execution,
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "min_samples": 4,
+                "max_samples": 4,
+                "min_activation_sparsity": 0.5,
+                "max_slot_drift": 0.15,
+                "min_binding_reactivation": 0.5,
+            },
+        )
+    )
+
+    assert blocked_observation_event_review["ready"] is False
+    assert blocked_observation_event_review["requires_operator_approval"] is False
+    assert blocked_observation_event_review["promotion_gate"]["required_evidence"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert observation_event_review["surface"] == (
+        "snn_language_autonomous_bound_readout_observation_event_review.v1"
+    )
+    assert observation_event_review["ready"] is True
+    assert observation_event_review["requires_operator_approval"] is False
+    assert observation_event_review["advisory"] is True
+    assert observation_event_review["executable"] is False
+    assert observation_event_review["records_ledger_event"] is False
+    assert observation_event_review["mutates_runtime_state"] is False
+    assert observation_event_review["runs_replay"] is False
+    assert observation_event_review["runs_calibration_update"] is False
+    assert observation_event_review["writes_checkpoint"] is False
+    assert observation_event_review["generates_text"] is False
+    assert observation_event_review["decodes_text"] is False
+    assert observation_event_review["trains_runtime_model"] is False
+    assert observation_event_review["applies_plasticity"] is False
+    observation_event_review_body = observation_event_review[
+        "autonomous_bound_readout_observation_event_review"
+    ]
+    assert observation_event_review_body["event_recorded_in_ledger"] is True
+    assert observation_event_review_body["binding_count"] == 1
+    assert observation_event_review_body["observation_cycles"] == 4
+    assert observation_event_review_body["sample_count"] == 4
+    assert observation_event_review_body["mean_activation_sparsity"] == 0.75
+    assert observation_event_review_body["max_slot_drift"] == 0.05
+    assert observation_event_review_body["mean_binding_reactivation"] == 0.8
+    assert observation_event_review_body["output_is_hash_observation_only"] is True
+    assert observation_event_review_body["operator_approval_required"] is False
+    assert observation_event_review_body["mutation_allowed"] is False
+    assert observation_event_review["promotion_gate"][
+        "eligible_for_autonomous_readout_training_window_design"
+    ] is True
+    assert observation_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert observation_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert observation_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert observation_event_review["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert observation_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert observation_event_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_training_window_design = (
+        ledger.autonomous_readout_training_window_design(
+            autonomous_bound_readout_observation_event_review=blocked_observation_event_review,
+            training_policy={"training_window_steps": 4},
+            device_evidence={"device": "cpu", "source": "unit"},
+        )
+    )
+    training_window_design = ledger.autonomous_readout_training_window_design(
+        autonomous_bound_readout_observation_event_review=observation_event_review,
+        training_policy={
+            "training_window_steps": 4,
+            "truncated_bptt_steps": 4,
+            "micro_batch_size": 1,
+            "max_learning_rate": 0.0003,
+            "learning_rule": "surrogate_gradient",
+            "min_activation_sparsity": 0.5,
+            "max_slot_drift": 0.15,
+            "min_binding_reactivation": 0.5,
+            "use_spike_compression": True,
+            "use_gradient_checkpointing": True,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_training_window_design["ready"] is False
+    assert blocked_training_window_design["requires_operator_approval"] is False
+    assert blocked_training_window_design["promotion_gate"]["required_evidence"][
+        "observation_event_review_ready"
+    ] is False
+    assert training_window_design["surface"] == (
+        "snn_language_autonomous_readout_training_window_design.v1"
+    )
+    assert training_window_design["ready"] is True
+    assert training_window_design["requires_operator_approval"] is False
+    assert training_window_design["advisory"] is True
+    assert training_window_design["executable"] is False
+    assert training_window_design["records_ledger_event"] is False
+    assert training_window_design["mutates_runtime_state"] is False
+    assert training_window_design["runs_replay"] is False
+    assert training_window_design["runs_calibration_update"] is False
+    assert training_window_design["writes_checkpoint"] is False
+    assert training_window_design["generates_text"] is False
+    assert training_window_design["decodes_text"] is False
+    assert training_window_design["trains_runtime_model"] is False
+    assert training_window_design["applies_plasticity"] is False
+    training_window_body = training_window_design[
+        "autonomous_readout_training_window_design"
+    ]
+    assert training_window_body["binding_count"] == 1
+    assert training_window_body["sample_count"] == 4
+    assert training_window_body["training_window_steps"] == 4
+    assert training_window_body["truncated_bptt_steps"] == 4
+    assert training_window_body["micro_batch_size"] == 1
+    assert training_window_body["learning_rule"] == "surrogate_gradient"
+    assert training_window_body["memory_plan"]["use_spike_compression"] is True
+    assert training_window_body["memory_plan"]["use_gradient_checkpointing"] is True
+    assert training_window_body["operator_approval_required"] is False
+    assert training_window_body["execution_allowed"] is False
+    assert training_window_body["output_is_training_window_plan_only"] is True
+    assert training_window_design["promotion_gate"][
+        "eligible_for_autonomous_readout_training_window_preflight"
+    ] is True
+    assert training_window_design["promotion_gate"][
+        "eligible_for_autonomous_readout_training_execution"
+    ] is False
+    assert training_window_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert training_window_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert training_window_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert training_window_design["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert training_window_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert training_window_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_training_window_preflight = (
+        ledger.autonomous_readout_training_window_preflight(
+            autonomous_readout_training_window_design=training_window_design,
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_readout_training_window_executor": False
+            },
+        )
+    )
+    training_window_preflight = ledger.autonomous_readout_training_window_preflight(
+        autonomous_readout_training_window_design=training_window_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_readout_training_window_executor": True},
+    )
+
+    assert blocked_training_window_preflight["ready"] is False
+    assert blocked_training_window_preflight["requires_operator_approval"] is False
+    assert blocked_training_window_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert training_window_preflight["surface"] == (
+        "snn_language_autonomous_readout_training_window_preflight.v1"
+    )
+    assert training_window_preflight["ready"] is True
+    assert training_window_preflight["requires_operator_approval"] is False
+    assert training_window_preflight["advisory"] is True
+    assert training_window_preflight["executable"] is False
+    assert training_window_preflight["records_ledger_event"] is False
+    assert training_window_preflight["mutates_runtime_state"] is False
+    assert training_window_preflight["runs_replay"] is False
+    assert training_window_preflight["runs_calibration_update"] is False
+    assert training_window_preflight["writes_checkpoint"] is False
+    assert training_window_preflight["generates_text"] is False
+    assert training_window_preflight["decodes_text"] is False
+    assert training_window_preflight["trains_runtime_model"] is False
+    assert training_window_preflight["applies_plasticity"] is False
+    training_window_preflight_body = training_window_preflight[
+        "training_window_preflight"
+    ]
+    assert training_window_preflight_body["sample_count"] == 4
+    assert training_window_preflight_body["training_window_steps"] == 4
+    assert training_window_preflight_body["truncated_bptt_steps"] == 4
+    assert training_window_preflight_body["learning_rule"] == "surrogate_gradient"
+    assert training_window_preflight_body["output_is_training_window_plan_only"] is True
+    assert training_window_preflight_body["operator_approval_required"] is False
+    assert training_window_preflight_body["execution_allowed"] is False
+    assert training_window_preflight["device_preflight"][
+        "executor_capability_available"
+    ] is True
+    assert training_window_preflight["promotion_gate"][
+        "eligible_for_autonomous_readout_training_window_executor"
+    ] is True
+    assert training_window_preflight["promotion_gate"][
+        "eligible_for_autonomous_readout_training_execution"
+    ] is True
+    assert training_window_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert training_window_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert training_window_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert training_window_preflight["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert training_window_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert training_window_preflight["promotion_gate"]["eligible_for_action"] is False
+    training_evidence = {
+        "sample_hashes": training_window_preflight_body["sample_hashes"],
+        "weight_update_hash": ledger._sha256_json(["weight-update", "unit"]),
+        "gradient_update_hash": ledger._sha256_json(["gradient-update", "unit"]),
+        "optimizer_state_hash": ledger._sha256_json(["optimizer-state", "unit"]),
+        "device_trace_hash": ledger._sha256_json(["device-trace", "unit"]),
+        "runtime_weights_updated": True,
+        "checkpoint_written": False,
+        "learning_rate": 0.0002,
+        "loss_before": 0.42,
+        "loss_after": 0.38,
+        "mean_gradient_norm": 1.2,
+        "max_weight_delta": 0.01,
+        "observed_spike_sparsity": 0.74,
+    }
+    regressed_training_evidence = {
+        **training_evidence,
+        "loss_after": 0.8,
+    }
+    blocked_training_execution = ledger.execute_autonomous_readout_training_window(
+        autonomous_readout_training_window_preflight=training_window_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        training_evidence=regressed_training_evidence,
+        execution_policy={
+            "max_loss_increase": 0.02,
+            "max_gradient_norm": 10.0,
+            "max_weight_delta": 0.05,
+            "min_spike_sparsity": 0.5,
+        },
+    )
+    training_before_revision = runtime_state.state_revision
+    training_execution = ledger.execute_autonomous_readout_training_window(
+        autonomous_readout_training_window_preflight=training_window_preflight,
+        expected_state_revision=training_before_revision,
+        training_evidence=training_evidence,
+        execution_policy={
+            "max_loss_increase": 0.02,
+            "max_gradient_norm": 10.0,
+            "max_weight_delta": 0.05,
+            "min_spike_sparsity": 0.5,
+        },
+    )
+    stale_training_execution = ledger.execute_autonomous_readout_training_window(
+        autonomous_readout_training_window_preflight=training_window_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        training_evidence=training_evidence,
+    )
+
+    assert blocked_training_execution["accepted"] is False
+    assert blocked_training_execution["records_ledger_event"] is False
+    assert blocked_training_execution["mutates_runtime_state"] is False
+    assert blocked_training_execution["promotion_gate"]["required_evidence"][
+        "loss_not_regressed_beyond_policy"
+    ] is False
+    assert training_execution["surface"] == (
+        "snn_language_autonomous_readout_training_window_executor.v1"
+    )
+    assert training_execution["accepted"] is True
+    assert training_execution["ready"] is True
+    assert training_execution["requires_operator_approval"] is False
+    assert training_execution["records_ledger_event"] is True
+    assert training_execution["mutates_runtime_state"] is True
+    assert training_execution["trains_runtime_model"] is True
+    assert training_execution["after"]["state_revision"] == training_before_revision + 1
+    assert training_execution["runs_replay"] is False
+    assert training_execution["runs_calibration_update"] is False
+    assert training_execution["writes_checkpoint"] is False
+    assert training_execution["generates_text"] is False
+    assert training_execution["decodes_text"] is False
+    assert training_execution["applies_plasticity"] is False
+    training_event = training_execution["autonomous_readout_training_window_event"]
+    assert training_event["runtime_weights_updated"] is True
+    assert training_event["trains_runtime_model"] is True
+    assert training_event["operator_approval_required"] is False
+    assert training_event["loss_before"] == 0.42
+    assert training_event["loss_after"] == 0.38
+    assert training_event["observed_spike_sparsity"] == 0.74
+    assert training_execution["ledger_summary"][
+        "total_autonomous_readout_training_window_count"
+    ] == 1
+    assert training_execution["promotion_gate"][
+        "eligible_for_autonomous_readout_training_window_event_review"
+    ] is True
+    assert training_execution["promotion_gate"]["eligible_for_language_generation"] is False
+    assert training_execution["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert training_execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert training_execution["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert training_execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert training_execution["promotion_gate"]["eligible_for_action"] is False
+    assert stale_training_execution["accepted"] is False
+    assert stale_training_execution["records_ledger_event"] is False
+    assert stale_training_execution["mutates_runtime_state"] is False
+    assert stale_training_execution["promotion_gate"]["required_evidence"][
+        "preflight_revision_current"
+    ] is False
+    blocked_training_event_review = (
+        ledger.autonomous_readout_training_window_event_review(
+            autonomous_readout_training_window_executor={
+                **training_execution,
+                "autonomous_readout_training_window_event": {
+                    **training_execution[
+                        "autonomous_readout_training_window_event"
+                    ],
+                    "autonomous_readout_training_window_event_hash": "0" * 64,
+                },
+            },
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_loss_increase": 0.02,
+                "max_gradient_norm": 10.0,
+                "max_weight_delta": 0.05,
+                "min_spike_sparsity": 0.5,
+            },
+        )
+    )
+    training_event_review = ledger.autonomous_readout_training_window_event_review(
+        autonomous_readout_training_window_executor=training_execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "max_loss_increase": 0.02,
+            "max_gradient_norm": 10.0,
+            "max_weight_delta": 0.05,
+            "min_spike_sparsity": 0.5,
+        },
+    )
+
+    assert blocked_training_event_review["ready"] is False
+    assert blocked_training_event_review["requires_operator_approval"] is False
+    assert blocked_training_event_review["promotion_gate"]["required_evidence"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert training_event_review["surface"] == (
+        "snn_language_autonomous_readout_training_window_event_review.v1"
+    )
+    assert training_event_review["ready"] is True
+    assert training_event_review["requires_operator_approval"] is False
+    assert training_event_review["advisory"] is True
+    assert training_event_review["executable"] is False
+    assert training_event_review["records_ledger_event"] is False
+    assert training_event_review["mutates_runtime_state"] is False
+    assert training_event_review["runs_replay"] is False
+    assert training_event_review["runs_calibration_update"] is False
+    assert training_event_review["writes_checkpoint"] is False
+    assert training_event_review["generates_text"] is False
+    assert training_event_review["decodes_text"] is False
+    assert training_event_review["trains_runtime_model"] is False
+    assert training_event_review["applies_plasticity"] is False
+    training_review_body = training_event_review[
+        "autonomous_readout_training_window_event_review"
+    ]
+    assert training_review_body["event_recorded_in_ledger"] is True
+    assert training_review_body["runtime_weights_updated"] is True
+    assert training_review_body["loss_before"] == 0.42
+    assert training_review_body["loss_after"] == 0.38
+    assert training_review_body["observed_spike_sparsity"] == 0.74
+    assert training_review_body["operator_approval_required"] is False
+    assert training_review_body["mutation_allowed"] is False
+    assert training_event_review["promotion_gate"][
+        "eligible_for_autonomous_decoder_probe_design"
+    ] is True
+    assert training_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert training_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert training_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert training_event_review["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert training_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert training_event_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_decoder_probe_design = ledger.autonomous_decoder_probe_design(
+        autonomous_readout_training_window_event_review=blocked_training_event_review,
+        probe_policy={"max_probe_steps": 4, "top_k": 1},
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    decoder_probe_design = ledger.autonomous_decoder_probe_design(
+        autonomous_readout_training_window_event_review=training_event_review,
+        probe_policy={
+            "probe_mode": "hash_rank_probe",
+            "max_probe_steps": 4,
+            "top_k": 1,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_decoder_probe_design["ready"] is False
+    assert blocked_decoder_probe_design["requires_operator_approval"] is False
+    assert blocked_decoder_probe_design["promotion_gate"]["required_evidence"][
+        "training_event_review_ready"
+    ] is False
+    assert decoder_probe_design["surface"] == (
+        "snn_language_autonomous_decoder_probe_design.v1"
+    )
+    assert decoder_probe_design["ready"] is True
+    assert decoder_probe_design["requires_operator_approval"] is False
+    assert decoder_probe_design["advisory"] is True
+    assert decoder_probe_design["executable"] is False
+    assert decoder_probe_design["records_ledger_event"] is False
+    assert decoder_probe_design["mutates_runtime_state"] is False
+    assert decoder_probe_design["runs_replay"] is False
+    assert decoder_probe_design["runs_calibration_update"] is False
+    assert decoder_probe_design["writes_checkpoint"] is False
+    assert decoder_probe_design["generates_text"] is False
+    assert decoder_probe_design["decodes_text"] is False
+    assert decoder_probe_design["trains_runtime_model"] is False
+    assert decoder_probe_design["applies_plasticity"] is False
+    decoder_probe_body = decoder_probe_design["autonomous_decoder_probe_design"]
+    assert decoder_probe_body["probe_mode"] == "hash_rank_probe"
+    assert decoder_probe_body["max_probe_steps"] == 4
+    assert decoder_probe_body["top_k"] == 1
+    assert decoder_probe_body["output_is_hash_probe_only"] is True
+    assert decoder_probe_body["operator_approval_required"] is False
+    assert decoder_probe_body["execution_allowed"] is False
+    assert decoder_probe_body["weight_update_hash"] == training_evidence[
+        "weight_update_hash"
+    ]
+    assert len(decoder_probe_body["probe_targets"]) == 1
+    assert decoder_probe_design["promotion_gate"][
+        "eligible_for_autonomous_decoder_probe_preflight"
+    ] is True
+    assert decoder_probe_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert decoder_probe_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert decoder_probe_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert decoder_probe_design["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert decoder_probe_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert decoder_probe_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_decoder_probe_preflight = ledger.autonomous_decoder_probe_preflight(
+        autonomous_decoder_probe_design=decoder_probe_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_decoder_probe_executor": False},
+    )
+    decoder_probe_preflight = ledger.autonomous_decoder_probe_preflight(
+        autonomous_decoder_probe_design=decoder_probe_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_decoder_probe_executor": True},
+    )
+
+    assert blocked_decoder_probe_preflight["ready"] is False
+    assert blocked_decoder_probe_preflight["requires_operator_approval"] is False
+    assert blocked_decoder_probe_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert decoder_probe_preflight["surface"] == (
+        "snn_language_autonomous_decoder_probe_preflight.v1"
+    )
+    assert decoder_probe_preflight["ready"] is True
+    assert decoder_probe_preflight["requires_operator_approval"] is False
+    assert decoder_probe_preflight["advisory"] is True
+    assert decoder_probe_preflight["executable"] is False
+    assert decoder_probe_preflight["records_ledger_event"] is False
+    assert decoder_probe_preflight["mutates_runtime_state"] is False
+    assert decoder_probe_preflight["runs_replay"] is False
+    assert decoder_probe_preflight["runs_calibration_update"] is False
+    assert decoder_probe_preflight["writes_checkpoint"] is False
+    assert decoder_probe_preflight["generates_text"] is False
+    assert decoder_probe_preflight["decodes_text"] is False
+    assert decoder_probe_preflight["trains_runtime_model"] is False
+    assert decoder_probe_preflight["applies_plasticity"] is False
+    decoder_probe_preflight_body = decoder_probe_preflight[
+        "decoder_probe_preflight"
+    ]
+    assert decoder_probe_preflight_body["probe_mode"] == "hash_rank_probe"
+    assert decoder_probe_preflight_body["max_probe_steps"] == 4
+    assert decoder_probe_preflight_body["top_k"] == 1
+    assert decoder_probe_preflight_body["output_is_hash_probe_only"] is True
+    assert decoder_probe_preflight_body["operator_approval_required"] is False
+    assert decoder_probe_preflight_body["execution_allowed"] is False
+    assert decoder_probe_preflight["device_preflight"][
+        "executor_capability_available"
+    ] is True
+    assert decoder_probe_preflight["promotion_gate"][
+        "eligible_for_autonomous_decoder_probe_executor"
+    ] is True
+    assert decoder_probe_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert decoder_probe_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert decoder_probe_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert decoder_probe_preflight["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert decoder_probe_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert decoder_probe_preflight["promotion_gate"]["eligible_for_action"] is False
+    probe_target_hash = decoder_probe_preflight_body["probe_target_hashes"][0]
+    probe_result = {
+        "probe_target_hash": probe_target_hash,
+        "output_hash": ledger._sha256_json(["probe-output", "unit"]),
+        "rank_hashes": [
+            ledger._sha256_json(["rank", "unit", 0]),
+            ledger._sha256_json(["rank", "unit", 1]),
+        ],
+        "top_score": 0.82,
+        "spike_sparsity": 0.73,
+        "slot_drift": 0.04,
+    }
+    blocked_probe_execution = ledger.execute_autonomous_decoder_probe(
+        autonomous_decoder_probe_preflight=decoder_probe_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        probe_evidence={
+            "probe_results": [{**probe_result, "spike_sparsity": 0.1}],
+            "checkpoint_written": False,
+        },
+        execution_policy={"min_top_score": 0.5},
+    )
+    probe_before_revision = runtime_state.state_revision
+    probe_execution = ledger.execute_autonomous_decoder_probe(
+        autonomous_decoder_probe_preflight=decoder_probe_preflight,
+        expected_state_revision=probe_before_revision,
+        probe_evidence={
+            "probe_results": [probe_result],
+            "checkpoint_written": False,
+        },
+        execution_policy={"min_top_score": 0.5},
+    )
+    stale_probe_execution = ledger.execute_autonomous_decoder_probe(
+        autonomous_decoder_probe_preflight=decoder_probe_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        probe_evidence={
+            "probe_results": [probe_result],
+            "checkpoint_written": False,
+        },
+    )
+
+    assert blocked_probe_execution["accepted"] is False
+    assert blocked_probe_execution["records_ledger_event"] is False
+    assert blocked_probe_execution["mutates_runtime_state"] is False
+    assert blocked_probe_execution["promotion_gate"]["required_evidence"][
+        "spike_sparsity_sufficient"
+    ] is False
+    assert probe_execution["surface"] == (
+        "snn_language_autonomous_decoder_probe_executor.v1"
+    )
+    assert probe_execution["accepted"] is True
+    assert probe_execution["ready"] is True
+    assert probe_execution["requires_operator_approval"] is False
+    assert probe_execution["records_ledger_event"] is True
+    assert probe_execution["mutates_runtime_state"] is True
+    assert probe_execution["after"]["state_revision"] == probe_before_revision + 1
+    assert probe_execution["runs_replay"] is False
+    assert probe_execution["runs_calibration_update"] is False
+    assert probe_execution["writes_checkpoint"] is False
+    assert probe_execution["generates_text"] is False
+    assert probe_execution["decodes_text"] is False
+    assert probe_execution["trains_runtime_model"] is False
+    assert probe_execution["applies_plasticity"] is False
+    probe_event = probe_execution["autonomous_decoder_probe_event"]
+    assert probe_event["operator_approval_required"] is False
+    assert probe_event["output_is_hash_probe_only"] is True
+    assert probe_event["probe_result_count"] == 1
+    assert probe_event["mean_top_score"] == 0.82
+    assert probe_event["mean_spike_sparsity"] == 0.73
+    assert probe_event["max_slot_drift"] == 0.04
+    assert probe_execution["ledger_summary"]["total_autonomous_decoder_probe_count"] == 1
+    assert probe_execution["promotion_gate"][
+        "eligible_for_autonomous_decoder_probe_event_review"
+    ] is True
+    assert probe_execution["promotion_gate"]["eligible_for_language_generation"] is False
+    assert probe_execution["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert probe_execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert probe_execution["promotion_gate"]["eligible_for_plasticity_application"] is False
+    assert probe_execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert probe_execution["promotion_gate"]["eligible_for_action"] is False
+    assert stale_probe_execution["accepted"] is False
+    assert stale_probe_execution["records_ledger_event"] is False
+    assert stale_probe_execution["mutates_runtime_state"] is False
+    assert stale_probe_execution["promotion_gate"]["required_evidence"][
+        "preflight_revision_current"
+    ] is False
+    blocked_probe_event_review = ledger.autonomous_decoder_probe_event_review(
+        autonomous_decoder_probe_executor={
+            **probe_execution,
+            "autonomous_decoder_probe_event": {
+                **probe_execution["autonomous_decoder_probe_event"],
+                "autonomous_decoder_probe_event_hash": "0" * 64,
+            },
+        },
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_top_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+    probe_event_review = ledger.autonomous_decoder_probe_event_review(
+        autonomous_decoder_probe_executor=probe_execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_top_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_probe_event_review["ready"] is False
+    assert blocked_probe_event_review["requires_operator_approval"] is False
+    assert blocked_probe_event_review["autonomous_decoder_probe_event_review"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert probe_event_review["surface"] == (
+        "snn_language_autonomous_decoder_probe_event_review.v1"
+    )
+    assert probe_event_review["ready"] is True
+    assert probe_event_review["accepted"] is True
+    assert probe_event_review["requires_operator_approval"] is False
+    assert probe_event_review["advisory"] is True
+    assert probe_event_review["executable"] is False
+    assert probe_event_review["records_ledger_event"] is False
+    assert probe_event_review["mutates_runtime_state"] is False
+    assert probe_event_review["runs_replay"] is False
+    assert probe_event_review["runs_calibration_update"] is False
+    assert probe_event_review["writes_checkpoint"] is False
+    assert probe_event_review["generates_text"] is False
+    assert probe_event_review["decodes_text"] is False
+    assert probe_event_review["trains_runtime_model"] is False
+    assert probe_event_review["applies_plasticity"] is False
+    probe_event_review_body = probe_event_review[
+        "autonomous_decoder_probe_event_review"
+    ]
+    assert probe_event_review_body["event_recorded_in_ledger"] is True
+    assert probe_event_review_body["probe_result_count"] == 1
+    assert probe_event_review_body["mean_top_score"] == 0.82
+    assert probe_event_review_body["mean_spike_sparsity"] == 0.73
+    assert probe_event_review_body["max_slot_drift"] == 0.04
+    assert probe_event_review_body["output_is_hash_probe_only"] is True
+    assert probe_event_review_body["operator_approval_required"] is False
+    assert probe_event_review_body["mutation_allowed"] is False
+    assert probe_event_review["promotion_gate"][
+        "eligible_for_autonomous_language_output_design"
+    ] is True
+    assert probe_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert probe_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert probe_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert probe_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert probe_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert probe_event_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_language_output_design = ledger.autonomous_language_output_design(
+        autonomous_decoder_probe_event_review=blocked_probe_event_review,
+        output_policy={
+            "output_mode": "token_hash_sequence",
+            "max_output_tokens": 3,
+            "min_top_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    language_output_design = ledger.autonomous_language_output_design(
+        autonomous_decoder_probe_event_review=probe_event_review,
+        output_policy={
+            "output_mode": "token_hash_sequence",
+            "max_output_tokens": 3,
+            "min_top_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_language_output_design["ready"] is False
+    assert blocked_language_output_design["requires_operator_approval"] is False
+    assert blocked_language_output_design["promotion_gate"]["required_evidence"][
+        "decoder_probe_event_review_ready"
+    ] is False
+    assert language_output_design["surface"] == (
+        "snn_language_autonomous_language_output_design.v1"
+    )
+    assert language_output_design["ready"] is True
+    assert language_output_design["requires_operator_approval"] is False
+    assert language_output_design["advisory"] is True
+    assert language_output_design["executable"] is False
+    assert language_output_design["records_ledger_event"] is False
+    assert language_output_design["mutates_runtime_state"] is False
+    assert language_output_design["runs_replay"] is False
+    assert language_output_design["runs_calibration_update"] is False
+    assert language_output_design["writes_checkpoint"] is False
+    assert language_output_design["generates_text"] is False
+    assert language_output_design["decodes_text"] is False
+    assert language_output_design["trains_runtime_model"] is False
+    assert language_output_design["applies_plasticity"] is False
+    language_output_body = language_output_design["autonomous_language_output_design"]
+    assert language_output_body["output_mode"] == "token_hash_sequence"
+    assert language_output_body["max_output_tokens"] == 3
+    assert len(language_output_body["candidate_hashes"]) == 3
+    assert len(language_output_body["output_slots"]) == 3
+    assert language_output_body["mean_top_score"] == 0.82
+    assert language_output_body["mean_spike_sparsity"] == 0.73
+    assert language_output_body["max_slot_drift"] == 0.04
+    assert language_output_body["output_is_hash_probe_only"] is True
+    assert language_output_body["decoded_text_allowed"] is False
+    assert language_output_body["generated_text_allowed"] is False
+    assert language_output_body["operator_approval_required"] is False
+    assert language_output_design["promotion_gate"][
+        "eligible_for_autonomous_language_output_preflight"
+    ] is True
+    assert language_output_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert language_output_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert language_output_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert language_output_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert language_output_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert language_output_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_language_output_preflight = ledger.autonomous_language_output_preflight(
+        autonomous_language_output_design=language_output_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_language_output_executor": False},
+    )
+    language_output_preflight = ledger.autonomous_language_output_preflight(
+        autonomous_language_output_design=language_output_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_language_output_executor": True},
+    )
+
+    assert blocked_language_output_preflight["ready"] is False
+    assert blocked_language_output_preflight["requires_operator_approval"] is False
+    assert blocked_language_output_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert language_output_preflight["surface"] == (
+        "snn_language_autonomous_language_output_preflight.v1"
+    )
+    assert language_output_preflight["ready"] is True
+    assert language_output_preflight["requires_operator_approval"] is False
+    assert language_output_preflight["advisory"] is True
+    assert language_output_preflight["executable"] is False
+    assert language_output_preflight["records_ledger_event"] is False
+    assert language_output_preflight["mutates_runtime_state"] is False
+    assert language_output_preflight["runs_replay"] is False
+    assert language_output_preflight["runs_calibration_update"] is False
+    assert language_output_preflight["writes_checkpoint"] is False
+    assert language_output_preflight["generates_text"] is False
+    assert language_output_preflight["decodes_text"] is False
+    assert language_output_preflight["trains_runtime_model"] is False
+    assert language_output_preflight["applies_plasticity"] is False
+    language_output_preflight_body = language_output_preflight[
+        "autonomous_language_output_preflight"
+    ]
+    assert language_output_preflight_body["output_mode"] == "token_hash_sequence"
+    assert language_output_preflight_body["max_output_tokens"] == 3
+    assert len(language_output_preflight_body["candidate_hashes"]) == 3
+    assert len(language_output_preflight_body["output_slot_hashes"]) == 3
+    assert language_output_preflight_body["mean_top_score"] == 0.82
+    assert language_output_preflight_body["mean_spike_sparsity"] == 0.73
+    assert language_output_preflight_body["max_slot_drift"] == 0.04
+    assert language_output_preflight_body["output_is_hash_probe_only"] is True
+    assert language_output_preflight_body["decoded_text_allowed"] is False
+    assert language_output_preflight_body["generated_text_allowed"] is False
+    assert language_output_preflight_body["operator_approval_required"] is False
+    assert language_output_preflight["promotion_gate"][
+        "eligible_for_autonomous_language_output_executor"
+    ] is True
+    assert language_output_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert language_output_preflight["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert language_output_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert language_output_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert language_output_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert language_output_preflight["promotion_gate"]["eligible_for_action"] is False
+    output_slot_results = [
+        {
+            "language_output_slot_hash": slot_hash,
+            "candidate_hash": candidate_hash,
+            "emitted_hash": ledger._sha256_json(
+                ["language-output", candidate_hash, index]
+            ),
+            "rank_hashes": [ledger._sha256_json(["language-rank", index, 0])],
+            "confidence_score": 0.81,
+            "spike_sparsity": 0.74,
+            "slot_drift": 0.03,
+        }
+        for index, (slot_hash, candidate_hash) in enumerate(
+            zip(
+                language_output_preflight_body["output_slot_hashes"],
+                language_output_preflight_body["candidate_hashes"],
+            )
+        )
+    ]
+    blocked_language_output_execution = ledger.execute_autonomous_language_output(
+        autonomous_language_output_preflight=language_output_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        output_evidence={
+            "output_slot_results": output_slot_results,
+            "generated_text": "blocked text",
+            "checkpoint_written": False,
+        },
+        execution_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+    language_output_before_revision = runtime_state.state_revision
+    language_output_execution = ledger.execute_autonomous_language_output(
+        autonomous_language_output_preflight=language_output_preflight,
+        expected_state_revision=language_output_before_revision,
+        output_evidence={
+            "output_slot_results": output_slot_results,
+            "checkpoint_written": False,
+        },
+        execution_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_language_output_execution["accepted"] is False
+    assert blocked_language_output_execution["records_ledger_event"] is False
+    assert blocked_language_output_execution["mutates_runtime_state"] is False
+    assert blocked_language_output_execution["promotion_gate"]["required_evidence"][
+        "generated_text_absent"
+    ] is False
+    assert language_output_execution["surface"] == (
+        "snn_language_autonomous_language_output_executor.v1"
+    )
+    assert language_output_execution["accepted"] is True
+    assert language_output_execution["ready"] is True
+    assert language_output_execution["requires_operator_approval"] is False
+    assert language_output_execution["records_ledger_event"] is True
+    assert language_output_execution["mutates_runtime_state"] is True
+    assert language_output_execution["after"]["state_revision"] == (
+        language_output_before_revision + 1
+    )
+    assert language_output_execution["runs_replay"] is False
+    assert language_output_execution["runs_calibration_update"] is False
+    assert language_output_execution["writes_checkpoint"] is False
+    assert language_output_execution["generates_text"] is False
+    assert language_output_execution["decodes_text"] is False
+    assert language_output_execution["trains_runtime_model"] is False
+    assert language_output_execution["applies_plasticity"] is False
+    language_output_event = language_output_execution[
+        "autonomous_language_output_event"
+    ]
+    assert language_output_event["operator_approval_required"] is False
+    assert language_output_event["output_is_hash_only"] is True
+    assert language_output_event["output_slot_count"] == 3
+    assert language_output_event["mean_confidence_score"] == 0.81
+    assert language_output_event["mean_spike_sparsity"] == 0.74
+    assert language_output_event["max_slot_drift"] == 0.03
+    assert language_output_execution["ledger_summary"][
+        "total_autonomous_language_output_count"
+    ] == 1
+    assert language_output_execution["promotion_gate"][
+        "eligible_for_autonomous_language_output_event_review"
+    ] is True
+    assert language_output_execution["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert language_output_execution["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert language_output_execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert language_output_execution["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert language_output_execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert language_output_execution["promotion_gate"]["eligible_for_action"] is False
+    blocked_language_output_event_review = ledger.autonomous_language_output_event_review(
+        autonomous_language_output_executor={
+            **language_output_execution,
+            "autonomous_language_output_event": {
+                **language_output_execution["autonomous_language_output_event"],
+                "autonomous_language_output_event_hash": "0" * 64,
+            },
+        },
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+    language_output_event_review = ledger.autonomous_language_output_event_review(
+        autonomous_language_output_executor=language_output_execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_language_output_event_review["ready"] is False
+    assert blocked_language_output_event_review["requires_operator_approval"] is False
+    assert blocked_language_output_event_review["autonomous_language_output_event_review"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert language_output_event_review["surface"] == (
+        "snn_language_autonomous_language_output_event_review.v1"
+    )
+    assert language_output_event_review["ready"] is True
+    assert language_output_event_review["accepted"] is True
+    assert language_output_event_review["requires_operator_approval"] is False
+    assert language_output_event_review["advisory"] is True
+    assert language_output_event_review["executable"] is False
+    assert language_output_event_review["records_ledger_event"] is False
+    assert language_output_event_review["mutates_runtime_state"] is False
+    assert language_output_event_review["runs_replay"] is False
+    assert language_output_event_review["writes_checkpoint"] is False
+    assert language_output_event_review["generates_text"] is False
+    assert language_output_event_review["decodes_text"] is False
+    assert language_output_event_review["trains_runtime_model"] is False
+    assert language_output_event_review["applies_plasticity"] is False
+    language_output_event_review_body = language_output_event_review[
+        "autonomous_language_output_event_review"
+    ]
+    assert language_output_event_review_body["event_recorded_in_ledger"] is True
+    assert language_output_event_review_body["output_slot_count"] == 3
+    assert language_output_event_review_body["mean_confidence_score"] == 0.81
+    assert language_output_event_review_body["mean_spike_sparsity"] == 0.74
+    assert language_output_event_review_body["max_slot_drift"] == 0.03
+    assert language_output_event_review_body["output_is_hash_only"] is True
+    assert language_output_event_review_body["decoded_text_allowed"] is False
+    assert language_output_event_review_body["generated_text_allowed"] is False
+    assert language_output_event_review_body["operator_approval_required"] is False
+    assert language_output_event_review_body["mutation_allowed"] is False
+    assert language_output_event_review["promotion_gate"][
+        "eligible_for_autonomous_decoded_output_design"
+    ] is True
+    assert language_output_event_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert language_output_event_review["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert language_output_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert language_output_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert language_output_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert language_output_event_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_decoded_output_design = ledger.autonomous_decoded_output_design(
+        autonomous_language_output_event_review=language_output_event_review,
+        vocabulary_binding={
+            "token_candidate_hashes": [],
+            "token_vocabulary_hash": "",
+            "tokenizer_hash": "",
+            "decode_constraint_hash": "",
+        },
+        decode_policy={
+            "decode_mode": "constrained_token_hash_map",
+            "max_decoded_tokens": 3,
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    decoded_output_design = ledger.autonomous_decoded_output_design(
+        autonomous_language_output_event_review=language_output_event_review,
+        vocabulary_binding={
+            "token_candidate_hashes": [
+                ledger._sha256_json(["token-candidate", index])
+                for index in range(3)
+            ],
+            "token_vocabulary_hash": ledger._sha256_json(["vocabulary", "unit"]),
+            "tokenizer_hash": ledger._sha256_json(["tokenizer", "unit"]),
+            "decode_constraint_hash": ledger._sha256_json(["constraint", "unit"]),
+        },
+        decode_policy={
+            "decode_mode": "constrained_token_hash_map",
+            "max_decoded_tokens": 3,
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_decoded_output_design["ready"] is False
+    assert blocked_decoded_output_design["requires_operator_approval"] is False
+    assert blocked_decoded_output_design["promotion_gate"]["required_evidence"][
+        "token_candidate_hashes_valid"
+    ] is False
+    assert decoded_output_design["surface"] == (
+        "snn_language_autonomous_decoded_output_design.v1"
+    )
+    assert decoded_output_design["ready"] is True
+    assert decoded_output_design["requires_operator_approval"] is False
+    assert decoded_output_design["advisory"] is True
+    assert decoded_output_design["executable"] is False
+    assert decoded_output_design["records_ledger_event"] is False
+    assert decoded_output_design["mutates_runtime_state"] is False
+    assert decoded_output_design["runs_replay"] is False
+    assert decoded_output_design["writes_checkpoint"] is False
+    assert decoded_output_design["generates_text"] is False
+    assert decoded_output_design["decodes_text"] is False
+    assert decoded_output_design["trains_runtime_model"] is False
+    assert decoded_output_design["applies_plasticity"] is False
+    decoded_output_body = decoded_output_design["autonomous_decoded_output_design"]
+    assert decoded_output_body["decode_mode"] == "constrained_token_hash_map"
+    assert decoded_output_body["max_decoded_tokens"] == 3
+    assert len(decoded_output_body["emitted_hashes"]) == 3
+    assert len(decoded_output_body["decode_slots"]) == 3
+    assert len(decoded_output_body["token_candidate_hashes"]) == 3
+    assert decoded_output_body["mean_confidence_score"] == 0.81
+    assert decoded_output_body["mean_spike_sparsity"] == 0.74
+    assert decoded_output_body["max_slot_drift"] == 0.03
+    assert decoded_output_body["decoded_text_allowed"] is False
+    assert decoded_output_body["generated_text_allowed"] is False
+    assert decoded_output_body["operator_approval_required"] is False
+    assert decoded_output_design["promotion_gate"][
+        "eligible_for_autonomous_decoded_output_preflight"
+    ] is True
+    assert decoded_output_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert decoded_output_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert decoded_output_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert decoded_output_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert decoded_output_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert decoded_output_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_decoded_output_preflight = ledger.autonomous_decoded_output_preflight(
+        autonomous_decoded_output_design=decoded_output_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_decoded_output_executor": False},
+    )
+    decoded_output_preflight = ledger.autonomous_decoded_output_preflight(
+        autonomous_decoded_output_design=decoded_output_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_decoded_output_executor": True},
+    )
+
+    assert blocked_decoded_output_preflight["ready"] is False
+    assert blocked_decoded_output_preflight["requires_operator_approval"] is False
+    assert blocked_decoded_output_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert decoded_output_preflight["surface"] == (
+        "snn_language_autonomous_decoded_output_preflight.v1"
+    )
+    assert decoded_output_preflight["ready"] is True
+    assert decoded_output_preflight["requires_operator_approval"] is False
+    assert decoded_output_preflight["advisory"] is True
+    assert decoded_output_preflight["executable"] is False
+    assert decoded_output_preflight["records_ledger_event"] is False
+    assert decoded_output_preflight["mutates_runtime_state"] is False
+    assert decoded_output_preflight["runs_replay"] is False
+    assert decoded_output_preflight["writes_checkpoint"] is False
+    assert decoded_output_preflight["generates_text"] is False
+    assert decoded_output_preflight["decodes_text"] is False
+    assert decoded_output_preflight["trains_runtime_model"] is False
+    assert decoded_output_preflight["applies_plasticity"] is False
+    decoded_output_preflight_body = decoded_output_preflight[
+        "autonomous_decoded_output_preflight"
+    ]
+    assert decoded_output_preflight_body["decode_mode"] == "constrained_token_hash_map"
+    assert decoded_output_preflight_body["max_decoded_tokens"] == 3
+    assert len(decoded_output_preflight_body["emitted_hashes"]) == 3
+    assert len(decoded_output_preflight_body["decoded_output_slot_hashes"]) == 3
+    assert len(decoded_output_preflight_body["token_candidate_hashes"]) == 3
+    assert decoded_output_preflight_body["mean_confidence_score"] == 0.81
+    assert decoded_output_preflight_body["mean_spike_sparsity"] == 0.74
+    assert decoded_output_preflight_body["max_slot_drift"] == 0.03
+    assert decoded_output_preflight_body["decoded_text_allowed"] is False
+    assert decoded_output_preflight_body["generated_text_allowed"] is False
+    assert decoded_output_preflight_body["operator_approval_required"] is False
+    assert decoded_output_preflight["promotion_gate"][
+        "eligible_for_autonomous_decoded_output_executor"
+    ] is True
+    assert decoded_output_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert decoded_output_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert decoded_output_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert decoded_output_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert decoded_output_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert decoded_output_preflight["promotion_gate"]["eligible_for_action"] is False
 
 
 def test_readout_ledger_emission_review_replay_policy_requires_internal_readout_match() -> None:
