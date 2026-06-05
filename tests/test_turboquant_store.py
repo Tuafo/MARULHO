@@ -7,7 +7,7 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from hecsn.retrieval.turboquant_store import TurboQuantPrototypeStore
+from marulho.retrieval.turboquant_store import TurboQuantPrototypeStore
 
 
 class TestTurboQuantInit(unittest.TestCase):
@@ -58,7 +58,7 @@ class TestCompression(unittest.TestCase):
 
     def test_codes_in_range(self) -> None:
         self.store.compress_all()
-        from hecsn.retrieval.turboquant_store import unpack_codes
+        from marulho.retrieval.turboquant_store import unpack_codes
         unpacked = unpack_codes(self.store._codes, self.store.bits, self.store.dim)
         self.assertTrue((unpacked >= 0).all())
         self.assertTrue((unpacked < self.store.n_levels).all())
@@ -134,7 +134,7 @@ class TestQJLCorrection(unittest.TestCase):
         store.set_all(protos.clone())
         store.compress_all()
 
-        from hecsn.retrieval.turboquant_store import unpack_codes
+        from marulho.retrieval.turboquant_store import unpack_codes
 
         total_err_qjl = 0.0
         total_err_base = 0.0
@@ -197,21 +197,21 @@ class TestBitPacking(unittest.TestCase):
     """Validate bit-pack/unpack roundtrip for various bit widths."""
 
     def test_roundtrip_3bit(self) -> None:
-        from hecsn.retrieval.turboquant_store import pack_codes, unpack_codes
+        from marulho.retrieval.turboquant_store import pack_codes, unpack_codes
         codes = torch.randint(0, 8, (10, 256), dtype=torch.int16)
         packed = pack_codes(codes, 3)
         recovered = unpack_codes(packed, 3, 256)
         self.assertTrue(torch.equal(codes, recovered))
 
     def test_roundtrip_4bit(self) -> None:
-        from hecsn.retrieval.turboquant_store import pack_codes, unpack_codes
+        from marulho.retrieval.turboquant_store import pack_codes, unpack_codes
         codes = torch.randint(0, 16, (5, 128), dtype=torch.int16)
         packed = pack_codes(codes, 4)
         recovered = unpack_codes(packed, 4, 128)
         self.assertTrue(torch.equal(codes, recovered))
 
     def test_roundtrip_8bit(self) -> None:
-        from hecsn.retrieval.turboquant_store import pack_codes, unpack_codes
+        from marulho.retrieval.turboquant_store import pack_codes, unpack_codes
         codes = torch.randint(0, 256, (5, 64), dtype=torch.int16)
         packed = pack_codes(codes, 8)
         recovered = unpack_codes(packed, 8, 64)
@@ -219,14 +219,14 @@ class TestBitPacking(unittest.TestCase):
 
     def test_packed_size_3bit(self) -> None:
         """3-bit: 256 codes → 96 bytes (8 codes per 3 bytes)."""
-        from hecsn.retrieval.turboquant_store import pack_codes
+        from marulho.retrieval.turboquant_store import pack_codes
         codes = torch.randint(0, 8, (1, 256), dtype=torch.int16)
         packed = pack_codes(codes, 3)
         self.assertEqual(packed.shape[-1], 96)
 
     def test_packed_size_4bit(self) -> None:
         """4-bit: 256 codes → 128 bytes (2 codes per byte)."""
-        from hecsn.retrieval.turboquant_store import pack_codes
+        from marulho.retrieval.turboquant_store import pack_codes
         codes = torch.randint(0, 16, (1, 256), dtype=torch.int16)
         packed = pack_codes(codes, 4)
         self.assertEqual(packed.shape[-1], 128)
@@ -359,7 +359,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
 
     def _make_index(self, dim: int = 64, n: int = 50) -> "tuple":
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
         vecs = F.normalize(torch.randn(n, dim), dim=1)
@@ -369,7 +369,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
         return idx, vecs, ids
 
     def test_backend_resolves(self) -> None:
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
         idx = HierarchicalAssemblyIndex(dim=32, backend="turboquant_plus")
         self.assertEqual(idx._backend, "turboquant_plus")
 
@@ -392,7 +392,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
     def test_top1_recall_vs_exact(self) -> None:
         """TQ top-1 should agree with exact cosine >70% (3-bit pre-filter)."""
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         dim, n = 64, 50
         vecs = F.normalize(torch.randn(n, dim), dim=1)
@@ -419,7 +419,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
     def test_topk_recall_vs_exact(self) -> None:
         """Top-k shortlist should contain the exact top-1 >90% of the time."""
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         dim, n = 64, 50
         vecs = F.normalize(torch.randn(n, dim), dim=1)
@@ -446,7 +446,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
     def test_add_updates_sync(self) -> None:
         """After adding new vectors and rebuilding, search finds them."""
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         dim = 32
         idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
@@ -469,7 +469,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
     def test_prototype_update_reflected_after_rebuild(self) -> None:
         """Updating a prototype and rebuilding makes the new vector findable."""
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         dim = 32
         idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
@@ -492,7 +492,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
 
     def test_remove_excludes_from_search(self) -> None:
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         dim = 32
         idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")
@@ -521,7 +521,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
         self.assertEqual(stats["tq_residual_device"], "cpu")
 
     def test_empty_search(self) -> None:
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
         idx = HierarchicalAssemblyIndex(dim=32, backend="turboquant_plus")
         q = F.normalize(torch.randn(1, 32), dim=1)
         result_ids, result_dists = idx.search(q, k=5)
@@ -530,7 +530,7 @@ class TestTurboQuantRoutingBackend(unittest.TestCase):
     def test_lazy_rebuild_on_search(self) -> None:
         """Search should auto-rebuild TQ cache when dirty."""
         import numpy as np
-        from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex
+        from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex
 
         dim = 32
         idx = HierarchicalAssemblyIndex(dim=dim, backend="turboquant_plus")

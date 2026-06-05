@@ -5,10 +5,10 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.data.semantic_encoder import SemanticEncoder
-from hecsn.data.base_encoder import BaseEncoder
-from hecsn.data.encoder_factory import build_encoder
+from marulho.config.model_config import MarulhoConfig
+from marulho.data.semantic_encoder import SemanticEncoder
+from marulho.data.base_encoder import BaseEncoder
+from marulho.data.encoder_factory import build_encoder
 
 
 # ── Construction & protocol ────────────────────────────────────────────
@@ -42,7 +42,7 @@ class TestSemanticEncoderBasic:
         assert enc.output_dim == 128 + 64  # base + concat
 
     def test_from_config(self):
-        cfg = HECSNConfig(input_representation="semantic")
+        cfg = MarulhoConfig(input_representation="semantic")
         enc = SemanticEncoder.from_config(cfg)
         assert enc.output_dim == 128
         assert enc.n_buckets == cfg.semantic_n_buckets
@@ -273,15 +273,15 @@ class TestSerialization:
 
 class TestConfigIntegration:
     def test_semantic_config_input_dim(self):
-        cfg = HECSNConfig(input_representation="semantic")
+        cfg = MarulhoConfig(input_representation="semantic")
         assert cfg.input_dim == 128  # 2 * 64
 
     def test_semantic_config_custom_embed_dim(self):
-        cfg = HECSNConfig(input_representation="semantic", semantic_embed_dim=32)
+        cfg = MarulhoConfig(input_representation="semantic", semantic_embed_dim=32)
         assert cfg.input_dim == 64  # 2 * 32
 
     def test_semantic_config_concat_chunking(self):
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             input_representation="semantic",
             enable_learned_chunking=True,
             learned_chunk_feature_mode="concat",
@@ -295,23 +295,23 @@ class TestConfigIntegration:
 
 class TestEncoderFactory:
     def test_factory_returns_rtf_by_default(self):
-        cfg = HECSNConfig()
+        cfg = MarulhoConfig()
         enc = build_encoder(cfg)
-        from hecsn.data.rtf_encoder import RTFEncoder
+        from marulho.data.rtf_encoder import RTFEncoder
         assert isinstance(enc, RTFEncoder)
 
     def test_factory_returns_semantic(self):
-        cfg = HECSNConfig(input_representation="semantic")
+        cfg = MarulhoConfig(input_representation="semantic")
         enc = build_encoder(cfg)
         assert isinstance(enc, SemanticEncoder)
 
     def test_factory_semantic_implements_protocol(self):
-        cfg = HECSNConfig(input_representation="semantic")
+        cfg = MarulhoConfig(input_representation="semantic")
         enc = build_encoder(cfg)
         assert isinstance(enc, BaseEncoder)
 
     def test_factory_accepts_explicit_device(self):
-        cfg = HECSNConfig(input_representation="semantic", semantic_n_buckets=128)
+        cfg = MarulhoConfig(input_representation="semantic", semantic_n_buckets=128)
         enc = build_encoder(cfg, device=torch.device("cpu"))
         assert isinstance(enc, SemanticEncoder)
         assert enc.device_report()["bucket_embeddings_device"] == "cpu"

@@ -5,20 +5,20 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.core.columns import CompetitiveColumnLayer
-from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.core.columns import CompetitiveColumnLayer
+from marulho.data.rtf_encoder import RTFEncoder
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 class LocalPlasticityConfigTests(unittest.TestCase):
     def test_invalid_plasticity_mode_raises(self) -> None:
         with self.assertRaises(ValueError):
-            HECSNConfig(plasticity_mode="spike_eligibility")
+            MarulhoConfig(plasticity_mode="spike_eligibility")
 
     def test_local_stdp_allows_hashed_ngram_inputs(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             input_representation="hashed_ngram",
             plasticity_mode="local_stdp",
         )
@@ -26,7 +26,7 @@ class LocalPlasticityConfigTests(unittest.TestCase):
         self.assertEqual(cfg.input_dim, cfg.hashed_ngram_dim)
 
     def test_local_stdp_accepts_adex_spike_backend(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             plasticity_mode="local_stdp",
             plasticity_spike_backend="adex",
         )
@@ -171,7 +171,7 @@ class CompetitiveLocalPlasticityTests(unittest.TestCase):
 
 class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
     def test_trainer_reports_local_trace_metrics_when_enabled(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -181,8 +181,8 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
             input_weight_blend=0.0,
             plasticity_mode="local_stdp",
         )
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "bank"])
 
         metrics = trainer.train_step(pattern, raw_window="bank")
@@ -196,7 +196,7 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
         self.assertTrue(bool(scope["supports_inhibitory_balance"]))
 
     def test_trainer_reports_optional_adex_post_spike_backend(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -207,8 +207,8 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
             plasticity_mode="local_stdp",
             plasticity_spike_backend="adex",
         )
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "bank"])
 
         metrics = trainer.train_step(pattern, raw_window="bank")
@@ -221,7 +221,7 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
         self.assertTrue(bool(scope["uses_adex_post_spikes"]))
 
     def test_trainer_local_stdp_supports_hashed_ngram_without_raw_trace(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             input_representation="hashed_ngram",
             plasticity_mode="local_stdp",
             n_columns=4,
@@ -232,8 +232,8 @@ class LocalPlasticityTrainerIntegrationTests(unittest.TestCase):
             eta_decay=0.0,
             input_weight_blend=0.0,
         )
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "bank"])
 
         metrics = trainer.train_step(pattern, raw_window=None)

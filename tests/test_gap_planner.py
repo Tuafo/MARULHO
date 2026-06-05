@@ -3,13 +3,13 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from hecsn.gap_planner import (
+from marulho.gap_planner import (
     bank_semantic_relevance_score,
     frontier_gap_plan,
     frontier_gap_terms,
     plan_query_gaps,
 )
-from hecsn.semantics.frontier import build_bank_query_text
+from marulho.semantics.frontier import build_bank_query_text
 
 
 class _FakeMemoryStore:

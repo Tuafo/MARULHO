@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from hecsn.service.terminus_hf_sources import current_runtime_autonomy_config, current_runtime_source_bank
-from hecsn.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
+from marulho.service.terminus_hf_sources import current_runtime_autonomy_config, current_runtime_source_bank
+from marulho.service.terminus_presets import TERMINUS_QUICK_START_PRESETS
 
 
 class TestRuntimeAutonomyCurriculum:

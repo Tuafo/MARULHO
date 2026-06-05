@@ -5,18 +5,18 @@ from unittest.mock import patch
 
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.core.columns import CompetitiveColumnLayer
-from hecsn.consolidation.memory_store import DualMemoryStore
-from hecsn.training.runner_utils import set_seed
-from hecsn.training.memory_consolidation_runner import build_memory_consolidation_gate
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.core.columns import CompetitiveColumnLayer
+from marulho.consolidation.memory_store import DualMemoryStore
+from marulho.training.runner_utils import set_seed
+from marulho.training.memory_consolidation_runner import build_memory_consolidation_gate
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 class MemoryConsolidationTests(unittest.TestCase):
     def test_train_step_can_defer_due_sleep_maintenance_until_allowed(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=8,
             column_latent_dim=16,
             bootstrap_tokens=0,
@@ -24,7 +24,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=1,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
         pattern[1:5] = 1.0
         pattern = pattern / pattern.sum()
@@ -93,8 +93,8 @@ class MemoryConsolidationTests(unittest.TestCase):
         self.assertTrue(report["all_archival_tensors_cpu"])
 
     def test_model_device_report_includes_memory_store_boundary(self) -> None:
-        cfg = HECSNConfig(n_columns=4, column_latent_dim=8, bootstrap_tokens=0, memory_capacity=8)
-        model = HECSNModel(cfg)
+        cfg = MarulhoConfig(n_columns=4, column_latent_dim=8, bootstrap_tokens=0, memory_capacity=8)
+        model = MarulhoModel(cfg)
 
         report = model.subcortex_device_report()["memory_store"]
 
@@ -133,7 +133,7 @@ class MemoryConsolidationTests(unittest.TestCase):
 
     def test_deep_sleep_replay_preserves_recent_pattern_reconstruction(self) -> None:
         set_seed(7)
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=12,
             column_latent_dim=24,
             bootstrap_tokens=0,
@@ -146,7 +146,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             deep_sleep_replay_steps=24,
             deep_sleep_candidate_pool=24,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
 
         def pattern(*indices: int) -> torch.Tensor:
             vec = torch.zeros(cfg.input_dim, dtype=torch.float32)
@@ -275,7 +275,7 @@ class MemoryConsolidationTests(unittest.TestCase):
 
     def test_micro_sleep_refreshes_tags_without_weight_commit(self) -> None:
         set_seed(7)
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=10,
             column_latent_dim=20,
             bootstrap_tokens=0,
@@ -283,7 +283,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
         pattern[1:5] = 1.0
         pattern = pattern / pattern.sum()
@@ -313,7 +313,7 @@ class MemoryConsolidationTests(unittest.TestCase):
 
     def test_repair_sleep_reanchors_prototypes_without_consolidation(self) -> None:
         set_seed(7)
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=6,
             column_latent_dim=12,
             bootstrap_tokens=0,
@@ -321,7 +321,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         trainer.memory_warm_started = True
         trainer.token_count = 10
 
@@ -359,7 +359,7 @@ class MemoryConsolidationTests(unittest.TestCase):
 
     def test_wake_learning_reports_consolidation_resistance(self) -> None:
         set_seed(7)
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=8,
             column_latent_dim=16,
             bootstrap_tokens=0,
@@ -367,7 +367,7 @@ class MemoryConsolidationTests(unittest.TestCase):
             micro_sleep_interval_tokens=10**9,
             deep_sleep_interval_tokens=10**9,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         pattern = torch.zeros(cfg.input_dim, dtype=torch.float32)
         pattern[3:7] = 1.0
         pattern = pattern / pattern.sum()
@@ -441,13 +441,13 @@ class MemoryConsolidationTests(unittest.TestCase):
 
     def test_stc_sensitivity_task_a_recall_robust_across_functional_minute(self) -> None:
         """§4.9 STC sensitivity: Task-A recall must be robust across 100x range of functional_minute."""
-        from hecsn.training.memory_consolidation_runner import (
+        from marulho.training.memory_consolidation_runner import (
             build_memory_consolidation_gate,
             collect_assemblies,
             mean_assembly_overlap,
             mean_reconstruction_error,
         )
-        from hecsn.training.runner_utils import set_seed
+        from marulho.training.runner_utils import set_seed
 
         task_a_windows = ("alpha memory signal", "alpha plastic trace", "alpha stable concept")
         task_b_windows = ("beta routing context", "beta semantic drift", "beta retrieval anchor")
@@ -455,7 +455,7 @@ class MemoryConsolidationTests(unittest.TestCase):
         results: list[dict] = []
         for fm in (100, 500, 2000, 10000):
             set_seed(42)
-            cfg = HECSNConfig(
+            cfg = MarulhoConfig(
                 n_columns=12,
                 column_latent_dim=24,
                 bootstrap_tokens=0,
@@ -471,7 +471,7 @@ class MemoryConsolidationTests(unittest.TestCase):
                 enable_learned_chunking=False,
                 functional_minute=fm,
             )
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             task_a = [trainer.encoder.feature_vector([ord(c) for c in w]).float() for w in task_a_windows]
             task_b = [trainer.encoder.feature_vector([ord(c) for c in w]).float() for w in task_b_windows]
 

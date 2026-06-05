@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from hecsn.data.corpus_loader import StreamingCorpusLoader, extract_web_text, load_hf_first_rows
+from marulho.data.corpus_loader import StreamingCorpusLoader, extract_web_text, load_hf_first_rows
 
 
 class CorpusLoaderTests(unittest.TestCase):
@@ -99,7 +99,7 @@ class CorpusLoaderTests(unittest.TestCase):
             def read(self):
                 return json.dumps(payload)
 
-        with patch("hecsn.data.corpus_loader.urlopen", return_value=_Response()):
+        with patch("marulho.data.corpus_loader.urlopen", return_value=_Response()):
             rows = load_hf_first_rows(
                 "wikimedia/wikipedia",
                 hf_config="20231101.en",

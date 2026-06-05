@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.core.surprise import SurpriseMonitor
+from marulho.core.surprise import SurpriseMonitor
 
 
 class SurpriseMonitorTests(unittest.TestCase):

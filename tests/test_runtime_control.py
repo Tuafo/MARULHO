@@ -7,16 +7,16 @@ import unittest
 from unittest.mock import patch
 from typing import Any, cast
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.service.manager import HECSNServiceManager
-from hecsn.service.runtime_control import RuntimeControl
-from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.service.manager import MarulhoServiceManager
+from marulho.service.runtime_control import RuntimeControl
+from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
-def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:
-    cfg = HECSNConfig(
+def _build_manager(root: Path, *, test_case: str) -> MarulhoServiceManager:
+    cfg = MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
         bootstrap_tokens=0,
@@ -27,14 +27,14 @@ def _build_manager(root: Path, *, test_case: str) -> HECSNServiceManager:
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModel(cfg)
-    trainer = HECSNTrainer(model, cfg)
+    model = MarulhoModel(cfg)
+    trainer = MarulhoTrainer(model, cfg)
     checkpoint_path = save_trainer_checkpoint(
         root / "initial.pt",
         trainer,
         metadata={"test_case": test_case},
     )
-    return HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+    return MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
 
 
 class _FakeRuntimeState:
@@ -78,7 +78,7 @@ class _FakeThread:
 
 class RuntimeControlTests(unittest.TestCase):
     def test_manager_uses_explicit_runtime_control_seam(self) -> None:
-        self.assertNotIn(RuntimeControl, HECSNServiceManager.__mro__)
+        self.assertNotIn(RuntimeControl, MarulhoServiceManager.__mro__)
 
     def test_runtime_control_has_no_mixin_base(self) -> None:
         mro_names = {base.__name__ for base in RuntimeControl.__mro__}
@@ -137,7 +137,7 @@ class RuntimeControlTests(unittest.TestCase):
         self.assertNotIn("_active_execution_requests", controller.dependencies.__dict__)
 
     def test_controller_no_longer_uses_manager_bound_transition_base(self) -> None:
-        source = Path("src/hecsn/service/runtime_control.py").read_text(encoding="utf-8")
+        source = Path("src/marulho/service/runtime_control.py").read_text(encoding="utf-8")
 
         self.assertNotIn("ExplicitOwnerModule", source)
         self.assertNotIn("install_owner_forwarders", source)
@@ -154,7 +154,7 @@ class RuntimeControlTests(unittest.TestCase):
         controller_any._brain_running = True
         controller_any._brain_running_since = "2026-05-10T00:00:00+00:00"
 
-        with patch("hecsn.service.runtime_control.time.perf_counter", return_value=101.0):
+        with patch("marulho.service.runtime_control.time.perf_counter", return_value=101.0):
             requested = controller._request_brain_stop_locked(reason="manual")
         self.assertIs(requested, thread)
         self.assertTrue(cast(Event, controller_any._brain_stop_event).is_set())
@@ -164,7 +164,7 @@ class RuntimeControlTests(unittest.TestCase):
         self.assertEqual(manager.recorded_events[-1]["type"], "stop_requested")
 
         thread._alive = False
-        with patch("hecsn.service.runtime_control.time.perf_counter", return_value=101.75):
+        with patch("marulho.service.runtime_control.time.perf_counter", return_value=101.75):
             controller._finalize_brain_stop_locked(cast(Any, thread))
 
         self.assertIsNone(controller_any._brain_thread)

@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 import torch
 
-from hecsn.data.dataset_adapters import (
+from marulho.data.dataset_adapters import (
     DIGIT_NAMES,
     DigitEpisode,
     Event,
@@ -31,8 +31,8 @@ from hecsn.data.dataset_adapters import (
     iter_episode_steps,
     validate_encoder_dims,
 )
-from hecsn.data.event_camera_encoder import EventCameraEncoder
-from hecsn.data.cochleagram_encoder import CochleagramEncoder
+from marulho.data.event_camera_encoder import EventCameraEncoder
+from marulho.data.cochleagram_encoder import CochleagramEncoder
 
 
 # ---------------------------------------------------------------------------

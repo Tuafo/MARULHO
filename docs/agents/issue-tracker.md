@@ -1,6 +1,6 @@
 # Issue tracker — GitHub
 
-Issues are tracked in **GitHub** at **Tuafo/HECSN**.
+Issues are tracked in **GitHub** at **Tuafo/MARULHO**.
 
 ## Commands
 

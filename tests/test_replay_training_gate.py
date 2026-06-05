@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from hecsn.evaluation.replay_training_gate import (
+from marulho.evaluation.replay_training_gate import (
     PASSING_STATUS,
     evaluate_replay_training_gate,
     evaluate_replay_training_gate_file,

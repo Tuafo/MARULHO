@@ -10,7 +10,7 @@ import threading
 import unittest
 from typing import Any, Mapping
 
-from hecsn.service.interaction_pipeline import (
+from marulho.service.interaction_pipeline import (
     DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
     REQUEST_FEED_ENCODING_MODE,
     InteractionPipeline,

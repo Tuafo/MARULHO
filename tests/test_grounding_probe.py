@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.evaluation.grounding_probe import (
+from marulho.evaluation.grounding_probe import (
     GROUNDING_PROBE_TRIPLES_50,
     CONCRETE_TRIPLES,
     ABSTRACT_TRIPLES,
@@ -221,19 +221,19 @@ class TestHeldOutProbe:
     """Test the held-out concrete probe for transfer evaluation."""
 
     def test_held_out_triple_count(self) -> None:
-        from hecsn.evaluation.grounding_probe import HELD_OUT_CONCRETE_TRIPLES
+        from marulho.evaluation.grounding_probe import HELD_OUT_CONCRETE_TRIPLES
         assert len(HELD_OUT_CONCRETE_TRIPLES) == 10
 
     def test_held_out_no_overlap_with_concept_vocabulary(self) -> None:
-        from hecsn.evaluation.grounding_probe import HELD_OUT_CONCRETE_TRIPLES
-        from hecsn.training.developmental_runner import CONCEPT_VOCABULARY
+        from marulho.evaluation.grounding_probe import HELD_OUT_CONCRETE_TRIPLES
+        from marulho.training.developmental_runner import CONCEPT_VOCABULARY
         vocab = set(CONCEPT_VOCABULARY)
         for anchor, pos, neg in HELD_OUT_CONCRETE_TRIPLES:
             for word in (anchor, pos, neg):
                 assert word not in vocab, f"'{word}' overlaps with CONCEPT_VOCABULARY"
 
     def test_extended_probe_60_triples(self) -> None:
-        from hecsn.evaluation.grounding_probe import (
+        from marulho.evaluation.grounding_probe import (
             GROUNDING_PROBE_TRIPLES_60,
             evaluate_grounding_probe_extended,
         )
@@ -251,7 +251,7 @@ class TestHeldOutProbe:
         assert result.abstract_count == 25
 
     def test_held_out_per_triple_category(self) -> None:
-        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+        from marulho.evaluation.grounding_probe import evaluate_grounding_probe_extended
 
         def random_fn(text: str, _c: dict = {}) -> torch.Tensor:
             if text not in _c:
@@ -265,7 +265,7 @@ class TestHeldOutProbe:
         assert categories[35:60] == ["abstract"] * 25
 
     def test_held_out_in_to_dict(self) -> None:
-        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+        from marulho.evaluation.grounding_probe import evaluate_grounding_probe_extended
 
         def random_fn(text: str, _c: dict = {}) -> torch.Tensor:
             if text not in _c:

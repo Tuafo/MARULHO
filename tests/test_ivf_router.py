@@ -7,7 +7,7 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from hecsn.retrieval.ivf_router import IVFRouter, benchmark_routing
+from marulho.retrieval.ivf_router import IVFRouter, benchmark_routing
 
 
 class TestIVFRouterInit(unittest.TestCase):

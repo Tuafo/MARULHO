@@ -7,18 +7,18 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.query_runner import feed_text, text_pattern_stream
-from hecsn.training.runner_utils import set_seed
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.data.rtf_encoder import RTFEncoder
+from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
+from marulho.training.query_runner import feed_text, text_pattern_stream
+from marulho.training.runner_utils import set_seed
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
-def _build_trainer() -> HECSNTrainer:
+def _build_trainer() -> MarulhoTrainer:
     set_seed(7)
-    cfg = HECSNConfig(
+    cfg = MarulhoConfig(
         n_columns=24,
         column_latent_dim=48,
         bootstrap_tokens=0,
@@ -38,18 +38,18 @@ def _build_trainer() -> HECSNTrainer:
         learned_chunk_boundary_threshold=0.04,
         learned_chunk_association_blend=0.0,
     )
-    return HECSNTrainer(HECSNModel(cfg), cfg)
+    return MarulhoTrainer(MarulhoModel(cfg), cfg)
 
 
-def _pattern_for_term(trainer: HECSNTrainer, term: str) -> torch.Tensor:
+def _pattern_for_term(trainer: MarulhoTrainer, term: str) -> torch.Tensor:
     return list(text_pattern_stream(term, trainer.encoder, trainer.config.window_size))[-1][1]
 
 
-def _winner_for_term(trainer: HECSNTrainer, term: str) -> int:
+def _winner_for_term(trainer: MarulhoTrainer, term: str) -> int:
     return int(trainer.winner_for_pattern(_pattern_for_term(trainer, term)))
 
 
-def _prototype_for_term(trainer: HECSNTrainer, term: str) -> torch.Tensor:
+def _prototype_for_term(trainer: MarulhoTrainer, term: str) -> torch.Tensor:
     winner = _winner_for_term(trainer, term)
     prototype = trainer.model.competitive.prototypes[winner].detach().cpu().float()
     return F.normalize(prototype.unsqueeze(0), dim=1).squeeze(0)
@@ -57,7 +57,7 @@ def _prototype_for_term(trainer: HECSNTrainer, term: str) -> torch.Tensor:
 
 class LearnedChunkingTests(unittest.TestCase):
     def test_concat_mode_exposes_first_class_chunk_channel(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             enable_learned_chunking=True,
             learned_chunk_detector_count=64,
             learned_chunk_feature_mode="concat",
@@ -139,7 +139,7 @@ class LearnedChunkingTests(unittest.TestCase):
 
     def test_abstraction_bias_modulates_boundary_threshold(self) -> None:
         """Top-down bias from Abstraction Layer adjusts chunking boundary threshold."""
-        from hecsn.data.rtf_encoder import LearnedChunkingLayer
+        from marulho.data.rtf_encoder import LearnedChunkingLayer
 
         layer = LearnedChunkingLayer(
             n_detectors=32,

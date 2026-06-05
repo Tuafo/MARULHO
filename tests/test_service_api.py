@@ -16,18 +16,18 @@ from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.semantics import (
+from marulho.config.model_config import MarulhoConfig
+from marulho.semantics import (
     build_snn_language_transition_memory_prediction_evaluation,
     build_spike_language_decoder_probe,
     predict_spike_language_sequence,
 )
-from hecsn.service.api import DEFAULT_WEB_DIST_DIR, create_app
-from hecsn.service.server import build_arg_parser
-from hecsn.training.runner_utils import set_seed
-from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.service.api import DEFAULT_WEB_DIST_DIR, create_app
+from marulho.service.server import build_arg_parser
+from marulho.training.runner_utils import set_seed
+from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 def _sha256_json(value: object) -> str:
@@ -42,7 +42,7 @@ def _sha256_json(value: object) -> str:
 
 
 def _build_checkpoint(root: Path, *, test_case: str) -> Path:
-    cfg = HECSNConfig(
+    cfg = MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
         bootstrap_tokens=0,
@@ -53,8 +53,8 @@ def _build_checkpoint(root: Path, *, test_case: str) -> Path:
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModel(cfg)
-    trainer = HECSNTrainer(model, cfg)
+    model = MarulhoModel(cfg)
+    trainer = MarulhoTrainer(model, cfg)
     return save_trainer_checkpoint(
         root / "initial.pt",
         trainer,
@@ -104,7 +104,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             with TestClient(app) as client:
                 health_response = client.get("/health")
                 status_response = client.get("/status")
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
             self.assertEqual(health_response.status_code, 200)
             self.assertEqual(status_response.status_code, 200)
@@ -1766,7 +1766,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 )
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(terminus_response.status_code, 200)
@@ -6694,27 +6694,27 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(status_language_gate["eligible_for_action"])
         self.assertFalse(status_language_gate["eligible_for_fact_promotion"])
         self.assertFalse(status_language_gate["eligible_for_cognition_substrate"])
-        self.assertTrue(status_language_gate["requires_hecsn_owned_implementation"])
-        self.assertTrue(status_language_gate["hecsn_spike_readout_evidence_available"])
-        self.assertTrue(status_language_gate["hecsn_spike_readout_grounded"])
-        self.assertTrue(status_language_gate["hecsn_spike_readout_non_generative"])
-        self.assertIn("hecsn_spike_decoder_probe_available", status_language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_owned", status_language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_non_generative", status_language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_sparse", status_language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_device_evidence_available", status_language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_grounding_supported", status_language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_available", status_language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_owned", status_language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_sparse", status_language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_dynamic", status_language_gate)
+        self.assertTrue(status_language_gate["requires_marulho_owned_implementation"])
+        self.assertTrue(status_language_gate["marulho_spike_readout_evidence_available"])
+        self.assertTrue(status_language_gate["marulho_spike_readout_grounded"])
+        self.assertTrue(status_language_gate["marulho_spike_readout_non_generative"])
+        self.assertIn("marulho_spike_decoder_probe_available", status_language_gate)
+        self.assertIn("marulho_spike_decoder_probe_owned", status_language_gate)
+        self.assertIn("marulho_spike_decoder_probe_non_generative", status_language_gate)
+        self.assertIn("marulho_spike_decoder_probe_sparse", status_language_gate)
+        self.assertIn("marulho_spike_decoder_probe_device_evidence_available", status_language_gate)
+        self.assertIn("marulho_spike_decoder_probe_grounding_supported", status_language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_available", status_language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_owned", status_language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_sparse", status_language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_dynamic", status_language_gate)
         self.assertEqual(
-            terminus_language_gate["hecsn_spike_readout_evidence_available"],
-            status_language_gate["hecsn_spike_readout_evidence_available"],
+            terminus_language_gate["marulho_spike_readout_evidence_available"],
+            status_language_gate["marulho_spike_readout_evidence_available"],
         )
         self.assertEqual(
-            terminus_language_gate["hecsn_spike_readout_non_generative"],
-            status_language_gate["hecsn_spike_readout_non_generative"],
+            terminus_language_gate["marulho_spike_readout_non_generative"],
+            status_language_gate["marulho_spike_readout_non_generative"],
         )
         self.assertNotIn("research_candidates", status_language_gate)
         self.assertNotIn("endpoint", status_language_gate)
@@ -6764,7 +6764,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             status_rollout_binding["surface"],
             "snn_readout_rollout_server_state_binding.v1",
         )
-        self.assertTrue(status_rollout_binding["owned_by_hecsn"])
+        self.assertTrue(status_rollout_binding["owned_by_marulho"])
         self.assertFalse(status_rollout_binding["external_dependency"])
         self.assertTrue(status_rollout_binding["advisory"])
         self.assertFalse(status_rollout_binding["executable"])
@@ -6824,7 +6824,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             status_consolidation_path["surface"],
             "snn_readout_rollout_consolidation_path_evidence.v1",
         )
-        self.assertTrue(status_consolidation_path["owned_by_hecsn"])
+        self.assertTrue(status_consolidation_path["owned_by_marulho"])
         self.assertFalse(status_consolidation_path["external_dependency"])
         self.assertTrue(status_consolidation_path["advisory"])
         self.assertFalse(status_consolidation_path["executable"])
@@ -6877,7 +6877,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             status_emission_review_history["surface"],
             "snn_readout_emission_review_history_evidence.v1",
         )
-        self.assertTrue(status_emission_review_history["owned_by_hecsn"])
+        self.assertTrue(status_emission_review_history["owned_by_marulho"])
         self.assertFalse(status_emission_review_history["external_dependency"])
         self.assertTrue(status_emission_review_history["advisory"])
         self.assertFalse(status_emission_review_history["executable"])
@@ -6935,7 +6935,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             status_emission_replay_design_path["surface"],
             "snn_readout_emission_replay_design_path_evidence.v1",
         )
-        self.assertTrue(status_emission_replay_design_path["owned_by_hecsn"])
+        self.assertTrue(status_emission_replay_design_path["owned_by_marulho"])
         self.assertFalse(status_emission_replay_design_path["external_dependency"])
         self.assertTrue(status_emission_replay_design_path["advisory"])
         self.assertFalse(status_emission_replay_design_path["executable"])
@@ -7011,7 +7011,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             status_applied_provenance["surface"],
             "snn_readout_applied_synapse_provenance_evidence.v1",
         )
-        self.assertTrue(status_applied_provenance["owned_by_hecsn"])
+        self.assertTrue(status_applied_provenance["owned_by_marulho"])
         self.assertFalse(status_applied_provenance["external_dependency"])
         self.assertTrue(status_applied_provenance["advisory"])
         self.assertFalse(status_applied_provenance["executable"])
@@ -7144,7 +7144,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 {"device": "cpu", "source": "service_api_readout_draft"},
                 top_k=4,
             )
-            app.state.hecsn_manager._snn_language_plasticity_state[
+            app.state.marulho_manager._snn_language_plasticity_state[
                 "sparse_transition_weights"
             ] = dict(transition_weights)
             with TestClient(app) as client:
@@ -7200,7 +7200,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "top_k": 4,
                     },
                 )
-                app.state.hecsn_manager._snn_language_plasticity_state[
+                app.state.marulho_manager._snn_language_plasticity_state[
                     "sparse_transition_weights"
                 ] = {}
                 rollout_replay_evaluation_response = client.post(
@@ -7313,7 +7313,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                             "surface": "snn_transition_memory_replay_artifact.v1",
                             "available": True,
                             "ready": False,
-                            "owned_by_hecsn": True,
+                            "owned_by_marulho": True,
                         },
                     },
                 )
@@ -7651,7 +7651,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 restored_replay_priority_response = client.get(
                     "/terminus/snn-language-sequence/readout-ledger/replay-priority"
                 )
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
         self.assertEqual(response.status_code, 200)
@@ -8057,7 +8057,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             "/terminus/snn-language-sequence/replay-consolidation-priority-queue",
         )
         recorded_context = next(
-            iter(app.state.hecsn_manager._replay_controller.snn_replay_evaluation_contexts)
+            iter(app.state.marulho_manager._replay_controller.snn_replay_evaluation_contexts)
         )
         self.assertEqual(
             recorded_context["source_metadata"]["emission_hash"],
@@ -8704,7 +8704,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertFalse(readout_live_preflight["applies_plasticity"])
         self.assertEqual(
             readout_live_preflight["application_target"]["target_id"],
-            "hecsn.snn_language.sparse_transition_weights",
+            "marulho.snn_language.sparse_transition_weights",
         )
         self.assertTrue(
             readout_live_preflight["promotion_gate"]["eligible_for_operator_execution_review"]
@@ -8804,8 +8804,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 _build_checkpoint(root, test_case="service_api_readout_synapse_restore_halves"),
                 trace_dir=root / "traces",
             )
-            runtime = app.state.hecsn_runtime
-            manager = app.state.hecsn_manager
+            runtime = app.state.marulho_runtime
+            manager = app.state.marulho_manager
             with TestClient(app) as client:
                 record = runtime.snn_language_readout_evidence_ledger_record(
                     readout_draft={
@@ -8964,7 +8964,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 _build_checkpoint(root, test_case="service_api_evaluated_snn_replay_artifact"),
                 trace_dir=root / "traces",
             )
-            manager = app.state.hecsn_manager
+            manager = app.state.marulho_manager
             with TestClient(app) as client:
                 record_response = client.post(
                     "/terminus/snn-language-sequence/readout-ledger/record",
@@ -9134,7 +9134,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 _build_checkpoint(root, test_case="service_api_rollout_replay_bound_regeneration"),
                 trace_dir=root / "traces",
             )
-            manager = app.state.hecsn_manager
+            manager = app.state.marulho_manager
             adapter_design = {
                 "locality_radius": 2,
                 "initial_weight": 0.1,
@@ -9162,7 +9162,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 "artifact_kind": "terminus_snn_language_readout_rollout_regeneration_proposal_adapter",
                 "surface": "snn_language_readout_rollout_regeneration_proposal_adapter.v1",
                 "available": True,
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "generates_text": False,
                 "applies_plasticity": False,
                 "mutates_runtime_state": False,
@@ -10343,8 +10343,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         "live_application_readiness": plasticity_live_readiness_response.json(),
                         "application_target": {
                             "available": True,
-                            "target_id": "hecsn.snn_language.sparse_transition_weights",
-                            "owned_by_hecsn": True,
+                            "target_id": "marulho.snn_language.sparse_transition_weights",
+                            "owned_by_marulho": True,
                             "mutable": True,
                             "sparse": True,
                             "checkpointed": True,
@@ -10639,7 +10639,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 plasticity_runtime_state_after_committed_regeneration_restore_response = client.get(
                     "/terminus/snn-language-sequence/plasticity-runtime-state"
                 )
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(signal_response.status_code, 200)
         self.assertEqual(language_response.status_code, 200)
@@ -10854,7 +10854,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             regeneration_replay_artifact["surface"],
             "snn_transition_memory_replay_artifact.v1",
         )
-        self.assertTrue(regeneration_replay_artifact["owned_by_hecsn"])
+        self.assertTrue(regeneration_replay_artifact["owned_by_marulho"])
         self.assertTrue(regeneration_replay_artifact["readout_evidence_hashes"])
         self.assertEqual(
             regeneration_permit["replay_artifact_id"],
@@ -11171,13 +11171,13 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             readiness["research_candidates"][0]["integration_status"],
-            "reference_for_hecsn_owned_reimplementation",
+            "reference_for_marulho_owned_reimplementation",
         )
         self.assertIn(
-            "hecsn_owned_language_neuron_module",
+            "marulho_owned_language_neuron_module",
             readiness["research_candidates"][0]["required_local_evidence"],
         )
-        self.assertIn("hecsn_native_snn_decoder", readiness["research_candidates"][0]["required_local_evidence"])
+        self.assertIn("marulho_native_snn_decoder", readiness["research_candidates"][0]["required_local_evidence"])
         self.assertEqual(evaluation["evaluation_cases"][0]["target"], "spike_language_neuron_adapter")
         self.assertIn("adapter_activation_sparsity_delta", evaluation["success_evidence"])
         self.assertEqual(heldout["heldout_summary"]["case_count"], 1)
@@ -11187,7 +11187,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             app = create_app(_build_checkpoint(root, test_case="service_api_self_repair_gate"), trace_dir=root / "traces")
-            runtime = app.state.hecsn_runtime
+            runtime = app.state.marulho_runtime
             with TestClient(app) as client:
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
@@ -11195,7 +11195,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 second_response = client.get("/terminus/subcortical-self-repair")
                 after_revision = runtime.status()["state_revision"]
                 after_history = runtime.action_history()["count"]
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(second_response.status_code, 200)
@@ -11228,14 +11228,14 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 _build_checkpoint(root, test_case="service_api_self_repair_evaluation"),
                 trace_dir=root / "traces",
             )
-            runtime = app.state.hecsn_runtime
+            runtime = app.state.marulho_runtime
             with TestClient(app) as client:
                 before_revision = runtime.status()["state_revision"]
                 before_history = runtime.action_history()["count"]
                 response = client.get("/terminus/subcortical-self-repair/evaluation")
                 after_revision = runtime.status()["state_revision"]
                 after_history = runtime.action_history()["count"]
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -11266,7 +11266,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 _build_checkpoint(root, test_case="service_api_structural_plasticity"),
                 trace_dir=root / "traces",
             )
-            runtime = app.state.hecsn_runtime
+            runtime = app.state.marulho_runtime
             pre_snapshot = {
                 "current_state_revision": 5,
                 "binding_topology": {
@@ -11356,7 +11356,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 after_revision = runtime.status()["state_revision"]
                 after_history = runtime.action_history()["count"]
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(evaluation_response.status_code, 200)
@@ -11491,7 +11491,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             with TestClient(app) as client:
                 list_response = client.get("/terminus/validation/reports")
                 read_response = client.get("/terminus/validation/report", params={"path": "phase15/README.md"})
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
         self.assertEqual(list_response.status_code, 200)
         listed = list_response.json()
@@ -11507,9 +11507,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             ckpt = _build_checkpoint(root, test_case="service_api_static_default")
             app = create_app(ckpt, trace_dir=root / "traces")
             self.assertEqual(app.state.web_dist_dir, DEFAULT_WEB_DIST_DIR)
-            app.state.hecsn_manager.close()
+            app.state.marulho_manager.close()
 
-        self.assertEqual(DEFAULT_WEB_DIST_DIR, Path("HECSN_UI") / "dist")
+        self.assertEqual(DEFAULT_WEB_DIST_DIR, Path("MARULHO_UI") / "dist")
 
         parser = build_arg_parser()
         args = parser.parse_args(["--checkpoint", "checkpoints\\terminus\\model.pt"])
@@ -11612,8 +11612,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 trace_dir=root / "traces",
                 env_root=root,
             )
-            manager = app.state.hecsn_manager
-            runtime = app.state.hecsn_runtime
+            manager = app.state.marulho_manager
+            runtime = app.state.marulho_runtime
             with TestClient(app) as client:
                 action_response = client.post(
                     "/terminus/action",
@@ -11694,8 +11694,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 trace_dir=root / "traces",
                 env_root=root,
             )
-            manager = app.state.hecsn_manager
-            runtime = app.state.hecsn_runtime
+            manager = app.state.marulho_manager
+            runtime = app.state.marulho_runtime
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
@@ -11742,8 +11742,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 trace_dir=root / "traces",
                 env_root=root,
             )
-            manager = app.state.hecsn_manager
-            runtime = app.state.hecsn_runtime
+            manager = app.state.marulho_manager
+            runtime = app.state.marulho_runtime
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
@@ -11988,8 +11988,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 trace_dir=root / "traces",
                 env_root=root,
             )
-            manager = app.state.hecsn_manager
-            runtime = app.state.hecsn_runtime
+            manager = app.state.marulho_manager
+            runtime = app.state.marulho_runtime
             with TestClient(app) as client:
                 feed_response = client.post("/feed", json={"text": "Cats chase mice at night."})
                 episode_id = feed_response.json()["runtime_episode"]["episode_id"]
@@ -13174,7 +13174,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ][:result_limit]
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         configure_response = client.post(
                             "/terminus/configure",
@@ -13305,7 +13305,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ][:result_limit]
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         configure_response = client.post(
                             "/terminus/configure",
@@ -13455,7 +13455,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ][:result_limit]
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         client.post(
                             "/terminus/configure",
@@ -13592,7 +13592,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ][:result_limit]
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         client.post(
                             "/terminus/configure",
@@ -13719,7 +13719,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 return []
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         client.post(
                             "/terminus/configure",
@@ -13840,7 +13840,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ][:result_limit]
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         configure_response = client.post(
                             "/terminus/configure",
@@ -13961,7 +13961,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ][:result_limit]
 
             try:
-                with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+                with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
                     with TestClient(app) as client:
                         configure_response = client.post(
                             "/terminus/configure",
@@ -13987,8 +13987,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                                 },
                             },
                         )
-                        with app.state.hecsn_manager._lock:
-                            app.state.hecsn_manager._interaction_pipeline.record_recent_query_gap(
+                        with app.state.marulho_manager._lock:
+                            app.state.marulho_manager._interaction_pipeline.record_recent_query_gap(
                                 query_text="submarine buoyancy ballast",
                                 source="query",
                                 gap_plan={
@@ -14134,8 +14134,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         """telemetry_snapshot includes animation sub-object for SSE consumers."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
-            mgr = HECSNServiceManager(
+            from marulho.service.manager import MarulhoServiceManager
+            mgr = MarulhoServiceManager(
                 _build_checkpoint(root, test_case="service_api_animation"),
                 trace_dir=root / "traces",
             )
@@ -14191,7 +14191,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     "token_count": int(self._trainer.token_count),
                 }
 
-            with patch("hecsn.service.runtime_control.RuntimeControl.start_terminus", autospec=True, side_effect=_fake_start):
+            with patch("marulho.service.runtime_control.RuntimeControl.start_terminus", autospec=True, side_effect=_fake_start):
                 with TestClient(app) as client:
                     resp = client.post("/terminus/quick-start")
                     self.assertEqual(resp.status_code, 200)
@@ -14203,7 +14203,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     self.assertLessEqual(data["terminus_runtime"]["tick_tokens"], 64)
                     self.assertTrue(data["terminus_runtime"]["autonomy"]["enabled"])
                     self.assertEqual(data["terminus_runtime"]["autonomy"]["candidate_bank"][0]["catalog_mode"], "semantic_registry")
-                    manager = app.state.hecsn_manager
+                    manager = app.state.marulho_manager
                     self.assertTrue(manager._trainer.config.enable_context_layer)
                     self.assertTrue(manager._trainer.config.enable_binding_layer)
                     self.assertNotIn("curriculum", data["terminus_runtime"])
@@ -14236,7 +14236,7 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             root = Path(tmpdir)
             ckpt = _build_checkpoint(root, test_case="service_api_sensory_recent")
             app = create_app(ckpt, trace_dir=root / "traces")
-            manager = app.state.hecsn_manager
+            manager = app.state.marulho_manager
             with manager._lock:
                 manager._sensory_preview_history.appendleft(
                     {

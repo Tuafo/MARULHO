@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from hecsn.semantics.brain_stats import BrainStats
-from hecsn.semantics.language_result import LanguageResult
+from marulho.semantics.brain_stats import BrainStats
+from marulho.semantics.language_result import LanguageResult
 
 
 def test_brain_stats_average_inference_counts_readouts_and_replay_samples() -> None:

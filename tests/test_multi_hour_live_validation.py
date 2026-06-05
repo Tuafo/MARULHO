@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from hecsn.evaluation.multi_hour_live_validation import (
+from marulho.evaluation.multi_hour_live_validation import (
     validate_multi_hour_live_run,
     validate_multi_hour_live_run_files,
 )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.retrieval.decoder import NativeAssemblyDecoder
+from marulho.retrieval.decoder import NativeAssemblyDecoder
 
 
 class NativeAssemblyDecoderTests(unittest.TestCase):

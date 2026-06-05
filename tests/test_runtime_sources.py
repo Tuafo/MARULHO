@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import torch
 
-from hecsn.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime
+from marulho.service.runtime_sources import RuntimeSources, RuntimeSourcesDependencies, _BrainSourceRuntime
 
 
 class _FakeTrainerConfig:
@@ -99,10 +99,10 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
             root = Path(tmpdir)
             module = _runtime_sources(_FakeManager(root))
 
-            with patch("hecsn.service.runtime_sources.StreamingCorpusLoader", _FakeLoader), patch(
-                "hecsn.service.runtime_sources.labeled_pattern_stream",
+            with patch("marulho.service.runtime_sources.StreamingCorpusLoader", _FakeLoader), patch(
+                "marulho.service.runtime_sources.labeled_pattern_stream",
                 return_value=iter([("window-1", "pattern-1")]),
-            ), patch("hecsn.service.runtime_sources.BackgroundPrefetchIterator", _FakePrefetchIterator):
+            ), patch("marulho.service.runtime_sources.BackgroundPrefetchIterator", _FakePrefetchIterator):
                 stream = module._build_brain_source_stream_locked(
                     {
                         "name": "remote_source",
@@ -145,7 +145,7 @@ class RuntimeSourcesSeamTests(unittest.TestCase):
             )
 
             with patch(
-                "hecsn.service.runtime_sources.labeled_pattern_stream",
+                "marulho.service.runtime_sources.labeled_pattern_stream",
                 return_value=iter([("restored-window", "restored-pattern")]),
             ):
                 restored = module._restore_brain_runtime_cache_locked(restored_runtime)

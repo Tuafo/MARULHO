@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hecsn.semantics.cognitive_signal import CognitiveSignalState
+from marulho.semantics.cognitive_signal import CognitiveSignalState
 
 
 def test_cognitive_signal_state_clamps_and_serializes_control_payload() -> None:

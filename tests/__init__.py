@@ -1,1 +1,1 @@
-"""Test package for focused HECSN validations."""
+"""Test package for focused MARULHO validations."""

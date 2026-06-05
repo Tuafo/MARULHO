@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import torch
 
-from hecsn.service.runtime_sources import _BrainSourceRuntime
-from hecsn.service.source_focus import SourceFocusDependencies, SourceFocusScorer
+from marulho.service.runtime_sources import _BrainSourceRuntime
+from marulho.service.source_focus import SourceFocusDependencies, SourceFocusScorer
 
 
 class _FakeRuntimeState:

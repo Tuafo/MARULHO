@@ -4,8 +4,8 @@ import unittest
 
 import torch
 
-from hecsn.core import AbstractionLayer
-from hecsn.semantics import GeometricCuriosityController
+from marulho.core import AbstractionLayer
+from marulho.semantics import GeometricCuriosityController
 
 
 class GeometricCuriosityControllerTests(unittest.TestCase):

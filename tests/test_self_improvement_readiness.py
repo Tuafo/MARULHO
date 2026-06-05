@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from hecsn.evaluation.self_improvement_readiness import (
+from marulho.evaluation.self_improvement_readiness import (
     evaluate_self_improvement_readiness,
     evaluate_self_improvement_readiness_files,
 )

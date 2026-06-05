@@ -10,8 +10,8 @@ import numpy as np
 from PIL import Image
 import torch
 
-from hecsn.service import terminus_sensory as sensory_module
-from hecsn.service.terminus_sensory import (
+from marulho.service import terminus_sensory as sensory_module
+from marulho.service.terminus_sensory import (
     AudioCapsSensoryStream,
     S1MMAlignSensoryStream,
     bootstrap_sensory_episode_from_row,
@@ -59,8 +59,8 @@ def test_s1_mmalign_stream_yields_visual_episode() -> None:
             "categories": "cond-mat.stat-mech",
         }
     }
-    with patch("hecsn.service.terminus_sensory._load_hf_stream", return_value=[row]):
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
+    with patch("marulho.service.terminus_sensory._load_hf_stream", return_value=[row]):
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
             episode = next(iter(S1MMAlignSensoryStream(year_prefixes=("07",), target_dim=64)))
 
     assert "Potts model" in episode.text
@@ -89,7 +89,7 @@ def test_audiocaps_stream_yields_audio_episode() -> None:
         "caption": "Water pours while a woman talks nearby",
         "audio": {"bytes": _wav_bytes()},
     }
-    with patch("hecsn.service.terminus_sensory._load_hf_stream", return_value=[row]):
+    with patch("marulho.service.terminus_sensory._load_hf_stream", return_value=[row]):
         episode = next(iter(AudioCapsSensoryStream(target_dim=64, sample_rate=16000, n_fft=512)))
 
     assert episode.visual_spikes is None
@@ -124,8 +124,8 @@ def test_s1_stream_requests_only_png_column() -> None:
             "categories": "cond-mat.stat-mech",
         }
     }
-    with patch("hecsn.service.terminus_sensory._load_hf_stream", return_value=[row]) as mocked:
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
+    with patch("marulho.service.terminus_sensory._load_hf_stream", return_value=[row]) as mocked:
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
             episode = next(iter(S1MMAlignSensoryStream(year_prefixes=("07",), target_dim=64)))
 
     assert episode.visual_spikes is not None
@@ -140,7 +140,7 @@ def test_audiocaps_stream_requests_only_needed_columns() -> None:
         "caption": "Water pours while a woman talks nearby",
         "audio": {"bytes": _wav_bytes()},
     }
-    with patch("hecsn.service.terminus_sensory._load_hf_stream", return_value=[row]) as mocked:
+    with patch("marulho.service.terminus_sensory._load_hf_stream", return_value=[row]) as mocked:
         episode = next(iter(AudioCapsSensoryStream(target_dim=64, sample_rate=16000, n_fft=512)))
 
     assert episode.audio_spikes is not None
@@ -160,8 +160,8 @@ def test_s1_bootstrap_episode_uses_first_rows_asset_shape() -> None:
             "categories": "cond-mat.stat-mech",
         }
     }
-    with patch("hecsn.service.terminus_sensory._download_binary_asset", return_value=_png_bytes()):
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
+    with patch("marulho.service.terminus_sensory._download_binary_asset", return_value=_png_bytes()):
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
             episode = bootstrap_sensory_episode_from_row(
                 {
                     "adapter": "s1_mmalign",
@@ -199,8 +199,8 @@ def test_s1_bootstrap_episode_falls_back_while_recaption_index_loads() -> None:
         loaded.set()
         return recaption_index
 
-    with patch("hecsn.service.terminus_sensory._download_binary_asset", return_value=_png_bytes()):
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", side_effect=_slow_index_loader):
+    with patch("marulho.service.terminus_sensory._download_binary_asset", return_value=_png_bytes()):
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", side_effect=_slow_index_loader):
             episode = bootstrap_sensory_episode_from_row(
                 {
                     "adapter": "s1_mmalign",
@@ -244,8 +244,8 @@ def test_s1_stream_uses_recaption_metadata_after_background_index_load() -> None
         loaded.set()
         return recaption_index
 
-    with patch("hecsn.service.terminus_sensory._load_hf_stream", return_value=[row, row]):
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", side_effect=_slow_index_loader):
+    with patch("marulho.service.terminus_sensory._load_hf_stream", return_value=[row, row]):
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", side_effect=_slow_index_loader):
             stream = iter(S1MMAlignSensoryStream(year_prefixes=("07",), target_dim=64))
             first = next(stream)
             assert first.metadata["text_source"] == "image_path_fallback"
@@ -278,8 +278,8 @@ def test_s1_bootstrap_passes_timeout_to_asset_download() -> None:
         captured["timeout_seconds"] = float(timeout_seconds)
         return _png_bytes()
 
-    with patch("hecsn.service.terminus_sensory._download_binary_asset", side_effect=_download):
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
+    with patch("marulho.service.terminus_sensory._download_binary_asset", side_effect=_download):
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
             episode = bootstrap_sensory_episode_from_row(
                 {
                     "adapter": "s1_mmalign",
@@ -306,7 +306,7 @@ def test_audiocaps_bootstrap_episode_uses_first_rows_asset_shape() -> None:
         "caption": "Water pours while a woman talks nearby",
         "audio": [{"src": "https://example.com/audio.wav", "type": "audio/wav"}],
     }
-    with patch("hecsn.service.terminus_sensory._download_binary_asset", return_value=_wav_bytes()):
+    with patch("marulho.service.terminus_sensory._download_binary_asset", return_value=_wav_bytes()):
         episode = bootstrap_sensory_episode_from_row(
             {
                 "adapter": "audiocaps",
@@ -340,7 +340,7 @@ def test_audiocaps_bootstrap_passes_timeout_to_asset_download() -> None:
         captured["timeout_seconds"] = float(timeout_seconds)
         return _wav_bytes()
 
-    with patch("hecsn.service.terminus_sensory._download_binary_asset", side_effect=_download):
+    with patch("marulho.service.terminus_sensory._download_binary_asset", side_effect=_download):
         episode = bootstrap_sensory_episode_from_row(
             {
                 "adapter": "audiocaps",
@@ -382,8 +382,8 @@ def test_build_sensory_stream_is_lazy() -> None:
             "categories": "cond-mat.stat-mech",
         }
     }
-    with patch("hecsn.service.terminus_sensory._load_hf_stream", return_value=[row]) as mocked:
-        with patch("hecsn.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
+    with patch("marulho.service.terminus_sensory._load_hf_stream", return_value=[row]) as mocked:
+        with patch("marulho.service.terminus_sensory._load_s1_recaption_index", return_value=recaption_index):
             stream = build_sensory_stream(spec, visual_dim=64, audio_dim=64)
             assert mocked.call_count == 0
             episode = next(stream)
@@ -392,7 +392,7 @@ def test_build_sensory_stream_is_lazy() -> None:
 
 
 def test_default_sensory_device_prefers_cuda_when_available(monkeypatch) -> None:
-    monkeypatch.delenv("HECSN_DEVICE", raising=False)
+    monkeypatch.delenv("MARULHO_DEVICE", raising=False)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
     assert sensory_module._resolve_sensory_device(None) == torch.device("cuda")

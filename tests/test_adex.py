@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from hecsn.core import AdExNeuron
+from marulho.core import AdExNeuron
 
 
 class AdExNeuronTests(unittest.TestCase):

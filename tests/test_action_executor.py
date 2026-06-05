@@ -7,7 +7,7 @@ import unittest
 from threading import RLock
 from typing import Any
 
-from hecsn.service.action_executor import ActionExecutor
+from marulho.service.action_executor import ActionExecutor
 
 
 class _ActionExecutorRuntimeState:

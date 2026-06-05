@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.core.columns import CompetitiveColumnLayer
+from marulho.core.columns import CompetitiveColumnLayer
 
 
 def _make_layer(**overrides) -> CompetitiveColumnLayer:

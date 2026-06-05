@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hecsn.semantics.grounding_diagnostics import GroundingDiagnostics
+from marulho.semantics.grounding_diagnostics import GroundingDiagnostics
 
 
 def test_grounding_diagnostics_serializes_tuple_fields_as_lists() -> None:

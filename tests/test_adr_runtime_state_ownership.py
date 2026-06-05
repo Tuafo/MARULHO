@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "hecsn" / "service"
+_SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "marulho" / "service"
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0002-runtime-state-ownership.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 _RUNTIME_STATE_FIELDS = ("dirty_state", "state_revision", "last_event", "recent_events")

@@ -6,9 +6,9 @@ Accepted
 
 ## Context
 
-The project goal is shifting from a merely executable cortex-subcortex runtime toward a more continuous "living brain" system. The existing implementation already routes most subcortical computation through PyTorch tensors and `HECSNConfig.resolve_device()`, with `device="auto"` selecting CUDA when available. Routing also has a `torch_topk` backend that becomes the automatic search path on CUDA, while FAISS HNSW and exact cosine remain CPU-friendly alternatives.
+The project goal is shifting from a merely executable cortex-subcortex runtime toward a more continuous "living brain" system. The existing implementation already routes most subcortical computation through PyTorch tensors and `MarulhoConfig.resolve_device()`, with `device="auto"` selecting CUDA when available. Routing also has a `torch_topk` backend that becomes the automatic search path on CUDA, while FAISS HNSW and exact cosine remain CPU-friendly alternatives.
 
-Unit tests intentionally force `HECSN_DEVICE=cpu` in `conftest.py` so they remain deterministic and do not fail on machines without a GPU. That creates a useful split: production/runtime experiments should use CUDA when available, but correctness tests should not require CUDA.
+Unit tests intentionally force `MARULHO_DEVICE=cpu` in `conftest.py` so they remain deterministic and do not fail on machines without a GPU. That creates a useful split: production/runtime experiments should use CUDA when available, but correctness tests should not require CUDA.
 
 Recent literature supports this direction: predictive coding with spiking neurons remains active work, and sparse SNN/GPU acceleration is a natural fit when the implementation can preserve event sparsity rather than densifying every operation.
 
@@ -16,7 +16,7 @@ Recent literature supports this direction: predictive coding with spiking neuron
 
 Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 
-- Runtime and benchmark code should keep using `HECSNConfig.resolve_device()` rather than hard-coding CPU.
+- Runtime and benchmark code should keep using `MarulhoConfig.resolve_device()` rather than hard-coding CPU.
 - New tensor-heavy modules should accept an explicit `torch.device` and move persistent tensors onto that device at construction.
 - CUDA claims must be proven by runtime telemetry or benchmark output that includes the actual search/device backend.
 - Routing indexes must report actual cache placement, not just configured search intent. Tensor-backed backends should expose cache readiness and tensor devices in `stats()`.
@@ -28,14 +28,14 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Text encoders must keep tensor-heavy state on the runtime device, including learned chunking codebooks, semantic bucket embeddings, adapter tensors, emitted feature vectors, and spike traces. Python string parsing, segmentation lists, and hash-loop control flow remain CPU/control-plane work.
 - The Memory Store must report its device boundary explicitly: archival replay records remain CPU storage, while trainer replay computation moves sampled tensors to the model device before use.
 - Sensory encoders must expose device reports, and real sensory episodes must carry encoder/device/spike-device metadata into grounded observations and preview metadata.
-- Standalone sensory streams and multimodal loaders must resolve omitted devices the same way as the runtime posture: explicit device first, `HECSN_DEVICE` second, CUDA when available, CPU only as the deterministic fallback. Directory-backed visual/audio tensors must load onto that resolved device before encoding.
+- Standalone sensory streams and multimodal loaders must resolve omitted devices the same way as the runtime posture: explicit device first, `MARULHO_DEVICE` second, CUDA when available, CPU only as the deterministic fallback. Directory-backed visual/audio tensors must load onto that resolved device before encoding.
 - Unit tests should continue to default to CPU unless a test is explicitly marked as a CUDA scale or device test.
 - The former Cortex execution path is retired from active runtime claims and is not part of the CUDA-first claim. NIM/LLM adapters were removed; future experiments must not return as runtime paths or living-substrate dependencies.
 - Digital action execution records evidence in the Subcortex action ledger and must not initialize the retired external LLM/ThoughtLoop path for action-memory mirroring.
 - Source and sensory observations are Subcortex-owned grounded evidence. They must be emitted from source/sensory runtime paths without requiring ThoughtLoop observation or surprise injection, and focus terms must come from Subcortex query gaps, autonomy, curiosity, concept state, or source metadata.
 - Language generation, when present, should be exposed as a Subcortex Language Surface with explicit grounding/support/device evidence; it must not revive Cortex/ThoughtLoop as the active cognition substrate. The first accepted implementations are native-decode-bound responder language, which reports confidence, query overlap, evidence coverage, memory indices, and concept focus, and Cognitive Signal status language, which reports prediction error, confidence, neuromodulator pressure, and concept focus.
-- Pure-SNN language projects such as NeuronSpark and Nord-AI may be used as implementation references, but HECSN must own any language-neuron module, decoder, training loop, grounding evidence, and CUDA/sparsity telemetry before language generation can be promoted beyond a read-only readiness gate.
-- A Spike Language Decoder Probe may report HECSN-owned sparse tensor code, device placement, and grounded slot support from Subcortex Spike Readout Evidence, but it remains non-generative and must not satisfy `local_snn_language_generator_available` by itself.
+- Pure-SNN language projects such as NeuronSpark and Nord-AI may be used as implementation references, but MARULHO must own any language-neuron module, decoder, training loop, grounding evidence, and CUDA/sparsity telemetry before language generation can be promoted beyond a read-only readiness gate.
+- A Spike Language Decoder Probe may report MARULHO-owned sparse tensor code, device placement, and grounded slot support from Subcortex Spike Readout Evidence, but it remains non-generative and must not satisfy `local_snn_language_generator_available` by itself.
 - Runtime Truth may include a compact SNN-Native Language Readiness summary, but it must not embed research candidates, generation payloads, external dependency instructions, or decoder checkpoints.
 - Developmental plasticity work, including growth and pruning, should report sparse structural changes and device placement before being treated as CUDA-first self-improvement evidence.
 - Runtime evidence should include lightweight Subcortex Spike Health metrics from live tensor state: activity state, local spike fraction when available, win-rate EMA ranges, silence/saturation/stale-routing fractions, visible thresholds, bounded recent spike-window correlation, and explicit insufficiency status when the window is too small.
@@ -56,16 +56,16 @@ Adopt a CUDA-first posture for tensor-heavy subcortical runtime paths:
 - Living Loop status and replay planning must read fatigue/sleep pressure from Subcortex Sleep Pressure; they must not publish or consume a `retired_runtime_path`, `cortex` sibling payload, or `cortex_loop_snapshot` capability.
 - The retired Cortex controller name and the `retired_runtime_path` holder are deleted. No active module may expose ask/sleep/thought/action-intent helpers, factory references, query hints, lazy initialization hooks, or retired-runtime state snapshots.
 - Digital action execution must keep evidence in the Subcortex Action Ledger only; retired ThoughtLoop mirroring is removed.
-- `hecsn.cortex.multi_cortex` is deleted. The codebase must not retain `NIMCortex`, `MultiCortex`, `create_cortex_from_env`, or `create_embedder_from_env` as importable external LLM adapter paths. Top-level `hecsn.cortex` is deleted and must not export runtime, mock, memory, drive, language, ThoughtLoop, or external LLM factory entry points.
+- `marulho.cortex.multi_cortex` is deleted. The codebase must not retain `NIMCortex`, `MultiCortex`, `create_cortex_from_env`, or `create_embedder_from_env` as importable external LLM adapter paths. Top-level `marulho.cortex` is deleted and must not export runtime, mock, memory, drive, language, ThoughtLoop, or external LLM factory entry points.
 - `NIMEmbedder` is deleted from Episodic Memory. Memory indexing must not depend on remote embedding APIs, API keys, NIM request accounting, or external embedding clients; local sparse encoders may remain only as transitional machinery while SNN-native encoders mature.
-- `hecsn.cortex.rate_limit` is deleted with the external adapters. Remote API throttling is not a Cortex primitive and should return only as a maintained source/client concern if a real source requires it.
+- `marulho.cortex.rate_limit` is deleted with the external adapters. Remote API throttling is not a Cortex primitive and should return only as a maintained source/client concern if a real source requires it.
 - `MockCortex` is deleted from production source. It must not be used in tests or docs as a language/thought substitute; retirement tests should assert factories and operator surfaces are absent or inert instead.
-- Language/readout results belong to Subcortex/semantics ownership. Active modules should use `hecsn.semantics.language_result.LanguageResult`; `ThoughtResult` aliases are deleted.
-- Language/readout packets belong to Subcortex/semantics ownership. Active modules should use `hecsn.semantics.language_packet` for `ContextPacket`, `MemoryItem`, `ReadoutMode`, and `DeliberationDepth`; `hecsn.cortex.core` is deleted rather than kept as a retired compatibility shim.
+- Language/readout results belong to Subcortex/semantics ownership. Active modules should use `marulho.semantics.language_result.LanguageResult`; `ThoughtResult` aliases are deleted.
+- Language/readout packets belong to Subcortex/semantics ownership. Active modules should use `marulho.semantics.language_packet` for `ContextPacket`, `MemoryItem`, `ReadoutMode`, and `DeliberationDepth`; `marulho.cortex.core` is deleted rather than kept as a retired compatibility shim.
 - Cortex-owned static prompt templates are deleted. Future language/readout policy must live under semantics/Subcortex ownership and carry grounding evidence instead of reviving prompt-first Cortex machinery.
-- The `hecsn.cortex` package is deleted. New runtime, memory, drive, prompt, narrative, and language work must not add modules under that namespace.
+- The `marulho.cortex` package is deleted. New runtime, memory, drive, prompt, narrative, and language work must not add modules under that namespace.
 - `ThoughtLoop()` and its module are deleted. The codebase must not keep hidden Cortex generation, sleep, or background-loop branches behind a constructor guard.
-- Cognitive Signal state is a Subcortex/semantics primitive, not a ThoughtLoop primitive. Active status, language, and policy paths must import it from semantics, never from `hecsn.cortex.thought_loop`.
+- Cognitive Signal state is a Subcortex/semantics primitive, not a ThoughtLoop primitive. Active status, language, and policy paths must import it from semantics, never from `marulho.cortex.thought_loop`.
 - Active Exploration State is a Subcortex control primitive, not a ThoughtLoop-private field. ThalamicGate should store the canonical state object, normalize target text, and preserve reason/source/score so curiosity, source-focus, and future SNN deliberation modules can share it without reviving the retired loop.
 - Grounding Diagnostics are Subcortex language evidence and must live outside retired `ThoughtLoop` so source/sensory support, coverage, alignment, and recovery can be reused by future SNN language/readout modules.
 - Brain runtime metrics are telemetry primitives, not proof of liveness, and must live outside retired `ThoughtLoop` so output quality, grounding alignment, and latency can be reused by Subcortex-owned language/readout surfaces.
@@ -96,9 +96,9 @@ The first acceleration targets are routing/index search, predictive column state
 
 ## References
 
-- `src/hecsn/config/model_config.py`
-- `src/hecsn/retrieval/hnsw_index.py`
-- `src/hecsn/retrieval/ivf_router.py`
+- `src/marulho/config/model_config.py`
+- `src/marulho/retrieval/hnsw_index.py`
+- `src/marulho/retrieval/ivf_router.py`
 - `conftest.py`
 - Lee, Dora, and Mejias, "Predictive coding with spiking neurons and feedforward gist signaling", Frontiers in Computational Neuroscience, 2024.
 - "Predictive Coding with Spiking Neural Networks: a Survey", arXiv:2409.05386, 2024.

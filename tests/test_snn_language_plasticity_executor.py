@@ -5,20 +5,20 @@ from threading import RLock
 
 import torch
 
-from hecsn.service.runtime_state import RuntimeState
-from hecsn.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
+from marulho.service.runtime_state import RuntimeState
+from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
 
 
 def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
     return {
         "available": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "generates_text": False,
         "loads_external_checkpoint": False,
         "replay_evidence": {
             "available": True,
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "source": "replay_controller.regeneration_permit",
             "permit_id": "permit-1",
             "replay_window_id": "replay-window-1",
@@ -47,7 +47,7 @@ def _regeneration_proposal(*candidates: dict[str, object]) -> dict[str, object]:
 def _dense_readout_transaction() -> dict[str, object]:
     return {
         "surface": "snn_language_dense_readout_resize_transaction_proposal.v1",
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "generates_text": False,
         "loads_external_checkpoint": False,
         "dense_readout_resize_transaction_proposal_hash": "sha256:dense-transaction",
@@ -64,7 +64,7 @@ def _dense_readout_transaction() -> dict[str, object]:
 def _dense_readout_readiness_audit() -> dict[str, object]:
     return {
         "surface": "snn_language_dense_readout_resize_executor_readiness_audit.v1",
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "generates_text": False,
         "loads_external_checkpoint": False,
         "promotion_gate": {
@@ -86,7 +86,7 @@ def _dense_readout_tensor_materialization_readiness() -> dict[str, object]:
     return {
         "surface": "snn_language_dense_readout_tensor_materialization_readiness.v1",
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "executable": False,
         "mutates_runtime_state": False,
         "loads_external_checkpoint": False,
@@ -109,7 +109,7 @@ def _dense_readout_training_loop_preflight() -> dict[str, object]:
     return {
         "surface": "snn_language_dense_readout_training_loop_preflight.v1",
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "executable": False,
         "mutates_runtime_state": False,
         "loads_external_checkpoint": False,

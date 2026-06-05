@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from hecsn.service.autonomy_planner import AutonomyPlanner
+from marulho.service.autonomy_planner import AutonomyPlanner
 
 
 class _FakeInteractionPipeline:
@@ -145,7 +145,7 @@ class _PlannerManager:
 
 class AutonomyPlannerTests(unittest.TestCase):
     def test_planner_no_longer_uses_manager_bound_transition_base(self) -> None:
-        source = Path("src/hecsn/service/autonomy_planner.py").read_text(encoding="utf-8")
+        source = Path("src/marulho/service/autonomy_planner.py").read_text(encoding="utf-8")
 
         self.assertNotIn("ExplicitOwnerModule", source)
         self.assertNotIn("install_owner_forwarders", source)
@@ -160,8 +160,8 @@ class AutonomyPlannerTests(unittest.TestCase):
         )
 
     def test_terminus_autonomy_core_is_not_mixin_named(self) -> None:
-        source = Path("src/hecsn/service/terminus_autonomy.py").read_text(encoding="utf-8")
-        planner_source = Path("src/hecsn/service/autonomy_planner.py").read_text(encoding="utf-8")
+        source = Path("src/marulho/service/terminus_autonomy.py").read_text(encoding="utf-8")
+        planner_source = Path("src/marulho/service/autonomy_planner.py").read_text(encoding="utf-8")
         self.assertNotIn("class TerminusAutonomyMixin", source)
         self.assertNotIn("TerminusAutonomyMixin", planner_source)
         self.assertIn("class TerminusAutonomyCore", source)

@@ -3,12 +3,12 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from hecsn.data.source_catalog import (
+from marulho.data.source_catalog import (
     discover_remote_search_source_specs,
     expand_source_bank_specs,
     select_catalog_source_specs,
 )
-from hecsn.gap_planner import plan_query_gaps
+from marulho.gap_planner import plan_query_gaps
 
 
 class SourceCatalogTests(unittest.TestCase):
@@ -180,7 +180,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -217,7 +217,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -268,7 +268,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -304,7 +304,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -334,7 +334,7 @@ class SourceCatalogTests(unittest.TestCase):
 
     def test_discover_remote_search_source_specs_supports_openalex_provider(self) -> None:
         with patch(
-            "hecsn.data.source_catalog._http_get_json",
+            "marulho.data.source_catalog._http_get_json",
             return_value={
                 "results": [
                     {
@@ -414,7 +414,7 @@ class SourceCatalogTests(unittest.TestCase):
   </entry>
 </feed>
 """
-        with patch("hecsn.data.source_catalog._http_get_text", return_value=payload):
+        with patch("marulho.data.source_catalog._http_get_text", return_value=payload):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -437,7 +437,7 @@ class SourceCatalogTests(unittest.TestCase):
 
     def test_discover_remote_search_source_specs_uses_openalex_api_fallback_for_closed_doi(self) -> None:
         with patch(
-            "hecsn.data.source_catalog._http_get_json",
+            "marulho.data.source_catalog._http_get_json",
             return_value={
                 "results": [
                     {
@@ -506,7 +506,7 @@ class SourceCatalogTests(unittest.TestCase):
             }
         }
         with patch(
-            "hecsn.data.source_catalog._http_get_json",
+            "marulho.data.source_catalog._http_get_json",
             side_effect=[search_payload, extract_payload],
         ):
             selected = discover_remote_search_source_specs(
@@ -560,8 +560,8 @@ class SourceCatalogTests(unittest.TestCase):
                 return "Ballast tanks reduce submarine buoyancy and support trim control underwater."
             return "Submarine cables carry internet traffic between continents."
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
-            with patch("hecsn.data.source_catalog._fetch_remote_content_text_cached", side_effect=fake_content):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
+            with patch("marulho.data.source_catalog._fetch_remote_content_text_cached", side_effect=fake_content):
                 selected = discover_remote_search_source_specs(
                     {
                         "catalog_mode": "live_remote_search",
@@ -611,7 +611,7 @@ class SourceCatalogTests(unittest.TestCase):
                 },
             ][:result_limit]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -659,7 +659,7 @@ class SourceCatalogTests(unittest.TestCase):
             concept_summary={"concepts": []},
         )
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -707,7 +707,7 @@ class SourceCatalogTests(unittest.TestCase):
                 },
             ][:result_limit]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -749,7 +749,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ][:result_limit]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -788,7 +788,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -846,7 +846,7 @@ class SourceCatalogTests(unittest.TestCase):
             "unsupported_terms": ["submarine"],
         }
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             first = discover_remote_search_source_specs(spec, semantic_plan=semantic_plan)
             second = discover_remote_search_source_specs(spec, semantic_plan=semantic_plan)
 
@@ -889,7 +889,7 @@ class SourceCatalogTests(unittest.TestCase):
                 }
             ][:result_limit]
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             selected = discover_remote_search_source_specs(
                 {
                     "catalog_mode": "live_remote_search",
@@ -942,7 +942,7 @@ class SourceCatalogTests(unittest.TestCase):
             "unsupported_terms": ["submarine"],
         }
 
-        with patch("hecsn.data.source_catalog._search_remote_provider", side_effect=fake_search):
+        with patch("marulho.data.source_catalog._search_remote_provider", side_effect=fake_search):
             with self.assertRaisesRegex(ValueError, "provider timeout"):
                 discover_remote_search_source_specs(spec, semantic_plan=semantic_plan)
             with self.assertRaisesRegex(ValueError, "provider timeout"):

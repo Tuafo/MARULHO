@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.training.developmental_runner import (
+from marulho.config.model_config import MarulhoConfig
+from marulho.training.developmental_runner import (
     CONCEPT_VOCABULARY,
     DEVELOPMENTAL_CORPUS,
     ProtocolState,
@@ -62,7 +62,7 @@ class TestConfigForStage(unittest.TestCase):
         self.assertTrue(cfg.enable_binding_layer)
 
     def test_stage2_inherits_base(self) -> None:
-        base = HECSNConfig()
+        base = MarulhoConfig()
         base.n_columns = 20
         cfg = _make_config_for_stage(2, base)
         self.assertEqual(cfg.n_columns, 20)
@@ -208,7 +208,7 @@ class TestStateContinuity(unittest.TestCase):
 
     def test_config_deepcopy_isolation(self) -> None:
         """Config changes in one stage must not mutate the base config."""
-        base = HECSNConfig()
+        base = MarulhoConfig()
         original_abstraction = base.enable_abstraction_layer
         cfg3 = _make_config_for_stage(3, base)
         # Stage 3 enables abstraction, but base should be unchanged
@@ -326,7 +326,7 @@ class TestStageConfigSync(unittest.TestCase):
         """Save/restore must preserve the stage-specific config."""
         import tempfile
         import torch
-        from hecsn.training.checkpointing import save_trainer_checkpoint, load_trainer_checkpoint
+        from marulho.training.checkpointing import save_trainer_checkpoint, load_trainer_checkpoint
 
         _r1, s1 = run_stage_1(n_tokens=200, seed=42)
         _r2, s2 = run_stage_2(n_tokens=100, seed=42, state=s1)
@@ -366,7 +366,7 @@ class TestSubProbes(unittest.TestCase):
 
     def test_sub_probes_computed_after_stage1(self) -> None:
         """Grounding probe must report visual_text and audio_text accuracies."""
-        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
+        from marulho.evaluation.grounding_probe import evaluate_grounding_probe_extended
 
         _result, state = run_stage_1(n_tokens=1000, seed=42)
         vfn = _make_vector_fn(state.trainer, state.text_encoder, state.config)
@@ -380,21 +380,21 @@ class TestSubProbes(unittest.TestCase):
 
 
 class TestTextOnlyControl(unittest.TestCase):
-    """Text-only HECSN (no multimodal) should show negative concreteness gap."""
+    """Text-only MARULHO (no multimodal) should show negative concreteness gap."""
 
     def test_text_only_has_negative_or_zero_gap(self) -> None:
         """Without multimodal data, concrete should NOT beat abstract."""
-        from hecsn.data.rtf_encoder import RTFEncoder
-        from hecsn.evaluation.grounding_probe import evaluate_grounding_probe_extended
-        from hecsn.training.runner_utils import set_seed
-        from hecsn.training.model import HECSNModel
-        from hecsn.training.trainer import HECSNTrainer
+        from marulho.data.rtf_encoder import RTFEncoder
+        from marulho.evaluation.grounding_probe import evaluate_grounding_probe_extended
+        from marulho.training.runner_utils import set_seed
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
 
         set_seed(42)
-        cfg = HECSNConfig()
+        cfg = MarulhoConfig()
         encoder = RTFEncoder.from_config(cfg)
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
 
         # Train text-only (no multimodal spikes)
         total = 0
@@ -416,7 +416,7 @@ class TestTextOnlyControl(unittest.TestCase):
         self.assertLessEqual(
             probe.concreteness_gap,
             0.05,
-            "Text-only HECSN should NOT show positive concreteness gap "
+            "Text-only MARULHO should NOT show positive concreteness gap "
             f"(got {probe.concreteness_gap:.3f})",
         )
         # Total accuracy should be below multimodal (0.68)

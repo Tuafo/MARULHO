@@ -7,7 +7,7 @@ import unittest
 
 import torch
 
-from hecsn.core.plasticity import LocalPlasticityCircuit
+from marulho.core.plasticity import LocalPlasticityCircuit
 
 
 def _make_circuit(plasticity_rule: str = "pair", **overrides) -> LocalPlasticityCircuit:
@@ -408,15 +408,15 @@ class TestTripletRevive(unittest.TestCase):
 
 class TestConfigPlasticityRule(unittest.TestCase):
     def test_config_default_is_triplet(self) -> None:
-        from hecsn.config.model_config import HECSNConfig
+        from marulho.config.model_config import MarulhoConfig
 
-        cfg = HECSNConfig()
+        cfg = MarulhoConfig()
         self.assertEqual(cfg.plasticity_rule, "triplet")
 
     def test_config_accepts_triplet(self) -> None:
-        from hecsn.config.model_config import HECSNConfig
+        from marulho.config.model_config import MarulhoConfig
 
-        cfg = HECSNConfig(plasticity_rule="triplet")
+        cfg = MarulhoConfig(plasticity_rule="triplet")
         self.assertEqual(cfg.plasticity_rule, "triplet")
 
 

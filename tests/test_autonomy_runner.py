@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import torch
 
-from hecsn.training.autonomy_acquisition_runner import (
+from marulho.training.autonomy_acquisition_runner import (
     acquisition_gate_from_comparison,
     consume_previewed_chunk,
     execute_acquisition_policy,
@@ -20,7 +20,7 @@ from hecsn.training.autonomy_acquisition_runner import (
     select_scout_commit_target,
     train_source_chunk,
 )
-from hecsn.training.autonomy_runner import (
+from marulho.training.autonomy_runner import (
     ProbeGapMetrics,
     SourceBank,
     _catalog_metadata_prefix_text,
@@ -351,7 +351,7 @@ class AutonomySelectionTests(unittest.TestCase):
         fake_trainer = object()
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value={
                 "gap_terms": [{"term": "credit", "weight": 2.0}, {"term": "loan", "weight": 1.0}],
                 "unsupported_terms": ["credit", "loan"],
@@ -359,10 +359,10 @@ class AutonomySelectionTests(unittest.TestCase):
                 "follow_up_questions": ["What grounded evidence links credit and loan in current frontier memory?"],
             },
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            "marulho.training.autonomy_acquisition_runner.current_context_signature",
             return_value=None,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            "marulho.training.autonomy_acquisition_runner.candidate_semantic_signature",
             return_value=None,
         ):
             ranked, scores = semantic_shortlist(
@@ -398,13 +398,13 @@ class AutonomySelectionTests(unittest.TestCase):
         fake_trainer = object()
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value={},
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            "marulho.training.autonomy_acquisition_runner.current_context_signature",
             return_value=None,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            "marulho.training.autonomy_acquisition_runner.candidate_semantic_signature",
             return_value=None,
         ):
             ranked, scores = semantic_shortlist(
@@ -448,13 +448,13 @@ class AutonomySelectionTests(unittest.TestCase):
         fake_trainer = object()
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=noisy_frontier_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            "marulho.training.autonomy_acquisition_runner.current_context_signature",
             return_value=torch.tensor([1.0, 0.0], dtype=torch.float32),
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            "marulho.training.autonomy_acquisition_runner.candidate_semantic_signature",
             side_effect=lambda _trainer, bank: torch.tensor(
                 [1.0, 0.0] if bank.name == "garden" else [0.0, 1.0],
                 dtype=torch.float32,
@@ -498,13 +498,13 @@ class AutonomySelectionTests(unittest.TestCase):
         fake_trainer = object()
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=noisy_frontier_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.current_context_signature",
+            "marulho.training.autonomy_acquisition_runner.current_context_signature",
             return_value=torch.tensor([1.0, 0.0], dtype=torch.float32),
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_semantic_signature",
+            "marulho.training.autonomy_acquisition_runner.candidate_semantic_signature",
             side_effect=lambda _trainer, bank: torch.tensor(
                 [1.0, 0.0] if bank.name == "garden" else [0.0, 1.0],
                 dtype=torch.float32,
@@ -630,7 +630,7 @@ class AutonomySelectionTests(unittest.TestCase):
         expected_projected_value = random.Random(1234).random()
         random.seed(1234)
 
-        with patch("hecsn.training.autonomy_acquisition_runner.project_candidate_frontier") as mocked_projection:
+        with patch("marulho.training.autonomy_acquisition_runner.project_candidate_frontier") as mocked_projection:
             def fake_projection(*args, **kwargs):
                 return {
                     "source": args[1].name,
@@ -752,19 +752,19 @@ class AutonomySelectionTests(unittest.TestCase):
             return available[0], {available[0].name: 1.0}, [], {}
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             return_value=snapshot,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.semantic_shortlist",
+            "marulho.training.autonomy_acquisition_runner.semantic_shortlist",
             return_value=([candidates[1]], {"alpha": 0.1, "beta": 0.9}),
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.select_projected_active_source",
+            "marulho.training.autonomy_acquisition_runner.select_projected_active_source",
             side_effect=fake_select_projected_active_source,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.train_source_chunk",
+            "marulho.training.autonomy_acquisition_runner.train_source_chunk",
             return_value=1,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            "marulho.training.autonomy_acquisition_runner.probe_gap",
             return_value=make_gap(0.20, 0.25),
         ):
             result = execute_acquisition_policy(
@@ -812,18 +812,18 @@ class AutonomySelectionTests(unittest.TestCase):
             return available[0], {available[0].name: 1.0}, [], {}
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             return_value=snapshot,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.semantic_shortlist",
+            "marulho.training.autonomy_acquisition_runner.semantic_shortlist",
         ) as shortlist_mock, patch(
-            "hecsn.training.autonomy_acquisition_runner.select_projected_active_source",
+            "marulho.training.autonomy_acquisition_runner.select_projected_active_source",
             side_effect=fake_select_projected_active_source,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.train_source_chunk",
+            "marulho.training.autonomy_acquisition_runner.train_source_chunk",
             return_value=1,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            "marulho.training.autonomy_acquisition_runner.probe_gap",
             return_value=make_gap(0.20, 0.25),
         ):
             result = execute_acquisition_policy(
@@ -899,16 +899,16 @@ class AutonomySelectionTests(unittest.TestCase):
             )
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             return_value=snapshot,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.select_projected_active_source",
+            "marulho.training.autonomy_acquisition_runner.select_projected_active_source",
             side_effect=fake_select_projected_active_source,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.train_source_chunk",
+            "marulho.training.autonomy_acquisition_runner.train_source_chunk",
             return_value=1,
         ) as train_mock, patch(
-            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            "marulho.training.autonomy_acquisition_runner.probe_gap",
             return_value=make_gap(0.20, 0.25),
         ):
             result = execute_acquisition_policy(
@@ -976,19 +976,19 @@ class AutonomySelectionTests(unittest.TestCase):
             )
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             return_value=snapshot,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.select_projected_active_source",
+            "marulho.training.autonomy_acquisition_runner.select_projected_active_source",
             side_effect=fake_select_projected_active_source,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.consume_previewed_chunk",
+            "marulho.training.autonomy_acquisition_runner.consume_previewed_chunk",
             return_value=[("submarine buoyancy", torch.tensor([1.0, 0.0]))],
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.replay_source_chunk",
+            "marulho.training.autonomy_acquisition_runner.replay_source_chunk",
             return_value=1,
         ) as train_mock, patch(
-            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            "marulho.training.autonomy_acquisition_runner.probe_gap",
             return_value=make_gap(0.20, 0.25),
         ):
             result = execute_acquisition_policy(
@@ -1026,13 +1026,13 @@ class AutonomySelectionTests(unittest.TestCase):
         trainer = SimpleNamespace(config=SimpleNamespace(window_size=10))
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=fake_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            "marulho.training.autonomy_acquisition_runner.load_source_banks",
             return_value=[make_bank("candidate", visits=0)],
         ) as mocked_load, patch(
-            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            "marulho.training.autonomy_acquisition_runner.execute_acquisition_policy",
             return_value={"policy": "active"},
         ):
             result = run_live_acquisition(
@@ -1084,13 +1084,13 @@ class AutonomySelectionTests(unittest.TestCase):
         trainer = SimpleNamespace(config=SimpleNamespace(window_size=10))
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=frontier_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            "marulho.training.autonomy_acquisition_runner.load_source_banks",
             return_value=[make_bank("candidate", visits=0)],
         ) as mocked_load, patch(
-            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            "marulho.training.autonomy_acquisition_runner.execute_acquisition_policy",
             return_value={"policy": "active"},
         ) as mocked_execute:
             result = run_live_acquisition(
@@ -1152,13 +1152,13 @@ class AutonomySelectionTests(unittest.TestCase):
         trainer = SimpleNamespace(config=SimpleNamespace(window_size=10))
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=frontier_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            "marulho.training.autonomy_acquisition_runner.load_source_banks",
             return_value=[make_bank("candidate", visits=0)],
         ) as mocked_load, patch(
-            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            "marulho.training.autonomy_acquisition_runner.execute_acquisition_policy",
             return_value={"policy": "active"},
         ) as mocked_execute:
             result = run_live_acquisition(
@@ -1256,13 +1256,13 @@ class AutonomySelectionTests(unittest.TestCase):
         callback = object()
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=fake_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            "marulho.training.autonomy_acquisition_runner.load_source_banks",
             return_value=[make_bank("candidate", visits=0)],
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.execute_acquisition_policy",
+            "marulho.training.autonomy_acquisition_runner.execute_acquisition_policy",
             return_value={"policy": "active"},
         ) as mocked_execute:
             run_live_acquisition(
@@ -1295,7 +1295,7 @@ class AutonomySelectionTests(unittest.TestCase):
         train_patterns = [torch.tensor([1.0, 0.0]), torch.tensor([0.0, 1.0])]
 
         with patch(
-            "hecsn.training.autonomy_runner.load_probe_train_examples",
+            "marulho.training.autonomy_runner.load_probe_train_examples",
             return_value=(
                 probe_patterns,
                 ["Wall Street trading"],
@@ -1397,16 +1397,16 @@ class AutonomySelectionTests(unittest.TestCase):
             }
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.refresh_candidate_catalog_state",
+            "marulho.training.autonomy_acquisition_runner.refresh_candidate_catalog_state",
             side_effect=fake_refresh,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             side_effect=fake_snapshot,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.train_source_chunk",
+            "marulho.training.autonomy_acquisition_runner.train_source_chunk",
             return_value=1,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.probe_gap",
+            "marulho.training.autonomy_acquisition_runner.probe_gap",
             return_value=make_gap(0.20, 0.25),
         ):
             result = execute_acquisition_policy(
@@ -1468,13 +1468,13 @@ class AutonomySelectionTests(unittest.TestCase):
             return [make_chunk_bank(str(spec["name"])) for spec in source_bank_specs]
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=fake_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            "marulho.training.autonomy_acquisition_runner.load_source_banks",
             side_effect=fake_load,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             return_value={
                 "alpha": {
                     **make_gap(0.31, 0.60),
@@ -1576,13 +1576,13 @@ class AutonomySelectionTests(unittest.TestCase):
             return [make_chunk_bank(str(spec["name"])) for spec in source_bank_specs]
 
         with patch(
-            "hecsn.training.autonomy_acquisition_runner.frontier_semantic_plan",
+            "marulho.training.autonomy_acquisition_runner.frontier_semantic_plan",
             return_value=fake_plan,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.load_source_banks",
+            "marulho.training.autonomy_acquisition_runner.load_source_banks",
             side_effect=fake_load,
         ), patch(
-            "hecsn.training.autonomy_acquisition_runner.candidate_gap_snapshot",
+            "marulho.training.autonomy_acquisition_runner.candidate_gap_snapshot",
             return_value={
                 "reviews": {
                     **make_gap(0.31, 0.720),

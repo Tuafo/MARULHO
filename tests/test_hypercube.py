@@ -18,7 +18,7 @@ import time
 import pytest
 import torch
 
-from hecsn.core.hypercube import HypercubeTopology, HypercubeBindingLayer
+from marulho.core.hypercube import HypercubeTopology, HypercubeBindingLayer
 
 
 def _average_shortest_path_length(topo: HypercubeTopology) -> float:
@@ -433,8 +433,8 @@ class TestHypercubeBindingLayer:
 
 class TestConfigIntegration:
     def test_config_accepts_hypercube(self):
-        from hecsn.config.model_config import HECSNConfig
-        cfg = HECSNConfig(
+        from marulho.config.model_config import MarulhoConfig
+        cfg = MarulhoConfig(
             n_columns=32,
             enable_binding_layer=True,
             enable_context_layer=True,
@@ -443,9 +443,9 @@ class TestConfigIntegration:
         assert cfg.binding_mode == "hypercube"
 
     def test_config_rejects_invalid_mode(self):
-        from hecsn.config.model_config import HECSNConfig
+        from marulho.config.model_config import MarulhoConfig
         with pytest.raises(ValueError, match="binding_mode"):
-            HECSNConfig(
+            MarulhoConfig(
                 n_columns=32,
                 enable_binding_layer=True,
                 enable_context_layer=True,
@@ -453,15 +453,15 @@ class TestConfigIntegration:
             )
 
     def test_model_creates_hypercube_binding(self):
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.model import HECSNModel
-        cfg = HECSNConfig(
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        cfg = MarulhoConfig(
             n_columns=32,
             enable_binding_layer=True,
             enable_context_layer=True,
             binding_mode="hypercube",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         assert isinstance(model.binding_layer, HypercubeBindingLayer)
         assert model.binding_layer.topology.dim == 5
         report = model.subcortex_device_report()["binding"]
@@ -478,8 +478,8 @@ class TestBenchmark:
     @pytest.mark.parametrize("n_columns", [32, 64, 128, 256])
     def test_throughput_comparison(self, n_columns):
         """Measure bind() throughput for all three modes."""
-        from hecsn.core.binding import BindingLayer
-        from hecsn.core.topographic import SpatialBindingLayer
+        from marulho.core.binding import BindingLayer
+        from marulho.core.topographic import SpatialBindingLayer
 
         device = torch.device("cpu")
         n_steps = 200
@@ -520,8 +520,8 @@ class TestBenchmark:
 
     def test_memory_comparison(self):
         """Compare tensor memory footprint at 256 columns."""
-        from hecsn.core.binding import BindingLayer
-        from hecsn.core.topographic import SpatialBindingLayer
+        from marulho.core.binding import BindingLayer
+        from marulho.core.topographic import SpatialBindingLayer
 
         n = 256
         device = torch.device("cpu")

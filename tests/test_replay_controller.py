@@ -9,7 +9,7 @@ from typing import Mapping
 import unittest
 from unittest.mock import patch
 
-from hecsn.service.replay_runtime import ReplayController, ReplayControllerDependencies
+from marulho.service.replay_runtime import ReplayController, ReplayControllerDependencies
 
 
 @dataclass
@@ -109,7 +109,7 @@ class ReplayControllerTests(unittest.TestCase):
         return {
             "surface": "snn_language_sequence_mismatch_probe.v1",
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "prediction_error": {"mismatch_score": 0.9},
             "promotion_gate": {"status": "ready_for_operator_review"},
         }
@@ -119,7 +119,7 @@ class ReplayControllerTests(unittest.TestCase):
         return {
             "surface": "snn_language_plasticity_pressure.v1",
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "promotion_gate": {"status": "ready_for_operator_review"},
         }
 
@@ -128,7 +128,7 @@ class ReplayControllerTests(unittest.TestCase):
         return {
             "surface": "snn_language_transition_memory_sleep_policy.v1",
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "mutates_runtime_state": False,
             "transition_memory": {
                 "sparse_transition_weight_count": 4,
@@ -197,7 +197,7 @@ class ReplayControllerTests(unittest.TestCase):
             artifact_proposal={
                 "surface": "snn_transition_memory_replay_artifact_proposal.v1",
                 "ready": True,
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
                 "mismatch_report": context["mismatch_report"],
                 "pressure_report": context["pressure_report"],
@@ -379,7 +379,7 @@ class ReplayControllerTests(unittest.TestCase):
                 artifact_proposal={
                     "surface": "snn_transition_memory_replay_artifact_proposal.v1",
                     "ready": True,
-                    "owned_by_hecsn": True,
+                    "owned_by_marulho": True,
                     "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
                     "mismatch_report": context["mismatch_report"],
                     "pressure_report": context["pressure_report"],
@@ -1735,7 +1735,7 @@ class ReplayControllerTests(unittest.TestCase):
             def to_payload(self) -> dict[str, object]:
                 return plan_payload
 
-        with patch("hecsn.service.replay_runtime.build_replay_plan", return_value=_FakePlan()):
+        with patch("marulho.service.replay_runtime.build_replay_plan", return_value=_FakePlan()):
             record = controller.replay_sample(
                 mode="sample",
                 candidate_id="candidate-1",
@@ -1819,7 +1819,7 @@ class ReplayControllerTests(unittest.TestCase):
         proposal = {
             "surface": "snn_transition_memory_replay_artifact_proposal.v1",
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
             "mismatch_report": context["mismatch_report"],
             "pressure_report": context["pressure_report"],
@@ -1982,7 +1982,7 @@ class ReplayControllerTests(unittest.TestCase):
         proposal = {
             "surface": "snn_transition_memory_replay_artifact_proposal.v1",
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "source": "service.snn_language_readout_ledger.transition_memory_replay_artifact_proposal",
             "mismatch_report": context["mismatch_report"],
             "pressure_report": context["pressure_report"],

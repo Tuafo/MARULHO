@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from hecsn.training.long_test_runner import (
+from marulho.training.long_test_runner import (
     MetricSnapshot,
     TestReport as LongTestReport,
     classify_test_report,
@@ -234,12 +234,12 @@ def test_run_long_test_skips_missed_samples_after_slow_snapshot() -> None:
         clock["now"] += max(0.0, float(seconds))
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        with patch("hecsn.training.long_test_runner.run_acceptance_harness", return_value={"verdict": "passed"}), patch(
-            "hecsn.training.long_test_runner._build_checkpoint",
+        with patch("marulho.training.long_test_runner.run_acceptance_harness", return_value={"verdict": "passed"}), patch(
+            "marulho.training.long_test_runner._build_checkpoint",
             return_value=Path(tmpdir) / "checkpoint.pt",
-        ), patch("hecsn.service.manager.HECSNServiceManager", Manager), patch(
-            "hecsn.training.long_test_runner.time.time", side_effect=lambda: clock["now"]
-        ), patch("hecsn.training.long_test_runner.time.sleep", side_effect=fake_sleep):
+        ), patch("marulho.service.manager.MarulhoServiceManager", Manager), patch(
+            "marulho.training.long_test_runner.time.time", side_effect=lambda: clock["now"]
+        ), patch("marulho.training.long_test_runner.time.sleep", side_effect=fake_sleep):
             report = run_long_test(
                 duration_minutes=3.0,
                 sample_interval_s=60.0,

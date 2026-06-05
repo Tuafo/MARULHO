@@ -7,11 +7,11 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.core import AbstractionLayer, CompetitiveColumnLayer
-from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.core import AbstractionLayer, CompetitiveColumnLayer
+from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 class AbstractionLayerTests(unittest.TestCase):
@@ -150,7 +150,7 @@ class AbstractionLayerTests(unittest.TestCase):
 
 class AbstractionTrainerIntegrationTests(unittest.TestCase):
     def test_trainer_reports_abstraction_metrics_when_enabled(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -160,7 +160,7 @@ class AbstractionTrainerIntegrationTests(unittest.TestCase):
             input_weight_blend=0.0,
             enable_abstraction_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         pattern = trainer.encoder.feature_vector([ord(ch) for ch in "river"])
 
         metrics = trainer.train_step(pattern, raw_window="river")
@@ -199,7 +199,7 @@ class AbstractionTrainerIntegrationTests(unittest.TestCase):
         )
 
     def test_checkpoint_roundtrip_preserves_abstraction_state(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -209,7 +209,7 @@ class AbstractionTrainerIntegrationTests(unittest.TestCase):
             input_weight_blend=0.0,
             enable_abstraction_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         for text in ("river", "bank", "money", "loan"):
             pattern = trainer.encoder.feature_vector([ord(ch) for ch in text])
             trainer.train_step(pattern, raw_window=text)

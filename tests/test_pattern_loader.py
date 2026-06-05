@@ -4,14 +4,14 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.data.pattern_loader import load_probe_train_examples
-from hecsn.data.rtf_encoder import RTFEncoder
+from marulho.config.model_config import MarulhoConfig
+from marulho.data.pattern_loader import load_probe_train_examples
+from marulho.data.rtf_encoder import RTFEncoder
 
 
 class PatternLoaderTests(unittest.TestCase):
     def test_load_probe_train_examples_repeats_prefix_for_train_stream(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,

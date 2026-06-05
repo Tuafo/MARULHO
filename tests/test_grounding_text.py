@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.semantics.grounding_text import match_terms
-from hecsn.semantics.grounding_text import query_focused_clauses
-from hecsn.semantics.grounding_text import query_focused_text
-from hecsn.semantics.grounding_text import salient_query_terms
-from hecsn.semantics.grounding_text import stream_matching_units
+from marulho.semantics.grounding_text import match_terms
+from marulho.semantics.grounding_text import query_focused_clauses
+from marulho.semantics.grounding_text import query_focused_text
+from marulho.semantics.grounding_text import salient_query_terms
+from marulho.semantics.grounding_text import stream_matching_units
 
 
 class GroundingTextTests(unittest.TestCase):

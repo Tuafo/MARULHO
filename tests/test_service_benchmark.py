@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI
 
-from hecsn.evaluation.service_benchmark import (
+from marulho.evaluation.service_benchmark import (
     benchmark_service_app,
     create_tiny_service_benchmark_checkpoint,
     run_service_benchmark,
@@ -373,8 +373,8 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
         readme = output_path.parent / "README.md"
         assert loaded == result
         assert readme.exists()
-        assert "HECSN Service Benchmark" in readme.read_text(encoding="utf-8")
-        assert result["benchmark"] == "hecsn_service_endpoint_latency"
+        assert "MARULHO Service Benchmark" in readme.read_text(encoding="utf-8")
+        assert result["benchmark"] == "marulho_service_endpoint_latency"
         assert result["schema_version"] == 1
         assert result["success"] is True
         assert result["total_latency_ms"] < 5000.0

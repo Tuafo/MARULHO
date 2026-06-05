@@ -6,7 +6,7 @@ import unittest
 
 import torch
 
-from hecsn.data.cochleagram_encoder import CochleagramEncoder, _mel_filterbank
+from marulho.data.cochleagram_encoder import CochleagramEncoder, _mel_filterbank
 
 
 class TestMelFilterbank(unittest.TestCase):

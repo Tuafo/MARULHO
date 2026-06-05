@@ -22,23 +22,23 @@ import numpy as np
 from PIL import Image
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.data.corpus_loader import BackgroundPrefetchIterator
-from hecsn.service import brain_runtime as brain_runtime_module
-from hecsn.service import delayed_consequence as delayed_consequence_module
-from hecsn.service import runtime_prewarm as runtime_prewarm_module
-from hecsn.service import sensory_runtime as sensory_runtime_module
-from hecsn.service import terminus_sensory as sensory_module
-from hecsn.service.operator_interaction import (
+from marulho.config.model_config import MarulhoConfig
+from marulho.data.corpus_loader import BackgroundPrefetchIterator
+from marulho.service import brain_runtime as brain_runtime_module
+from marulho.service import delayed_consequence as delayed_consequence_module
+from marulho.service import runtime_prewarm as runtime_prewarm_module
+from marulho.service import sensory_runtime as sensory_runtime_module
+from marulho.service import terminus_sensory as sensory_module
+from marulho.service.operator_interaction import (
     DEFAULT_FEED_CONCEPT_OBSERVATION_INTERVAL,
     REQUEST_FEED_ENCODING_MODE,
 )
-from hecsn.service.manager import HECSNServiceManager
-from hecsn.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
-from hecsn.service.terminus_sensory import SensoryEpisode
-from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.service.manager import MarulhoServiceManager
+from marulho.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
+from marulho.service.terminus_sensory import SensoryEpisode
+from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 def _free_port() -> int:
@@ -83,8 +83,8 @@ def _png_bytes() -> bytes:
     return buffer.getvalue()
 
 
-def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) -> HECSNServiceManager:
-    cfg = HECSNConfig(
+def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) -> MarulhoServiceManager:
+    cfg = MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
         bootstrap_tokens=0,
@@ -95,14 +95,14 @@ def _build_manager(root: Path, *, test_case: str, env_root: Path | None = None) 
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModel(cfg)
-    trainer = HECSNTrainer(model, cfg)
+    model = MarulhoModel(cfg)
+    trainer = MarulhoTrainer(model, cfg)
     checkpoint_path = save_trainer_checkpoint(
         root / "initial.pt",
         trainer,
         metadata={"test_case": test_case},
     )
-    return HECSNServiceManager(
+    return MarulhoServiceManager(
         checkpoint_path,
         trace_dir=root / "traces",
         env_root=env_root,
@@ -167,7 +167,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
             env_path = root / ".env"
             env_path.write_text("HF_TOKEN=dotenv-checkpoint-token\n", encoding="utf-8")
 
-            cfg = HECSNConfig(
+            cfg = MarulhoConfig(
                 n_columns=4,
                 column_latent_dim=8,
                 bootstrap_tokens=0,
@@ -178,7 +178,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                 enable_context_layer=True,
                 enable_binding_layer=True,
             )
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 checkpoint_dir / "initial.pt",
                 trainer,
@@ -187,7 +187,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
 
             old_token = os.environ.pop("HF_TOKEN", None)
             try:
-                manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+                manager = MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
                 try:
                     env_info = manager.runtime_facade.status()["terminus_runtime"]["environment"]
                     self.assertTrue(env_info["dotenv_available"])
@@ -215,7 +215,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
             checkpoint_dir = root / "external_checkpoints"
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-            cfg = HECSNConfig(
+            cfg = MarulhoConfig(
                 n_columns=4,
                 column_latent_dim=8,
                 bootstrap_tokens=0,
@@ -226,7 +226,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
                 enable_context_layer=True,
                 enable_binding_layer=True,
             )
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 checkpoint_dir / "initial.pt",
                 trainer,
@@ -235,7 +235,7 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
 
             old_token = os.environ.pop("HF_TOKEN", None)
             try:
-                manager = HECSNServiceManager(
+                manager = MarulhoServiceManager(
                     checkpoint_path,
                     trace_dir=root / "traces",
                     env_root=env_root,
@@ -356,7 +356,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 self.assertGreater(int(before["observations"]), 0)
 
                 saved = manager.runtime_facade.save_checkpoint(str(root / "service.pt"))
-                restored = HECSNServiceManager(
+                restored = MarulhoServiceManager(
                     saved["path"],
                     trace_dir=root / "restored_traces",
                 )
@@ -461,7 +461,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            restarted = HECSNServiceManager(bootstrap_path, trace_dir=root / "restart_traces")
+            restarted = MarulhoServiceManager(bootstrap_path, trace_dir=root / "restart_traces")
             try:
                 status = restarted.runtime_facade.status()
                 self.assertEqual(status["checkpoint_path"], restored["path"])
@@ -514,7 +514,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                 status = manager.runtime_facade.status()
 
                 self.assertEqual(status["checkpoint_path"], published_path)
-                self.assertEqual(status["checkpoint_metadata"]["saved_by"], "hecsn.service")
+                self.assertEqual(status["checkpoint_metadata"]["saved_by"], "marulho.service")
             finally:
                 manager.close()
 
@@ -532,8 +532,8 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                         self.token_count = 0
 
                 with (
-                    patch("hecsn.service.runtime_control.HECSNModel", return_value=object()),
-                    patch("hecsn.service.runtime_control.HECSNTrainer", _RebuiltTrainer),
+                    patch("marulho.service.runtime_control.MarulhoModel", return_value=object()),
+                    patch("marulho.service.runtime_control.MarulhoTrainer", _RebuiltTrainer),
                     patch.object(manager._runtime_control, "configure_terminus", return_value={}),
                     patch.object(manager._runtime_control, "start_terminus", return_value={}),
                     patch.object(manager, "_refresh_root_captures_locked", wraps=manager._refresh_root_captures_locked) as refresh,
@@ -568,13 +568,13 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     mismatch_report={
                         "surface": "snn_language_sequence_mismatch_probe.v1",
                         "available": True,
-                        "owned_by_hecsn": True,
+                        "owned_by_marulho": True,
                         "prediction_error": {"mismatch_score": 0.9},
                     },
                     pressure_report={
                         "surface": "snn_language_plasticity_pressure.v1",
                         "available": True,
-                        "owned_by_hecsn": True,
+                        "owned_by_marulho": True,
                         "promotion_gate": {"status": "ready_for_operator_review"},
                     },
                 )
@@ -621,7 +621,7 @@ class ServiceManagerCheckpointTests(unittest.TestCase):
                     replay_artifact["replay_artifact_id"],
                 )
                 self.assertEqual(ticket_history[0]["review_ticket_id"], replay_ticket["review_ticket_id"])
-                restored = HECSNServiceManager(saved["path"], trace_dir=root / "traces")
+                restored = MarulhoServiceManager(saved["path"], trace_dir=root / "traces")
                 try:
                     replay_history = restored.runtime_facade.replay_sample_history(limit=10)
                     traces = restored.runtime_facade.recent_traces(limit=10)
@@ -723,7 +723,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+            restored = MarulhoServiceManager(saved["path"], trace_dir=root / "restored_traces")
             try:
                 restored_episode = list(restored._runtime_episode_traces)[0]
                 self.assertEqual(restored_episode["episode_id"], episode_id)
@@ -771,7 +771,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            restored = HECSNServiceManager(root / "initial.pt", trace_dir=root / "restored_traces")
+            restored = MarulhoServiceManager(root / "initial.pt", trace_dir=root / "restored_traces")
             try:
                 self.assertFalse(restored.runtime_facade.status()["dirty_state"])
                 self.assertEqual(restored.runtime_facade.status()["state_revision"], expected_revision)
@@ -797,7 +797,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
 
                 checkpoint_path = root / "facade_acquire.pt"
-                with patch("hecsn.service.operator_interaction.run_live_acquisition", side_effect=_fake_run_live_acquisition):
+                with patch("marulho.service.operator_interaction.run_live_acquisition", side_effect=_fake_run_live_acquisition):
                     result = manager.runtime_facade.acquire(
                         acquisition_slots=1,
                         acquisition_tokens=3,
@@ -3747,10 +3747,10 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     "load_hf_first_rows",
                     return_value=[{"png": {"src": "https://example.com/image.jpg"}, "__key__": "0705/0501163.tar.gz/fig004"}],
                 ), patch(
-                    "hecsn.service.terminus_sensory._download_binary_asset",
+                    "marulho.service.terminus_sensory._download_binary_asset",
                     return_value=_png_bytes(),
                 ), patch(
-                    "hecsn.service.terminus_sensory._load_s1_recaption_index",
+                    "marulho.service.terminus_sensory._load_s1_recaption_index",
                     side_effect=_slow_index_loader,
                 ):
                     configured = manager.runtime_facade.configure_terminus(
@@ -4726,7 +4726,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertIn("submarine", runtime["autonomy"]["focus_plan"]["unsupported_terms"])
 
                 saved = manager.runtime_facade.save_checkpoint(str(root / "terminus_focus.pt"))
-                restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+                restored = MarulhoServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
                     restored_runtime = restored.runtime_facade.terminus_status()["terminus_runtime"]
 
@@ -4909,7 +4909,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                             "grounded_fraction": 1.0,
                         },
                     )
-                with patch("hecsn.service.brain_runtime.run_live_acquisition") as mocked_acquire:
+                with patch("marulho.service.brain_runtime.run_live_acquisition") as mocked_acquire:
                     manager.runtime_facade.terminus_tick()
 
                 runtime = manager.runtime_facade.terminus_status()["terminus_runtime"]
@@ -5012,7 +5012,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 ]
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5088,7 +5088,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
 
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5108,7 +5108,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
     def test_terminus_autonomy_surfaces_geometric_curiosity_focus_when_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            cfg = HECSNConfig(
+            cfg = MarulhoConfig(
                 n_columns=4,
                 column_latent_dim=8,
                 bootstrap_tokens=0,
@@ -5120,13 +5120,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 enable_binding_layer=True,
                 enable_abstraction_layer=True,
             )
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial_abstraction.pt",
                 trainer,
                 metadata={"test_case": "service_manager_geometric_curiosity_focus"},
             )
-            manager = HECSNServiceManager(
+            manager = MarulhoServiceManager(
                 checkpoint_path,
                 trace_dir=root / "traces",
             )
@@ -5174,7 +5174,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
     def test_terminus_live_remote_search_learns_geometric_query_families(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            cfg = HECSNConfig(
+            cfg = MarulhoConfig(
                 n_columns=4,
                 column_latent_dim=8,
                 bootstrap_tokens=0,
@@ -5186,13 +5186,13 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 enable_binding_layer=True,
                 enable_abstraction_layer=True,
             )
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial_geometric_curriculum.pt",
                 trainer,
                 metadata={"test_case": "service_manager_geometric_query_families"},
             )
-            manager = HECSNServiceManager(
+            manager = MarulhoServiceManager(
                 checkpoint_path,
                 trace_dir=root / "traces",
             )
@@ -5232,7 +5232,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 selected_query = str(focus_plan["retrieval_queries"][0]).strip().lower()
 
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     side_effect=[
                         {
                             "policy": "active",
@@ -5344,7 +5344,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     }
 
-                with patch("hecsn.service.operator_interaction.build_query_result", side_effect=_fake_build_query_result):
+                with patch("marulho.service.operator_interaction.build_query_result", side_effect=_fake_build_query_result):
                     result = manager.runtime_facade.query(query_text="submarine control depth", top_k_memories=4)
 
                 self.assertIn("ballast", " ".join(captured["retrieval_focus_terms"]).lower())
@@ -5405,7 +5405,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5480,7 +5480,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5558,7 +5558,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5618,7 +5618,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5677,7 +5677,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 )
                 manager.runtime_facade.query(query_text="submarine buoyancy ballast", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5766,7 +5766,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -5831,7 +5831,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 ]
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     side_effect=[
                         {
                             "policy": "active",
@@ -6086,7 +6086,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 }
                 manager.runtime_facade.query(query_text="What opens jars and solves puzzles?", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -6195,7 +6195,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     }
                 ]
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -7588,7 +7588,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 }
                 manager.runtime_facade.query(query_text="How do submarine ballast tanks control buoyancy?", top_k_memories=6)
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -7717,7 +7717,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     )
                 )
                 with patch(
-                    "hecsn.service.brain_runtime.run_live_acquisition",
+                    "marulho.service.brain_runtime.run_live_acquisition",
                     return_value={
                         "policy": "active",
                         "tokens_trained_total": 0,
@@ -7793,7 +7793,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                         learn_mode="none",
                     )
                 saved = manager.runtime_facade.save_checkpoint(str(root / "terminus_service.pt"))
-                restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+                restored = MarulhoServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
                     terminus_runtime = restored.runtime_facade.status()["terminus_runtime"]
 
@@ -7849,7 +7849,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+            restored = MarulhoServiceManager(saved["path"], trace_dir=root / "restored_traces")
             try:
                 after_runtime = restored.runtime_facade.status()["terminus_runtime"]
 
@@ -7904,7 +7904,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 saved = manager.runtime_facade.save_checkpoint(str(root / "terminus_catalog_service.pt"))
-                restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces")
+                restored = MarulhoServiceManager(saved["path"], trace_dir=root / "restored_traces")
                 try:
                     terminus_runtime = restored.runtime_facade.status()["terminus_runtime"]
 
@@ -8346,7 +8346,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8409,7 +8409,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
             finally:
                 manager.close()
 
-            restored = HECSNServiceManager(saved["path"], trace_dir=root / "restored_traces", env_root=root)
+            restored = MarulhoServiceManager(saved["path"], trace_dir=root / "restored_traces", env_root=root)
             try:
                 history = restored.runtime_facade.action_history(limit=4)
                 self.assertEqual(history["actions"][0]["action_id"], action_id)
@@ -8457,7 +8457,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8519,7 +8519,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8584,7 +8584,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8649,7 +8649,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8711,7 +8711,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8776,7 +8776,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8848,7 +8848,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,
@@ -8932,7 +8932,7 @@ class ServiceManagerActionLoopTests(unittest.TestCase):
                 server.server_close()
                 thread.join(timeout=2.0)
 
-            restored = HECSNServiceManager(
+            restored = MarulhoServiceManager(
                 saved["path"],
                 trace_dir=root / "restored_traces",
                 env_root=root,

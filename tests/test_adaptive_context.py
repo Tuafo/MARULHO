@@ -7,7 +7,7 @@ import unittest
 
 import torch
 
-from hecsn.core.context import (
+from marulho.core.context import (
     AdaptiveContextLayer,
     ContextLayer,
     create_context_layer,
@@ -289,22 +289,22 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
     """Smoke-test that the trainer can instantiate with adaptive context."""
 
     def test_config_flag_accepted(self) -> None:
-        from hecsn.config.model_config import HECSNConfig
+        from marulho.config.model_config import MarulhoConfig
 
-        cfg = HECSNConfig(context_mode="adaptive")
+        cfg = MarulhoConfig(context_mode="adaptive")
         self.assertEqual(cfg.context_mode, "adaptive")
 
     def test_config_default_is_fixed(self) -> None:
-        from hecsn.config.model_config import HECSNConfig
+        from marulho.config.model_config import MarulhoConfig
 
-        cfg = HECSNConfig()
+        cfg = MarulhoConfig()
         self.assertEqual(cfg.context_mode, "adaptive")
 
     def test_model_subcortex_device_report_includes_adaptive_context(self) -> None:
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.model import HECSNModel
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
 
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=8,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -312,7 +312,7 @@ class TestAdaptiveContextWithTrainer(unittest.TestCase):
             enable_context_layer=True,
             context_mode="adaptive",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         report = model.subcortex_device_report()["context"]
 
         self.assertIsNotNone(report)

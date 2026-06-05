@@ -21,17 +21,17 @@ from typing import Any, Callable
 
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.semantics import build_spike_language_decoder_probe
-from hecsn.service.runtime_state import RuntimeState
-from hecsn.service.status_read_model import StatusReadModel
-from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.semantics import build_spike_language_decoder_probe
+from marulho.service.runtime_state import RuntimeState
+from marulho.service.status_read_model import StatusReadModel
+from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
-def _build_config() -> HECSNConfig:
-    return HECSNConfig(
+def _build_config() -> MarulhoConfig:
+    return MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
         bootstrap_tokens=0,
@@ -74,7 +74,7 @@ def _build_animation_snapshot() -> dict[str, Any]:
     }
 
 
-def _build_architecture_snapshot(trainer: HECSNTrainer) -> dict[str, Any]:
+def _build_architecture_snapshot(trainer: MarulhoTrainer) -> dict[str, Any]:
     """Build a realistic architecture summary for testing the read model seam."""
     model = trainer.model
     config = trainer.config
@@ -213,9 +213,9 @@ def _build_read_model(
     language_plasticity_state_fn: Callable[[], dict[str, Any]] | None = None,
     readout_ledger_state_fn: Callable[[], dict[str, Any]] | None = None,
     metadata: dict[str, Any] | None = None,
-) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
+) -> tuple[StatusReadModel, MarulhoTrainer, threading.RLock, RuntimeState]:
     cfg = _build_config()
-    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+    trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
     lock = threading.RLock()
     runtime_state = RuntimeState(lock=lock)
     brain_snapshot = _build_brain_snapshot()
@@ -266,15 +266,15 @@ def _run_under_lock_contention(
 
 
 def _build_manager(root: Path, *, test_case: str):
-    from hecsn.service.manager import HECSNServiceManager
+    from marulho.service.manager import MarulhoServiceManager
     cfg = _build_config()
-    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+    trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
     checkpoint_path = save_trainer_checkpoint(
         root / "initial.pt",
         trainer,
         metadata={"test_case": test_case},
     )
-    return HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+    return MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
 
 
 class StatusReadModelConstructionTests(unittest.TestCase):
@@ -286,7 +286,7 @@ class StatusReadModelConstructionTests(unittest.TestCase):
         self.assertIsNotNone(model)
 
     def test_read_model_owns_sensory_preview_projection(self) -> None:
-        source = Path("src/hecsn/service/status_read_model.py").read_text(encoding="utf-8")
+        source = Path("src/marulho/service/status_read_model.py").read_text(encoding="utf-8")
 
         self.assertNotIn("SensoryPreviewMixin", source)
 
@@ -475,7 +475,7 @@ class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
         lock = threading.RLock()
         runtime_state = RuntimeState(lock=lock)
         cfg = _build_config()
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         animation_snapshot = _build_animation_snapshot()
         model = StatusReadModel(
             lock=lock,
@@ -528,7 +528,7 @@ class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
         lock = threading.RLock()
         runtime_state = RuntimeState(lock=lock)
         cfg = _build_config()
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         animation_snapshot = _build_animation_snapshot()
         model = StatusReadModel(
             lock=lock,
@@ -575,7 +575,7 @@ class StatusReadModelSensoryPreviewsTests(unittest.TestCase):
         lock = threading.RLock()
         runtime_state = RuntimeState(lock=lock)
         cfg = _build_config()
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         animation_snapshot = _build_animation_snapshot()
         model = StatusReadModel(
             lock=lock,
@@ -753,7 +753,7 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
             return deepcopy(brain_snapshot)
 
         cfg = _build_config()
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         lock = threading.RLock()
         runtime_state = RuntimeState(lock=lock)
         animation_snapshot = _build_animation_snapshot()
@@ -783,7 +783,7 @@ class StatusReadModelTelemetryCacheTests(unittest.TestCase):
     def test_telemetry_snapshot_rebuilds_on_revision_change_when_cortex_inactive(self) -> None:
         """When revision changes, telemetry rebuilds."""
         cfg = _build_config()
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         lock = threading.RLock()
         runtime_state = RuntimeState(lock=lock)
         brain_snapshot = _build_brain_snapshot()
@@ -921,7 +921,7 @@ def _build_sleep_plasticity_autonomy_proposal_snapshot() -> dict[str, Any]:
     return {
         "surface": "snn_sleep_plasticity_autonomy_proposal.v1",
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "advisory": True,
         "executable": False,
         "mutates_runtime_state": False,
@@ -946,7 +946,7 @@ def _build_sleep_plasticity_scheduler_installation_autonomy_proposal_snapshot() 
     return {
         "surface": "snn_sleep_plasticity_scheduler_installation_autonomy_proposal.v1",
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "advisory": True,
         "executable": False,
         "installs_scheduler": False,
@@ -972,10 +972,10 @@ def _build_sleep_plasticity_scheduler_installation_autonomy_proposal_snapshot() 
     }
 
 
-def _build_read_model_with_living_loop() -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState, dict[str, int]]:
+def _build_read_model_with_living_loop() -> tuple[StatusReadModel, MarulhoTrainer, threading.RLock, RuntimeState, dict[str, int]]:
     """Build a StatusReadModel with living loop callbacks wired for testing."""
     cfg = _build_config()
-    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+    trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
     lock = threading.RLock()
     runtime_state = RuntimeState(lock=lock)
     brain_snapshot = _build_brain_snapshot()
@@ -1355,17 +1355,17 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
             surface["current_decoder_probe_evidence"]["surface"],
             "snn_language_decoder_probe_evidence.v1",
         )
-        self.assertTrue(surface["current_decoder_probe_evidence"]["owned_by_hecsn"])
+        self.assertTrue(surface["current_decoder_probe_evidence"]["owned_by_marulho"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["generates_text"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["executable"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_evidence_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_non_generative"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_non_generative"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_owned"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_sparse"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_dynamic"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_readout_evidence_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_readout_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_owned"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_sparse"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_dynamic"])
         self.assertEqual(
             surface["current_language_neuron_adapter_evidence"]["surface"],
             "snn_language_neuron_adapter_evidence.v1",
@@ -1374,11 +1374,11 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
         self.assertFalse(surface["current_language_neuron_adapter_evidence"]["executable"])
         self.assertEqual(
             [candidate["integration_status"] for candidate in surface["research_candidates"]],
-            ["reference_for_hecsn_owned_reimplementation", "reference_for_hecsn_owned_reimplementation"],
+            ["reference_for_marulho_owned_reimplementation", "reference_for_marulho_owned_reimplementation"],
         )
-        self.assertIn("hecsn_owned_language_neuron_module", surface["research_candidates"][0]["required_local_evidence"])
-        self.assertIn("hecsn_native_snn_decoder", surface["research_candidates"][0]["required_local_evidence"])
-        self.assertTrue(surface["safety_invariants"]["requires_hecsn_owned_implementation"])
+        self.assertIn("marulho_owned_language_neuron_module", surface["research_candidates"][0]["required_local_evidence"])
+        self.assertIn("marulho_native_snn_decoder", surface["research_candidates"][0]["required_local_evidence"])
+        self.assertTrue(surface["safety_invariants"]["requires_marulho_owned_implementation"])
 
     def test_snn_language_readiness_surface_returns_cached_on_lock_contention(self) -> None:
         """The readiness artifact stays cache-compatible under lock contention."""
@@ -2031,8 +2031,8 @@ class StatusReadModelCognitiveSignalStateTests(unittest.TestCase):
             live_readiness,
             application_target={
                 "available": True,
-                "target_id": "hecsn.snn_language.sparse_transition_weights",
-                "owned_by_hecsn": True,
+                "target_id": "marulho.snn_language.sparse_transition_weights",
+                "owned_by_marulho": True,
                 "mutable": True,
                 "sparse": True,
                 "checkpointed": True,
@@ -2272,10 +2272,10 @@ class StatusReadModelLivingLoopReadonlyTests(unittest.TestCase):
 
 def _build_read_model_with_brain_snapshot(
     brain_snapshot: dict[str, Any],
-) -> tuple[StatusReadModel, HECSNTrainer, threading.RLock, RuntimeState]:
+) -> tuple[StatusReadModel, MarulhoTrainer, threading.RLock, RuntimeState]:
     """Build a StatusReadModel with a specific brain runtime snapshot for verdict testing."""
     cfg = _build_config()
-    trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+    trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
     lock = threading.RLock()
     runtime_state = RuntimeState(lock=lock)
     animation_snapshot = _build_animation_snapshot()
@@ -2951,21 +2951,21 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertFalse(language_gate["eligible_for_action"])
         self.assertFalse(language_gate["eligible_for_fact_promotion"])
         self.assertFalse(language_gate["eligible_for_cognition_substrate"])
-        self.assertTrue(language_gate["requires_hecsn_owned_implementation"])
-        self.assertTrue(language_gate["hecsn_spike_readout_evidence_available"])
-        self.assertTrue(language_gate["hecsn_spike_readout_grounded"])
-        self.assertTrue(language_gate["hecsn_spike_readout_non_generative"])
-        self.assertIn("hecsn_spike_readout_device_evidence_available", language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_available", language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_owned", language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_non_generative", language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_sparse", language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_device_evidence_available", language_gate)
-        self.assertIn("hecsn_spike_decoder_probe_grounding_supported", language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_available", language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_owned", language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_sparse", language_gate)
-        self.assertIn("hecsn_spike_language_neuron_adapter_dynamic", language_gate)
+        self.assertTrue(language_gate["requires_marulho_owned_implementation"])
+        self.assertTrue(language_gate["marulho_spike_readout_evidence_available"])
+        self.assertTrue(language_gate["marulho_spike_readout_grounded"])
+        self.assertTrue(language_gate["marulho_spike_readout_non_generative"])
+        self.assertIn("marulho_spike_readout_device_evidence_available", language_gate)
+        self.assertIn("marulho_spike_decoder_probe_available", language_gate)
+        self.assertIn("marulho_spike_decoder_probe_owned", language_gate)
+        self.assertIn("marulho_spike_decoder_probe_non_generative", language_gate)
+        self.assertIn("marulho_spike_decoder_probe_sparse", language_gate)
+        self.assertIn("marulho_spike_decoder_probe_device_evidence_available", language_gate)
+        self.assertIn("marulho_spike_decoder_probe_grounding_supported", language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_available", language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_owned", language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_sparse", language_gate)
+        self.assertIn("marulho_spike_language_neuron_adapter_dynamic", language_gate)
         for forbidden_key in (
             "endpoint",
             "research_candidates",
@@ -2988,7 +2988,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         )
         self.assertEqual(plasticity_path["surface"], "snn_language_plasticity_path_evidence.v1")
         self.assertEqual(plasticity_path["latest_gate"], "snn_language_plasticity_live_application_preflight.v1")
-        self.assertTrue(plasticity_path["owned_by_hecsn"])
+        self.assertTrue(plasticity_path["owned_by_marulho"])
         self.assertFalse(plasticity_path["external_dependency"])
         self.assertFalse(plasticity_path["generates_text"])
         self.assertFalse(plasticity_path["decodes_text"])
@@ -3020,7 +3020,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             rollout_binding["surface"],
             "snn_readout_rollout_server_state_binding.v1",
         )
-        self.assertTrue(rollout_binding["owned_by_hecsn"])
+        self.assertTrue(rollout_binding["owned_by_marulho"])
         self.assertFalse(rollout_binding["external_dependency"])
         self.assertTrue(rollout_binding["advisory"])
         self.assertFalse(rollout_binding["executable"])
@@ -3067,7 +3067,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             consolidation_path["surface"],
             "snn_readout_rollout_consolidation_path_evidence.v1",
         )
-        self.assertTrue(consolidation_path["owned_by_hecsn"])
+        self.assertTrue(consolidation_path["owned_by_marulho"])
         self.assertFalse(consolidation_path["external_dependency"])
         self.assertTrue(consolidation_path["advisory"])
         self.assertFalse(consolidation_path["executable"])
@@ -3113,7 +3113,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             emission_review_history["surface"],
             "snn_readout_emission_review_history_evidence.v1",
         )
-        self.assertTrue(emission_review_history["owned_by_hecsn"])
+        self.assertTrue(emission_review_history["owned_by_marulho"])
         self.assertFalse(emission_review_history["external_dependency"])
         self.assertTrue(emission_review_history["advisory"])
         self.assertFalse(emission_review_history["executable"])
@@ -3167,7 +3167,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             emission_replay_design_path["surface"],
             "snn_readout_emission_replay_design_path_evidence.v1",
         )
-        self.assertTrue(emission_replay_design_path["owned_by_hecsn"])
+        self.assertTrue(emission_replay_design_path["owned_by_marulho"])
         self.assertFalse(emission_replay_design_path["external_dependency"])
         self.assertTrue(emission_replay_design_path["advisory"])
         self.assertFalse(emission_replay_design_path["executable"])
@@ -3236,7 +3236,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
             applied_provenance["surface"],
             "snn_readout_applied_synapse_provenance_evidence.v1",
         )
-        self.assertTrue(applied_provenance["owned_by_hecsn"])
+        self.assertTrue(applied_provenance["owned_by_marulho"])
         self.assertFalse(applied_provenance["external_dependency"])
         self.assertTrue(applied_provenance["advisory"])
         self.assertFalse(applied_provenance["executable"])
@@ -3743,7 +3743,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         integrity = {
             "surface": "snn_language_dense_readout_tensor_integrity.v1",
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "generates_text": False,
             "mutates_runtime_state": False,
             "tensor_summary": {
@@ -3825,7 +3825,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         integrity = {
             "surface": "snn_language_dense_readout_tensor_integrity.v1",
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "generates_text": False,
             "mutates_runtime_state": False,
             "tensor_summary": {
@@ -3925,7 +3925,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         integrity = {
             "surface": "snn_language_dense_readout_tensor_integrity.v1",
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "generates_text": False,
             "mutates_runtime_state": False,
             "tensor_summary": {
@@ -4041,7 +4041,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         training = {
             "surface": "snn_language_dense_readout_training.v1",
             "accepted": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "generates_text": False,
             "decodes_text": False,
             "mutates_runtime_state": True,
@@ -5117,7 +5117,7 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         migration_result = {
             "surface": "snn_language_dense_readout_layout_migration.v1",
             "accepted": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "loads_external_checkpoint": False,
             "generates_text": False,
             "materializes_dense_tensor_weights": False,
@@ -5747,15 +5747,15 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
         """The runtime facade's sensory_previews() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
+            from marulho.service.manager import MarulhoServiceManager
             cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial.pt",
                 trainer,
                 metadata={"test_case": "sensory_delegation"},
             )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
                 result = manager.runtime_facade.sensory_previews()
                 self.assertIn("count", result)
@@ -5771,15 +5771,15 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
         """The runtime facade's architecture_summary() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
+            from marulho.service.manager import MarulhoServiceManager
             cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial.pt",
                 trainer,
                 metadata={"test_case": "arch_delegation"},
             )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
                 result = manager.runtime_facade.architecture_summary()
                 self.assertEqual(result["model_name"], "Terminus")
@@ -5811,13 +5811,13 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
         """The runtime facade's living_loop_status() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
+            from marulho.service.manager import MarulhoServiceManager
             cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial.pt", trainer, metadata={"test_case": "living_loop_delegation"},
             )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
                 result = manager.runtime_facade.living_loop_status()
                 self.assertIn("living_loop", result)
@@ -5830,13 +5830,13 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
         """The runtime facade's policy_actuator_status() method delegates to StatusReadModel."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            from hecsn.service.manager import HECSNServiceManager
+            from marulho.service.manager import MarulhoServiceManager
             cfg = _build_config()
-            trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+            trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
             checkpoint_path = save_trainer_checkpoint(
                 root / "initial.pt", trainer, metadata={"test_case": "policy_delegation"},
             )
-            manager = HECSNServiceManager(checkpoint_path, trace_dir=root / "traces")
+            manager = MarulhoServiceManager(checkpoint_path, trace_dir=root / "traces")
             try:
                 result = manager.runtime_facade.policy_actuator_status()
                 self.assertIn("schema_version", result)
@@ -5888,7 +5888,7 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
                 manager.close()
 
     def test_runtime_facade_snn_language_readiness_surface_delegates_to_read_model(self) -> None:
-        """The runtime facade exposes HECSN-native SNN language readiness."""
+        """The runtime facade exposes MARULHO-native SNN language readiness."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             manager = _build_manager(root, test_case="snn_language_readiness_delegation")
@@ -5900,7 +5900,7 @@ class RuntimeFacadeDelegationTests(unittest.TestCase):
                 self.assertFalse(result["executable"])
                 self.assertFalse(result["mutates_runtime_state"])
                 self.assertFalse(result["promotion_gate"]["eligible_for_cognition_substrate"])
-                self.assertTrue(result["safety_invariants"]["requires_hecsn_owned_implementation"])
+                self.assertTrue(result["safety_invariants"]["requires_marulho_owned_implementation"])
             finally:
                 manager.close()
 

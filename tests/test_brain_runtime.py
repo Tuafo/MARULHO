@@ -7,9 +7,9 @@ from types import SimpleNamespace
 from typing import Any
 import unittest
 
-from hecsn.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
-from hecsn.service.manager import HECSNServiceManager
-from hecsn.service.runtime_sources import _BrainSourceRuntime
+from marulho.service.brain_runtime import BRAIN_RUNTIME_STATE_FIELDS, BrainRuntime, BrainRuntimeDependencies
+from marulho.service.manager import MarulhoServiceManager
+from marulho.service.runtime_sources import _BrainSourceRuntime
 
 _SNAPSHOT_TIMESTAMP = "2026-05-10T00:00:00+00:00"
 _DEFAULT_BRAIN_CONFIG = {
@@ -332,7 +332,7 @@ class _SnapshotManager(_BrainRuntimeFixtureBase):
 
 class BrainRuntimeSeamTests(unittest.TestCase):
     def test_manager_uses_explicit_brain_runtime_seam(self) -> None:
-        self.assertNotIn(BrainRuntime, HECSNServiceManager.__mro__)
+        self.assertNotIn(BrainRuntime, MarulhoServiceManager.__mro__)
 
     def test_finalize_tick_updates_source_runtime_and_injects_grounded_observation(self) -> None:
         manager = _FinalizeTickManager()

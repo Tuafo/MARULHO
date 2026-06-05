@@ -4,16 +4,16 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.gap_planner import plan_query_gaps
-from hecsn.interaction import EvidenceResponder
-from hecsn.semantics import ConceptStore
-from hecsn.training.meaning_grounding_runner import run_meaning_grounding_benchmark
-from hecsn.training.query_runner import build_memory_episodes, build_query_result
-from hecsn.training.runner_utils import set_seed
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.data.rtf_encoder import RTFEncoder
+from marulho.gap_planner import plan_query_gaps
+from marulho.interaction import EvidenceResponder
+from marulho.semantics import ConceptStore
+from marulho.training.meaning_grounding_runner import run_meaning_grounding_benchmark
+from marulho.training.query_runner import build_memory_episodes, build_query_result
+from marulho.training.runner_utils import set_seed
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 class MeaningGroundingTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class MeaningGroundingTests(unittest.TestCase):
 
     def test_query_result_exposes_episode_evidence_and_grounded_quote(self) -> None:
         set_seed(7)
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=16,
             column_latent_dim=24,
             bootstrap_tokens=0,
@@ -68,7 +68,7 @@ class MeaningGroundingTests(unittest.TestCase):
             enable_context_layer=True,
             enable_binding_layer=True,
         )
-        trainer = HECSNTrainer(HECSNModel(cfg), cfg)
+        trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
         encoder = RTFEncoder.from_config(cfg)
 
         corpus = "\n".join(

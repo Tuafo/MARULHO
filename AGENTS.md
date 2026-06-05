@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues are tracked in GitHub (`Tuafo/HECSN`). See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub (`Tuafo/MARULHO`). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

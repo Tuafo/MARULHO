@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import torch
 
-from hecsn.training import query_runner
+from marulho.training import query_runner
 
 
 class _FakeMemoryStore:

@@ -7,7 +7,7 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from hecsn.core.abstraction import AbstractionLayer
+from marulho.core.abstraction import AbstractionLayer
 
 
 class TestSFACorrectionStep(unittest.TestCase):
@@ -93,7 +93,7 @@ class TestSFACorrectionStep(unittest.TestCase):
 
 class TestSampleForSFA(unittest.TestCase):
     def _make_store(self):
-        from hecsn.consolidation.memory_store import DualMemoryStore
+        from marulho.consolidation.memory_store import DualMemoryStore
         return DualMemoryStore(capacity=100)
 
     def test_sample_from_empty_store(self) -> None:

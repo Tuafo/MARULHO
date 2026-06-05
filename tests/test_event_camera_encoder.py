@@ -6,7 +6,7 @@ import unittest
 
 import torch
 
-from hecsn.data.event_camera_encoder import EventCameraEncoder
+from marulho.data.event_camera_encoder import EventCameraEncoder
 
 
 class TestEventCameraEncoder(unittest.TestCase):

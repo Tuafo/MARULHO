@@ -6,7 +6,7 @@ import unittest
 
 import torch
 
-from hecsn.core.cross_modal import CrossModalGroundingLayer
+from marulho.core.cross_modal import CrossModalGroundingLayer
 
 
 class TestCrossModalInit(unittest.TestCase):
@@ -60,15 +60,15 @@ class TestCrossModalInit(unittest.TestCase):
         self.assertTrue(str(report["text_trace_device"]).startswith("cuda"))
 
     def test_model_subcortex_report_includes_cross_modal_devices(self) -> None:
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.model import HECSNModel
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
 
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=8,
             column_latent_dim=8,
             enable_cross_modal=True,
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         report = model.subcortex_device_report()["cross_modal"]
 
         self.assertIsNotNone(report)

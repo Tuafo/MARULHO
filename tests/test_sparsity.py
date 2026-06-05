@@ -1,11 +1,11 @@
-"""Tests for hecsn.core.sparsity — 2:4 structured sparsity, CSR, profiling."""
+"""Tests for marulho.core.sparsity — 2:4 structured sparsity, CSR, profiling."""
 
 from __future__ import annotations
 
 import torch
 import pytest
 
-from hecsn.core.sparsity import (
+from marulho.core.sparsity import (
     apply_2_4_mask,
     compute_2_4_mask,
     csr_matmul,

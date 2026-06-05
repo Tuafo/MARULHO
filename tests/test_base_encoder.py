@@ -6,8 +6,8 @@ import unittest
 
 import torch
 
-from hecsn.data.base_encoder import BaseEncoder
-from hecsn.data.rtf_encoder import RTFEncoder
+from marulho.data.base_encoder import BaseEncoder
+from marulho.data.rtf_encoder import RTFEncoder
 
 
 class BaseEncoderProtocolTests(unittest.TestCase):

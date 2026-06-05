@@ -180,93 +180,93 @@ class TestModuleDocstrings(unittest.TestCase):
         return mod.__doc__  # type: ignore[return-value]
 
     def test_helpers_docstring_mentions_cross_layer(self):
-        doc = self._get_docstring("hecsn.service.living_loop_helpers")
+        doc = self._get_docstring("marulho.service.living_loop_helpers")
         self.assertIn("cross-layer", doc.lower())
 
     def test_helpers_docstring_mentions_no_upward_dependency(self):
-        doc = self._get_docstring("hecsn.service.living_loop_helpers")
+        doc = self._get_docstring("marulho.service.living_loop_helpers")
         self.assertTrue(
             "no upward dependency" in doc.lower() or "no dependency" in doc.lower(),
             "Helpers docstring must state it has no dependency on other Living Loop modules",
         )
 
     def test_helpers_docstring_mentions_depth_layers(self):
-        doc = self._get_docstring("hecsn.service.living_loop_helpers")
+        doc = self._get_docstring("marulho.service.living_loop_helpers")
         # Should reference the dependency direction chain
         self.assertIn("Helpers", doc)
         self.assertIn("Records", doc)
 
     def test_records_docstring_mentions_layer(self):
-        doc = self._get_docstring("hecsn.service.living_loop_records")
+        doc = self._get_docstring("marulho.service.living_loop_records")
         self.assertTrue(
             "Layer A" in doc,
             "Records docstring must identify its depth layer (Layer A)",
         )
 
     def test_records_docstring_mentions_dependencies(self):
-        doc = self._get_docstring("hecsn.service.living_loop_records")
+        doc = self._get_docstring("marulho.service.living_loop_records")
         self.assertIn("helpers", doc.lower())
 
     def test_records_docstring_states_no_upward_imports(self):
-        doc = self._get_docstring("hecsn.service.living_loop_records")
+        doc = self._get_docstring("marulho.service.living_loop_records")
         self.assertTrue(
             "never imports from" in doc.lower() or "never import" in doc.lower(),
             "Records docstring must state it never imports from higher layers",
         )
 
     def test_policy_docstring_mentions_layer(self):
-        doc = self._get_docstring("hecsn.service.living_loop_policy")
+        doc = self._get_docstring("marulho.service.living_loop_policy")
         self.assertTrue(
             "Layer B" in doc,
             "Policy docstring must identify its depth layer (Layer B)",
         )
 
     def test_policy_docstring_mentions_dependencies(self):
-        doc = self._get_docstring("hecsn.service.living_loop_policy")
+        doc = self._get_docstring("marulho.service.living_loop_policy")
         self.assertIn("Records", doc)
         self.assertIn("Helpers", doc)
 
     def test_policy_docstring_states_no_upward_imports(self):
-        doc = self._get_docstring("hecsn.service.living_loop_policy")
+        doc = self._get_docstring("marulho.service.living_loop_policy")
         self.assertTrue(
             "never imports from" in doc.lower(),
             "Policy docstring must state it never imports from higher layers",
         )
 
     def test_replay_docstring_mentions_layer(self):
-        doc = self._get_docstring("hecsn.service.living_loop_replay")
+        doc = self._get_docstring("marulho.service.living_loop_replay")
         self.assertTrue(
             "Layer C" in doc,
             "Replay docstring must identify its depth layer (Layer C)",
         )
 
     def test_replay_docstring_mentions_dependencies(self):
-        doc = self._get_docstring("hecsn.service.living_loop_replay")
+        doc = self._get_docstring("marulho.service.living_loop_replay")
         self.assertIn("Policy", doc)
         self.assertIn("Records", doc)
 
     def test_replay_docstring_states_no_upward_imports(self):
-        doc = self._get_docstring("hecsn.service.living_loop_replay")
+        doc = self._get_docstring("marulho.service.living_loop_replay")
         self.assertTrue(
             "never imports from" in doc.lower(),
             "Replay docstring must state it never imports from higher layers",
         )
 
     def test_self_model_docstring_mentions_layer(self):
-        doc = self._get_docstring("hecsn.service.living_loop_self_model")
+        doc = self._get_docstring("marulho.service.living_loop_self_model")
         self.assertTrue(
             "Layer D" in doc,
             "Self-Model docstring must identify its depth layer (Layer D)",
         )
 
     def test_self_model_docstring_mentions_dependencies(self):
-        doc = self._get_docstring("hecsn.service.living_loop_self_model")
+        doc = self._get_docstring("marulho.service.living_loop_self_model")
         self.assertIn("Replay", doc)
         self.assertIn("Policy", doc)
         self.assertIn("Records", doc)
 
     def test_self_model_docstring_states_no_upward_imports(self):
-        doc = self._get_docstring("hecsn.service.living_loop_self_model")
+        doc = self._get_docstring("marulho.service.living_loop_self_model")
         self.assertTrue(
             "never imports upward" in doc.lower() or "never imports from" in doc.lower(),
             "Self-Model docstring must state it never imports upward",
@@ -275,11 +275,11 @@ class TestModuleDocstrings(unittest.TestCase):
     def test_all_modules_have_dependency_direction_chain(self):
         """Every module docstring must include the full dependency direction chain."""
         module_fqns = [
-            "hecsn.service.living_loop_helpers",
-            "hecsn.service.living_loop_records",
-            "hecsn.service.living_loop_policy",
-            "hecsn.service.living_loop_replay",
-            "hecsn.service.living_loop_self_model",
+            "marulho.service.living_loop_helpers",
+            "marulho.service.living_loop_records",
+            "marulho.service.living_loop_policy",
+            "marulho.service.living_loop_replay",
+            "marulho.service.living_loop_self_model",
         ]
         for mod_name in module_fqns:
             doc = self._get_docstring(mod_name)

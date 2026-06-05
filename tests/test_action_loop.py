@@ -10,7 +10,7 @@ import threading
 import unittest
 from urllib.parse import parse_qs, urlparse
 
-from hecsn.service.action_loop import execute_digital_action, execute_workspace_search
+from marulho.service.action_loop import execute_digital_action, execute_workspace_search
 
 
 def _free_port() -> int:

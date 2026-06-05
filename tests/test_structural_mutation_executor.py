@@ -4,8 +4,8 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from hecsn.service.runtime_state import RuntimeState
-from hecsn.service.structural_mutation_executor import StructuralMutationExecutor
+from marulho.service.runtime_state import RuntimeState
+from marulho.service.structural_mutation_executor import StructuralMutationExecutor
 
 
 class _FakeConceptStore:

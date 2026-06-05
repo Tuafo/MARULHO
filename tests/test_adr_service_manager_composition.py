@@ -3,7 +3,7 @@
 Issue #60: Manager composition root architecture guards.
 Issue #61: Accept ADR 0003 and align domain docs.
 
-These tests verify that HECSNServiceManager is a thin composition root per ADR 0003:
+These tests verify that MarulhoServiceManager is a thin composition root per ADR 0003:
 
 - No legacy mixin classes in the manager inheritance
 - ADR-owned state is not directly defined on the manager
@@ -23,12 +23,12 @@ import unittest
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "hecsn" / "service"
+_SERVICE_SRC_ROOT = _REPO_ROOT / "src" / "marulho" / "service"
 _ADR_PATH = _REPO_ROOT / "docs" / "adr" / "0003-service-manager-deep-module-split.md"
 _ADR_0004_PATH = _REPO_ROOT / "docs" / "adr" / "0004-runtime-facade-manager-max-removal.md"
 _CONTEXT_PATH = _REPO_ROOT / "CONTEXT.md"
 
-# Legacy mixin classes that must not appear in HECSNServiceManager.__bases__
+# Legacy mixin classes that must not appear in MarulhoServiceManager.__bases__
 _LEGACY_MIXIN_CLASSES = frozenset({
     "DelayedConsequenceMixin",
     "DelayedConsequenceTracker",
@@ -143,7 +143,7 @@ def _parse_manager_init_self_assigns() -> set[str]:
     assigned_fields: set[str] = set()
 
     for node in ast.iter_child_nodes(tree):
-        if not isinstance(node, ast.ClassDef) or node.name != "HECSNServiceManager":
+        if not isinstance(node, ast.ClassDef) or node.name != "MarulhoServiceManager":
             continue
         for class_child in node.body:
             if not isinstance(class_child, ast.FunctionDef) or class_child.name != "__init__":
@@ -169,10 +169,10 @@ def _all_composition_root_guard_conditions_pass() -> bool:
     architectural decision: no legacy mixins in MRO, no ADR-owned state
     on the manager __init__, and RuntimeState fields stay in RuntimeState.
     """
-    from hecsn.service.manager import HECSNServiceManager
+    from marulho.service.manager import MarulhoServiceManager
 
     # Guard 1: No legacy mixin in MRO
-    mro_names = {cls.__name__ for cls in HECSNServiceManager.__mro__}
+    mro_names = {cls.__name__ for cls in MarulhoServiceManager.__mro__}
     if mro_names & _LEGACY_MIXIN_CLASSES:
         return False
 
@@ -195,36 +195,36 @@ def _all_composition_root_guard_conditions_pass() -> bool:
 
 
 class TestADR0003ManagerCompositionRoot(unittest.TestCase):
-    """HECSNServiceManager must be a thin composition root per ADR 0003."""
+    """MarulhoServiceManager must be a thin composition root per ADR 0003."""
 
     def test_manager_has_no_legacy_mixin_bases(self) -> None:
-        """No legacy mixin class may appear in HECSNServiceManager.__bases__."""
-        from hecsn.service.manager import HECSNServiceManager
+        """No legacy mixin class may appear in MarulhoServiceManager.__bases__."""
+        from marulho.service.manager import MarulhoServiceManager
 
-        base_names = {cls.__name__ for cls in HECSNServiceManager.__bases__}
+        base_names = {cls.__name__ for cls in MarulhoServiceManager.__bases__}
         legacy_in_bases = base_names & _LEGACY_MIXIN_CLASSES
         self.assertFalse(
             legacy_in_bases,
-            f"Legacy mixin classes still in HECSNServiceManager.__bases__: {sorted(legacy_in_bases)}",
+            f"Legacy mixin classes still in MarulhoServiceManager.__bases__: {sorted(legacy_in_bases)}",
         )
 
     def test_manager_has_no_legacy_mixin_in_mro(self) -> None:
         """No legacy mixin class may appear in the full MRO (except object)."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
-        mro_names = {cls.__name__ for cls in HECSNServiceManager.__mro__}
+        mro_names = {cls.__name__ for cls in MarulhoServiceManager.__mro__}
         legacy_in_mro = mro_names & _LEGACY_MIXIN_CLASSES
         self.assertFalse(
             legacy_in_mro,
-            f"Legacy mixin classes still in HECSNServiceManager.__mro__: {sorted(legacy_in_mro)}",
+            f"Legacy mixin classes still in MarulhoServiceManager.__mro__: {sorted(legacy_in_mro)}",
         )
 
     def test_manager_has_no_getattr_router(self) -> None:
         """Manager must not use catch-all attribute routing for module behavior."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
-        self.assertNotIn("__getattr__", HECSNServiceManager.__dict__)
-        self.assertNotIn("__setattr__", HECSNServiceManager.__dict__)
+        self.assertNotIn("__getattr__", MarulhoServiceManager.__dict__)
+        self.assertNotIn("__setattr__", MarulhoServiceManager.__dict__)
         manager_text = (_SERVICE_SRC_ROOT / "manager.py").read_text(encoding="utf-8")
         self.assertNotIn("_unbound_mixin_fallback", manager_text)
 
@@ -313,9 +313,9 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
         violations: list[str] = []
         for path in runner_paths:
             text = path.read_text(encoding="utf-8")
-            if "from hecsn.service.manager import (" in text:
+            if "from marulho.service.manager import (" in text:
                 violations.append(f"{path.relative_to(_REPO_ROOT)} imports a manager constant block")
-            if "from .manager import HECSNServiceManager, MAX_RUNTIME_TRACE_EXPORT_LIMIT" in text:
+            if "from .manager import MarulhoServiceManager, MAX_RUNTIME_TRACE_EXPORT_LIMIT" in text:
                 violations.append(f"{path.relative_to(_REPO_ROOT)} imports trace limits from manager")
         self.assertFalse(
             violations,
@@ -355,10 +355,10 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
 
     def test_manager_constructs_deep_modules(self) -> None:
         """Manager must construct key ADR 0003 deep modules explicitly."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         # Check for the key deep module attributes that the manager wires
-        init_source = inspect.getsource(HECSNServiceManager.__init__)
+        init_source = inspect.getsource(MarulhoServiceManager.__init__)
         required_constructions = [
             "_runtime_state",
             "_brain_runtime",
@@ -380,17 +380,17 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
 
     def test_manager_constructs_runtime_facade(self) -> None:
         """Manager must expose the ADR 0004 runtime facade instead of being the runtime interface."""
-        from hecsn.service.manager import HECSNServiceManager
-        from hecsn.service.runtime_facade import RuntimeFacade
+        from marulho.service.manager import MarulhoServiceManager
+        from marulho.service.runtime_facade import RuntimeFacade
 
-        init_source = inspect.getsource(HECSNServiceManager.__init__)
+        init_source = inspect.getsource(MarulhoServiceManager.__init__)
         self.assertIn("_runtime_facade", init_source)
-        self.assertIsInstance(HECSNServiceManager.runtime_facade, property)
+        self.assertIsInstance(MarulhoServiceManager.runtime_facade, property)
         self.assertTrue(issubclass(RuntimeFacade, object))
 
     def test_manager_does_not_expose_operator_runtime_methods(self) -> None:
         """Operator-facing runtime methods belong on RuntimeFacade, not the manager class."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_runtime_methods = (
             "status",
@@ -428,12 +428,12 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "run_grounding_probe",
             "quick_start_presets",
         )
-        leaked = [name for name in removed_runtime_methods if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_runtime_methods if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes runtime methods: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_interaction_mixin_delegate_wrappers(self) -> None:
         """InteractionPipeline callbacks must not survive as manager compatibility methods."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_helpers = (
             "_build_query_locked",
@@ -444,12 +444,12 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_plan_gaps_locked",
             "_record_recent_query_gap_locked",
         )
-        leaked = [name for name in removed_helpers if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_helpers if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes interaction wrappers: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_unowned_snapshot_and_restore_wrappers(self) -> None:
         """State snapshot/restore helpers belong on their owner modules, not the manager."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_wrappers = (
             "interaction_state_snapshot",
@@ -459,12 +459,12 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_runtime_episode_trace_locked",
             "_replace_runtime_episode_trace_locked",
         )
-        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_wrappers if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes unowned wrappers: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_interaction_or_persistence_store_wrappers(self) -> None:
         """Persistence and interaction stores are not manager convenience APIs."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_wrappers = (
             "persist_trace",
@@ -478,12 +478,12 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "append_runtime_episode_trace",
             "replace_runtime_episode_trace",
         )
-        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_wrappers if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes store wrappers: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_runtime_source_builder_wrappers(self) -> None:
         """Runtime source stream construction belongs to RuntimeSources."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_wrappers = (
             "_build_source_stream_from_spec",
@@ -491,12 +491,12 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_build_sensory_stream_locked",
             "_build_sensory_stream_from_spec",
         )
-        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_wrappers if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes RuntimeSources wrappers: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_owner_callback_wrappers(self) -> None:
         """Callbacks must point at owner modules instead of manager compatibility wrappers."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_wrappers = (
             "_apply_provider_response_outcome_calibration_locked",
@@ -508,12 +508,12 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_response_grounded_outcome_score_locked",
             "_runtime_episode_payload_locked",
         )
-        leaked = [name for name in removed_wrappers if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_wrappers if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes owner callback wrappers: " + ", ".join(leaked))
 
     def test_manager_does_not_expose_action_executor_delegate_wrappers(self) -> None:
         """ActionExecutor callbacks must not survive as manager compatibility methods."""
-        from hecsn.service.manager import HECSNServiceManager
+        from marulho.service.manager import MarulhoServiceManager
 
         removed_helpers = (
             "action_record",
@@ -528,7 +528,7 @@ class TestADR0003ManagerCompositionRoot(unittest.TestCase):
             "_action_history_memory_metadata",
             "_action_loop_summary_locked",
         )
-        leaked = [name for name in removed_helpers if hasattr(HECSNServiceManager, name)]
+        leaked = [name for name in removed_helpers if hasattr(MarulhoServiceManager, name)]
         self.assertFalse(leaked, "Manager still exposes action wrappers: " + ", ".join(leaked))
 
     def test_manager_has_no_generic_mixin_delegate_trampoline(self) -> None:

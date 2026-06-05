@@ -7,10 +7,10 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.semantics.provenance import Provenance
-from hecsn.service.api import create_app
-from hecsn.service.living_loop_records import (
+from marulho.config.model_config import MarulhoConfig
+from marulho.semantics.provenance import Provenance
+from marulho.service.api import create_app
+from marulho.service.living_loop_records import (
     ActionExecutionRecord,
     ConsolidationRecord,
     PredictionStatus,
@@ -19,20 +19,20 @@ from hecsn.service.living_loop_records import (
     SkillMemoryRecord,
     VerificationStatus,
 )
-from hecsn.service.living_loop_policy import WorldModelLiteSummary, build_policy_actuator_status
-from hecsn.service.living_loop_replay import build_replay_plan, replay_candidate_safety_flags
-from hecsn.service.living_loop_self_model import (
+from marulho.service.living_loop_policy import WorldModelLiteSummary, build_policy_actuator_status
+from marulho.service.living_loop_replay import build_replay_plan, replay_candidate_safety_flags
+from marulho.service.living_loop_self_model import (
     OperationalSelfModel,
     build_runtime_benchmark_telemetry,
 )
-from hecsn.service.manager import HECSNServiceManager
-from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.service.manager import MarulhoServiceManager
+from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 def _build_checkpoint(root: Path) -> Path:
-    cfg = HECSNConfig(
+    cfg = MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
         bootstrap_tokens=0,
@@ -43,8 +43,8 @@ def _build_checkpoint(root: Path) -> Path:
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModel(cfg)
-    trainer = HECSNTrainer(model, cfg)
+    model = MarulhoModel(cfg)
+    trainer = MarulhoTrainer(model, cfg)
     return save_trainer_checkpoint(root / "initial.pt", trainer, metadata={"test_case": "living_loop"})
 
 
@@ -741,7 +741,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
     def test_feed_query_and_respond_capture_runtime_episode_traces(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            manager = HECSNServiceManager(_build_checkpoint(root), trace_dir=root / "traces", env_root=root)
+            manager = MarulhoServiceManager(_build_checkpoint(root), trace_dir=root / "traces", env_root=root)
             runtime = manager.runtime_facade
             try:
                 feed_result = runtime.feed(text="Cats chase mice at night. Cats rest indoors during the day. " * 4)
@@ -1002,7 +1002,7 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "GET /terminus/replay-dataset/preview",
             "GET /terminus/replay-dataset/candidates",
             "GET /terminus/replay-dataset/history",
-            "python -m hecsn.service.replay_dataset_runner",
+            "python -m marulho.service.replay_dataset_runner",
             "`training_role=replay_dataset_preview_only_not_training_no_mutation`",
             "`positive_count` and `negative_count`",
             "`provenance_counts` and `example_type_counts`",
@@ -1025,13 +1025,13 @@ class LivingLoopPrimitiveTests(unittest.TestCase):
             "endpoint_latency_ms",
             "tokens_per_second",
             "policy_recommendations",
-            "python -m hecsn.service.trace_export_runner",
+            "python -m marulho.service.trace_export_runner",
             "terminus_runtime_trace_dataset_preview",
             "adapter_distillation_dataset_preview_only_not_training",
             "excluded_fields",
             "checkpoint_contains_no_persisted_runtime_episode_traces",
-            "python -m hecsn.evaluation.service_benchmark",
-            "hecsn_service_endpoint_latency",
+            "python -m marulho.evaluation.service_benchmark",
+            "marulho_service_endpoint_latency",
             "endpoint_timings",
             "trace_export_summary",
         ):

@@ -5,7 +5,7 @@ from copy import deepcopy
 import unittest
 from types import SimpleNamespace
 
-from hecsn.service.delayed_consequence import (
+from marulho.service.delayed_consequence import (
     DEFAULT_DELAYED_CONSEQUENCE_RECORDS,
     DelayedConsequenceDependencies,
     DelayedConsequenceTracker,

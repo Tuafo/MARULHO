@@ -5,8 +5,8 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.consolidation.memory_store import DualMemoryStore
-from hecsn.core.hypercube import HypercubeBindingLayer, HypercubeTopology
+from marulho.consolidation.memory_store import DualMemoryStore
+from marulho.core.hypercube import HypercubeBindingLayer, HypercubeTopology
 
 
 def _module_missing(name: str) -> bool:
@@ -242,21 +242,21 @@ class TestRetiredCortexExternalLLMPath:
     """Verify that external LLM Cortex paths are deleted from the public surface."""
 
     def test_cortex_package_is_deleted(self):
-        assert _module_missing("hecsn.cortex")
+        assert _module_missing("marulho.cortex")
 
     def test_retired_llm_core_module_is_deleted(self):
-        assert _module_missing("hecsn.cortex.core")
+        assert _module_missing("marulho.cortex.core")
 
     def test_retired_llm_prompts_module_is_deleted(self):
-        assert _module_missing("hecsn.cortex.prompts")
+        assert _module_missing("marulho.cortex.prompts")
 
     def test_external_llm_adapter_module_is_deleted(self):
-        assert _module_missing("hecsn.cortex.multi_cortex")
+        assert _module_missing("marulho.cortex.multi_cortex")
 
     def test_mock_cortex_is_not_public_cognition_contract(self):
         """Mock Cortex must not be used as a replacement language/thought path."""
-        assert _module_missing("hecsn.cortex")
+        assert _module_missing("marulho.cortex")
 
     def test_thought_loop_body_is_deleted(self):
         """The retired loop must not remain importable as hidden Cortex code."""
-        assert _module_missing("hecsn.cortex.thought_loop")
+        assert _module_missing("marulho.cortex.thought_loop")

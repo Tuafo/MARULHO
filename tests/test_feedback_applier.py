@@ -7,8 +7,8 @@ import unittest
 from typing import Any
 from threading import RLock
 
-from hecsn.service.action_executor import ActionExecutor
-from hecsn.service.feedback_applier import FeedbackApplier
+from marulho.service.action_executor import ActionExecutor
+from marulho.service.feedback_applier import FeedbackApplier
 
 
 class _FeedbackRuntimeState:

@@ -8,7 +8,7 @@ Accepted
 
 ADR 0003 dissolved the Service Manager God class into deep modules, but the
 manager still exposed a broad pass-through surface. FastAPI routes, runners,
-and tests could call `HECSNServiceManager` as though it still owned runtime
+and tests could call `MarulhoServiceManager` as though it still owned runtime
 behaviour. That made the manager interface shallow: many methods only forwarded
 to the module that actually owned the behaviour.
 
@@ -26,7 +26,7 @@ runner migration, and deep-module dependency cleanup.
 
 Introduce `RuntimeFacade` as the single operator-facing runtime interface.
 
-- `HECSNServiceManager` remains the composition root that constructs modules,
+- `MarulhoServiceManager` remains the composition root that constructs modules,
   wires dependencies, owns lifecycle cleanup, and exposes `runtime_facade`.
 - FastAPI routes and export runners call `RuntimeFacade`, not manager runtime
   pass-through methods.

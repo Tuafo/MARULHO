@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hecsn.semantics.exploration_state import ExplorationState, normalize_exploration_target
+from marulho.semantics.exploration_state import ExplorationState, normalize_exploration_target
 
 
 def test_normalize_exploration_target_removes_separators_and_bounds_length() -> None:

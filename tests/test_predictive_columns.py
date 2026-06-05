@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.core.predictive_columns import PredictiveColumnState
+from marulho.core.predictive_columns import PredictiveColumnState
 
 
 class TestPredictiveColumnState:
@@ -171,22 +171,22 @@ class TestPredictiveColumnsInTrainer:
     """Test that predictive columns are wired into the training loop."""
 
     def test_model_has_predictive_state(self):
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.model import HECSNModel
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
 
-        cfg = HECSNConfig(n_columns=16, column_latent_dim=8)
-        model = HECSNModel(cfg)
+        cfg = MarulhoConfig(n_columns=16, column_latent_dim=8)
+        model = MarulhoModel(cfg)
         assert hasattr(model, 'predictive')
         assert model.predictive.n_columns == 16
 
     def test_trainer_uses_predictive_columns(self):
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.model import HECSNModel
-        from hecsn.training.trainer import HECSNTrainer
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
 
-        cfg = HECSNConfig(n_columns=16, column_latent_dim=8, bootstrap_tokens=0, memory_capacity=32)
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        cfg = MarulhoConfig(n_columns=16, column_latent_dim=8, bootstrap_tokens=0, memory_capacity=32)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         trainer.memory_warm_started = True
 
         # Run a few steps

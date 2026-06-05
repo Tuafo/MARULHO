@@ -7,7 +7,7 @@ import math
 import pytest
 import torch
 
-from hecsn.core.topographic import SpatialBindingLayer, TopographicGrid
+from marulho.core.topographic import SpatialBindingLayer, TopographicGrid
 
 
 # ── TopographicGrid ──────────────────────────────────────────────────
@@ -309,31 +309,31 @@ class TestSpatialBindingConfig:
     """Test that config binding_mode works correctly."""
 
     def test_config_hypercube_default(self):
-        from hecsn.config.model_config import HECSNConfig
-        cfg = HECSNConfig(n_columns=16, enable_binding_layer=True,
+        from marulho.config.model_config import MarulhoConfig
+        cfg = MarulhoConfig(n_columns=16, enable_binding_layer=True,
                           enable_context_layer=True)
         assert cfg.binding_mode == "hypercube"
 
     def test_config_spatial_mode(self):
-        from hecsn.config.model_config import HECSNConfig
-        cfg = HECSNConfig(n_columns=16, enable_binding_layer=True,
+        from marulho.config.model_config import MarulhoConfig
+        cfg = MarulhoConfig(n_columns=16, enable_binding_layer=True,
                           enable_context_layer=True, binding_mode="spatial")
         assert cfg.binding_mode == "spatial"
 
     def test_config_invalid_mode(self):
-        from hecsn.config.model_config import HECSNConfig
+        from marulho.config.model_config import MarulhoConfig
         with pytest.raises(ValueError, match="binding_mode"):
-            HECSNConfig(n_columns=16, enable_binding_layer=True,
+            MarulhoConfig(n_columns=16, enable_binding_layer=True,
                         enable_context_layer=True, binding_mode="invalid")
 
     def test_model_creates_spatial_binding(self):
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.training.model import HECSNModel
-        cfg = HECSNConfig(
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.training.model import MarulhoModel
+        cfg = MarulhoConfig(
             n_columns=16, enable_binding_layer=True,
             enable_context_layer=True, binding_mode="spatial",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         assert isinstance(model.binding_layer, SpatialBindingLayer)
         report = model.subcortex_device_report()["binding"]
         assert report is not None
@@ -341,14 +341,14 @@ class TestSpatialBindingConfig:
         assert report["neighbor_ids_device"] == str(model.binding_layer.neighbor_ids.device)
 
     def test_model_creates_dense_binding(self):
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.core.binding import BindingLayer
-        from hecsn.training.model import HECSNModel
-        cfg = HECSNConfig(
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.core.binding import BindingLayer
+        from marulho.training.model import MarulhoModel
+        cfg = MarulhoConfig(
             n_columns=16, enable_binding_layer=True,
             enable_context_layer=True, binding_mode="dense",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         assert isinstance(model.binding_layer, BindingLayer)
 
 
@@ -359,19 +359,19 @@ class TestWinnerHistoryPerToken:
     """Test that winner_accumulator collects per-token winners."""
 
     def test_winner_accumulator_populated(self):
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.data.rtf_encoder import RTFEncoder
-        from hecsn.training.developmental_runner import (
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.data.rtf_encoder import RTFEncoder
+        from marulho.training.developmental_runner import (
             _build_concept_corpus,
             _build_concept_signatures,
             _train_multimodal_on_corpus,
         )
-        from hecsn.training.model import HECSNModel
-        from hecsn.training.trainer import HECSNTrainer
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
 
-        cfg = HECSNConfig(n_columns=8, enable_cross_modal=True)
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        cfg = MarulhoConfig(n_columns=8, enable_cross_modal=True)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
         corpus = _build_concept_corpus()
         sigs = _build_concept_signatures(
@@ -392,19 +392,19 @@ class TestWinnerHistoryPerToken:
 
     def test_winner_accumulator_none_uses_default_path(self):
         """Passing None for winner_accumulator still works."""
-        from hecsn.config.model_config import HECSNConfig
-        from hecsn.data.rtf_encoder import RTFEncoder
-        from hecsn.training.developmental_runner import (
+        from marulho.config.model_config import MarulhoConfig
+        from marulho.data.rtf_encoder import RTFEncoder
+        from marulho.training.developmental_runner import (
             _build_concept_corpus,
             _build_concept_signatures,
             _train_multimodal_on_corpus,
         )
-        from hecsn.training.model import HECSNModel
-        from hecsn.training.trainer import HECSNTrainer
+        from marulho.training.model import MarulhoModel
+        from marulho.training.trainer import MarulhoTrainer
 
-        cfg = HECSNConfig(n_columns=8, enable_cross_modal=True)
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        cfg = MarulhoConfig(n_columns=8, enable_cross_modal=True)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         encoder = RTFEncoder.from_config(cfg)
         corpus = _build_concept_corpus()
         sigs = _build_concept_signatures(

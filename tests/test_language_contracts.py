@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 
-from hecsn.semantics.language_packet import (
+from marulho.semantics.language_packet import (
     ContextPacket,
     MemoryItem,
     ReadoutMode,
 )
-from hecsn.semantics.language_result import LanguageResult
+from marulho.semantics.language_result import LanguageResult
 
 
 # ---------------------------------------------------------------------------

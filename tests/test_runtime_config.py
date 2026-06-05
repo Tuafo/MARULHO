@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.service.runtime_config import RuntimeConfig
+from marulho.config.model_config import MarulhoConfig
+from marulho.service.runtime_config import RuntimeConfig
 
 
 class _RuntimeConfigPriorityFake:
@@ -84,9 +84,9 @@ class RuntimeConfigSeamTests(unittest.TestCase):
             module._normalize_brain_config("not a config")
 
     def test_model_config_device_report_exposes_cpu_fallback_evidence(self) -> None:
-        cfg = HECSNConfig(device="auto")
+        cfg = MarulhoConfig(device="auto")
 
-        with patch.dict("os.environ", {"HECSN_DEVICE": "cpu"}):
+        with patch.dict("os.environ", {"MARULHO_DEVICE": "cpu"}):
             report = cfg.device_report()
 
         self.assertEqual(report["requested_device"], "auto")
@@ -95,7 +95,7 @@ class RuntimeConfigSeamTests(unittest.TestCase):
         self.assertFalse(report["cuda_selected"])
 
     def test_model_config_device_report_exposes_explicit_cuda_selection_without_gpu(self) -> None:
-        cfg = HECSNConfig(device="cuda")
+        cfg = MarulhoConfig(device="cuda")
 
         report = cfg.device_report()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.evaluation.encoding_ablation import run_encoding_ablation
+from marulho.evaluation.encoding_ablation import run_encoding_ablation
 
 
 class TestEncodingAblation(unittest.TestCase):

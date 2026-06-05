@@ -18,7 +18,7 @@ from __future__ import annotations
 import unittest
 from typing import Any, Mapping
 
-from hecsn.service.living_loop_replay import (
+from marulho.service.living_loop_replay import (
     REPLAY_PLAN_DEFAULT_LIMIT,
     REPLAY_PLAN_MAX_LIMIT,
     REPLAY_PLAN_PRIORITY_RULES_VERSION,

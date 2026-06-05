@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.semantics.provenance import Provenance
-from hecsn.service.living_loop_helpers import (
+from marulho.semantics.provenance import Provenance
+from marulho.service.living_loop_helpers import (
     _as_mapping,
     _clean_text,
     _clamp01,
@@ -23,8 +23,8 @@ from hecsn.service.living_loop_helpers import (
     _stable_id,
     _verification_status_from_payload,
 )
-from hecsn.service.living_loop_policy import WorldModelLiteSummary
-from hecsn.service.living_loop_records import VerificationStatus
+from marulho.service.living_loop_policy import WorldModelLiteSummary
+from marulho.service.living_loop_records import VerificationStatus
 
 
 class StableIdTests(unittest.TestCase):

@@ -5,7 +5,7 @@ import unittest
 
 import torch
 
-from hecsn.semantics import ConceptStore
+from marulho.semantics import ConceptStore
 
 
 class _FakeMemoryStore:

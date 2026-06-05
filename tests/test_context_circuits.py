@@ -6,12 +6,12 @@ import unittest
 
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.core.binding import BindingLayer
-from hecsn.core.context import ContextLayer
-from hecsn.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.config.model_config import MarulhoConfig
+from marulho.core.binding import BindingLayer
+from marulho.core.context import ContextLayer
+from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 class ContextCircuitTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class ContextCircuitTests(unittest.TestCase):
         self.assertTrue(str(report["recurrent_device"]).startswith("cuda"))
 
     def test_model_subcortex_device_report_includes_fixed_context(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -51,7 +51,7 @@ class ContextCircuitTests(unittest.TestCase):
             enable_context_layer=True,
             context_mode="fixed",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         report = model.subcortex_device_report()["context"]
 
         self.assertIsNotNone(report)
@@ -241,7 +241,7 @@ class BindingCircuitTests(unittest.TestCase):
 
 class ContextCheckpointTests(unittest.TestCase):
     def test_checkpoint_roundtrip_preserves_context_and_binding_state(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             bootstrap_tokens=0,
@@ -252,8 +252,8 @@ class ContextCheckpointTests(unittest.TestCase):
             enable_context_layer=True,
             enable_binding_layer=True,
         )
-        model = HECSNModel(cfg)
-        trainer = HECSNTrainer(model, cfg)
+        model = MarulhoModel(cfg)
+        trainer = MarulhoTrainer(model, cfg)
         patterns = [
             trainer.encoder.feature_vector([ord(ch) for ch in text])
             for text in ("river", "bank", "money", "loan")

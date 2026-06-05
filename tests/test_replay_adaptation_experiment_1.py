@@ -4,15 +4,15 @@ import json
 from pathlib import Path
 import tempfile
 
-from hecsn.evaluation.replay_adaptation_experiment_1 import evaluate_replay_adaptation_experiment_1
-from hecsn.evaluation.replay_adapter_promotion_gate import evaluate_replay_adapter_promotion_gate
-from hecsn.evaluation.replay_training_approval import (
+from marulho.evaluation.replay_adaptation_experiment_1 import evaluate_replay_adaptation_experiment_1
+from marulho.evaluation.replay_adapter_promotion_gate import evaluate_replay_adapter_promotion_gate
+from marulho.evaluation.replay_training_approval import (
     EXPERIMENTAL_ADAPTER_PROMOTION_SCOPE,
     ISOLATED_ADAPTER_TRAINING_SCOPE,
     build_replay_training_approval,
 )
-from hecsn.evaluation.replay_training_plan import build_replay_training_plan
-from hecsn.training.replay_adapter_experiment import ADAPTER_DELTA_NAME, COMPARISON_REPORT_NAME, run_isolated_replay_adapter_experiment
+from marulho.evaluation.replay_training_plan import build_replay_training_plan
+from marulho.training.replay_adapter_experiment import ADAPTER_DELTA_NAME, COMPARISON_REPORT_NAME, run_isolated_replay_adapter_experiment
 
 from tests.test_replay_adapter_experiment import _benchmark, _bundle, _gate_report, _long_test
 

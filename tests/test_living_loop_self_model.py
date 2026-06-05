@@ -16,7 +16,7 @@ from __future__ import annotations
 import unittest
 from typing import Any, Mapping
 
-from hecsn.service.living_loop_records import (
+from marulho.service.living_loop_records import (
     ActionExecutionRecord,
     ActionExecutionStatus,
     ConsolidationRecord,
@@ -27,14 +27,14 @@ from hecsn.service.living_loop_records import (
     SkillMemoryRecord,
     VerificationStatus,
 )
-from hecsn.service.living_loop_policy import (
+from marulho.service.living_loop_policy import (
     WorldModelLiteSummary,
 )
 
 # ---------------------------------------------------------------------------
 # Import from the new Self-Model module
 # ---------------------------------------------------------------------------
-from hecsn.service.living_loop_self_model import (
+from marulho.service.living_loop_self_model import (
     OperationalSelfModel,
     build_runtime_benchmark_telemetry,
     _endpoint_bucket_name,

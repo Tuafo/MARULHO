@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from hecsn.config.presets import (
+from marulho.config.presets import (
     autonomy_acquisition_preset_names,
     autonomy_preset_names,
     get_autonomy_acquisition_preset,

@@ -6,10 +6,10 @@ from copy import deepcopy
 from pathlib import Path
 from threading import RLock
 
-from hecsn.service.runtime_state import RuntimeState
-from hecsn.service.runtime_facade import RuntimeFacade
-from hecsn.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
-from hecsn.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
+from marulho.service.runtime_state import RuntimeState
+from marulho.service.runtime_facade import RuntimeFacade
+from marulho.service.snn_language_plasticity_executor import SNNLanguagePlasticityApplicationExecutor
+from marulho.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
 
 
 def _ready_draft() -> dict[str, object]:
@@ -41,7 +41,7 @@ def _language_capacity(
 def _ready_rollout_replay_evaluation() -> dict[str, object]:
     return {
         "surface": "snn_language_readout_rollout_replay_evaluation.v1",
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "external_dependency": False,
         "loads_external_checkpoint": False,
         "generates_text": False,
@@ -113,7 +113,7 @@ def _ready_emission() -> dict[str, object]:
     return {
         "surface": "snn_language_readout_emission.v1",
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "external_dependency": False,
         "loads_external_checkpoint": False,
         "generates_text": True,
@@ -156,7 +156,7 @@ def _ready_dense_label_candidate_review() -> dict[str, object]:
         "surface": "snn_language_dense_readout_label_candidate_review.v1",
         "ready": True,
         "review_recorded": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "external_dependency": False,
         "loads_external_checkpoint": False,
         "generates_text": False,
@@ -2036,7 +2036,7 @@ def test_readout_ledger_dense_label_calibration_update_design_is_bounded_and_rea
     ]
     assert autonomous_update["autonomous_recalibration"] is True
     assert autonomous_update["operator_approval_required"] is False
-    assert autonomous_update["operator_id"] == "hecsn-autonomous-confidence-recalibrator"
+    assert autonomous_update["operator_id"] == "marulho-autonomous-confidence-recalibrator"
     assert autonomous_update["runtime_update_applied"] is True
     assert autonomous_update["weights_persisted"] is False
     assert autonomous_recalibration_executor["ledger_summary"][
@@ -8182,7 +8182,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         growth_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": expanded_capacity,
         },
@@ -8192,7 +8192,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         growth_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": expanded_capacity,
         },
@@ -8202,7 +8202,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         existing_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {first_synapse: 0.1},
             "language_capacity": expanded_capacity,
         },
@@ -8214,7 +8214,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         growth_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": expanded_capacity,
         },
@@ -8226,7 +8226,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         tampered_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": expanded_capacity,
         },
@@ -8240,7 +8240,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         signed_preflight_tampered,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": expanded_capacity,
         },
@@ -8260,7 +8260,7 @@ def test_readout_ledger_rollout_developmental_plasticity_review_routes_growth_wi
         growth_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": expanded_capacity,
         },
@@ -8364,7 +8364,7 @@ def test_readout_ledger_rollout_regeneration_proposal_adapter_exports_design_wit
         growth_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": _language_capacity(),
         },
@@ -8474,7 +8474,7 @@ def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices
     review = {
         "surface": "snn_language_readout_rollout_developmental_plasticity_review.v1",
         "artifact_kind": "terminus_snn_language_readout_rollout_developmental_plasticity_review",
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "mutates_runtime_state": False,
         "applies_plasticity": False,
         "rollout_consolidation_design_hash": "design-hash-1",
@@ -8543,7 +8543,7 @@ def test_readout_ledger_rollout_regeneration_adapter_uses_capacity_state_indices
         **replay_material,
         "surface": "snn_transition_memory_replay_artifact.v1",
         "artifact_kind": "terminus_snn_transition_memory_replay_artifact",
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "ready": True,
         "evidence_hash": _sha256_json(replay_material),
         "replay_artifact_id": "artifact-1",
@@ -8605,7 +8605,7 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
         growth_preflight,
         transition_memory_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {},
             "language_capacity": _language_capacity(),
         },
@@ -8634,7 +8634,7 @@ def test_readout_ledger_rollout_regeneration_replay_artifact_review_binds_replay
         "surface": "snn_transition_memory_replay_artifact.v1",
         "available": True,
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "source": "replay_controller.snn_transition_memory_replay_artifact",
         "replay_artifact_id": "artifact-1",
         "replay_window_id": "replay-window-1",
@@ -8684,7 +8684,7 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
                 "artifact_kind": "terminus_snn_language_transition_memory_regeneration_permit",
                 "surface": "snn_language_transition_memory_regeneration_permit.v1",
                 "ready": True,
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "permit_id": "permit-1",
                 "replay_artifact_id": kwargs["replay_artifact_id"],
                 "regeneration_design_hash": "design-hash-1",
@@ -8710,7 +8710,7 @@ def test_rollout_regeneration_permit_request_uses_replay_controller_without_syna
     mismatched_facade = RuntimeFacade(_MismatchedRestoreRoot())
     review = {
         "surface": "snn_language_readout_rollout_regeneration_replay_artifact_review.v1",
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "applies_plasticity": False,
         "mutates_runtime_state": False,
         "rollout_regeneration_replay_artifact_review_hash": "review-hash-1",
@@ -8812,7 +8812,7 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
     permit_request = {
         "surface": "snn_language_readout_rollout_regeneration_permit_request.v1",
         "accepted": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "applies_plasticity": False,
         "mutates_runtime_state": True,
         "checkpoint_written": False,
@@ -8826,7 +8826,7 @@ def test_rollout_regeneration_application_preflight_requires_revision_and_checkp
         "replay_evidence": {
             "permit_id": "permit-1",
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
         },
         "regeneration_design": {
             "locality_radius": 1,
@@ -8946,7 +8946,7 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
     preflight = {
         "surface": "snn_language_readout_rollout_regeneration_application_preflight.v1",
         "ready": True,
-        "owned_by_hecsn": True,
+        "owned_by_marulho": True,
         "applies_plasticity": False,
         "mutates_runtime_state": False,
         "executor_called": False,
@@ -8962,7 +8962,7 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
         "regeneration_proposal": {
             "available": True,
             "ready": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "generates_text": False,
             "loads_external_checkpoint": False,
             "language_capacity": {
@@ -8976,7 +8976,7 @@ def test_rollout_regeneration_application_delegates_to_checkpoint_backed_executo
             "replay_evidence": {
                 "available": True,
                 "ready": True,
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "source": "replay_controller.regeneration_permit",
                 "permit_id": "permit-1",
                 "replay_window_id": "replay-window-1",
@@ -9115,12 +9115,12 @@ def test_transition_memory_replay_artifact_proposal_uses_internal_readout_eviden
     proposal = ledger.transition_memory_replay_artifact_proposal(
         mismatch_report={
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "prediction_error": {"mismatch_score": 0.9},
         },
         pressure_report={
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "promotion_gate": {"status": "ready_for_operator_review"},
         },
     )
@@ -9156,12 +9156,12 @@ def test_transition_memory_replay_artifact_proposal_rejects_partially_grounded_e
     proposal = ledger.transition_memory_replay_artifact_proposal(
         mismatch_report={
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "prediction_error": {"mismatch_score": 0.9},
         },
         pressure_report={
             "available": True,
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "promotion_gate": {"status": "ready_for_operator_review"},
         },
     )
@@ -9204,7 +9204,7 @@ def test_readout_ledger_rehearsal_evaluation_is_isolated_sparse_snn_review() -> 
 
     assert before == after
     assert evaluation["surface"] == "snn_language_readout_rehearsal_evaluation.v1"
-    assert evaluation["owned_by_hecsn"] is True
+    assert evaluation["owned_by_marulho"] is True
     assert evaluation["external_dependency"] is False
     assert evaluation["generates_text"] is False
     assert evaluation["decodes_text"] is False
@@ -9253,7 +9253,7 @@ def test_readout_rehearsal_experiment_simulates_pressure_without_mutation() -> N
     assert experiment == repeated
     assert before == after
     assert experiment["surface"] == "snn_language_readout_rehearsal_experiment.v1"
-    assert experiment["owned_by_hecsn"] is True
+    assert experiment["owned_by_marulho"] is True
     assert experiment["external_dependency"] is False
     assert experiment["generates_text"] is False
     assert experiment["decodes_text"] is False
@@ -9315,7 +9315,7 @@ def test_readout_replay_design_bounds_future_replay_without_execution() -> None:
     assert design == repeated
     assert before == after
     assert design["surface"] == "snn_language_readout_replay_design.v1"
-    assert design["owned_by_hecsn"] is True
+    assert design["owned_by_marulho"] is True
     assert design["generates_text"] is False
     assert design["decodes_text"] is False
     assert design["trains_runtime_model"] is False
@@ -9386,7 +9386,7 @@ def test_readout_replay_dry_run_executes_only_isolated_sparse_tensors() -> None:
     assert before == after
     assert dry_run["surface"] == "snn_language_readout_replay_dry_run.v1"
     assert dry_run["readout_replay_dry_run_hash"]
-    assert dry_run["owned_by_hecsn"] is True
+    assert dry_run["owned_by_marulho"] is True
     assert dry_run["generates_text"] is False
     assert dry_run["decodes_text"] is False
     assert dry_run["trains_runtime_model"] is False
@@ -9498,7 +9498,7 @@ def test_readout_plasticity_preflight_reviews_dry_run_without_applying_weights()
     assert preflight["readout_replay_dry_run_hash"] == dry_run["readout_replay_dry_run_hash"]
     assert preflight["device_evidence"]["tensor_device"] == "cpu"
     assert preflight["readout_plasticity_preflight_hash"]
-    assert preflight["owned_by_hecsn"] is True
+    assert preflight["owned_by_marulho"] is True
     assert preflight["generates_text"] is False
     assert preflight["decodes_text"] is False
     assert preflight["trains_runtime_model"] is False
@@ -9619,7 +9619,7 @@ def test_readout_plasticity_replay_bridge_emits_existing_replay_experiment_contr
     assert bridge["application_design"]["local_only"] is True
     assert bridge["application_design"]["runtime_update_applied"] is False
     assert bridge["application_design"]["weights_persisted"] is False
-    assert bridge["application_target_hint"]["target_id"] == "hecsn.snn_language.sparse_transition_weights"
+    assert bridge["application_target_hint"]["target_id"] == "marulho.snn_language.sparse_transition_weights"
     assert bridge["application_target_hint"]["checkpointed"] is True
     assert bridge["checkpoint_transaction_requirements"]["restore_verification_required"] is True
     assert bridge["canonical_replay_sequences"][0]["pre_indices"]
@@ -9676,7 +9676,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     audit = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:2": 0.03},
             "synapse_provenance_by_key": {
                 "1:2": {
@@ -9694,7 +9694,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     mismatched = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:2": 0.03},
             "synapse_provenance_by_key": {
                 "1:2": {
@@ -9712,7 +9712,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     blocked = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:2": 0.03},
             "synapse_provenance_by_key": {},
         }
@@ -9720,7 +9720,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     malformed = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"01:65": 1.5},
             "synapse_provenance_by_key": {
                 "01:65": {
@@ -9738,7 +9738,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     non_numeric = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:2": None},
             "synapse_provenance_by_key": {
                 "1:2": {
@@ -9756,7 +9756,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     replay_regeneration = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:3": 0.03},
             "synapse_provenance_by_key": {
                 "1:3": {
@@ -9789,7 +9789,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
         plasticity_runtime_state=deepcopy(
             {
                 "surface": "snn_language_plasticity_runtime_state.v1",
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "sparse_transition_weights": {"1:3": 0.03},
                 "synapse_provenance_by_key": {
                     "1:3": {
@@ -9825,7 +9825,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
         plasticity_runtime_state=deepcopy(
             {
                 "surface": "snn_language_plasticity_runtime_state.v1",
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "sparse_transition_weights": {"1:3": 0.03},
                 "synapse_provenance_by_key": {
                     "1:3": {
@@ -9860,7 +9860,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     replay_incomplete_lineage = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:3": 0.03},
             "synapse_provenance_by_key": {
                 "1:3": {
@@ -9887,7 +9887,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     replay_missing_local_edge = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:3": 0.03},
             "synapse_provenance_by_key": {
                 "1:3": {
@@ -9905,7 +9905,7 @@ def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger(
     tampered_ledger = ledger.synapse_provenance_audit(
         plasticity_runtime_state={
             "surface": "snn_language_plasticity_runtime_state.v1",
-            "owned_by_hecsn": True,
+            "owned_by_marulho": True,
             "sparse_transition_weights": {"1:2": 0.03},
             "synapse_provenance_by_key": {
                 "1:2": {

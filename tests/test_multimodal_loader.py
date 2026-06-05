@@ -5,10 +5,10 @@ from __future__ import annotations
 import torch
 import pytest
 
-from hecsn.data import multimodal_loader as multimodal_module
-from hecsn.data.multimodal_loader import MultimodalSample, MultimodalStreamLoader, load_directory
-from hecsn.data.event_camera_encoder import EventCameraEncoder
-from hecsn.data.cochleagram_encoder import CochleagramEncoder
+from marulho.data import multimodal_loader as multimodal_module
+from marulho.data.multimodal_loader import MultimodalSample, MultimodalStreamLoader, load_directory
+from marulho.data.event_camera_encoder import EventCameraEncoder
+from marulho.data.cochleagram_encoder import CochleagramEncoder
 
 
 def _text_iter(text: str):
@@ -178,7 +178,7 @@ class TestMultimodalStreamLoader:
         assert sample.audio_chunk.device == torch.device("cpu")
 
     def test_default_multimodal_device_prefers_cuda_when_available(self, monkeypatch):
-        monkeypatch.delenv("HECSN_DEVICE", raising=False)
+        monkeypatch.delenv("MARULHO_DEVICE", raising=False)
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
         assert multimodal_module._resolve_multimodal_device(None) == torch.device("cuda")

@@ -10,7 +10,7 @@ import unittest
 from threading import RLock
 from unittest.mock import patch
 
-from hecsn.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
+from marulho.service.persistence import RuntimePersistence, RuntimePersistenceDependencies
 
 
 @dataclass
@@ -246,8 +246,8 @@ class RuntimePersistenceTests(unittest.TestCase):
                 path.write_bytes(b"checkpoint")
                 return path
 
-            with patch("hecsn.service.persistence.save_trainer_checkpoint", side_effect=_fake_save_trainer_checkpoint):
-                with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+            with patch("marulho.service.persistence.save_trainer_checkpoint", side_effect=_fake_save_trainer_checkpoint):
+                with patch("marulho.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
                     result = persistence.save_checkpoint(str(root / "service.pt"))
 
             self.assertTrue(manager._runtime_state.clean_calls >= 1)
@@ -281,7 +281,7 @@ class RuntimePersistenceTests(unittest.TestCase):
             self.assertEqual(service_state["snn_language_plasticity"]["sparse_transition_weights"]["1:2"], 0.5)
             capacity_state = service_state["snn_language_plasticity"]["language_capacity"]
             self.assertEqual(capacity_state["surface"], "snn_language_capacity_state.v1")
-            self.assertTrue(capacity_state["owned_by_hecsn"])
+            self.assertTrue(capacity_state["owned_by_marulho"])
             self.assertEqual(capacity_state["language_neuron_count"], 64)
             self.assertEqual(capacity_state["sparse_edge_budget"], 256)
             self.assertEqual(capacity_state["outgoing_fanout_budget"], 16)
@@ -296,7 +296,7 @@ class RuntimePersistenceTests(unittest.TestCase):
                 dense_layout["surface"],
                 "snn_language_dense_readout_layout_state.v1",
             )
-            self.assertTrue(dense_layout["owned_by_hecsn"])
+            self.assertTrue(dense_layout["owned_by_marulho"])
             self.assertEqual(dense_layout["current_dense_readout_shape"], [64, 64])
             self.assertEqual(dense_layout["target_dense_readout_shape"], [64, 64])
             self.assertEqual(dense_layout["preserved_dense_window"], [64, 64])
@@ -390,21 +390,21 @@ class RuntimePersistenceTests(unittest.TestCase):
             next_path = root / "next.pt"
             previous.write_bytes(b"previous")
             next_path.write_bytes(b"next")
-            with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+            with patch("marulho.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
                 persistence.publish_current_checkpoint(previous, operation="previous")
 
                 real_replace = __import__("os").replace
 
                 def _fail_manifest_replace(source: object, target: object) -> None:
-                    if Path(target).name == "hecsn_current_checkpoint.json":
+                    if Path(target).name == "marulho_current_checkpoint.json":
                         raise RuntimeError("interrupted")
                     real_replace(source, target)
 
-                with patch("hecsn.service.persistence.os.replace", side_effect=_fail_manifest_replace):
+                with patch("marulho.service.persistence.os.replace", side_effect=_fail_manifest_replace):
                     with self.assertRaisesRegex(RuntimeError, "interrupted"):
                         persistence.publish_current_checkpoint(next_path, operation="next")
 
-            manifest = json.loads((root / "checkpoints" / "hecsn_current_checkpoint.json").read_text(encoding="utf-8"))
+            manifest = json.loads((root / "checkpoints" / "marulho_current_checkpoint.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["current"]["operation"], "previous")
 
     def test_failed_refresh_does_not_publish_manifest_or_change_bookkeeping(self) -> None:
@@ -420,11 +420,11 @@ class RuntimePersistenceTests(unittest.TestCase):
             next_path = root / "next.pt"
             next_path.write_bytes(b"next")
 
-            with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+            with patch("marulho.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
                 with self.assertRaisesRegex(RuntimeError, "refresh failed"):
                     persistence.publish_current_checkpoint(next_path, operation="next")
 
-            self.assertFalse((root / "checkpoints" / "hecsn_current_checkpoint.json").exists())
+            self.assertFalse((root / "checkpoints" / "marulho_current_checkpoint.json").exists())
             self.assertEqual(manager._checkpoint_path, original_path)
             self.assertEqual(manager._metadata, original_metadata)
 
@@ -437,7 +437,7 @@ class RuntimePersistenceTests(unittest.TestCase):
             next_path = root / "next.pt"
             previous.write_bytes(b"previous")
             next_path.write_bytes(b"next")
-            with patch("hecsn.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
+            with patch("marulho.service.persistence.load_trainer_checkpoint", return_value=(manager._trainer, {"state_revision": 9})):
                 first = persistence.publish_current_checkpoint(previous, operation="previous")
                 second = persistence.publish_current_checkpoint(next_path, operation="next")
                 Path(second["checkpoint_path"]).write_bytes(b"corrupt")
@@ -457,7 +457,7 @@ class RuntimePersistenceTests(unittest.TestCase):
                 path.write_bytes(b"checkpoint")
                 return path
 
-            with patch("hecsn.service.persistence.save_trainer_checkpoint", side_effect=_fake_save):
+            with patch("marulho.service.persistence.save_trainer_checkpoint", side_effect=_fake_save):
                 result = persistence.save_checkpoint(str(root / "rollback.pt"), publish=False)
 
             self.assertEqual(Path(result["path"]), root / "rollback.pt")

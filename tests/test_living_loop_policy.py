@@ -14,8 +14,8 @@ from __future__ import annotations
 import unittest
 from typing import Any, Mapping
 
-from hecsn.semantics.provenance import Provenance
-from hecsn.service.living_loop_records import (
+from marulho.semantics.provenance import Provenance
+from marulho.service.living_loop_records import (
     ActionExecutionRecord,
     ActionExecutionStatus,
     ActionVerificationRecord,
@@ -30,7 +30,7 @@ from hecsn.service.living_loop_records import (
 # ---------------------------------------------------------------------------
 # Import from the new Policy Scoring module
 # ---------------------------------------------------------------------------
-from hecsn.service.living_loop_policy import (
+from marulho.service.living_loop_policy import (
     POLICY_ACTUATOR_HIGH_LATENCY_AVG_MS,
     POLICY_ACTUATOR_HIGH_LATENCY_MAX_MS,
     POLICY_ACTUATOR_SCHEMA_VERSION,

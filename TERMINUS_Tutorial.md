@@ -1,12 +1,12 @@
-# HECSN Tutorial — Current Operator & Developer Guide
+# MARULHO Tutorial — Current Operator & Developer Guide
 
-> **Current runtime truth:** HECSN/Terminus is a Subcortex-first SNN system. The former external LLM/NIM path is retired and must not be used as a runtime, mock path, language engine, or fallback.
+> **Current runtime truth:** MARULHO/Terminus is a Subcortex-first SNN system. The former external LLM/NIM path is retired and must not be used as a runtime, mock path, language engine, or fallback.
 
 ---
 
 ## Table of Contents
 
-1. [What HECSN is now](#1-what-hecsn-is-now)
+1. [What MARULHO is now](#1-what-marulho-is-now)
 2. [Current runtime stack](#2-current-runtime-stack)
 3. [Installation and environment setup](#3-installation-and-environment-setup)
 4. [Training a checkpoint](#4-training-a-checkpoint)
@@ -21,12 +21,12 @@
 
 ---
 
-## 1. What HECSN is now
+## 1. What MARULHO is now
 
-HECSN is a **Subcortex-first cognitive architecture**:
+MARULHO is a **Subcortex-first cognitive architecture**:
 
 - a **predictive spiking substrate** handles grounding, prediction error, salience, replay, buffering, and local online adaptation
-- language, reasoning, narrative continuity, question formation, answer generation, and dream-style recombination must move through HECSN-owned Subcortex/SNN surfaces with explicit grounding and device evidence
+- language, reasoning, narrative continuity, question formation, answer generation, and dream-style recombination must move through MARULHO-owned Subcortex/SNN surfaces with explicit grounding and device evidence
 
 The architectural rule is:
 
@@ -51,7 +51,7 @@ Do not configure NIM models, LLM factories, or mock language substitutes.
 
 Important:
 - production cognition is **Subcortex/Living Loop first**
-- the top-level `hecsn.cortex` package is deleted
+- the top-level `marulho.cortex` package is deleted
 - historical Cortex submodules are not extension points
 - LLM construction must not occur in active service startup, `/health`, `/status`, action execution, or language surfaces
 
@@ -139,7 +139,7 @@ HF_TOKEN=your_hf_token_here
 Recommended optional overrides:
 
 ```bash
-HECSN_CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
+MARULHO_CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 ```
 
 ### Runtime behavior when env is missing
@@ -158,7 +158,7 @@ Training still begins from the SNN side. The normal entrypoint is the developmen
 ### Developmental training
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.developmental_runner \
+PYTHONPATH=src python -m marulho.training.developmental_runner \
   --output-dir checkpoints/terminus \
   --dataset-name wikitext \
   --dataset-config wikitext-103-raw-v1 \
@@ -169,7 +169,7 @@ PYTHONPATH=src python -m hecsn.training.developmental_runner \
 ### Developmental validation protocol
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.developmental_runner \
+PYTHONPATH=src python -m marulho.training.developmental_runner \
   --output-dir reports/developmental \
   --n-tokens 5000
 ```
@@ -177,21 +177,21 @@ PYTHONPATH=src python -m hecsn.training.developmental_runner \
 ### Supported evaluation and health checks
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.meaning_grounding_runner \
+PYTHONPATH=src python -m marulho.training.meaning_grounding_runner \
   --output-dir reports/meaning_grounding
 ```
 
 For runtime acceptance/health reporting, use:
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.long_test_runner \
+PYTHONPATH=src python -m marulho.training.long_test_runner \
   --duration 0.2 \
   --interval 2.0 \
   --preset curriculum \
   --output reports/long_test
 ```
 
-The old `hecsn.training.emergence_evaluation_runner` module is no longer available.
+The old `marulho.training.emergence_evaluation_runner` module is no longer available.
 Checkpoint output is a `.pt` file used by the local service.
 
 ---
@@ -201,7 +201,7 @@ Checkpoint output is a `.pt` file used by the local service.
 ### Start the API service
 
 ```bash
-PYTHONPATH=src python -m hecsn.service.server \
+PYTHONPATH=src python -m marulho.service.server \
   --checkpoint checkpoints/terminus/model.pt \
   --port 8000 \
   --trace-dir reports/service/traces
@@ -216,7 +216,7 @@ PYTHONPATH=src python -m hecsn.service.server \
 | `--port` | bind port |
 | `--trace-history-limit` | in-memory trace cap |
 | `--trace-dir` | persisted trace output directory |
-| `--web-dist-dir` | built frontend directory to serve at `/app`; defaults to `HECSN_UI/dist` |
+| `--web-dist-dir` | built frontend directory to serve at `/app`; defaults to `MARULHO_UI/dist` |
 | `--log-level` | uvicorn log level |
 | `--reload` | dev autoreload |
 
@@ -237,12 +237,12 @@ Expected:
 ## 6. Building and serving the dashboard
 
 The active frontend source currently lives in:
-- `HECSN_UI/`
+- `MARULHO_UI/`
 
 ### Development mode
 
 ```bash
-cd HECSN_UI
+cd MARULHO_UI
 npm install
 npm run dev
 ```
@@ -250,14 +250,14 @@ npm run dev
 ### Production build
 
 ```bash
-cd HECSN_UI
+cd MARULHO_UI
 npm run build
 ```
 
 The service defaults to this build directory:
 
 ```bash
-PYTHONPATH=src python -m hecsn.service.server \
+PYTHONPATH=src python -m marulho.service.server \
   --checkpoint checkpoints/terminus/model.pt
 ```
 
@@ -372,7 +372,7 @@ The safety boundary is strict: the policy actuator **does not execute actions, m
 Policy-actuator fields are surfaced consistently across telemetry/export/benchmark paths:
 - telemetry: `/terminus/living-loop` includes `policy_decision`, and `benchmark_telemetry.policy_recommendations` includes `total`, `latest`, `counts`, and outcome scores such as `information_gain`, `goal_progress`, `risk`, and `uncertainty`
 - export: `GET /terminus/runtime-traces/export` includes a sanitized top-level `policy_decision`; each exported example also includes sanitized `policy_decision` with `action`, `recommendation`, `reason_codes`, score fields, target IDs, `advisory`, `executable`, and `suggested_endpoint`; the CLI export metadata mirrors that summary
-- benchmark: `src\hecsn\evaluation\service_benchmark.py` exercises `GET /terminus/policy-actuator`, records it in `endpoint_timings` / `endpoints_by_name.policy_actuator`, and writes `policy_actuator_summary` with the actuator scores, target IDs, `advisory`, `executable`, `suggested_endpoint`, and `reason_codes`
+- benchmark: `src\marulho\evaluation\service_benchmark.py` exercises `GET /terminus/policy-actuator`, records it in `endpoint_timings` / `endpoints_by_name.policy_actuator`, and writes `policy_actuator_summary` with the actuator scores, target IDs, `advisory`, `executable`, `suggested_endpoint`, and `reason_codes`
 
 This is the next living-loop step because Terminus can now turn observed outcomes, feedback, grounding health, memory pressure, latency/cost pressure, and uncertainty into an explicit policy recommendation without crossing the safety boundary into autonomous actuation. Operators and tests can inspect why the loop would investigate, verify, sleep, reduce scope, collect evidence, or continue before any separate action is taken.
 
@@ -404,7 +404,7 @@ Research rationale: this wave follows complementary learning systems and hippoca
 Replay-plan fields are surfaced consistently across telemetry/export/benchmark paths:
 - telemetry: `/terminus/living-loop` and `/status` include `replay_plan`; `benchmark_telemetry.replay_plan_summary` mirrors the count, reason codes, top candidate, and advisory/executable posture
 - export: `GET /terminus/runtime-traces/export` includes a sanitized top-level `replay_plan_summary`; each exported example also includes sanitized `replay_plan_summary`; the CLI export metadata mirrors that summary
-- benchmark: `src\hecsn\evaluation\service_benchmark.py` exercises `GET /terminus/replay-plan`, records it in `endpoint_timings` / `endpoints_by_name.replay_plan`, and writes `replay_plan_summary`
+- benchmark: `src\marulho\evaluation\service_benchmark.py` exercises `GET /terminus/replay-plan`, records it in `endpoint_timings` / `endpoints_by_name.replay_plan`, and writes `replay_plan_summary`
 
 What remains before autonomous learning: replay candidates still require an operator or separate training process to select, validate, and apply them. Contradicted memories should become negative lessons or corrected examples, not facts. Dreamed/imagination memories must remain provenance-tagged and cannot be consolidated as observed/verified without external validation.
 
@@ -480,8 +480,8 @@ Safety boundary: this endpoint is **operator-gated audit/sample only**. It does 
 
 Replay-sample/executor fields are surfaced consistently across telemetry/export/benchmark paths:
 - telemetry: `/terminus/living-loop` and `/status` include `living_loop.replay_sample_summary` and `living_loop.replay_executor_summary`; `benchmark_telemetry.replay_sample_summary` and `benchmark_telemetry.replay_executor_summary` mirror endpoint aliases, counts, latest selected item, mode/status counts, safety boundaries, and audit-only/executable posture
-- export: `GET /terminus/runtime-traces/export` includes sanitized top-level `replay_sample_summary` and `replay_executor_summary`; each exported example includes sanitized `replay_sample_summary`; `python -m hecsn.service.trace_export_runner` mirrors both summaries in CLI metadata
-- benchmark: `src\hecsn\evaluation\service_benchmark.py` exercises `GET /terminus/replay-sample/history`, records it in `endpoint_timings` / `endpoints_by_name.replay_sample_history`, and writes both `replay_sample_summary` and `replay_executor_summary` with history-derived counts and safety flags
+- export: `GET /terminus/runtime-traces/export` includes sanitized top-level `replay_sample_summary` and `replay_executor_summary`; each exported example includes sanitized `replay_sample_summary`; `python -m marulho.service.trace_export_runner` mirrors both summaries in CLI metadata
+- benchmark: `src\marulho\evaluation\service_benchmark.py` exercises `GET /terminus/replay-sample/history`, records it in `endpoint_timings` / `endpoints_by_name.replay_sample_history`, and writes both `replay_sample_summary` and `replay_executor_summary` with history-derived counts and safety flags
 - UI: the current dashboard remains read-only for replay. It renders the advisory replay-plan card and does not post to `/terminus/replay-sample` or `/terminus/replay-execute`; operators should use the API/CLI until a dedicated gated sampler form and history panel are added
 
 Remaining work before autonomous replay learning: add an operator UI for candidate selection/history review, define a separate offline trainer or adapter-distillation job that consumes only externally validated examples, add promotion rules that distinguish negative lessons from positive facts, enforce retention/audit review for replay-sample history, and keep benchmark claims limited to sampling/telemetry until a verified training path exists.
@@ -504,12 +504,12 @@ curl -X POST "http://localhost:8000/terminus/replay-dataset/bundle" \
 The equivalent CLI helper writes the same preview shape to disk:
 
 ```bash
-PYTHONPATH=src python -m hecsn.service.replay_dataset_runner \
+PYTHONPATH=src python -m marulho.service.replay_dataset_runner \
   --checkpoint checkpoints/terminus/model.pt \
   --output reports/replay_dataset.json \
   --limit 20
 
-PYTHONPATH=src python -m hecsn.service.replay_dataset_bundle_runner \
+PYTHONPATH=src python -m marulho.service.replay_dataset_bundle_runner \
   --checkpoint checkpoints/terminus/model.pt \
   --output reports/replay_dataset_bundle.json \
   --operator-id operator-a \
@@ -539,8 +539,8 @@ Provenance and training-role rules:
 
 Replay-dataset fields are surfaced consistently across telemetry/export/benchmark/UI paths:
 - telemetry: `/terminus/living-loop`, `/status`, and `/terminus` include `replay_dataset_summary`; `benchmark_telemetry.replay_dataset_summary` mirrors count, positive/negative counts, provenance/type counts, latest timestamps, endpoint, safety flags, and empty reason
-- export: `GET /terminus/runtime-traces/export` includes top-level `replay_dataset_summary`; `python -m hecsn.service.trace_export_runner` mirrors the summary in CLI metadata
-- benchmark: `src\hecsn\evaluation\service_benchmark.py` exercises `/terminus/replay-dataset/preview`, `/terminus/replay-dataset/bundle`, `/terminus/replay-dataset/candidates`, and `/terminus/replay-dataset/history`, then writes `replay_dataset_summary`, `replay_dataset_bundle_summary`, `replay_dataset_candidates_summary`, and `replay_dataset_history_summary`
+- export: `GET /terminus/runtime-traces/export` includes top-level `replay_dataset_summary`; `python -m marulho.service.trace_export_runner` mirrors the summary in CLI metadata
+- benchmark: `src\marulho\evaluation\service_benchmark.py` exercises `/terminus/replay-dataset/preview`, `/terminus/replay-dataset/bundle`, `/terminus/replay-dataset/candidates`, and `/terminus/replay-dataset/history`, then writes `replay_dataset_summary`, `replay_dataset_bundle_summary`, `replay_dataset_candidates_summary`, and `replay_dataset_history_summary`
 - UI: the Runtime dashboard shows a read-only Curated replay dataset card with example counts, positive/negative split, provenance/type counts, endpoint, timestamps, empty reason, and mutation-boundary safety flags
 
 Safety boundary: replay datasets and bundles are **preview/export artifacts only**. They do not train adapters, rewrite or promote memories, post feedback, execute digital actions, call external tools, start sleep, or convert contradicted/dreamed content into verified facts. The packaging gate validates schema, decontamination, retention, deduplication, and holdout/eval splits, but a separate offline trainer approval is still required before any LoRA/QLoRA adapter job runs.
@@ -586,7 +586,7 @@ This advances the living-loop goal because Terminus no longer only observes, pre
 The maintained service has one canonical optimized query path:
 
 - `POST /query` is the routing/evidence endpoint. There is **no separate fast query API**, `/fast-query` route, or alternate backend path to keep in sync.
-- Query latency is optimized inside `src\hecsn\training\query_runner.py`: semantic query-term matching uses bounded in-request caches for evidence units, token forms, and term-pair matches. Callers should use `/query`; they should not bypass it for a special "fast" mode.
+- Query latency is optimized inside `src\marulho\training\query_runner.py`: semantic query-term matching uses bounded in-request caches for evidence units, token forms, and term-pair matches. Callers should use `/query`; they should not bypass it for a special "fast" mode.
 - `POST /feed` uses the normal trainer `train_step` path, but the request handler passes `allow_sleep_maintenance=False`. Due micro/deep sleep maintenance is counted as `sleep_maintenance_deferred` and surfaced with `sleep_maintenance_allowed=false` in the feed result instead of blocking the request. Background/runtime trainer behavior remains unchanged when sleep maintenance is allowed.
 - Service startup plus `/health` and `/status` must not construct retired external LLM, NIM, or external embedder paths. Query and action latency belongs to maintained Subcortex/Living Loop surfaces.
 - Benchmark telemetry is embedded in the living-loop snapshot. Inspect `benchmark_telemetry` via `GET /terminus/living-loop` or under `terminus_runtime.living_loop.benchmark_telemetry` in `GET /status`. Useful fields include `endpoint_latency_ms`, `tokens_per_second`, `retired_external_adapter`, `cache`, `action_success`, `verification_success`, and `policy_recommendations`.
@@ -658,9 +658,9 @@ Production code should use Subcortex/Living Loop service surfaces. Do not
 create a ThoughtLoop or external LLM runtime:
 
 ```python
-from hecsn.service.manager import HECSNServiceManager
+from marulho.service.manager import MarulhoServiceManager
 
-manager = HECSNServiceManager("checkpoints/terminus/model.pt")
+manager = MarulhoServiceManager("checkpoints/terminus/model.pt")
 status = manager.runtime_facade.living_loop_status()
 ```
 
@@ -778,7 +778,7 @@ python -m pytest tests/test_long_test_runner.py -q
 ### Long-test runner
 
 ```bash
-PYTHONPATH=src python -m hecsn.training.long_test_runner \
+PYTHONPATH=src python -m marulho.training.long_test_runner \
   --duration 0.2 \
   --interval 2.0 \
   --preset curriculum \
@@ -792,12 +792,12 @@ The maintained long-test path now:
 
 ### Runtime trace dataset export
 
-`GET /terminus/runtime-traces/export` and `python -m hecsn.service.trace_export_runner` expose bounded, sanitized runtime episode traces for offline evaluation-data inspection. The export is a **dataset preview only** (`training_role=adapter_distillation_dataset_preview_only_not_training`); it does not train adapters and should not include raw environment, path, secret, credential, password, cookie, authorization, or unbounded token fields.
+`GET /terminus/runtime-traces/export` and `python -m marulho.service.trace_export_runner` expose bounded, sanitized runtime episode traces for offline evaluation-data inspection. The export is a **dataset preview only** (`training_role=adapter_distillation_dataset_preview_only_not_training`); it does not train adapters and should not include raw environment, path, secret, credential, password, cookie, authorization, or unbounded token fields.
 
 CLI usage:
 
 ```powershell
-python -m hecsn.service.trace_export_runner --checkpoint checkpoints\terminus\model.pt --output reports\runtime_trace_examples.json --limit 20 --endpoint respond
+python -m marulho.service.trace_export_runner --checkpoint checkpoints\terminus\model.pt --output reports\runtime_trace_examples.json --limit 20 --endpoint respond
 ```
 
 Useful options:
@@ -823,12 +823,12 @@ Each example is intentionally small and sanitized. Expected example fields inclu
 
 ### Service benchmark harness
 
-`src\hecsn\evaluation\service_benchmark.py` measures the local FastAPI service in-process with `TestClient`. It is a smoke/latency harness for the maintained service surface, not a live load generator. The harness creates or loads a checkpoint, exercises `/health`, `/feed`, `/query`, `/respond`, `/terminus/living-loop`, `GET /terminus/policy-actuator`, `GET /terminus/replay-plan`, `GET /terminus/replay-sample/history`, and `/terminus/runtime-traces/export`, and writes one JSON result file.
+`src\marulho\evaluation\service_benchmark.py` measures the local FastAPI service in-process with `TestClient`. It is a smoke/latency harness for the maintained service surface, not a live load generator. The harness creates or loads a checkpoint, exercises `/health`, `/feed`, `/query`, `/respond`, `/terminus/living-loop`, `GET /terminus/policy-actuator`, `GET /terminus/replay-plan`, `GET /terminus/replay-sample/history`, and `/terminus/runtime-traces/export`, and writes one JSON result file.
 
 CLI usage with a tiny deterministic local checkpoint:
 
 ```powershell
-python -m hecsn.evaluation.service_benchmark --checkpoint reports\service_benchmark\synthetic.pt --output reports\service_benchmark\result.json --create-synthetic-checkpoint
+python -m marulho.evaluation.service_benchmark --checkpoint reports\service_benchmark\synthetic.pt --output reports\service_benchmark\result.json --create-synthetic-checkpoint
 ```
 
 Useful options:
@@ -837,7 +837,7 @@ Useful options:
 - `--trace-dir`, `--web-dist-dir`, and `--env-root` — optional service construction paths
 - `--feed-text`, `--query-text`, and `--export-limit` — request payload controls for the smoke run
 
-The output JSON includes `benchmark=hecsn_service_endpoint_latency`, `schema_version`, `generated_at`, `checkpoint_path`, `success`, `total_latency_ms`, `endpoint_timings`, `endpoints_by_name`, `living_loop_benchmark_telemetry`, `feedback_telemetry`, `policy_actuator_summary`, `replay_plan_summary`, `replay_sample_summary`, `replay_executor_summary`, `trace_export_summary`, and `output_path`. Each endpoint timing records the endpoint `name`, HTTP `method`, `path`, `latency_ms`, `success`, `status_code`, optional `params`, `response_size_bytes`, and JSON response keys, including `replay_sample_history` timing for `GET /terminus/replay-sample/history`. `policy_actuator_summary` captures `schema_version`, `action`, `recommendation`, `risk`, `expected_information_gain`, `expected_goal_progress`, `expected_cost`, `uncertainty`, `advisory`, `executable`, target IDs, `suggested_endpoint`, and `reason_codes`. `replay_plan_summary` captures replay `schema_version`, `endpoint`, `count`, `priority_rules_version`, `plan_reason_codes`, `snapshot_counts`, and the top candidate summary. `replay_sample_summary` / `replay_executor_summary` capture sampler endpoints, history endpoints, count/history count, selected counts, mode/status counts, latest history item, safety flags, safety boundaries, and audit-only/executable posture.
+The output JSON includes `benchmark=marulho_service_endpoint_latency`, `schema_version`, `generated_at`, `checkpoint_path`, `success`, `total_latency_ms`, `endpoint_timings`, `endpoints_by_name`, `living_loop_benchmark_telemetry`, `feedback_telemetry`, `policy_actuator_summary`, `replay_plan_summary`, `replay_sample_summary`, `replay_executor_summary`, `trace_export_summary`, and `output_path`. Each endpoint timing records the endpoint `name`, HTTP `method`, `path`, `latency_ms`, `success`, `status_code`, optional `params`, `response_size_bytes`, and JSON response keys, including `replay_sample_history` timing for `GET /terminus/replay-sample/history`. `policy_actuator_summary` captures `schema_version`, `action`, `recommendation`, `risk`, `expected_information_gain`, `expected_goal_progress`, `expected_cost`, `uncertainty`, `advisory`, `executable`, target IDs, `suggested_endpoint`, and `reason_codes`. `replay_plan_summary` captures replay `schema_version`, `endpoint`, `count`, `priority_rules_version`, `plan_reason_codes`, `snapshot_counts`, and the top candidate summary. `replay_sample_summary` / `replay_executor_summary` capture sampler endpoints, history endpoints, count/history count, selected counts, mode/status counts, latest history item, safety flags, safety boundaries, and audit-only/executable posture.
 
 ### Benchmark posture: ARC-AGI
 
@@ -849,7 +849,7 @@ ARC-AGI should remain a **separate benchmark path**, not a claim attached to the
 - optional Subcortex candidates as proposals, not as the scorer
 - exact-match scoring against held-out task outputs
 
-The initial ARC-specific code lives under `src\hecsn\evaluation\arc_agi.py`. It is intentionally limited to deterministic benchmark plumbing: grid validation, JSON-like task loading, exact-match scoring, an evaluation skeleton, an object parser, and a tiny deterministic DSL/search scaffold explicitly labeled as **not** an ARC solver.
+The initial ARC-specific code lives under `src\marulho\evaluation\arc_agi.py`. It is intentionally limited to deterministic benchmark plumbing: grid validation, JSON-like task loading, exact-match scoring, an evaluation skeleton, an object parser, and a tiny deterministic DSL/search scaffold explicitly labeled as **not** an ARC solver.
 
 The object parser plus tiny DSL/search are benchmark plumbing for ARC experiments, not a solver, not program synthesis evidence, and not core living-loop evidence. Current Terminus telemetry validates living-loop, grounding, action verification, memory, and operational self-model posture. It does **not** imply that Terminus already solves ARC-AGI, and the ARC benchmark path should not be used as evidence for core living-loop claims.
 
@@ -869,30 +869,30 @@ Key backend reports live in:
 
 ### Adding a new maintained action
 
-1. extend `src/hecsn/service/action_loop.py`
-2. extend `src/hecsn/service/schemas.py`
+1. extend `src/marulho/service/action_loop.py`
+2. extend `src/marulho/service/schemas.py`
 3. keep execution/verification/provenance on the same maintained path
 4. add manager/service/API tests
 5. add controlled validation and update reports
 
 ### Adding a new source type
 
-1. add the source runtime/stream logic in `src/hecsn/service/manager.py`
+1. add the source runtime/stream logic in `src/marulho/service/manager.py`
 2. keep it on the same ingestion/warm-queue/runtime path
 3. extend schemas/API only if needed
 4. add tests for configuration, runtime progress, and shutdown behavior
 
 ### Adding a new sensory modality
 
-1. add encoder/runtime support in `src/hecsn/data/` and service wiring
+1. add encoder/runtime support in `src/marulho/data/` and service wiring
 2. integrate with the same sensory buffering and observation path
 3. add tests and validation
 
 ### Adding a new API endpoint
 
-1. define schemas in `src/hecsn/service/schemas.py`
+1. define schemas in `src/marulho/service/schemas.py`
 2. add manager method
-3. wire route in `src/hecsn/service/api.py`
+3. wire route in `src/marulho/service/api.py`
 4. add tests in `tests/test_service_api.py`
 
 ---
@@ -933,24 +933,24 @@ then that documentation is stale and should be treated as incorrect.
 
 ```bash
 # Train a checkpoint
-PYTHONPATH=src python -m hecsn.training.developmental_runner \
+PYTHONPATH=src python -m marulho.training.developmental_runner \
   --output-dir checkpoints/terminus \
   --dataset-name wikitext \
   --dataset-config wikitext-103-raw-v1 \
   --text-field text
 
 # Start service
-PYTHONPATH=src python -m hecsn.service.server \
+PYTHONPATH=src python -m marulho.service.server \
   --checkpoint checkpoints/terminus/model.pt
 
 # Build frontend
-cd HECSN_UI && npm install && npm run build
+cd MARULHO_UI && npm install && npm run build
 
 # Run tests
 python -m pytest -q
 
 # Run long-test acceptance/health path
-PYTHONPATH=src python -m hecsn.training.long_test_runner \
+PYTHONPATH=src python -m marulho.training.long_test_runner \
   --duration 0.2 \
   --interval 2.0 \
   --preset curriculum \

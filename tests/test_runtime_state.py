@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from hecsn.service.runtime_state import RuntimeState
+from marulho.service.runtime_state import RuntimeState
 
 
 class RuntimeStateTests(unittest.TestCase):

@@ -11,7 +11,7 @@ import unittest
 import numpy as np
 import torch
 
-from hecsn.evaluation.baselines import (
+from marulho.evaluation.baselines import (
     BaselineResults,
     CharNGramEmbedder,
     FourGramModel,
@@ -24,7 +24,7 @@ from hecsn.evaluation.baselines import (
     train_fasttext_baseline,
     train_som_on_corpus,
 )
-from hecsn.evaluation.grounding_probe import GroundingProbeResult
+from marulho.evaluation.grounding_probe import GroundingProbeResult
 
 
 # Minimal corpus for fast tests
@@ -235,7 +235,7 @@ class CombinedBaselineTests(unittest.TestCase):
 
         # Check calibrated target
         self.assertIn("fasttext_score", summary["calibrated_target"])
-        self.assertIn("hecsn_multimodal_target", summary["calibrated_target"])
+        self.assertIn("marulho_multimodal_target", summary["calibrated_target"])
 
     def test_calibrated_target_uses_fasttext_score(self) -> None:
         results = run_all_baselines(MINI_CORPUS, input_dim=64, n_prototypes=16, seed=42)
@@ -243,7 +243,7 @@ class CombinedBaselineTests(unittest.TestCase):
         ft_score = summary["fasttext"]["grounding_probe_accuracy"]
         cal = summary["calibrated_target"]
         self.assertAlmostEqual(cal["fasttext_score"], ft_score)
-        self.assertAlmostEqual(cal["hecsn_multimodal_target"], ft_score + 0.05)
+        self.assertAlmostEqual(cal["marulho_multimodal_target"], ft_score + 0.05)
 
     def test_som_accuracy_is_float(self) -> None:
         results = run_all_baselines(MINI_CORPUS, input_dim=64, n_prototypes=16, seed=42)

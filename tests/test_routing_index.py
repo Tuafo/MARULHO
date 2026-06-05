@@ -5,9 +5,9 @@ import unittest
 import numpy as np
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
-from hecsn.training.model import HECSNModel
+from marulho.config.model_config import MarulhoConfig
+from marulho.retrieval.hnsw_index import HierarchicalAssemblyIndex, ShardedHierarchicalAssemblyIndex
+from marulho.training.model import MarulhoModel
 
 
 class RoutingIndexTests(unittest.TestCase):
@@ -109,25 +109,25 @@ class RoutingIndexTests(unittest.TestCase):
         self.assertEqual(stats["per_shard_torch_cache_ready"], [True, True])
 
     def test_model_runtime_scope_reports_requested_torch_topk_backend(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             routing_index_mode="torch_topk",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         scope = model.runtime_scope_report()
 
         self.assertEqual(scope["routing_backend_mode"], "torch_topk")
         self.assertEqual(scope["routing_index"]["index_type"], "torch_topk")
 
     def test_model_runtime_scope_reports_cuda_first_device_evidence(self) -> None:
-        cfg = HECSNConfig(
+        cfg = MarulhoConfig(
             n_columns=4,
             column_latent_dim=8,
             routing_index_mode="torch_topk",
             device="cpu",
         )
-        model = HECSNModel(cfg)
+        model = MarulhoModel(cfg)
         scope = model.runtime_scope_report()
 
         self.assertEqual(scope["device"]["requested_device"], "cpu")

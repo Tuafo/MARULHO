@@ -7,13 +7,13 @@ import tempfile
 
 import pytest
 
-from hecsn.evaluation.replay_training_approval import (
+from marulho.evaluation.replay_training_approval import (
     ALLOWED_APPROVAL_SCOPE,
     build_replay_training_approval,
     create_replay_training_approval_file,
     validate_replay_training_approval,
 )
-from hecsn.evaluation.replay_training_gate import evaluate_replay_training_gate
+from marulho.evaluation.replay_training_gate import evaluate_replay_training_gate
 
 
 def _bundle() -> dict[str, object]:

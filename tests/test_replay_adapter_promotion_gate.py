@@ -7,19 +7,19 @@ import tempfile
 
 import pytest
 
-from hecsn.evaluation.replay_adapter_promotion_gate import (
+from marulho.evaluation.replay_adapter_promotion_gate import (
     evaluate_replay_adapter_promotion_gate,
     evaluate_replay_adapter_promotion_gate_files,
 )
-from hecsn.evaluation.replay_training_approval import (
+from marulho.evaluation.replay_training_approval import (
     ALLOWED_APPROVAL_SCOPE,
     EXPERIMENTAL_ADAPTER_PROMOTION_SCOPE,
     ISOLATED_ADAPTER_TRAINING_SCOPE,
     build_replay_training_approval,
 )
-from hecsn.evaluation.replay_training_gate import evaluate_replay_training_gate
-from hecsn.evaluation.replay_training_plan import build_replay_training_plan
-from hecsn.training.replay_adapter_experiment import (
+from marulho.evaluation.replay_training_gate import evaluate_replay_training_gate
+from marulho.evaluation.replay_training_plan import build_replay_training_plan
+from marulho.training.replay_adapter_experiment import (
     ADAPTER_MANIFEST_NAME,
     COMPARISON_REPORT_NAME,
     run_isolated_replay_adapter_experiment,

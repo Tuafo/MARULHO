@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from hecsn.evaluation.autonomy_ladder import evaluate_autonomy_ladder, evaluate_autonomy_ladder_file
+from marulho.evaluation.autonomy_ladder import evaluate_autonomy_ladder, evaluate_autonomy_ladder_file
 
 
 def _base_payload(level: int = 2) -> dict[str, object]:

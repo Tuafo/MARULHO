@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from hecsn.evaluation.arc_agi import (
+from marulho.evaluation.arc_agi import (
     ARC_OBJECT_DSL_BASELINE_DESCRIPTION,
     ARCNoIntelligenceBaseline,
     crop_object_transform,

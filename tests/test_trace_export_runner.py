@@ -7,25 +7,25 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.service.replay_dataset_runner import (
+from marulho.config.model_config import MarulhoConfig
+from marulho.service.replay_dataset_runner import (
     build_arg_parser as build_replay_dataset_arg_parser,
     export_replay_dataset_preview,
     main as replay_dataset_main,
 )
-from hecsn.service.replay_dataset_bundle_runner import (
+from marulho.service.replay_dataset_bundle_runner import (
     build_arg_parser as build_replay_dataset_bundle_arg_parser,
     export_replay_dataset_bundle,
     main as replay_dataset_bundle_main,
 )
-from hecsn.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
-from hecsn.training.checkpointing import save_trainer_checkpoint
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.service.trace_export_runner import build_arg_parser, export_runtime_trace_dataset, main
+from marulho.training.checkpointing import save_trainer_checkpoint
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 def _build_checkpoint(root: Path, *, metadata: dict | None = None) -> Path:
-    cfg = HECSNConfig(
+    cfg = MarulhoConfig(
         n_columns=4,
         column_latent_dim=8,
         bootstrap_tokens=0,
@@ -36,8 +36,8 @@ def _build_checkpoint(root: Path, *, metadata: dict | None = None) -> Path:
         enable_context_layer=True,
         enable_binding_layer=True,
     )
-    model = HECSNModel(cfg)
-    trainer = HECSNTrainer(model, cfg)
+    model = MarulhoModel(cfg)
+    trainer = MarulhoTrainer(model, cfg)
     checkpoint_metadata = {"test_case": "trace_export_runner"}
     if metadata is not None:
         checkpoint_metadata.update(metadata)

@@ -17,20 +17,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
-from hecsn.config.model_config import HECSNConfig
-from hecsn.data.cochleagram_encoder import CochleagramEncoder
-from hecsn.data.dataset_adapters import (
+from marulho.config.model_config import MarulhoConfig
+from marulho.data.cochleagram_encoder import CochleagramEncoder
+from marulho.data.dataset_adapters import (
     DIGIT_NAMES,
     DigitEpisode,
     FSDDAdapter,
     NMNISTAdapter,
     PairedDigitDataset,
 )
-from hecsn.data.event_camera_encoder import EventCameraEncoder
-from hecsn.data.rtf_encoder import RTFEncoder
-from hecsn.training.developmental_runner import _train_on_real_digits
-from hecsn.training.model import HECSNModel
-from hecsn.training.trainer import HECSNTrainer
+from marulho.data.event_camera_encoder import EventCameraEncoder
+from marulho.data.rtf_encoder import RTFEncoder
+from marulho.training.developmental_runner import _train_on_real_digits
+from marulho.training.model import MarulhoModel
+from marulho.training.trainer import MarulhoTrainer
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +92,10 @@ def paired_dataset(nmnist_dir: Path, fsdd_dir: Path) -> PairedDigitDataset:
 
 
 @pytest.fixture
-def cfg() -> HECSNConfig:
+def cfg() -> MarulhoConfig:
     # Visual encoder: height=8, width=8, pool=1 → output_dim=64
     # Audio encoder: n_bands=32 → output_dim=32
-    return HECSNConfig(
+    return MarulhoConfig(
         n_columns=16,
         window_size=10,
         cross_modal_dim_visual=64,
@@ -104,10 +104,10 @@ def cfg() -> HECSNConfig:
 
 
 @pytest.fixture
-def trainer_and_encoder(cfg: HECSNConfig):
+def trainer_and_encoder(cfg: MarulhoConfig):
     encoder = RTFEncoder.from_config(cfg)
-    model = HECSNModel(config=cfg)
-    trainer = HECSNTrainer(model, cfg)
+    model = MarulhoModel(config=cfg)
+    trainer = MarulhoTrainer(model, cfg)
     return trainer, encoder
 
 

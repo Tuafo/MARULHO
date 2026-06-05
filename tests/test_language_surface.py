@@ -4,7 +4,7 @@ import hashlib
 import json
 import unittest
 
-from hecsn.semantics import (
+from marulho.semantics import (
     build_snn_language_readiness_surface,
     build_snn_language_evaluation_surface,
     build_snn_language_training_readiness_surface,
@@ -122,9 +122,9 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         probe = build_spike_language_decoder_probe(evidence)
 
-        self.assertEqual(probe["artifact_kind"], "terminus_hecsn_spike_language_decoder_probe")
+        self.assertEqual(probe["artifact_kind"], "terminus_marulho_spike_language_decoder_probe")
         self.assertEqual(probe["surface"], "snn_language_decoder_probe_evidence.v1")
-        self.assertTrue(probe["owned_by_hecsn"])
+        self.assertTrue(probe["owned_by_marulho"])
         self.assertFalse(probe["external_dependency"])
         self.assertFalse(probe["loads_external_checkpoint"])
         self.assertFalse(probe["generates_text"])
@@ -214,9 +214,9 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         adapter = build_spike_language_neuron_adapter(probe)
 
-        self.assertEqual(adapter["artifact_kind"], "terminus_hecsn_spike_language_neuron_adapter")
+        self.assertEqual(adapter["artifact_kind"], "terminus_marulho_spike_language_neuron_adapter")
         self.assertEqual(adapter["surface"], "snn_language_neuron_adapter_evidence.v1")
-        self.assertTrue(adapter["owned_by_hecsn"])
+        self.assertTrue(adapter["owned_by_marulho"])
         self.assertFalse(adapter["external_dependency"])
         self.assertFalse(adapter["loads_external_checkpoint"])
         self.assertFalse(adapter["generates_text"])
@@ -348,28 +348,28 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         )
         self.assertEqual(
             surface["research_candidates"][0]["integration_status"],
-            "reference_for_hecsn_owned_reimplementation",
+            "reference_for_marulho_owned_reimplementation",
         )
-        self.assertIn("hecsn_owned_language_neuron_module", surface["research_candidates"][0]["required_local_evidence"])
-        self.assertIn("hecsn_native_snn_decoder", surface["research_candidates"][0]["required_local_evidence"])
-        self.assertTrue(surface["safety_invariants"]["requires_hecsn_owned_implementation"])
-        self.assertTrue(surface["safety_invariants"]["requires_hecsn_controlled_training"])
-        self.assertIn("HECSN must own", " ".join(surface["limitations"]))
+        self.assertIn("marulho_owned_language_neuron_module", surface["research_candidates"][0]["required_local_evidence"])
+        self.assertIn("marulho_native_snn_decoder", surface["research_candidates"][0]["required_local_evidence"])
+        self.assertTrue(surface["safety_invariants"]["requires_marulho_owned_implementation"])
+        self.assertTrue(surface["safety_invariants"]["requires_marulho_controlled_training"])
+        self.assertIn("MARULHO must own", " ".join(surface["limitations"]))
         self.assertTrue(surface["readiness_checks"]["grounded_language_surface_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_evidence_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_grounded"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_non_generative"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_readout_device_evidence_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_owned"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_non_generative"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_sparse"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_temporal_state"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_grounding_supported"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_available"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_owned"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_sparse"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_language_neuron_adapter_dynamic"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_readout_evidence_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_readout_grounded"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_readout_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_readout_device_evidence_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_owned"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_non_generative"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_sparse"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_temporal_state"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_grounding_supported"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_owned"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_sparse"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_language_neuron_adapter_dynamic"])
         self.assertEqual(surface["current_spike_readout_evidence"]["surface"], "subcortical_spike_readout_evidence.v1")
         self.assertEqual(surface["current_spike_readout_evidence"]["device"], "cuda:0")
         self.assertTrue(surface["current_spike_readout_evidence"]["cuda_device_selected"])
@@ -378,7 +378,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             surface["current_decoder_probe_evidence"]["surface"],
             "snn_language_decoder_probe_evidence.v1",
         )
-        self.assertTrue(surface["current_decoder_probe_evidence"]["owned_by_hecsn"])
+        self.assertTrue(surface["current_decoder_probe_evidence"]["owned_by_marulho"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["generates_text"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["executable"])
         self.assertTrue(surface["current_decoder_probe_evidence"]["dynamic_state_available"])
@@ -413,7 +413,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(surface["promotion_gate"]["status"], "ready_for_isolated_language_evaluation")
         self.assertTrue(surface["promotion_gate"]["eligible_for_language_generation"])
-        self.assertTrue(surface["readiness_checks"]["hecsn_spike_decoder_probe_available"])
+        self.assertTrue(surface["readiness_checks"]["marulho_spike_decoder_probe_available"])
         self.assertFalse(surface["current_decoder_probe_evidence"]["generates_text"])
         self.assertFalse(surface["safety_invariants"]["eligible_for_cognition_substrate"])
 
@@ -467,7 +467,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(report["artifact_kind"], "terminus_snn_language_adapter_heldout_evaluation")
         self.assertEqual(report["surface"], "snn_language_adapter_heldout_evaluation.v1")
-        self.assertTrue(report["owned_by_hecsn"])
+        self.assertTrue(report["owned_by_marulho"])
         self.assertFalse(report["generates_text"])
         self.assertFalse(report["trains"])
         self.assertFalse(report["mutates_runtime_state"])
@@ -506,7 +506,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
         self.assertFalse(surface["promotion_gate"]["eligible_for_language_generation"])
         self.assertFalse(surface["promotion_gate"]["eligible_for_cognition_substrate"])
         self.assertEqual(surface["promotion_gate"]["status"], "ready_for_training_loop_design_review")
-        self.assertEqual(surface["training_design_cases"][0]["target"], "hecsn_owned_snn_language_trainer")
+        self.assertEqual(surface["training_design_cases"][0]["target"], "marulho_owned_snn_language_trainer")
         self.assertIn("training_rule_design", surface["success_evidence"])
 
     def test_spike_language_trainer_dry_run_learns_sequence_evidence_without_weights(self) -> None:
@@ -527,7 +527,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(report["artifact_kind"], "terminus_snn_language_trainer_dry_run")
         self.assertEqual(report["surface"], "snn_language_trainer_dry_run.v1")
-        self.assertTrue(report["owned_by_hecsn"])
+        self.assertTrue(report["owned_by_marulho"])
         self.assertFalse(report["generates_text"])
         self.assertFalse(report["decodes_text"])
         self.assertFalse(report["trains_runtime_model"])
@@ -561,7 +561,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(evaluation["artifact_kind"], "terminus_snn_language_trainer_isolated_evaluation")
         self.assertEqual(evaluation["surface"], "snn_language_trainer_isolated_evaluation.v1")
-        self.assertTrue(evaluation["owned_by_hecsn"])
+        self.assertTrue(evaluation["owned_by_marulho"])
         self.assertFalse(evaluation["generates_text"])
         self.assertFalse(evaluation["trains_runtime_model"])
         self.assertFalse(evaluation["promotes_runtime_trainer"])
@@ -586,7 +586,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(report["artifact_kind"], "terminus_snn_language_sequence_prediction_probe")
         self.assertEqual(report["surface"], "snn_language_sequence_prediction_probe.v1")
-        self.assertTrue(report["owned_by_hecsn"])
+        self.assertTrue(report["owned_by_marulho"])
         self.assertFalse(report["generates_text"])
         self.assertFalse(report["decodes_text"])
         self.assertFalse(report["trains_runtime_model"])
@@ -716,7 +716,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(draft["artifact_kind"], "terminus_snn_language_readout_draft")
         self.assertEqual(draft["surface"], "snn_language_readout_draft.v1")
-        self.assertTrue(draft["owned_by_hecsn"])
+        self.assertTrue(draft["owned_by_marulho"])
         self.assertFalse(draft["external_dependency"])
         self.assertFalse(draft["loads_external_checkpoint"])
         self.assertTrue(draft["generates_text"])
@@ -950,7 +950,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(rollout["artifact_kind"], "terminus_snn_language_readout_rollout_candidate")
         self.assertEqual(rollout["surface"], "snn_language_readout_rollout_candidate.v1")
-        self.assertTrue(rollout["owned_by_hecsn"])
+        self.assertTrue(rollout["owned_by_marulho"])
         self.assertFalse(rollout["external_dependency"])
         self.assertFalse(rollout["loads_external_checkpoint"])
         self.assertTrue(rollout["generates_text"])
@@ -1217,7 +1217,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             "terminus_snn_language_readout_rollout_replay_evaluation",
         )
         self.assertEqual(evaluation["surface"], "snn_language_readout_rollout_replay_evaluation.v1")
-        self.assertTrue(evaluation["owned_by_hecsn"])
+        self.assertTrue(evaluation["owned_by_marulho"])
         self.assertFalse(evaluation["external_dependency"])
         self.assertFalse(evaluation["loads_external_checkpoint"])
         self.assertFalse(evaluation["generates_text"])
@@ -1337,7 +1337,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             "terminus_snn_language_transition_memory_prediction_evaluation",
         )
         self.assertEqual(evaluation["surface"], "snn_language_transition_memory_prediction_evaluation.v1")
-        self.assertTrue(evaluation["owned_by_hecsn"])
+        self.assertTrue(evaluation["owned_by_marulho"])
         self.assertFalse(evaluation["generates_text"])
         self.assertFalse(evaluation["decodes_text"])
         self.assertFalse(evaluation["trains_runtime_model"])
@@ -1467,7 +1467,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             replay_evidence={
                 "available": True,
                 "ready": True,
-                "owned_by_hecsn": True,
+                "owned_by_marulho": True,
                 "artifact_kind": "terminus_snn_language_transition_memory_regeneration_permit",
                 "source": "replay_controller.regeneration_permit",
                 "permit_id": "permit-1",
@@ -1507,7 +1507,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(mismatch["artifact_kind"], "terminus_snn_language_sequence_mismatch_probe")
         self.assertEqual(mismatch["surface"], "snn_language_sequence_mismatch_probe.v1")
-        self.assertTrue(mismatch["owned_by_hecsn"])
+        self.assertTrue(mismatch["owned_by_marulho"])
         self.assertFalse(mismatch["generates_text"])
         self.assertFalse(mismatch["decodes_text"])
         self.assertFalse(mismatch["trains_runtime_model"])
@@ -1542,7 +1542,7 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
 
         self.assertEqual(pressure["artifact_kind"], "terminus_snn_language_plasticity_pressure_gate")
         self.assertEqual(pressure["surface"], "snn_language_plasticity_pressure.v1")
-        self.assertTrue(pressure["owned_by_hecsn"])
+        self.assertTrue(pressure["owned_by_marulho"])
         self.assertFalse(pressure["generates_text"])
         self.assertFalse(pressure["decodes_text"])
         self.assertFalse(pressure["trains_runtime_model"])
@@ -1879,8 +1879,8 @@ class SNNLanguageReadinessSurfaceTests(unittest.TestCase):
             live_readiness,
             application_target={
                 "available": True,
-                "target_id": "hecsn.snn_language.sparse_transition_weights",
-                "owned_by_hecsn": True,
+                "target_id": "marulho.snn_language.sparse_transition_weights",
+                "owned_by_marulho": True,
                 "mutable": True,
                 "sparse": True,
                 "checkpointed": True,

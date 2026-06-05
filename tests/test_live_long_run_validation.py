@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from hecsn.evaluation.live_long_run_validation import validate_live_long_run, validate_live_long_run_files
+from marulho.evaluation.live_long_run_validation import validate_live_long_run, validate_live_long_run_files
 
 
 def _long_test() -> dict[str, object]:
