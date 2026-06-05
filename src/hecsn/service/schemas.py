@@ -705,6 +705,264 @@ class SNNLanguageAutonomousDecodedOutputPreflightRequest(BaseModel):
     executor_capabilities: dict[str, Any] | None = None
 
 
+class SNNLanguageAutonomousDecodedOutputExecutorRequest(BaseModel):
+    autonomous_decoded_output_preflight: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    decode_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousDecodedOutputEventReviewRequest(BaseModel):
+    autonomous_decoded_output_executor: dict[str, Any] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedTextEmissionDesignRequest(BaseModel):
+    autonomous_decoded_output_event_review: dict[str, Any] = Field(..., min_length=1)
+    text_surface_binding: dict[str, Any] | None = None
+    emission_policy: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedTextEmissionPreflightRequest(BaseModel):
+    autonomous_bounded_text_emission_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedTextEmissionExecutorRequest(BaseModel):
+    autonomous_bounded_text_emission_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    emission_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedTextEmissionEventReviewRequest(BaseModel):
+    autonomous_bounded_text_emission_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceSequenceReviewRequest(BaseModel):
+    autonomous_bounded_text_emission_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    sequence_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceCommitDesignRequest(BaseModel):
+    autonomous_text_surface_sequence_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    commit_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceCommitPreflightRequest(BaseModel):
+    autonomous_text_surface_commit_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceCommitExecutorRequest(BaseModel):
+    autonomous_text_surface_commit_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    commit_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceCommitEventReviewRequest(BaseModel):
+    autonomous_text_surface_commit_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceMaterializationDesignRequest(BaseModel):
+    autonomous_text_surface_commit_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    materialization_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceMaterializationPreflightRequest(BaseModel):
+    autonomous_text_surface_materialization_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceMaterializationExecutorRequest(BaseModel):
+    autonomous_text_surface_materialization_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    materialization_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousTextSurfaceMaterializationEventReviewRequest(BaseModel):
+    autonomous_text_surface_materialization_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceReviewRequest(BaseModel):
+    autonomous_text_surface_materialization_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    language_surface_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceCommitDesignRequest(BaseModel):
+    autonomous_bounded_language_surface_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    commit_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceCommitPreflightRequest(BaseModel):
+    autonomous_bounded_language_surface_commit_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceCommitExecutorRequest(BaseModel):
+    autonomous_bounded_language_surface_commit_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    commit_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceCommitEventReviewRequest(BaseModel):
+    autonomous_bounded_language_surface_commit_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceUseReviewRequest(BaseModel):
+    autonomous_bounded_language_surface_commit_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    use_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceUsePreflightRequest(BaseModel):
+    autonomous_bounded_language_surface_use_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceUseExecutorRequest(BaseModel):
+    autonomous_bounded_language_surface_use_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    use_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousBoundedLanguageSurfaceUseEventReviewRequest(BaseModel):
+    autonomous_bounded_language_surface_use_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageGenerationDesignRequest(BaseModel):
+    autonomous_bounded_language_surface_use_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    generation_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageGenerationPreflightRequest(BaseModel):
+    autonomous_snn_language_generation_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageGenerationExecutorRequest(BaseModel):
+    autonomous_snn_language_generation_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    generation_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageGenerationEventReviewRequest(BaseModel):
+    autonomous_snn_language_generation_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageDecodingDesignRequest(BaseModel):
+    autonomous_snn_language_generation_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    decoding_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageDecodingPreflightRequest(BaseModel):
+    autonomous_snn_language_decoding_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    decoder_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageDecodingExecutorRequest(BaseModel):
+    autonomous_snn_language_decoding_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    decoding_evidence: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageDecodingEventReviewRequest(BaseModel):
+    autonomous_snn_language_decoding_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
 class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)

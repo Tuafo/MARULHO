@@ -359,6 +359,166 @@ class RuntimeFacade:
             **kwargs
         )
 
+    def snn_language_autonomous_decoded_output_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_decoded_output(
+            **kwargs
+        )
+
+    def snn_language_autonomous_decoded_output_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_decoded_output_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_text_emission_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_text_emission_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_text_emission_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_text_emission_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_text_emission_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_bounded_text_emission(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_text_emission_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_text_emission_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_sequence_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_sequence_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_commit_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_commit_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_commit_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_commit_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_commit_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_text_surface_commit(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_commit_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_commit_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_materialization_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_materialization_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_materialization_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_materialization_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_materialization_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_text_surface_materialization(
+            **kwargs
+        )
+
+    def snn_language_autonomous_text_surface_materialization_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_text_surface_materialization_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_commit_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_commit_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_commit_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_commit_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_commit_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_bounded_language_surface_commit(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_commit_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_commit_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_use_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_use_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_use_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_use_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_use_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_bounded_language_surface_use(
+            **kwargs
+        )
+
+    def snn_language_autonomous_bounded_language_surface_use_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_bounded_language_surface_use_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_generation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_generation_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_generation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_generation_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_generation_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_generation(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_generation_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_generation_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_decoding_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_decoding_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_decoding_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_decoding_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_decoding_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_decoding(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_decoding_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_decoding_event_review(
+            **kwargs
+        )
+
     def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
 

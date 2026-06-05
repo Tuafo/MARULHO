@@ -4234,6 +4234,2939 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     ] is False
     assert decoded_output_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
     assert decoded_output_preflight["promotion_gate"]["eligible_for_action"] is False
+    decoded_token_results = [
+        {
+            "decoded_output_slot_hash": slot_hash,
+            "token_candidate_hash": token_candidate_hash,
+            "decoded_token_hash": ledger._sha256_json(
+                ["decoded-token", token_candidate_hash, index]
+            ),
+            "token_id_hash": ledger._sha256_json(["token-id", index]),
+            "constraint_state_hash": ledger._sha256_json(
+                ["constraint-state", index]
+            ),
+            "constraint_valid": True,
+            "confidence_score": 0.79,
+            "spike_sparsity": 0.72,
+            "slot_drift": 0.02,
+        }
+        for index, (slot_hash, token_candidate_hash) in enumerate(
+            zip(
+                decoded_output_preflight_body["decoded_output_slot_hashes"],
+                decoded_output_preflight_body["token_candidate_hashes"],
+            )
+        )
+    ]
+    blocked_decoded_output_execution = ledger.execute_autonomous_decoded_output(
+        autonomous_decoded_output_preflight=decoded_output_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        decode_evidence={
+            "decoded_token_results": decoded_token_results,
+            "decoded_text": "blocked text",
+            "checkpoint_written": False,
+        },
+        execution_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+    decoded_output_before_revision = runtime_state.state_revision
+    decoded_output_execution = ledger.execute_autonomous_decoded_output(
+        autonomous_decoded_output_preflight=decoded_output_preflight,
+        expected_state_revision=decoded_output_before_revision,
+        decode_evidence={
+            "decoded_token_results": decoded_token_results,
+            "checkpoint_written": False,
+        },
+        execution_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_decoded_output_execution["accepted"] is False
+    assert blocked_decoded_output_execution["records_ledger_event"] is False
+    assert blocked_decoded_output_execution["mutates_runtime_state"] is False
+    assert blocked_decoded_output_execution["promotion_gate"]["required_evidence"][
+        "decoded_text_absent"
+    ] is False
+    assert decoded_output_execution["surface"] == (
+        "snn_language_autonomous_decoded_output_executor.v1"
+    )
+    assert decoded_output_execution["accepted"] is True
+    assert decoded_output_execution["ready"] is True
+    assert decoded_output_execution["requires_operator_approval"] is False
+    assert decoded_output_execution["records_ledger_event"] is True
+    assert decoded_output_execution["mutates_runtime_state"] is True
+    assert decoded_output_execution["after"]["state_revision"] == (
+        decoded_output_before_revision + 1
+    )
+    assert decoded_output_execution["runs_replay"] is False
+    assert decoded_output_execution["runs_calibration_update"] is False
+    assert decoded_output_execution["writes_checkpoint"] is False
+    assert decoded_output_execution["generates_text"] is False
+    assert decoded_output_execution["decodes_text"] is False
+    assert decoded_output_execution["trains_runtime_model"] is False
+    assert decoded_output_execution["applies_plasticity"] is False
+    decoded_output_event = decoded_output_execution[
+        "autonomous_decoded_output_event"
+    ]
+    assert decoded_output_event["operator_approval_required"] is False
+    assert decoded_output_event["output_is_hash_only"] is True
+    assert decoded_output_event["decoded_token_count"] == 3
+    assert decoded_output_event["mean_confidence_score"] == 0.79
+    assert decoded_output_event["mean_spike_sparsity"] == 0.72
+    assert decoded_output_event["max_slot_drift"] == 0.02
+    assert decoded_output_execution["ledger_summary"][
+        "total_autonomous_decoded_output_count"
+    ] == 1
+    assert decoded_output_execution["promotion_gate"][
+        "eligible_for_autonomous_decoded_output_event_review"
+    ] is True
+    assert decoded_output_execution["promotion_gate"]["eligible_for_language_generation"] is False
+    assert decoded_output_execution["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert decoded_output_execution["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert decoded_output_execution["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert decoded_output_execution["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert decoded_output_execution["promotion_gate"]["eligible_for_action"] is False
+    blocked_decoded_output_event_review = ledger.autonomous_decoded_output_event_review(
+        autonomous_decoded_output_executor={
+            **decoded_output_execution,
+            "autonomous_decoded_output_event": {
+                **decoded_output_execution["autonomous_decoded_output_event"],
+                "autonomous_decoded_output_event_hash": "0" * 64,
+            },
+        },
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+    decoded_output_event_review = ledger.autonomous_decoded_output_event_review(
+        autonomous_decoded_output_executor=decoded_output_execution,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_decoded_output_event_review["ready"] is False
+    assert blocked_decoded_output_event_review["requires_operator_approval"] is False
+    assert blocked_decoded_output_event_review["autonomous_decoded_output_event_review"][
+        "event_recorded_in_ledger"
+    ] is False
+    assert decoded_output_event_review["surface"] == (
+        "snn_language_autonomous_decoded_output_event_review.v1"
+    )
+    assert decoded_output_event_review["ready"] is True
+    assert decoded_output_event_review["accepted"] is True
+    assert decoded_output_event_review["requires_operator_approval"] is False
+    assert decoded_output_event_review["advisory"] is True
+    assert decoded_output_event_review["executable"] is False
+    assert decoded_output_event_review["records_ledger_event"] is False
+    assert decoded_output_event_review["mutates_runtime_state"] is False
+    assert decoded_output_event_review["runs_replay"] is False
+    assert decoded_output_event_review["writes_checkpoint"] is False
+    assert decoded_output_event_review["generates_text"] is False
+    assert decoded_output_event_review["decodes_text"] is False
+    assert decoded_output_event_review["trains_runtime_model"] is False
+    assert decoded_output_event_review["applies_plasticity"] is False
+    decoded_output_event_review_body = decoded_output_event_review[
+        "autonomous_decoded_output_event_review"
+    ]
+    assert decoded_output_event_review_body["event_recorded_in_ledger"] is True
+    assert decoded_output_event_review_body["decoded_token_count"] == 3
+    assert decoded_output_event_review_body["mean_confidence_score"] == 0.79
+    assert decoded_output_event_review_body["mean_spike_sparsity"] == 0.72
+    assert decoded_output_event_review_body["max_slot_drift"] == 0.02
+    assert decoded_output_event_review_body["output_is_hash_only"] is True
+    assert decoded_output_event_review_body["decoded_text_allowed"] is False
+    assert decoded_output_event_review_body["generated_text_allowed"] is False
+    assert decoded_output_event_review_body["operator_approval_required"] is False
+    assert decoded_output_event_review_body["mutation_allowed"] is False
+    assert decoded_output_event_review["promotion_gate"][
+        "eligible_for_autonomous_bounded_text_emission_design"
+    ] is True
+    assert decoded_output_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert decoded_output_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert decoded_output_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert decoded_output_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert decoded_output_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert decoded_output_event_review["promotion_gate"]["eligible_for_action"] is False
+    bounded_text_fragments = [
+        "spike trace stable",
+        "hash surface committed",
+        "bounded output ready",
+    ]
+    text_surface_schema_hash = ledger._sha256_json(
+        ["text-surface-schema", "unit"]
+    )
+    text_normalizer_hash = ledger._sha256_json(["text-normalizer", "unit"])
+    semantic_constraint_hash = ledger._sha256_json(
+        ["semantic-constraint", "unit"]
+    )
+    bounded_text_fragment_hashes = [
+        ledger._sha256_json(
+            {
+                "surface": "snn_language_bounded_text_fragment.v1",
+                "text": value,
+                "text_surface_schema_hash": text_surface_schema_hash,
+                "text_normalizer_hash": text_normalizer_hash,
+                "semantic_constraint_hash": semantic_constraint_hash,
+            }
+        )
+        for value in bounded_text_fragments
+    ]
+    blocked_text_emission_design = ledger.autonomous_bounded_text_emission_design(
+        autonomous_decoded_output_event_review=decoded_output_event_review,
+        text_surface_binding={
+            "text_fragment_hashes": [],
+            "text_surface_schema_hash": "",
+            "text_normalizer_hash": "",
+            "semantic_constraint_hash": "",
+        },
+        emission_policy={
+            "emission_mode": "bounded_text_hash_sequence",
+            "max_text_fragments": 3,
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+    text_emission_design = ledger.autonomous_bounded_text_emission_design(
+        autonomous_decoded_output_event_review=decoded_output_event_review,
+        text_surface_binding={
+            "text_fragment_hashes": bounded_text_fragment_hashes,
+            "text_surface_schema_hash": text_surface_schema_hash,
+            "text_normalizer_hash": text_normalizer_hash,
+            "semantic_constraint_hash": semantic_constraint_hash,
+        },
+        emission_policy={
+            "emission_mode": "bounded_text_hash_sequence",
+            "max_text_fragments": 3,
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+        device_evidence={"device": "cpu", "source": "unit"},
+    )
+
+    assert blocked_text_emission_design["ready"] is False
+    assert blocked_text_emission_design["requires_operator_approval"] is False
+    assert blocked_text_emission_design["promotion_gate"]["required_evidence"][
+        "text_fragment_hashes_valid"
+    ] is False
+    assert text_emission_design["surface"] == (
+        "snn_language_autonomous_bounded_text_emission_design.v1"
+    )
+    assert text_emission_design["ready"] is True
+    assert text_emission_design["requires_operator_approval"] is False
+    assert text_emission_design["advisory"] is True
+    assert text_emission_design["executable"] is False
+    assert text_emission_design["records_ledger_event"] is False
+    assert text_emission_design["mutates_runtime_state"] is False
+    assert text_emission_design["runs_replay"] is False
+    assert text_emission_design["writes_checkpoint"] is False
+    assert text_emission_design["generates_text"] is False
+    assert text_emission_design["decodes_text"] is False
+    assert text_emission_design["trains_runtime_model"] is False
+    assert text_emission_design["applies_plasticity"] is False
+    text_emission_body = text_emission_design[
+        "autonomous_bounded_text_emission_design"
+    ]
+    assert text_emission_body["emission_mode"] == "bounded_text_hash_sequence"
+    assert text_emission_body["max_text_fragments"] == 3
+    assert len(text_emission_body["decoded_token_hashes"]) == 3
+    assert len(text_emission_body["text_fragment_hashes"]) == 3
+    assert len(text_emission_body["text_emission_slots"]) == 3
+    assert text_emission_body["mean_confidence_score"] == 0.79
+    assert text_emission_body["mean_spike_sparsity"] == 0.72
+    assert text_emission_body["max_slot_drift"] == 0.02
+    assert text_emission_body["decoded_text_allowed"] is False
+    assert text_emission_body["generated_text_allowed"] is False
+    assert text_emission_body["literal_text_returned"] is False
+    assert text_emission_body["operator_approval_required"] is False
+    assert text_emission_design["promotion_gate"][
+        "eligible_for_autonomous_bounded_text_emission_preflight"
+    ] is True
+    assert text_emission_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_emission_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_emission_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_emission_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_emission_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_emission_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_emission_preflight = ledger.autonomous_bounded_text_emission_preflight(
+        autonomous_bounded_text_emission_design=text_emission_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_bounded_text_emission_executor": False},
+    )
+    text_emission_preflight = ledger.autonomous_bounded_text_emission_preflight(
+        autonomous_bounded_text_emission_design=text_emission_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_bounded_text_emission_executor": True},
+    )
+
+    assert blocked_text_emission_preflight["ready"] is False
+    assert blocked_text_emission_preflight["requires_operator_approval"] is False
+    assert blocked_text_emission_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert text_emission_preflight["surface"] == (
+        "snn_language_autonomous_bounded_text_emission_preflight.v1"
+    )
+    assert text_emission_preflight["ready"] is True
+    assert text_emission_preflight["requires_operator_approval"] is False
+    assert text_emission_preflight["advisory"] is True
+    assert text_emission_preflight["executable"] is False
+    assert text_emission_preflight["records_ledger_event"] is False
+    assert text_emission_preflight["mutates_runtime_state"] is False
+    assert text_emission_preflight["runs_replay"] is False
+    assert text_emission_preflight["writes_checkpoint"] is False
+    assert text_emission_preflight["generates_text"] is False
+    assert text_emission_preflight["decodes_text"] is False
+    assert text_emission_preflight["trains_runtime_model"] is False
+    assert text_emission_preflight["applies_plasticity"] is False
+    text_emission_preflight_body = text_emission_preflight[
+        "autonomous_bounded_text_emission_preflight"
+    ]
+    assert text_emission_preflight_body["emission_mode"] == "bounded_text_hash_sequence"
+    assert text_emission_preflight_body["max_text_fragments"] == 3
+    assert len(text_emission_preflight_body["decoded_token_hashes"]) == 3
+    assert len(text_emission_preflight_body["text_fragment_hashes"]) == 3
+    assert len(text_emission_preflight_body["text_emission_slot_hashes"]) == 3
+    assert text_emission_preflight_body["mean_confidence_score"] == 0.79
+    assert text_emission_preflight_body["mean_spike_sparsity"] == 0.72
+    assert text_emission_preflight_body["max_slot_drift"] == 0.02
+    assert text_emission_preflight_body["decoded_text_allowed"] is False
+    assert text_emission_preflight_body["generated_text_allowed"] is False
+    assert text_emission_preflight_body["literal_text_returned"] is False
+    assert text_emission_preflight_body["operator_approval_required"] is False
+    assert text_emission_preflight["promotion_gate"][
+        "eligible_for_autonomous_bounded_text_emission_executor"
+    ] is True
+    assert text_emission_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_emission_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_emission_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_emission_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_emission_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_emission_preflight["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_emission_executor = ledger.execute_autonomous_bounded_text_emission(
+        autonomous_bounded_text_emission_preflight=text_emission_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        emission_evidence={
+            "text_emission_results": [],
+            "checkpoint_written": False,
+        },
+        execution_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+    text_emission_executor = ledger.execute_autonomous_bounded_text_emission(
+        autonomous_bounded_text_emission_preflight=text_emission_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        emission_evidence={
+            "text_emission_results": [
+                {
+                    "bounded_text_emission_slot_hash": slot_hash,
+                    "decoded_token_hash": decoded_hash,
+                    "text_fragment_hash": fragment_hash,
+                    "text_surface_schema_hash": text_emission_preflight_body[
+                        "text_surface_schema_hash"
+                    ],
+                    "text_normalizer_hash": text_emission_preflight_body[
+                        "text_normalizer_hash"
+                    ],
+                    "semantic_constraint_hash": text_emission_preflight_body[
+                        "semantic_constraint_hash"
+                    ],
+                    "semantic_constraint_valid": True,
+                    "text_normalized": True,
+                    "confidence_score": 0.79,
+                    "spike_sparsity": 0.72,
+                    "slot_drift": 0.02,
+                }
+                for slot_hash, decoded_hash, fragment_hash in zip(
+                    text_emission_preflight_body["text_emission_slot_hashes"],
+                    text_emission_preflight_body["decoded_token_hashes"],
+                    text_emission_preflight_body["text_fragment_hashes"],
+                )
+            ],
+            "checkpoint_written": False,
+        },
+        execution_policy={
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_text_emission_executor["accepted"] is False
+    assert blocked_text_emission_executor["requires_operator_approval"] is False
+    assert blocked_text_emission_executor["promotion_gate"]["required_evidence"][
+        "text_emission_results_bounded"
+    ] is False
+    assert text_emission_executor["surface"] == (
+        "snn_language_autonomous_bounded_text_emission_executor.v1"
+    )
+    assert text_emission_executor["accepted"] is True
+    assert text_emission_executor["ready"] is True
+    assert text_emission_executor["requires_operator_approval"] is False
+    assert text_emission_executor["advisory"] is False
+    assert text_emission_executor["executable"] is True
+    assert text_emission_executor["records_ledger_event"] is True
+    assert text_emission_executor["mutates_runtime_state"] is True
+    assert text_emission_executor["runs_replay"] is False
+    assert text_emission_executor["writes_checkpoint"] is False
+    assert text_emission_executor["generates_text"] is False
+    assert text_emission_executor["decodes_text"] is False
+    assert text_emission_executor["trains_runtime_model"] is False
+    assert text_emission_executor["applies_plasticity"] is False
+    text_emission_event = text_emission_executor[
+        "autonomous_bounded_text_emission_event"
+    ]
+    assert text_emission_event["text_fragment_count"] == 3
+    assert len(text_emission_event["decoded_token_hashes"]) == 3
+    assert len(text_emission_event["text_fragment_hashes"]) == 3
+    assert len(text_emission_event["text_emission_slot_hashes"]) == 3
+    assert text_emission_event["mean_confidence_score"] == 0.79
+    assert text_emission_event["mean_spike_sparsity"] == 0.72
+    assert text_emission_event["max_slot_drift"] == 0.02
+    assert text_emission_event["output_is_hash_only"] is True
+    assert text_emission_event["literal_text_returned"] is False
+    assert text_emission_event["operator_approval_required"] is False
+    assert text_emission_executor["promotion_gate"][
+        "eligible_for_autonomous_bounded_text_emission_event_review"
+    ] is True
+    assert text_emission_executor["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_emission_executor["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_emission_executor["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_emission_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_emission_executor["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_emission_executor["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_emission_event_review = (
+        ledger.autonomous_bounded_text_emission_event_review(
+            autonomous_bounded_text_emission_executor=blocked_text_emission_executor,
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "min_text_fragments": 1,
+                "max_text_fragments": 3,
+                "min_confidence_score": 0.5,
+                "min_spike_sparsity": 0.5,
+                "max_slot_drift": 0.2,
+            },
+        )
+    )
+    text_emission_event_review = ledger.autonomous_bounded_text_emission_event_review(
+        autonomous_bounded_text_emission_executor=text_emission_executor,
+        expected_state_revision=runtime_state.state_revision,
+        review_policy={
+            "min_text_fragments": 1,
+            "max_text_fragments": 3,
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_text_emission_event_review["ready"] is False
+    assert blocked_text_emission_event_review["requires_operator_approval"] is False
+    assert blocked_text_emission_event_review["promotion_gate"]["required_evidence"][
+        "executor_accepted"
+    ] is False
+    assert text_emission_event_review["surface"] == (
+        "snn_language_autonomous_bounded_text_emission_event_review.v1"
+    )
+    assert text_emission_event_review["ready"] is True
+    assert text_emission_event_review["accepted"] is True
+    assert text_emission_event_review["requires_operator_approval"] is False
+    assert text_emission_event_review["advisory"] is True
+    assert text_emission_event_review["executable"] is False
+    assert text_emission_event_review["records_ledger_event"] is False
+    assert text_emission_event_review["mutates_runtime_state"] is False
+    assert text_emission_event_review["runs_replay"] is False
+    assert text_emission_event_review["writes_checkpoint"] is False
+    assert text_emission_event_review["generates_text"] is False
+    assert text_emission_event_review["decodes_text"] is False
+    assert text_emission_event_review["trains_runtime_model"] is False
+    assert text_emission_event_review["applies_plasticity"] is False
+    text_emission_review_body = text_emission_event_review[
+        "autonomous_bounded_text_emission_event_review"
+    ]
+    assert text_emission_review_body["event_recorded_in_ledger"] is True
+    assert text_emission_review_body["text_fragment_count"] == 3
+    assert len(text_emission_review_body["decoded_token_hashes"]) == 3
+    assert len(text_emission_review_body["text_fragment_hashes"]) == 3
+    assert len(text_emission_review_body["text_emission_slot_hashes"]) == 3
+    assert text_emission_review_body["mean_confidence_score"] == 0.79
+    assert text_emission_review_body["mean_spike_sparsity"] == 0.72
+    assert text_emission_review_body["max_slot_drift"] == 0.02
+    assert text_emission_review_body["output_is_hash_only"] is True
+    assert text_emission_review_body["literal_text_returned"] is False
+    assert text_emission_review_body["operator_approval_required"] is False
+    assert text_emission_event_review["promotion_gate"][
+        "eligible_for_autonomous_text_surface_sequence_review"
+    ] is True
+    assert text_emission_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_emission_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_emission_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_emission_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_emission_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_emission_event_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_surface_sequence_review = (
+        ledger.autonomous_text_surface_sequence_review(
+            autonomous_bounded_text_emission_event_review=(
+                blocked_text_emission_event_review
+            ),
+            sequence_policy={
+                "sequence_mode": "bounded_hash_fragment_sequence",
+                "min_text_fragments": 1,
+                "max_text_fragments": 3,
+                "min_confidence_score": 0.5,
+                "min_spike_sparsity": 0.5,
+                "max_slot_drift": 0.2,
+            },
+        )
+    )
+    text_surface_sequence_review = ledger.autonomous_text_surface_sequence_review(
+        autonomous_bounded_text_emission_event_review=text_emission_event_review,
+        sequence_policy={
+            "sequence_mode": "bounded_hash_fragment_sequence",
+            "min_text_fragments": 1,
+            "max_text_fragments": 3,
+            "min_confidence_score": 0.5,
+            "min_spike_sparsity": 0.5,
+            "max_slot_drift": 0.2,
+        },
+    )
+
+    assert blocked_text_surface_sequence_review["ready"] is False
+    assert blocked_text_surface_sequence_review["requires_operator_approval"] is False
+    assert blocked_text_surface_sequence_review["promotion_gate"]["required_evidence"][
+        "event_review_ready"
+    ] is False
+    assert text_surface_sequence_review["surface"] == (
+        "snn_language_autonomous_text_surface_sequence_review.v1"
+    )
+    assert text_surface_sequence_review["ready"] is True
+    assert text_surface_sequence_review["accepted"] is True
+    assert text_surface_sequence_review["requires_operator_approval"] is False
+    assert text_surface_sequence_review["advisory"] is True
+    assert text_surface_sequence_review["executable"] is False
+    assert text_surface_sequence_review["records_ledger_event"] is False
+    assert text_surface_sequence_review["mutates_runtime_state"] is False
+    assert text_surface_sequence_review["runs_replay"] is False
+    assert text_surface_sequence_review["writes_checkpoint"] is False
+    assert text_surface_sequence_review["generates_text"] is False
+    assert text_surface_sequence_review["decodes_text"] is False
+    assert text_surface_sequence_review["trains_runtime_model"] is False
+    assert text_surface_sequence_review["applies_plasticity"] is False
+    text_surface_sequence_body = text_surface_sequence_review[
+        "autonomous_text_surface_sequence_review"
+    ]
+    assert text_surface_sequence_body["sequence_mode"] == (
+        "bounded_hash_fragment_sequence"
+    )
+    assert text_surface_sequence_body["text_fragment_count"] == 3
+    assert len(text_surface_sequence_body["decoded_token_hashes"]) == 3
+    assert len(text_surface_sequence_body["text_fragment_hashes"]) == 3
+    assert len(text_surface_sequence_body["text_emission_slot_hashes"]) == 3
+    assert len(text_surface_sequence_body["fragment_sequence_hash"]) == 64
+    assert text_surface_sequence_body["mean_confidence_score"] == 0.79
+    assert text_surface_sequence_body["mean_spike_sparsity"] == 0.72
+    assert text_surface_sequence_body["max_slot_drift"] == 0.02
+    assert text_surface_sequence_body["output_is_hash_only"] is True
+    assert text_surface_sequence_body["literal_text_returned"] is False
+    assert text_surface_sequence_body["operator_approval_required"] is False
+    assert text_surface_sequence_review["promotion_gate"][
+        "eligible_for_autonomous_text_surface_commit_design"
+    ] is True
+    assert text_surface_sequence_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_surface_sequence_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_surface_sequence_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_surface_sequence_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_sequence_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_surface_sequence_review["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_surface_commit_design = (
+        ledger.autonomous_text_surface_commit_design(
+            autonomous_text_surface_sequence_review=blocked_text_surface_sequence_review,
+            commit_policy={
+                "commit_scope": "hash_surface_state",
+                "retention_class": "ephemeral_hash_surface",
+                "min_text_fragments": 1,
+                "max_text_fragments": 3,
+            },
+        )
+    )
+    text_surface_commit_design = ledger.autonomous_text_surface_commit_design(
+        autonomous_text_surface_sequence_review=text_surface_sequence_review,
+        commit_policy={
+            "commit_scope": "hash_surface_state",
+            "retention_class": "ephemeral_hash_surface",
+            "min_text_fragments": 1,
+            "max_text_fragments": 3,
+        },
+    )
+
+    assert blocked_text_surface_commit_design["ready"] is False
+    assert blocked_text_surface_commit_design["requires_operator_approval"] is False
+    assert blocked_text_surface_commit_design["promotion_gate"]["required_evidence"][
+        "sequence_review_ready"
+    ] is False
+    assert text_surface_commit_design["surface"] == (
+        "snn_language_autonomous_text_surface_commit_design.v1"
+    )
+    assert text_surface_commit_design["ready"] is True
+    assert text_surface_commit_design["accepted"] is True
+    assert text_surface_commit_design["requires_operator_approval"] is False
+    assert text_surface_commit_design["advisory"] is True
+    assert text_surface_commit_design["executable"] is False
+    assert text_surface_commit_design["records_ledger_event"] is False
+    assert text_surface_commit_design["mutates_runtime_state"] is False
+    assert text_surface_commit_design["runs_replay"] is False
+    assert text_surface_commit_design["writes_checkpoint"] is False
+    assert text_surface_commit_design["generates_text"] is False
+    assert text_surface_commit_design["decodes_text"] is False
+    assert text_surface_commit_design["trains_runtime_model"] is False
+    assert text_surface_commit_design["applies_plasticity"] is False
+    text_surface_commit_body = text_surface_commit_design[
+        "autonomous_text_surface_commit_design"
+    ]
+    assert text_surface_commit_body["commit_scope"] == "hash_surface_state"
+    assert text_surface_commit_body["retention_class"] == "ephemeral_hash_surface"
+    assert text_surface_commit_body["text_fragment_count"] == 3
+    assert len(text_surface_commit_body["decoded_token_hashes"]) == 3
+    assert len(text_surface_commit_body["text_fragment_hashes"]) == 3
+    assert len(text_surface_commit_body["text_emission_slot_hashes"]) == 3
+    assert len(text_surface_commit_body["fragment_sequence_hash"]) == 64
+    assert len(text_surface_commit_body["commit_plan_hash"]) == 64
+    assert text_surface_commit_body["mean_confidence_score"] == 0.79
+    assert text_surface_commit_body["mean_spike_sparsity"] == 0.72
+    assert text_surface_commit_body["max_slot_drift"] == 0.02
+    assert text_surface_commit_body["output_is_hash_only"] is True
+    assert text_surface_commit_body["literal_text_returned"] is False
+    assert text_surface_commit_body["operator_approval_required"] is False
+    assert text_surface_commit_design["promotion_gate"][
+        "eligible_for_autonomous_text_surface_commit_preflight"
+    ] is True
+    assert text_surface_commit_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_surface_commit_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_surface_commit_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_surface_commit_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_commit_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_surface_commit_design["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_surface_commit_preflight = (
+        ledger.autonomous_text_surface_commit_preflight(
+            autonomous_text_surface_commit_design=text_surface_commit_design,
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={"autonomous_text_surface_commit_executor": False},
+        )
+    )
+    text_surface_commit_preflight = ledger.autonomous_text_surface_commit_preflight(
+        autonomous_text_surface_commit_design=text_surface_commit_design,
+        expected_state_revision=runtime_state.state_revision,
+        device_evidence={"device": "cpu", "source": "unit"},
+        executor_capabilities={"autonomous_text_surface_commit_executor": True},
+    )
+
+    assert blocked_text_surface_commit_preflight["ready"] is False
+    assert blocked_text_surface_commit_preflight["requires_operator_approval"] is False
+    assert blocked_text_surface_commit_preflight["promotion_gate"]["required_evidence"][
+        "executor_capability_available"
+    ] is False
+    assert text_surface_commit_preflight["surface"] == (
+        "snn_language_autonomous_text_surface_commit_preflight.v1"
+    )
+    assert text_surface_commit_preflight["ready"] is True
+    assert text_surface_commit_preflight["accepted"] is True
+    assert text_surface_commit_preflight["requires_operator_approval"] is False
+    assert text_surface_commit_preflight["advisory"] is True
+    assert text_surface_commit_preflight["executable"] is False
+    assert text_surface_commit_preflight["records_ledger_event"] is False
+    assert text_surface_commit_preflight["mutates_runtime_state"] is False
+    assert text_surface_commit_preflight["runs_replay"] is False
+    assert text_surface_commit_preflight["writes_checkpoint"] is False
+    assert text_surface_commit_preflight["generates_text"] is False
+    assert text_surface_commit_preflight["decodes_text"] is False
+    assert text_surface_commit_preflight["trains_runtime_model"] is False
+    assert text_surface_commit_preflight["applies_plasticity"] is False
+    text_surface_commit_preflight_body = text_surface_commit_preflight[
+        "autonomous_text_surface_commit_preflight"
+    ]
+    assert text_surface_commit_preflight_body["commit_scope"] == "hash_surface_state"
+    assert text_surface_commit_preflight_body["retention_class"] == (
+        "ephemeral_hash_surface"
+    )
+    assert text_surface_commit_preflight_body["text_fragment_count"] == 3
+    assert len(text_surface_commit_preflight_body["decoded_token_hashes"]) == 3
+    assert len(text_surface_commit_preflight_body["text_fragment_hashes"]) == 3
+    assert len(text_surface_commit_preflight_body["text_emission_slot_hashes"]) == 3
+    assert len(text_surface_commit_preflight_body["fragment_sequence_hash"]) == 64
+    assert len(text_surface_commit_preflight["preflight_hash"]) == 64
+    assert text_surface_commit_preflight_body["mean_confidence_score"] == 0.79
+    assert text_surface_commit_preflight_body["mean_spike_sparsity"] == 0.72
+    assert text_surface_commit_preflight_body["max_slot_drift"] == 0.02
+    assert text_surface_commit_preflight_body["literal_text_returned"] is False
+    assert text_surface_commit_preflight_body["operator_approval_required"] is False
+    assert text_surface_commit_preflight["promotion_gate"][
+        "eligible_for_autonomous_text_surface_commit_executor"
+    ] is True
+    assert text_surface_commit_preflight["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_surface_commit_preflight["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_surface_commit_preflight["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_surface_commit_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_commit_preflight["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_surface_commit_preflight["promotion_gate"]["eligible_for_action"] is False
+    blocked_text_surface_commit_executor = (
+        ledger.execute_autonomous_text_surface_commit(
+            autonomous_text_surface_commit_preflight=blocked_text_surface_commit_preflight,
+            expected_state_revision=runtime_state.state_revision,
+            commit_evidence={
+                "checkpoint_written": False,
+            },
+            execution_policy={"max_text_fragments": 3},
+        )
+    )
+    text_surface_commit_executor = ledger.execute_autonomous_text_surface_commit(
+        autonomous_text_surface_commit_preflight=text_surface_commit_preflight,
+        expected_state_revision=runtime_state.state_revision,
+        commit_evidence={
+            "committed_surface_hash": text_surface_commit_preflight_body[
+                "fragment_sequence_hash"
+            ],
+            "checkpoint_written": False,
+        },
+        execution_policy={"max_text_fragments": 3},
+    )
+    blocked_text_surface_commit_event_review = (
+        ledger.autonomous_text_surface_commit_event_review(
+            autonomous_text_surface_commit_executor=blocked_text_surface_commit_executor,
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={"max_text_fragments": 3},
+        )
+    )
+    text_surface_commit_event_review = (
+        ledger.autonomous_text_surface_commit_event_review(
+            autonomous_text_surface_commit_executor=text_surface_commit_executor,
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+            },
+        )
+    )
+    blocked_text_surface_materialization_design = (
+        ledger.autonomous_text_surface_materialization_design(
+            autonomous_text_surface_commit_event_review=(
+                blocked_text_surface_commit_event_review
+            ),
+            materialization_policy={"max_text_fragments": 3},
+        )
+    )
+    text_surface_materialization_design = (
+        ledger.autonomous_text_surface_materialization_design(
+            autonomous_text_surface_commit_event_review=text_surface_commit_event_review,
+            materialization_policy={
+                "max_text_fragments": 3,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_text_surface_materialization_preflight = (
+        ledger.autonomous_text_surface_materialization_preflight(
+            autonomous_text_surface_materialization_design=(
+                blocked_text_surface_materialization_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu"},
+            executor_capabilities={
+                "autonomous_text_surface_materialization_executor": False,
+            },
+        )
+    )
+    text_surface_materialization_preflight = (
+        ledger.autonomous_text_surface_materialization_preflight(
+            autonomous_text_surface_materialization_design=(
+                text_surface_materialization_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu"},
+            executor_capabilities={
+                "autonomous_text_surface_materialization_executor": True,
+            },
+        )
+    )
+    blocked_text_surface_materialization_executor = (
+        ledger.execute_autonomous_text_surface_materialization(
+            autonomous_text_surface_materialization_preflight=(
+                blocked_text_surface_materialization_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            materialization_evidence={
+                "text_fragments": bounded_text_fragments,
+                "checkpoint_written": False,
+            },
+            execution_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    text_surface_materialization_executor = (
+        ledger.execute_autonomous_text_surface_materialization(
+            autonomous_text_surface_materialization_preflight=(
+                text_surface_materialization_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            materialization_evidence={
+                "text_fragments": bounded_text_fragments,
+                "checkpoint_written": False,
+            },
+            execution_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_text_surface_materialization_event_review = (
+        ledger.autonomous_text_surface_materialization_event_review(
+            autonomous_text_surface_materialization_executor=(
+                blocked_text_surface_materialization_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    text_surface_materialization_event_review = (
+        ledger.autonomous_text_surface_materialization_event_review(
+            autonomous_text_surface_materialization_executor=(
+                text_surface_materialization_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+            },
+        )
+    )
+    blocked_bounded_language_surface_review = (
+        ledger.autonomous_bounded_language_surface_review(
+            autonomous_text_surface_materialization_event_review=(
+                blocked_text_surface_materialization_event_review
+            ),
+            language_surface_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_review = (
+        ledger.autonomous_bounded_language_surface_review(
+            autonomous_text_surface_materialization_event_review=(
+                text_surface_materialization_event_review
+            ),
+            language_surface_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+            },
+        )
+    )
+    blocked_bounded_language_surface_commit_design = (
+        ledger.autonomous_bounded_language_surface_commit_design(
+            autonomous_bounded_language_surface_review=(
+                blocked_bounded_language_surface_review
+            ),
+            commit_policy={
+                "commit_scope": "bounded_language_surface",
+                "retention_class": "ephemeral_language_surface",
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_commit_design = (
+        ledger.autonomous_bounded_language_surface_commit_design(
+            autonomous_bounded_language_surface_review=bounded_language_surface_review,
+            commit_policy={
+                "commit_scope": "bounded_language_surface",
+                "retention_class": "ephemeral_language_surface",
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_bounded_language_surface_commit_preflight = (
+        ledger.autonomous_bounded_language_surface_commit_preflight(
+            autonomous_bounded_language_surface_commit_design=(
+                bounded_language_surface_commit_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_bounded_language_surface_commit_executor": False
+            },
+        )
+    )
+    bounded_language_surface_commit_preflight = (
+        ledger.autonomous_bounded_language_surface_commit_preflight(
+            autonomous_bounded_language_surface_commit_design=(
+                bounded_language_surface_commit_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_bounded_language_surface_commit_executor": True
+            },
+        )
+    )
+    blocked_bounded_language_surface_commit_executor = (
+        ledger.execute_autonomous_bounded_language_surface_commit(
+            autonomous_bounded_language_surface_commit_preflight=(
+                blocked_bounded_language_surface_commit_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            commit_evidence={"checkpoint_written": False},
+            execution_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_commit_executor = (
+        ledger.execute_autonomous_bounded_language_surface_commit(
+            autonomous_bounded_language_surface_commit_preflight=(
+                bounded_language_surface_commit_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            commit_evidence={
+                "committed_language_surface_hash": (
+                    bounded_language_surface_commit_preflight[
+                        "bounded_language_surface_hash"
+                    ]
+                ),
+                "checkpoint_written": False,
+            },
+            execution_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_bounded_language_surface_commit_event_review = (
+        ledger.autonomous_bounded_language_surface_commit_event_review(
+            autonomous_bounded_language_surface_commit_executor=(
+                blocked_bounded_language_surface_commit_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_commit_event_review = (
+        ledger.autonomous_bounded_language_surface_commit_event_review(
+            autonomous_bounded_language_surface_commit_executor=(
+                bounded_language_surface_commit_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+            },
+        )
+    )
+    blocked_bounded_language_surface_use_review = (
+        ledger.autonomous_bounded_language_surface_use_review(
+            autonomous_bounded_language_surface_commit_event_review=(
+                blocked_bounded_language_surface_commit_event_review
+            ),
+            use_policy={
+                "language_use_scope": "bounded_language_evidence",
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_use_review = (
+        ledger.autonomous_bounded_language_surface_use_review(
+            autonomous_bounded_language_surface_commit_event_review=(
+                bounded_language_surface_commit_event_review
+            ),
+            use_policy={
+                "language_use_scope": "bounded_language_evidence",
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_bounded_language_surface_use_preflight = (
+        ledger.autonomous_bounded_language_surface_use_preflight(
+            autonomous_bounded_language_surface_use_review=(
+                bounded_language_surface_use_review
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_bounded_language_surface_use_executor": False
+            },
+        )
+    )
+    bounded_language_surface_use_preflight = (
+        ledger.autonomous_bounded_language_surface_use_preflight(
+            autonomous_bounded_language_surface_use_review=(
+                bounded_language_surface_use_review
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_bounded_language_surface_use_executor": True
+            },
+        )
+    )
+    blocked_bounded_language_surface_use_executor = (
+        ledger.execute_autonomous_bounded_language_surface_use(
+            autonomous_bounded_language_surface_use_preflight=(
+                blocked_bounded_language_surface_use_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            use_evidence={"checkpoint_written": False},
+            execution_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_use_executor = (
+        ledger.execute_autonomous_bounded_language_surface_use(
+            autonomous_bounded_language_surface_use_preflight=(
+                bounded_language_surface_use_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            use_evidence={
+                "used_language_surface_hash": bounded_language_surface_use_preflight[
+                    "bounded_language_surface_hash"
+                ],
+                "use_mode": "bounded_language_evidence_observation",
+                "checkpoint_written": False,
+            },
+            execution_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_bounded_language_surface_use_event_review = (
+        ledger.autonomous_bounded_language_surface_use_event_review(
+            autonomous_bounded_language_surface_use_executor=(
+                blocked_bounded_language_surface_use_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    bounded_language_surface_use_event_review = (
+        ledger.autonomous_bounded_language_surface_use_event_review(
+            autonomous_bounded_language_surface_use_executor=(
+                bounded_language_surface_use_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_text_fragments": 3,
+                "max_surface_chars": 256,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+            },
+        )
+    )
+    blocked_snn_language_generation_design = (
+        ledger.autonomous_snn_language_generation_design(
+            autonomous_bounded_language_surface_use_event_review=(
+                blocked_bounded_language_surface_use_event_review
+            ),
+            generation_policy={
+                "generation_mode": "snn_bounded_next_token_projection",
+                "decoding_strategy": "spike_sparse_top_k",
+                "max_new_tokens": 16,
+                "max_generated_fragments": 2,
+                "target_device": "cpu",
+                "requires_cuda": False,
+            },
+        )
+    )
+    snn_language_generation_design = (
+        ledger.autonomous_snn_language_generation_design(
+            autonomous_bounded_language_surface_use_event_review=(
+                bounded_language_surface_use_event_review
+            ),
+            generation_policy={
+                "generation_mode": "snn_bounded_next_token_projection",
+                "decoding_strategy": "spike_sparse_top_k",
+                "max_new_tokens": 16,
+                "max_generated_fragments": 2,
+                "target_device": "cpu",
+                "requires_cuda": False,
+                "min_confidence_score": 0.7,
+                "min_spike_sparsity": 0.7,
+                "max_slot_drift": 0.05,
+            },
+        )
+    )
+    blocked_snn_language_generation_preflight = (
+        ledger.autonomous_snn_language_generation_preflight(
+            autonomous_snn_language_generation_design=(
+                blocked_snn_language_generation_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_snn_language_generation_executor": False
+            },
+        )
+    )
+    snn_language_generation_preflight = (
+        ledger.autonomous_snn_language_generation_preflight(
+            autonomous_snn_language_generation_design=snn_language_generation_design,
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cpu", "source": "unit"},
+            executor_capabilities={
+                "autonomous_snn_language_generation_executor": True
+            },
+        )
+    )
+    generation_token_hashes = [
+        _sha256_json({"generated_token_index": index, "slot": f"slot-{index}"})
+        for index in range(2)
+    ]
+    generation_spike_hashes = [
+        _sha256_json({"spike_projection": index, "active": [index, index + 1]})
+        for index in range(2)
+    ]
+    generation_active_hashes = [
+        _sha256_json({"active_neurons": [index, index + 2]})
+        for index in range(2)
+    ]
+    generation_membrane_hashes = [
+        _sha256_json({"membrane_state": index, "voltage": round(0.1 * index, 2)})
+        for index in range(2)
+    ]
+    blocked_snn_language_generation_executor = (
+        ledger.execute_autonomous_snn_language_generation(
+            autonomous_snn_language_generation_preflight=(
+                blocked_snn_language_generation_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            generation_evidence={
+                "generated_token_hashes": generation_token_hashes,
+                "spike_projection_hashes": generation_spike_hashes,
+                "active_neuron_hashes": generation_active_hashes,
+                "membrane_state_hashes": generation_membrane_hashes,
+                "output_fragment_hashes": [
+                    _sha256_json({"output_fragment": "hash-only"})
+                ],
+                "checkpoint_written": False,
+            },
+            execution_policy={"max_new_tokens": 2},
+        )
+    )
+    snn_language_generation_executor = (
+        ledger.execute_autonomous_snn_language_generation(
+            autonomous_snn_language_generation_preflight=(
+                snn_language_generation_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            generation_evidence={
+                "generated_token_hashes": generation_token_hashes,
+                "spike_projection_hashes": generation_spike_hashes,
+                "active_neuron_hashes": generation_active_hashes,
+                "membrane_state_hashes": generation_membrane_hashes,
+                "output_fragment_hashes": [
+                    _sha256_json({"output_fragment": "hash-only"})
+                ],
+                "checkpoint_written": False,
+            },
+            execution_policy={"max_new_tokens": 2},
+        )
+    )
+    blocked_snn_language_generation_event_review = (
+        ledger.autonomous_snn_language_generation_event_review(
+            autonomous_snn_language_generation_executor=(
+                blocked_snn_language_generation_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={"max_generated_tokens": 2},
+        )
+    )
+    snn_language_generation_event_review = (
+        ledger.autonomous_snn_language_generation_event_review(
+            autonomous_snn_language_generation_executor=(
+                snn_language_generation_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "min_generated_tokens": 1,
+                "max_generated_tokens": 2,
+            },
+        )
+    )
+    blocked_snn_language_decoding_design = (
+        ledger.autonomous_snn_language_decoding_design(
+            autonomous_snn_language_generation_event_review=(
+                blocked_snn_language_generation_event_review
+            ),
+            decoding_policy={
+                "decoding_mode": "bounded_hash_token_projection",
+                "materialization_target": "bounded_text_surface",
+                "max_decoded_tokens": 2,
+                "max_decoded_fragments": 1,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    snn_language_decoding_design = (
+        ledger.autonomous_snn_language_decoding_design(
+            autonomous_snn_language_generation_event_review=(
+                snn_language_generation_event_review
+            ),
+            decoding_policy={
+                "decoding_mode": "bounded_hash_token_projection",
+                "materialization_target": "bounded_text_surface",
+                "max_decoded_tokens": 2,
+                "max_decoded_fragments": 1,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+    blocked_snn_language_decoding_preflight = (
+        ledger.autonomous_snn_language_decoding_preflight(
+            autonomous_snn_language_decoding_design=(
+                blocked_snn_language_decoding_design
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cuda:0", "cuda_available": True},
+            decoder_capabilities={
+                "autonomous_snn_language_decoding_executor": True
+            },
+        )
+    )
+    snn_language_decoding_preflight = (
+        ledger.autonomous_snn_language_decoding_preflight(
+            autonomous_snn_language_decoding_design=snn_language_decoding_design,
+            expected_state_revision=runtime_state.state_revision,
+            device_evidence={"device": "cuda:0", "cuda_available": True},
+            decoder_capabilities={
+                "autonomous_snn_language_decoding_executor": True
+            },
+        )
+    )
+    blocked_snn_language_decoding_executor = (
+        ledger.execute_autonomous_snn_language_decoding(
+            autonomous_snn_language_decoding_preflight=(
+                blocked_snn_language_decoding_preflight
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            decoding_evidence={
+                "decoded_token_hashes": generation_token_hashes,
+                "decoded_text_fragments": ["spike language"],
+                "rendered_text": "spike language",
+                "schema_valid": True,
+                "text_normalized": True,
+                "semantic_constraint_valid": True,
+                "checkpoint_written": False,
+            },
+        )
+    )
+    snn_language_decoding_executor = (
+        ledger.execute_autonomous_snn_language_decoding(
+            autonomous_snn_language_decoding_preflight=snn_language_decoding_preflight,
+            expected_state_revision=runtime_state.state_revision,
+            decoding_evidence={
+                "decoded_token_hashes": generation_token_hashes,
+                "decoded_text_fragments": ["spike language"],
+                "rendered_text": "spike language",
+                "schema_valid": True,
+                "text_normalized": True,
+                "semantic_constraint_valid": True,
+                "checkpoint_written": False,
+            },
+        )
+    )
+    blocked_snn_language_decoding_event_review = (
+        ledger.autonomous_snn_language_decoding_event_review(
+            autonomous_snn_language_decoding_executor=(
+                blocked_snn_language_decoding_executor
+            ),
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={"max_decoded_fragments": 1, "max_surface_chars": 256},
+        )
+    )
+    snn_language_decoding_event_review = (
+        ledger.autonomous_snn_language_decoding_event_review(
+            autonomous_snn_language_decoding_executor=snn_language_decoding_executor,
+            expected_state_revision=runtime_state.state_revision,
+            review_policy={
+                "max_decoded_tokens": 2,
+                "max_decoded_fragments": 1,
+                "max_surface_chars": 256,
+            },
+        )
+    )
+
+    assert blocked_text_surface_commit_executor["accepted"] is False
+    assert blocked_text_surface_commit_executor["requires_operator_approval"] is False
+    assert blocked_text_surface_commit_executor["promotion_gate"]["required_evidence"][
+        "preflight_ready"
+    ] is False
+    assert text_surface_commit_executor["surface"] == (
+        "snn_language_autonomous_text_surface_commit_executor.v1"
+    )
+    assert text_surface_commit_executor["accepted"] is True
+    assert text_surface_commit_executor["ready"] is True
+    assert text_surface_commit_executor["requires_operator_approval"] is False
+    assert text_surface_commit_executor["advisory"] is False
+    assert text_surface_commit_executor["executable"] is True
+    assert text_surface_commit_executor["records_ledger_event"] is True
+    assert text_surface_commit_executor["mutates_runtime_state"] is True
+    assert text_surface_commit_executor["runs_replay"] is False
+    assert text_surface_commit_executor["writes_checkpoint"] is False
+    assert text_surface_commit_executor["generates_text"] is False
+    assert text_surface_commit_executor["decodes_text"] is False
+    assert text_surface_commit_executor["trains_runtime_model"] is False
+    assert text_surface_commit_executor["applies_plasticity"] is False
+    text_surface_commit_event = text_surface_commit_executor[
+        "autonomous_text_surface_commit_event"
+    ]
+    assert text_surface_commit_event["commit_scope"] == "hash_surface_state"
+    assert text_surface_commit_event["retention_class"] == "ephemeral_hash_surface"
+    assert text_surface_commit_event["text_fragment_count"] == 3
+    assert len(text_surface_commit_event["decoded_token_hashes"]) == 3
+    assert len(text_surface_commit_event["text_fragment_hashes"]) == 3
+    assert len(text_surface_commit_event["text_emission_slot_hashes"]) == 3
+    assert len(text_surface_commit_event["committed_surface_hash"]) == 64
+    assert len(text_surface_commit_event["state_chain_hash"]) == 64
+    assert text_surface_commit_event["output_is_hash_only"] is True
+    assert text_surface_commit_event["literal_text_returned"] is False
+    assert text_surface_commit_event["operator_approval_required"] is False
+    assert text_surface_commit_executor["promotion_gate"][
+        "eligible_for_autonomous_text_surface_commit_event_review"
+    ] is True
+    assert text_surface_commit_executor["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_surface_commit_executor["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_surface_commit_executor["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_surface_commit_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_commit_executor["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_surface_commit_executor["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_text_surface_commit_event_review["accepted"] is False
+    assert blocked_text_surface_commit_event_review["requires_operator_approval"] is False
+    assert blocked_text_surface_commit_event_review["promotion_gate"]["required_evidence"][
+        "executor_accepted"
+    ] is False
+    assert text_surface_commit_event_review["surface"] == (
+        "snn_language_autonomous_text_surface_commit_event_review.v1"
+    )
+    assert text_surface_commit_event_review["accepted"] is True
+    assert text_surface_commit_event_review["ready"] is True
+    assert len(text_surface_commit_event_review["review_hash"]) == 64
+    assert text_surface_commit_event_review["requires_operator_approval"] is False
+    assert text_surface_commit_event_review["advisory"] is True
+    assert text_surface_commit_event_review["executable"] is False
+    assert text_surface_commit_event_review["records_ledger_event"] is False
+    assert text_surface_commit_event_review["mutates_runtime_state"] is False
+    assert text_surface_commit_event_review["runs_replay"] is False
+    assert text_surface_commit_event_review["writes_checkpoint"] is False
+    assert text_surface_commit_event_review["generates_text"] is False
+    assert text_surface_commit_event_review["decodes_text"] is False
+    assert text_surface_commit_event_review["trains_runtime_model"] is False
+    assert text_surface_commit_event_review["applies_plasticity"] is False
+    text_surface_commit_review_body = text_surface_commit_event_review[
+        "autonomous_text_surface_commit_event_review"
+    ]
+    assert text_surface_commit_review_body["event_recorded_in_ledger"] is True
+    assert text_surface_commit_review_body["current_commit_matches_event"] is True
+    assert text_surface_commit_review_body[
+        "autonomous_text_surface_commit_event_hash"
+    ] == text_surface_commit_event["autonomous_text_surface_commit_event_hash"]
+    assert text_surface_commit_review_body["commit_scope"] == "hash_surface_state"
+    assert text_surface_commit_review_body["retention_class"] == "ephemeral_hash_surface"
+    assert text_surface_commit_review_body["text_fragment_count"] == 3
+    assert text_surface_commit_review_body["committed_surface_hash"] == (
+        text_surface_commit_event["fragment_sequence_hash"]
+    )
+    assert len(text_surface_commit_review_body["state_chain_hash"]) == 64
+    assert text_surface_commit_review_body["output_is_hash_only"] is True
+    assert text_surface_commit_review_body["literal_text_returned"] is False
+    assert text_surface_commit_event_review["promotion_gate"][
+        "eligible_for_autonomous_text_surface_materialization_design"
+    ] is True
+    assert text_surface_commit_event_review["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_surface_commit_event_review["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_surface_commit_event_review["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_surface_commit_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_commit_event_review["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_surface_commit_event_review["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_text_surface_materialization_design["accepted"] is False
+    assert blocked_text_surface_materialization_design["requires_operator_approval"] is False
+    assert blocked_text_surface_materialization_design["promotion_gate"]["required_evidence"][
+        "commit_event_review_ready"
+    ] is False
+    assert text_surface_materialization_design["surface"] == (
+        "snn_language_autonomous_text_surface_materialization_design.v1"
+    )
+    assert text_surface_materialization_design["accepted"] is True
+    assert text_surface_materialization_design["ready"] is True
+    assert len(text_surface_materialization_design["materialization_design_hash"]) == 64
+    assert text_surface_materialization_design["requires_operator_approval"] is False
+    assert text_surface_materialization_design["advisory"] is True
+    assert text_surface_materialization_design["executable"] is False
+    assert text_surface_materialization_design["records_ledger_event"] is False
+    assert text_surface_materialization_design["mutates_runtime_state"] is False
+    assert text_surface_materialization_design["runs_replay"] is False
+    assert text_surface_materialization_design["writes_checkpoint"] is False
+    assert text_surface_materialization_design["generates_text"] is False
+    assert text_surface_materialization_design["decodes_text"] is False
+    assert text_surface_materialization_design["trains_runtime_model"] is False
+    assert text_surface_materialization_design["applies_plasticity"] is False
+    text_surface_materialization_body = text_surface_materialization_design[
+        "autonomous_text_surface_materialization_design"
+    ]
+    assert text_surface_materialization_body["materialization_mode"] == (
+        "bounded_hash_to_text_surface"
+    )
+    assert text_surface_materialization_body["output_contract"] == (
+        "bounded_display_surface"
+    )
+    assert text_surface_materialization_body["max_surface_chars"] == 256
+    assert len(text_surface_materialization_body["materialization_plan_hash"]) == 64
+    assert text_surface_materialization_body[
+        "autonomous_text_surface_commit_event_hash"
+    ] == text_surface_commit_event["autonomous_text_surface_commit_event_hash"]
+    assert text_surface_materialization_body["committed_surface_hash"] == (
+        text_surface_commit_event["fragment_sequence_hash"]
+    )
+    assert text_surface_materialization_body["output_is_hash_only"] is True
+    assert text_surface_materialization_body["literal_text_returned"] is False
+    assert text_surface_materialization_design["promotion_gate"][
+        "eligible_for_autonomous_text_surface_materialization_preflight"
+    ] is True
+    assert text_surface_materialization_design["promotion_gate"]["eligible_for_language_generation"] is False
+    assert text_surface_materialization_design["promotion_gate"]["eligible_for_dense_readout_training"] is False
+    assert text_surface_materialization_design["promotion_gate"]["eligible_for_replay_memory"] is False
+    assert text_surface_materialization_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_materialization_design["promotion_gate"]["eligible_for_fact_promotion"] is False
+    assert text_surface_materialization_design["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_text_surface_materialization_preflight["accepted"] is False
+    assert blocked_text_surface_materialization_preflight["requires_operator_approval"] is False
+    assert blocked_text_surface_materialization_preflight["promotion_gate"][
+        "required_evidence"
+    ]["materialization_design_ready"] is False
+    assert text_surface_materialization_preflight["surface"] == (
+        "snn_language_autonomous_text_surface_materialization_preflight.v1"
+    )
+    assert text_surface_materialization_preflight["accepted"] is True
+    assert text_surface_materialization_preflight["ready"] is True
+    assert len(text_surface_materialization_preflight["preflight_hash"]) == 64
+    assert text_surface_materialization_preflight["requires_operator_approval"] is False
+    assert text_surface_materialization_preflight["advisory"] is True
+    assert text_surface_materialization_preflight["executable"] is False
+    assert text_surface_materialization_preflight["records_ledger_event"] is False
+    assert text_surface_materialization_preflight["mutates_runtime_state"] is False
+    assert text_surface_materialization_preflight["runs_replay"] is False
+    assert text_surface_materialization_preflight["writes_checkpoint"] is False
+    assert text_surface_materialization_preflight["generates_text"] is False
+    assert text_surface_materialization_preflight["decodes_text"] is False
+    assert text_surface_materialization_preflight["trains_runtime_model"] is False
+    assert text_surface_materialization_preflight["applies_plasticity"] is False
+    text_surface_materialization_preflight_body = text_surface_materialization_preflight[
+        "autonomous_text_surface_materialization_preflight"
+    ]
+    assert text_surface_materialization_preflight_body["materialization_mode"] == (
+        "bounded_hash_to_text_surface"
+    )
+    assert text_surface_materialization_preflight_body["output_contract"] == (
+        "bounded_display_surface"
+    )
+    assert text_surface_materialization_preflight_body["max_surface_chars"] == 256
+    assert text_surface_materialization_preflight_body["requires_cuda"] is False
+    assert text_surface_materialization_preflight_body["literal_text_returned"] is False
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_autonomous_text_surface_materialization_executor"
+    ] is True
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert text_surface_materialization_preflight["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_text_surface_materialization_executor["accepted"] is False
+    assert blocked_text_surface_materialization_executor["requires_operator_approval"] is False
+    assert blocked_text_surface_materialization_executor["rendered_text"] is None
+    assert blocked_text_surface_materialization_executor["promotion_gate"][
+        "required_evidence"
+    ]["preflight_ready"] is False
+    assert text_surface_materialization_executor["surface"] == (
+        "snn_language_autonomous_text_surface_materialization_executor.v1"
+    )
+    assert text_surface_materialization_executor["accepted"] is True
+    assert text_surface_materialization_executor["ready"] is True
+    assert text_surface_materialization_executor["requires_operator_approval"] is False
+    assert text_surface_materialization_executor["advisory"] is False
+    assert text_surface_materialization_executor["executable"] is True
+    assert text_surface_materialization_executor["records_ledger_event"] is True
+    assert text_surface_materialization_executor["mutates_runtime_state"] is True
+    assert text_surface_materialization_executor["runs_replay"] is False
+    assert text_surface_materialization_executor["writes_checkpoint"] is False
+    assert text_surface_materialization_executor["generates_text"] is False
+    assert text_surface_materialization_executor["decodes_text"] is False
+    assert text_surface_materialization_executor["trains_runtime_model"] is False
+    assert text_surface_materialization_executor["applies_plasticity"] is False
+    assert text_surface_materialization_executor["literal_text_returned"] is True
+    assert text_surface_materialization_executor["output_is_bounded_text_surface"] is True
+    assert text_surface_materialization_executor["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert text_surface_materialization_executor["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert len(text_surface_materialization_executor["rendered_text_hash"]) == 64
+    text_surface_materialization_event = text_surface_materialization_executor[
+        "autonomous_text_surface_materialization_event"
+    ]
+    assert text_surface_materialization_event["text_fragments"] == bounded_text_fragments
+    assert text_surface_materialization_event["literal_fragment_hashes"] == (
+        bounded_text_fragment_hashes
+    )
+    assert text_surface_materialization_event["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert len(
+        text_surface_materialization_event[
+            "autonomous_text_surface_materialization_event_hash"
+        ]
+    ) == 64
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_autonomous_text_surface_materialization_event_review"
+    ] is True
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert text_surface_materialization_executor["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_text_surface_materialization_event_review["accepted"] is False
+    assert blocked_text_surface_materialization_event_review[
+        "requires_operator_approval"
+    ] is False
+    assert blocked_text_surface_materialization_event_review["promotion_gate"][
+        "required_evidence"
+    ]["executor_accepted"] is False
+    assert text_surface_materialization_event_review["surface"] == (
+        "snn_language_autonomous_text_surface_materialization_event_review.v1"
+    )
+    assert text_surface_materialization_event_review["accepted"] is True
+    assert text_surface_materialization_event_review["ready"] is True
+    assert len(text_surface_materialization_event_review["review_hash"]) == 64
+    assert text_surface_materialization_event_review["requires_operator_approval"] is False
+    assert text_surface_materialization_event_review["advisory"] is True
+    assert text_surface_materialization_event_review["executable"] is False
+    assert text_surface_materialization_event_review["records_ledger_event"] is False
+    assert text_surface_materialization_event_review["mutates_runtime_state"] is False
+    assert text_surface_materialization_event_review["runs_replay"] is False
+    assert text_surface_materialization_event_review["writes_checkpoint"] is False
+    assert text_surface_materialization_event_review["generates_text"] is False
+    assert text_surface_materialization_event_review["decodes_text"] is False
+    assert text_surface_materialization_event_review["trains_runtime_model"] is False
+    assert text_surface_materialization_event_review["applies_plasticity"] is False
+    text_surface_materialization_review_body = (
+        text_surface_materialization_event_review[
+            "autonomous_text_surface_materialization_event_review"
+        ]
+    )
+    assert text_surface_materialization_review_body["event_recorded_in_ledger"] is True
+    assert text_surface_materialization_review_body[
+        "current_materialization_matches_event"
+    ] is True
+    assert text_surface_materialization_review_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert text_surface_materialization_review_body["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert text_surface_materialization_review_body["literal_fragment_hashes"] == (
+        bounded_text_fragment_hashes
+    )
+    assert text_surface_materialization_review_body["literal_text_returned"] is True
+    assert (
+        text_surface_materialization_review_body["output_is_bounded_text_surface"]
+        is True
+    )
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_review"
+    ] is True
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert text_surface_materialization_event_review["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_review["accepted"] is False
+    assert blocked_bounded_language_surface_review["requires_operator_approval"] is False
+    assert blocked_bounded_language_surface_review["promotion_gate"][
+        "required_evidence"
+    ]["materialization_event_review_ready"] is False
+    assert bounded_language_surface_review["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_review.v1"
+    )
+    assert bounded_language_surface_review["accepted"] is True
+    assert bounded_language_surface_review["ready"] is True
+    assert len(bounded_language_surface_review["review_hash"]) == 64
+    assert bounded_language_surface_review["requires_operator_approval"] is False
+    assert bounded_language_surface_review["advisory"] is True
+    assert bounded_language_surface_review["executable"] is False
+    assert bounded_language_surface_review["records_ledger_event"] is False
+    assert bounded_language_surface_review["mutates_runtime_state"] is False
+    assert bounded_language_surface_review["runs_replay"] is False
+    assert bounded_language_surface_review["writes_checkpoint"] is False
+    assert bounded_language_surface_review["generates_text"] is False
+    assert bounded_language_surface_review["decodes_text"] is False
+    assert bounded_language_surface_review["trains_runtime_model"] is False
+    assert bounded_language_surface_review["applies_plasticity"] is False
+    assert bounded_language_surface_review["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_review["text_fragments"] == bounded_text_fragments
+    assert len(bounded_language_surface_review["bounded_language_surface_hash"]) == 64
+    bounded_language_surface_body = bounded_language_surface_review[
+        "autonomous_bounded_language_surface_review"
+    ]
+    assert bounded_language_surface_body["language_surface_mode"] == (
+        "bounded_language_surface"
+    )
+    assert bounded_language_surface_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_body["text_fragments"] == bounded_text_fragments
+    assert bounded_language_surface_body["literal_text_returned"] is True
+    assert bounded_language_surface_body["output_is_bounded_text_surface"] is True
+    assert bounded_language_surface_review["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_commit_design"
+    ] is True
+    assert bounded_language_surface_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_review["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_review["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_review["promotion_gate"]["eligible_for_action"] is False
+    assert blocked_bounded_language_surface_commit_design["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_commit_design["requires_operator_approval"]
+        is False
+    )
+    assert blocked_bounded_language_surface_commit_design["promotion_gate"][
+        "required_evidence"
+    ]["bounded_language_surface_review_ready"] is False
+    assert bounded_language_surface_commit_design["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_commit_design.v1"
+    )
+    assert bounded_language_surface_commit_design["accepted"] is True
+    assert bounded_language_surface_commit_design["ready"] is True
+    assert (
+        len(
+            bounded_language_surface_commit_design[
+                "language_surface_commit_design_hash"
+            ]
+        )
+        == 64
+    )
+    assert bounded_language_surface_commit_design["requires_operator_approval"] is False
+    assert bounded_language_surface_commit_design["advisory"] is True
+    assert bounded_language_surface_commit_design["executable"] is False
+    assert bounded_language_surface_commit_design["records_ledger_event"] is False
+    assert bounded_language_surface_commit_design["mutates_runtime_state"] is False
+    assert bounded_language_surface_commit_design["runs_replay"] is False
+    assert bounded_language_surface_commit_design["writes_checkpoint"] is False
+    assert bounded_language_surface_commit_design["generates_text"] is False
+    assert bounded_language_surface_commit_design["decodes_text"] is False
+    assert bounded_language_surface_commit_design["trains_runtime_model"] is False
+    assert bounded_language_surface_commit_design["applies_plasticity"] is False
+    bounded_language_surface_commit_body = bounded_language_surface_commit_design[
+        "autonomous_bounded_language_surface_commit_design"
+    ]
+    assert (
+        bounded_language_surface_commit_body["commit_scope"]
+        == "bounded_language_surface"
+    )
+    assert (
+        bounded_language_surface_commit_body["retention_class"]
+        == "ephemeral_language_surface"
+    )
+    assert bounded_language_surface_commit_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_commit_body["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert (
+        len(
+            bounded_language_surface_commit_body[
+                "language_surface_commit_plan_hash"
+            ]
+        )
+        == 64
+    )
+    assert bounded_language_surface_commit_body["literal_text_returned"] is True
+    assert (
+        bounded_language_surface_commit_body["output_is_bounded_text_surface"]
+        is True
+    )
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_commit_preflight"
+    ] is True
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_commit_design["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_commit_preflight["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_commit_preflight[
+            "requires_operator_approval"
+        ]
+        is False
+    )
+    assert blocked_bounded_language_surface_commit_preflight["promotion_gate"][
+        "required_evidence"
+    ]["executor_capability_available"] is False
+    assert bounded_language_surface_commit_preflight["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_commit_preflight.v1"
+    )
+    assert bounded_language_surface_commit_preflight["accepted"] is True
+    assert bounded_language_surface_commit_preflight["ready"] is True
+    assert (
+        len(
+            bounded_language_surface_commit_preflight[
+                "language_surface_commit_preflight_hash"
+            ]
+        )
+        == 64
+    )
+    assert (
+        bounded_language_surface_commit_preflight["requires_operator_approval"]
+        is False
+    )
+    assert bounded_language_surface_commit_preflight["advisory"] is True
+    assert bounded_language_surface_commit_preflight["executable"] is False
+    assert bounded_language_surface_commit_preflight["records_ledger_event"] is False
+    assert bounded_language_surface_commit_preflight["mutates_runtime_state"] is False
+    assert bounded_language_surface_commit_preflight["runs_replay"] is False
+    assert bounded_language_surface_commit_preflight["writes_checkpoint"] is False
+    assert bounded_language_surface_commit_preflight["generates_text"] is False
+    assert bounded_language_surface_commit_preflight["decodes_text"] is False
+    assert bounded_language_surface_commit_preflight["trains_runtime_model"] is False
+    assert bounded_language_surface_commit_preflight["applies_plasticity"] is False
+    bounded_language_surface_commit_preflight_body = (
+        bounded_language_surface_commit_preflight[
+            "autonomous_bounded_language_surface_commit_preflight"
+        ]
+    )
+    assert (
+        bounded_language_surface_commit_preflight_body["commit_scope"]
+        == "bounded_language_surface"
+    )
+    assert (
+        bounded_language_surface_commit_preflight_body["retention_class"]
+        == "ephemeral_language_surface"
+    )
+    assert bounded_language_surface_commit_preflight_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_commit_preflight_body["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert (
+        bounded_language_surface_commit_preflight_body["device_evidence"]["device"]
+        == "cpu"
+    )
+    assert (
+        bounded_language_surface_commit_preflight_body["literal_text_returned"]
+        is True
+    )
+    assert (
+        bounded_language_surface_commit_preflight_body[
+            "output_is_bounded_text_surface"
+        ]
+        is True
+    )
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_commit_executor"
+    ] is True
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_commit_preflight["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_commit_executor["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_commit_executor["requires_operator_approval"]
+        is False
+    )
+    assert blocked_bounded_language_surface_commit_executor["promotion_gate"][
+        "required_evidence"
+    ]["preflight_ready"] is False
+    assert bounded_language_surface_commit_executor["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_commit_executor.v1"
+    )
+    assert bounded_language_surface_commit_executor["accepted"] is True
+    assert bounded_language_surface_commit_executor["ready"] is True
+    assert (
+        len(
+            bounded_language_surface_commit_executor[
+                "autonomous_bounded_language_surface_commit_event_hash"
+            ]
+        )
+        == 64
+    )
+    assert (
+        bounded_language_surface_commit_executor["requires_operator_approval"]
+        is False
+    )
+    assert bounded_language_surface_commit_executor["advisory"] is False
+    assert bounded_language_surface_commit_executor["executable"] is True
+    assert bounded_language_surface_commit_executor["records_ledger_event"] is True
+    assert bounded_language_surface_commit_executor["mutates_runtime_state"] is True
+    assert bounded_language_surface_commit_executor["runs_replay"] is False
+    assert bounded_language_surface_commit_executor["writes_checkpoint"] is False
+    assert bounded_language_surface_commit_executor["generates_text"] is False
+    assert bounded_language_surface_commit_executor["decodes_text"] is False
+    assert bounded_language_surface_commit_executor["trains_runtime_model"] is False
+    assert bounded_language_surface_commit_executor["applies_plasticity"] is False
+    assert bounded_language_surface_commit_executor["literal_text_returned"] is True
+    assert (
+        bounded_language_surface_commit_executor["output_is_bounded_text_surface"]
+        is True
+    )
+    assert bounded_language_surface_commit_executor["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_commit_executor["text_fragments"] == (
+        bounded_text_fragments
+    )
+    bounded_language_surface_commit_event = bounded_language_surface_commit_executor[
+        "autonomous_bounded_language_surface_commit_event"
+    ]
+    assert bounded_language_surface_commit_event["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_commit_event["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert (
+        bounded_language_surface_commit_event["committed_language_surface_hash"]
+        == bounded_language_surface_commit_preflight["bounded_language_surface_hash"]
+    )
+    assert len(
+        bounded_language_surface_commit_event[
+            "language_surface_state_chain_hash"
+        ]
+    ) == 64
+    assert ledger_state["total_autonomous_bounded_language_surface_commit_count"] == 1
+    assert (
+        ledger_state["current_bounded_language_surface_commit"][
+            "autonomous_bounded_language_surface_commit_event_hash"
+        ]
+        == bounded_language_surface_commit_executor[
+            "autonomous_bounded_language_surface_commit_event_hash"
+        ]
+    )
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_commit_event_review"
+    ] is True
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_commit_executor["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_commit_event_review["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_commit_event_review[
+            "requires_operator_approval"
+        ]
+        is False
+    )
+    assert blocked_bounded_language_surface_commit_event_review["promotion_gate"][
+        "required_evidence"
+    ]["executor_accepted"] is False
+    assert bounded_language_surface_commit_event_review["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_commit_event_review.v1"
+    )
+    assert bounded_language_surface_commit_event_review["accepted"] is True
+    assert bounded_language_surface_commit_event_review["ready"] is True
+    assert len(bounded_language_surface_commit_event_review["review_hash"]) == 64
+    assert (
+        bounded_language_surface_commit_event_review["requires_operator_approval"]
+        is False
+    )
+    assert bounded_language_surface_commit_event_review["advisory"] is True
+    assert bounded_language_surface_commit_event_review["executable"] is False
+    assert (
+        bounded_language_surface_commit_event_review["records_ledger_event"]
+        is False
+    )
+    assert (
+        bounded_language_surface_commit_event_review["mutates_runtime_state"]
+        is False
+    )
+    assert bounded_language_surface_commit_event_review["runs_replay"] is False
+    assert bounded_language_surface_commit_event_review["writes_checkpoint"] is False
+    assert bounded_language_surface_commit_event_review["generates_text"] is False
+    assert bounded_language_surface_commit_event_review["decodes_text"] is False
+    assert (
+        bounded_language_surface_commit_event_review["trains_runtime_model"]
+        is False
+    )
+    assert bounded_language_surface_commit_event_review["applies_plasticity"] is False
+    assert bounded_language_surface_commit_event_review["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_commit_event_review["text_fragments"] == (
+        bounded_text_fragments
+    )
+    bounded_language_surface_commit_review_body = (
+        bounded_language_surface_commit_event_review[
+            "autonomous_bounded_language_surface_commit_event_review"
+        ]
+    )
+    assert (
+        bounded_language_surface_commit_review_body["event_recorded_in_ledger"]
+        is True
+    )
+    assert (
+        bounded_language_surface_commit_review_body["current_commit_matches_event"]
+        is True
+    )
+    assert bounded_language_surface_commit_review_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_commit_review_body["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert (
+        bounded_language_surface_commit_review_body[
+            "committed_language_surface_hash"
+        ]
+        == bounded_language_surface_commit_preflight["bounded_language_surface_hash"]
+    )
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_use_review"
+    ] is True
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_commit_event_review["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_use_review["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_use_review["requires_operator_approval"]
+        is False
+    )
+    assert blocked_bounded_language_surface_use_review["promotion_gate"][
+        "required_evidence"
+    ]["commit_event_review_ready"] is False
+    assert bounded_language_surface_use_review["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_use_review.v1"
+    )
+    assert bounded_language_surface_use_review["accepted"] is True
+    assert bounded_language_surface_use_review["ready"] is True
+    assert len(bounded_language_surface_use_review["review_hash"]) == 64
+    assert bounded_language_surface_use_review["requires_operator_approval"] is False
+    assert bounded_language_surface_use_review["advisory"] is True
+    assert bounded_language_surface_use_review["executable"] is False
+    assert bounded_language_surface_use_review["records_ledger_event"] is False
+    assert bounded_language_surface_use_review["mutates_runtime_state"] is False
+    assert bounded_language_surface_use_review["runs_replay"] is False
+    assert bounded_language_surface_use_review["writes_checkpoint"] is False
+    assert bounded_language_surface_use_review["generates_text"] is False
+    assert bounded_language_surface_use_review["decodes_text"] is False
+    assert bounded_language_surface_use_review["trains_runtime_model"] is False
+    assert bounded_language_surface_use_review["applies_plasticity"] is False
+    assert bounded_language_surface_use_review["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_use_review["text_fragments"] == (
+        bounded_text_fragments
+    )
+    bounded_language_surface_use_body = bounded_language_surface_use_review[
+        "autonomous_bounded_language_surface_use_review"
+    ]
+    assert (
+        bounded_language_surface_use_body["language_use_scope"]
+        == "bounded_language_evidence"
+    )
+    assert bounded_language_surface_use_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_use_body["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert bounded_language_surface_use_body["replay_allowed"] is False
+    assert bounded_language_surface_use_body["plasticity_allowed"] is False
+    assert bounded_language_surface_use_body["fact_promotion_allowed"] is False
+    assert bounded_language_surface_use_body["action_allowed"] is False
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_use_preflight"
+    ] is True
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_use_review["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_use_preflight["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_use_preflight["requires_operator_approval"]
+        is False
+    )
+    assert blocked_bounded_language_surface_use_preflight["promotion_gate"][
+        "required_evidence"
+    ]["executor_capability_available"] is False
+    assert bounded_language_surface_use_preflight["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_use_preflight.v1"
+    )
+    assert bounded_language_surface_use_preflight["accepted"] is True
+    assert bounded_language_surface_use_preflight["ready"] is True
+    assert (
+        len(
+            bounded_language_surface_use_preflight[
+                "bounded_language_surface_use_preflight_hash"
+            ]
+        )
+        == 64
+    )
+    assert bounded_language_surface_use_preflight["requires_operator_approval"] is False
+    assert bounded_language_surface_use_preflight["advisory"] is True
+    assert bounded_language_surface_use_preflight["executable"] is False
+    assert bounded_language_surface_use_preflight["records_ledger_event"] is False
+    assert bounded_language_surface_use_preflight["mutates_runtime_state"] is False
+    assert bounded_language_surface_use_preflight["runs_replay"] is False
+    assert bounded_language_surface_use_preflight["writes_checkpoint"] is False
+    assert bounded_language_surface_use_preflight["generates_text"] is False
+    assert bounded_language_surface_use_preflight["decodes_text"] is False
+    assert bounded_language_surface_use_preflight["trains_runtime_model"] is False
+    assert bounded_language_surface_use_preflight["applies_plasticity"] is False
+    bounded_language_surface_use_preflight_body = (
+        bounded_language_surface_use_preflight[
+            "autonomous_bounded_language_surface_use_preflight"
+        ]
+    )
+    assert (
+        bounded_language_surface_use_preflight_body["language_use_scope"]
+        == "bounded_language_evidence"
+    )
+    assert bounded_language_surface_use_preflight_body["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_use_preflight_body["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert (
+        bounded_language_surface_use_preflight_body["device_evidence"]["device"]
+        == "cpu"
+    )
+    assert bounded_language_surface_use_preflight_body["replay_allowed"] is False
+    assert bounded_language_surface_use_preflight_body["plasticity_allowed"] is False
+    assert (
+        bounded_language_surface_use_preflight_body["fact_promotion_allowed"]
+        is False
+    )
+    assert bounded_language_surface_use_preflight_body["action_allowed"] is False
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_use_executor"
+    ] is True
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_use_preflight["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_use_executor["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_use_executor["requires_operator_approval"]
+        is False
+    )
+    assert blocked_bounded_language_surface_use_executor["promotion_gate"][
+        "required_evidence"
+    ]["preflight_ready"] is False
+    assert bounded_language_surface_use_executor["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_use_executor.v1"
+    )
+    assert bounded_language_surface_use_executor["accepted"] is True
+    assert bounded_language_surface_use_executor["ready"] is True
+    assert (
+        len(
+            bounded_language_surface_use_executor[
+                "autonomous_bounded_language_surface_use_event_hash"
+            ]
+        )
+        == 64
+    )
+    assert bounded_language_surface_use_executor["requires_operator_approval"] is False
+    assert bounded_language_surface_use_executor["advisory"] is False
+    assert bounded_language_surface_use_executor["executable"] is True
+    assert bounded_language_surface_use_executor["records_ledger_event"] is True
+    assert bounded_language_surface_use_executor["mutates_runtime_state"] is True
+    assert bounded_language_surface_use_executor["runs_replay"] is False
+    assert bounded_language_surface_use_executor["writes_checkpoint"] is False
+    assert bounded_language_surface_use_executor["generates_text"] is False
+    assert bounded_language_surface_use_executor["decodes_text"] is False
+    assert bounded_language_surface_use_executor["trains_runtime_model"] is False
+    assert bounded_language_surface_use_executor["applies_plasticity"] is False
+    assert bounded_language_surface_use_executor["literal_text_returned"] is True
+    assert (
+        bounded_language_surface_use_executor["output_is_bounded_text_surface"]
+        is True
+    )
+    assert bounded_language_surface_use_executor["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_use_executor["text_fragments"] == (
+        bounded_text_fragments
+    )
+    bounded_language_surface_use_event = bounded_language_surface_use_executor[
+        "autonomous_bounded_language_surface_use_event"
+    ]
+    assert bounded_language_surface_use_event["use_mode"] == (
+        "bounded_language_evidence_observation"
+    )
+    assert (
+        bounded_language_surface_use_event["language_use_scope"]
+        == "bounded_language_evidence"
+    )
+    assert bounded_language_surface_use_event["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_use_event["text_fragments"] == (
+        bounded_text_fragments
+    )
+    assert (
+        bounded_language_surface_use_event["used_language_surface_hash"]
+        == bounded_language_surface_use_preflight["bounded_language_surface_hash"]
+    )
+    assert len(
+        bounded_language_surface_use_event[
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+    ) == 64
+    assert len(
+        bounded_language_surface_use_event["language_surface_use_chain_hash"]
+    ) == 64
+    assert bounded_language_surface_use_event["runs_replay"] is False
+    assert bounded_language_surface_use_event["writes_checkpoint"] is False
+    assert bounded_language_surface_use_event["generates_text"] is False
+    assert bounded_language_surface_use_event["decodes_text"] is False
+    assert bounded_language_surface_use_event["trains_runtime_model"] is False
+    assert bounded_language_surface_use_event["applies_plasticity"] is False
+    assert bounded_language_surface_use_event["promotes_fact"] is False
+    assert bounded_language_surface_use_event["executes_action"] is False
+    assert ledger_state["total_autonomous_bounded_language_surface_use_count"] == 1
+    assert (
+        ledger_state["autonomous_bounded_language_surface_use_events"][0][
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+        == bounded_language_surface_use_executor[
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+    )
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_autonomous_bounded_language_surface_use_event_review"
+    ] is True
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_use_executor["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_bounded_language_surface_use_event_review["accepted"] is False
+    assert (
+        blocked_bounded_language_surface_use_event_review[
+            "requires_operator_approval"
+        ]
+        is False
+    )
+    assert blocked_bounded_language_surface_use_event_review["promotion_gate"][
+        "required_evidence"
+    ]["executor_accepted"] is False
+    assert bounded_language_surface_use_event_review["surface"] == (
+        "snn_language_autonomous_bounded_language_surface_use_event_review.v1"
+    )
+    assert bounded_language_surface_use_event_review["accepted"] is True
+    assert bounded_language_surface_use_event_review["ready"] is True
+    assert len(bounded_language_surface_use_event_review["review_hash"]) == 64
+    assert (
+        bounded_language_surface_use_event_review["requires_operator_approval"]
+        is False
+    )
+    assert bounded_language_surface_use_event_review["advisory"] is True
+    assert bounded_language_surface_use_event_review["executable"] is False
+    assert (
+        bounded_language_surface_use_event_review["records_ledger_event"]
+        is False
+    )
+    assert (
+        bounded_language_surface_use_event_review["mutates_runtime_state"]
+        is False
+    )
+    assert bounded_language_surface_use_event_review["runs_replay"] is False
+    assert bounded_language_surface_use_event_review["writes_checkpoint"] is False
+    assert bounded_language_surface_use_event_review["generates_text"] is False
+    assert bounded_language_surface_use_event_review["decodes_text"] is False
+    assert (
+        bounded_language_surface_use_event_review["trains_runtime_model"]
+        is False
+    )
+    assert bounded_language_surface_use_event_review["applies_plasticity"] is False
+    assert bounded_language_surface_use_event_review["rendered_text"] == (
+        "\n".join(bounded_text_fragments)
+    )
+    assert bounded_language_surface_use_event_review["text_fragments"] == (
+        bounded_text_fragments
+    )
+    bounded_language_surface_use_event_review_body = (
+        bounded_language_surface_use_event_review[
+            "autonomous_bounded_language_surface_use_event_review"
+        ]
+    )
+    assert (
+        bounded_language_surface_use_event_review_body["event_recorded_in_ledger"]
+        is True
+    )
+    assert (
+        bounded_language_surface_use_event_review_body[
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+        == bounded_language_surface_use_executor[
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+    )
+    assert (
+        bounded_language_surface_use_event_review_body["language_use_scope"]
+        == "bounded_language_evidence"
+    )
+    assert bounded_language_surface_use_event_review_body["use_mode"] == (
+        "bounded_language_evidence_observation"
+    )
+    assert (
+        bounded_language_surface_use_event_review_body[
+            "language_surface_use_chain_hash"
+        ]
+        == bounded_language_surface_use_event["language_surface_use_chain_hash"]
+    )
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_autonomous_snn_language_generation_design"
+    ] is True
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_dense_readout_training"
+    ] is False
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_replay_memory"
+    ] is False
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_plasticity_application"
+    ] is False
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert bounded_language_surface_use_event_review["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_generation_design["accepted"] is False
+    assert blocked_snn_language_generation_design["requires_operator_approval"] is False
+    assert blocked_snn_language_generation_design["promotion_gate"][
+        "required_evidence"
+    ]["use_event_review_ready"] is False
+    assert snn_language_generation_design["surface"] == (
+        "snn_language_autonomous_snn_language_generation_design.v1"
+    )
+    assert snn_language_generation_design["accepted"] is True
+    assert snn_language_generation_design["ready"] is True
+    assert len(snn_language_generation_design["language_generation_design_hash"]) == 64
+    assert snn_language_generation_design["requires_operator_approval"] is False
+    assert snn_language_generation_design["advisory"] is True
+    assert snn_language_generation_design["executable"] is False
+    assert snn_language_generation_design["records_ledger_event"] is False
+    assert snn_language_generation_design["mutates_runtime_state"] is False
+    assert snn_language_generation_design["runs_replay"] is False
+    assert snn_language_generation_design["writes_checkpoint"] is False
+    assert snn_language_generation_design["generates_text"] is False
+    assert snn_language_generation_design["decodes_text"] is False
+    assert snn_language_generation_design["trains_runtime_model"] is False
+    assert snn_language_generation_design["applies_plasticity"] is False
+    assert snn_language_generation_design["planned_generation"] is True
+    assert snn_language_generation_design["planned_snn_native_generation"] is True
+    snn_language_generation_design_body = snn_language_generation_design[
+        "autonomous_snn_language_generation_design"
+    ]
+    assert snn_language_generation_design_body["generation_mode"] == (
+        "snn_bounded_next_token_projection"
+    )
+    assert snn_language_generation_design_body["decoding_strategy"] == (
+        "spike_sparse_top_k"
+    )
+    assert snn_language_generation_design_body["max_new_tokens"] == 16
+    assert snn_language_generation_design_body["target_device"] == "cpu"
+    assert snn_language_generation_design_body["requires_cuda"] is False
+    assert snn_language_generation_design_body["literal_text_returned"] is False
+    assert snn_language_generation_design_body["generated_text_returned"] is False
+    assert len(snn_language_generation_design_body["generation_plan_hash"]) == 64
+    assert (
+        snn_language_generation_design_body[
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+        == bounded_language_surface_use_executor[
+            "autonomous_bounded_language_surface_use_event_hash"
+        ]
+    )
+    assert snn_language_generation_design["promotion_gate"][
+        "eligible_for_autonomous_snn_language_generation_preflight"
+    ] is True
+    assert snn_language_generation_design["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_generation_design["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_generation_design["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_generation_design["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_generation_preflight["accepted"] is False
+    assert blocked_snn_language_generation_preflight["requires_operator_approval"] is False
+    assert blocked_snn_language_generation_preflight["promotion_gate"][
+        "required_evidence"
+    ]["generation_design_ready"] is False
+    assert snn_language_generation_preflight["surface"] == (
+        "snn_language_autonomous_snn_language_generation_preflight.v1"
+    )
+    assert snn_language_generation_preflight["accepted"] is True
+    assert snn_language_generation_preflight["ready"] is True
+    assert (
+        len(
+            snn_language_generation_preflight[
+                "language_generation_preflight_hash"
+            ]
+        )
+        == 64
+    )
+    assert snn_language_generation_preflight["requires_operator_approval"] is False
+    assert snn_language_generation_preflight["advisory"] is True
+    assert snn_language_generation_preflight["executable"] is False
+    assert snn_language_generation_preflight["records_ledger_event"] is False
+    assert snn_language_generation_preflight["mutates_runtime_state"] is False
+    assert snn_language_generation_preflight["runs_replay"] is False
+    assert snn_language_generation_preflight["writes_checkpoint"] is False
+    assert snn_language_generation_preflight["generates_text"] is False
+    assert snn_language_generation_preflight["decodes_text"] is False
+    assert snn_language_generation_preflight["trains_runtime_model"] is False
+    assert snn_language_generation_preflight["applies_plasticity"] is False
+    snn_language_generation_preflight_body = snn_language_generation_preflight[
+        "autonomous_snn_language_generation_preflight"
+    ]
+    assert snn_language_generation_preflight_body["generation_mode"] == (
+        "snn_bounded_next_token_projection"
+    )
+    assert snn_language_generation_preflight_body["requested_device"] == "cpu"
+    assert snn_language_generation_preflight_body["requires_cuda"] is False
+    assert (
+        snn_language_generation_preflight_body["execution_allowed"]
+        is False
+    )
+    assert (
+        snn_language_generation_preflight_body["generated_text_allowed"]
+        is False
+    )
+    assert snn_language_generation_preflight["promotion_gate"][
+        "eligible_for_autonomous_snn_language_generation_executor"
+    ] is True
+    assert snn_language_generation_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_generation_preflight["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_generation_preflight["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_generation_preflight["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_generation_executor["accepted"] is False
+    assert blocked_snn_language_generation_executor["requires_operator_approval"] is False
+    assert blocked_snn_language_generation_executor["promotion_gate"][
+        "required_evidence"
+    ]["preflight_ready"] is False
+    assert snn_language_generation_executor["surface"] == (
+        "snn_language_autonomous_snn_language_generation_executor.v1"
+    )
+    assert snn_language_generation_executor["accepted"] is True
+    assert snn_language_generation_executor["ready"] is True
+    assert (
+        len(
+            snn_language_generation_executor[
+                "autonomous_snn_language_generation_event_hash"
+            ]
+        )
+        == 64
+    )
+    assert snn_language_generation_executor["requires_operator_approval"] is False
+    assert snn_language_generation_executor["advisory"] is False
+    assert snn_language_generation_executor["executable"] is True
+    assert snn_language_generation_executor["records_ledger_event"] is True
+    assert snn_language_generation_executor["mutates_runtime_state"] is True
+    assert snn_language_generation_executor["runs_replay"] is False
+    assert snn_language_generation_executor["writes_checkpoint"] is False
+    assert snn_language_generation_executor["generates_text"] is False
+    assert snn_language_generation_executor["decodes_text"] is False
+    assert snn_language_generation_executor["trains_runtime_model"] is False
+    assert snn_language_generation_executor["applies_plasticity"] is False
+    assert snn_language_generation_executor["generated_text_returned"] is False
+    assert snn_language_generation_executor["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    snn_language_generation_event = snn_language_generation_executor[
+        "autonomous_snn_language_generation_event"
+    ]
+    assert snn_language_generation_event["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    assert snn_language_generation_event["spike_projection_hashes"] == (
+        generation_spike_hashes
+    )
+    assert snn_language_generation_event["active_neuron_hashes"] == (
+        generation_active_hashes
+    )
+    assert len(snn_language_generation_event["generation_projection_hash"]) == 64
+    assert ledger_state["total_autonomous_snn_language_generation_count"] == 1
+    assert (
+        ledger_state["autonomous_snn_language_generation_events"][0][
+            "autonomous_snn_language_generation_event_hash"
+        ]
+        == snn_language_generation_executor[
+            "autonomous_snn_language_generation_event_hash"
+        ]
+    )
+    assert snn_language_generation_executor["promotion_gate"][
+        "eligible_for_autonomous_snn_language_generation_event_review"
+    ] is True
+    assert snn_language_generation_executor["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_generation_executor["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_generation_executor["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_generation_executor["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_generation_event_review["accepted"] is False
+    assert blocked_snn_language_generation_event_review["requires_operator_approval"] is False
+    assert blocked_snn_language_generation_event_review["promotion_gate"][
+        "required_evidence"
+    ]["executor_accepted"] is False
+    assert snn_language_generation_event_review["surface"] == (
+        "snn_language_autonomous_snn_language_generation_event_review.v1"
+    )
+    assert snn_language_generation_event_review["accepted"] is True
+    assert snn_language_generation_event_review["ready"] is True
+    assert len(snn_language_generation_event_review["review_hash"]) == 64
+    assert snn_language_generation_event_review["requires_operator_approval"] is False
+    assert snn_language_generation_event_review["advisory"] is True
+    assert snn_language_generation_event_review["executable"] is False
+    assert snn_language_generation_event_review["records_ledger_event"] is False
+    assert snn_language_generation_event_review["mutates_runtime_state"] is False
+    assert snn_language_generation_event_review["runs_replay"] is False
+    assert snn_language_generation_event_review["writes_checkpoint"] is False
+    assert snn_language_generation_event_review["generates_text"] is False
+    assert snn_language_generation_event_review["decodes_text"] is False
+    assert snn_language_generation_event_review["trains_runtime_model"] is False
+    assert snn_language_generation_event_review["applies_plasticity"] is False
+    assert snn_language_generation_event_review["generated_text_returned"] is False
+    assert snn_language_generation_event_review["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    snn_language_generation_review_body = snn_language_generation_event_review[
+        "autonomous_snn_language_generation_event_review"
+    ]
+    assert snn_language_generation_review_body["event_recorded_in_ledger"] is True
+    assert (
+        snn_language_generation_review_body[
+            "autonomous_snn_language_generation_event_hash"
+        ]
+        == snn_language_generation_executor[
+            "autonomous_snn_language_generation_event_hash"
+        ]
+    )
+    assert snn_language_generation_review_body["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    assert snn_language_generation_review_body["spike_projection_hashes"] == (
+        generation_spike_hashes
+    )
+    assert snn_language_generation_event_review["promotion_gate"][
+        "eligible_for_autonomous_snn_language_decoding_design"
+    ] is True
+    assert snn_language_generation_event_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_generation_event_review["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_generation_event_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_generation_event_review["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_decoding_design["accepted"] is False
+    assert blocked_snn_language_decoding_design["requires_operator_approval"] is False
+    assert blocked_snn_language_decoding_design["promotion_gate"][
+        "required_evidence"
+    ]["event_review_ready"] is False
+    assert snn_language_decoding_design["surface"] == (
+        "snn_language_autonomous_snn_language_decoding_design.v1"
+    )
+    assert snn_language_decoding_design["accepted"] is True
+    assert snn_language_decoding_design["ready"] is True
+    assert len(snn_language_decoding_design["language_decoding_design_hash"]) == 64
+    assert snn_language_decoding_design["requires_operator_approval"] is False
+    assert snn_language_decoding_design["advisory"] is True
+    assert snn_language_decoding_design["executable"] is False
+    assert snn_language_decoding_design["records_ledger_event"] is False
+    assert snn_language_decoding_design["mutates_runtime_state"] is False
+    assert snn_language_decoding_design["runs_replay"] is False
+    assert snn_language_decoding_design["writes_checkpoint"] is False
+    assert snn_language_decoding_design["generates_text"] is False
+    assert snn_language_decoding_design["decodes_text"] is False
+    assert snn_language_decoding_design["trains_runtime_model"] is False
+    assert snn_language_decoding_design["applies_plasticity"] is False
+    assert snn_language_decoding_design["literal_text_returned"] is False
+    assert snn_language_decoding_design["generated_text_returned"] is False
+    assert snn_language_decoding_design["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    snn_language_decoding_body = snn_language_decoding_design[
+        "autonomous_snn_language_decoding_design"
+    ]
+    assert snn_language_decoding_body["decoding_mode"] == (
+        "bounded_hash_token_projection"
+    )
+    assert snn_language_decoding_body["materialization_target"] == (
+        "bounded_text_surface"
+    )
+    assert snn_language_decoding_body["max_decoded_tokens"] == 2
+    assert snn_language_decoding_body["max_decoded_fragments"] == 1
+    assert snn_language_decoding_body["max_surface_chars"] == 256
+    assert len(snn_language_decoding_body["decoding_plan_hash"]) == 64
+    assert snn_language_decoding_body["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    assert snn_language_decoding_body["spike_projection_hashes"] == (
+        generation_spike_hashes
+    )
+    assert snn_language_decoding_body["active_neuron_hashes"] == (
+        generation_active_hashes
+    )
+    assert (
+        snn_language_decoding_body["autonomous_snn_language_generation_event_hash"]
+        == snn_language_generation_executor[
+            "autonomous_snn_language_generation_event_hash"
+        ]
+    )
+    assert snn_language_decoding_body["generated_text_returned"] is False
+    assert snn_language_decoding_body["decoding_allowed"] is False
+    assert snn_language_decoding_design["promotion_gate"][
+        "eligible_for_autonomous_snn_language_decoding_preflight"
+    ] is True
+    assert snn_language_decoding_design["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_decoding_design["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_decoding_design["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_decoding_design["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_decoding_preflight["accepted"] is False
+    assert (
+        blocked_snn_language_decoding_preflight["requires_operator_approval"]
+        is False
+    )
+    assert blocked_snn_language_decoding_preflight["promotion_gate"][
+        "required_evidence"
+    ]["decoding_design_ready"] is False
+    assert snn_language_decoding_preflight["surface"] == (
+        "snn_language_autonomous_snn_language_decoding_preflight.v1"
+    )
+    assert snn_language_decoding_preflight["accepted"] is True
+    assert snn_language_decoding_preflight["ready"] is True
+    assert len(snn_language_decoding_preflight["preflight_hash"]) == 64
+    assert snn_language_decoding_preflight["requires_operator_approval"] is False
+    assert snn_language_decoding_preflight["advisory"] is True
+    assert snn_language_decoding_preflight["executable"] is True
+    assert snn_language_decoding_preflight["records_ledger_event"] is False
+    assert snn_language_decoding_preflight["mutates_runtime_state"] is False
+    assert snn_language_decoding_preflight["runs_replay"] is False
+    assert snn_language_decoding_preflight["writes_checkpoint"] is False
+    assert snn_language_decoding_preflight["generates_text"] is False
+    assert snn_language_decoding_preflight["decodes_text"] is False
+    assert snn_language_decoding_preflight["trains_runtime_model"] is False
+    assert snn_language_decoding_preflight["applies_plasticity"] is False
+    assert snn_language_decoding_preflight["literal_text_returned"] is False
+    assert snn_language_decoding_preflight["generated_text_returned"] is False
+    assert snn_language_decoding_preflight["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    snn_language_decoding_preflight_body = snn_language_decoding_preflight[
+        "autonomous_snn_language_decoding_preflight"
+    ]
+    assert snn_language_decoding_preflight_body["requested_device"] == "cuda:0"
+    assert snn_language_decoding_preflight_body["requires_cuda"] is True
+    assert snn_language_decoding_preflight_body["cuda_satisfied"] is True
+    assert snn_language_decoding_preflight_body["decoder_ready"] is True
+    assert snn_language_decoding_preflight_body["execution_allowed"] is True
+    assert snn_language_decoding_preflight_body["decoding_allowed"] is False
+    assert snn_language_decoding_preflight_body["generated_token_hashes"] == (
+        generation_token_hashes
+    )
+    assert snn_language_decoding_preflight["promotion_gate"][
+        "eligible_for_autonomous_snn_language_decoding_executor"
+    ] is True
+    assert snn_language_decoding_preflight["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_decoding_preflight["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_decoding_preflight["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_decoding_preflight["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_decoding_executor["accepted"] is False
+    assert blocked_snn_language_decoding_executor["requires_operator_approval"] is False
+    assert blocked_snn_language_decoding_executor["promotion_gate"][
+        "required_evidence"
+    ]["preflight_ready"] is False
+    assert snn_language_decoding_executor["surface"] == (
+        "snn_language_autonomous_snn_language_decoding_executor.v1"
+    )
+    assert snn_language_decoding_executor["accepted"] is True
+    assert snn_language_decoding_executor["ready"] is True
+    assert len(
+        snn_language_decoding_executor[
+            "autonomous_snn_language_decoding_event_hash"
+        ]
+    ) == 64
+    assert snn_language_decoding_executor["requires_operator_approval"] is False
+    assert snn_language_decoding_executor["advisory"] is False
+    assert snn_language_decoding_executor["executable"] is True
+    assert snn_language_decoding_executor["records_ledger_event"] is True
+    assert snn_language_decoding_executor["mutates_runtime_state"] is True
+    assert snn_language_decoding_executor["runs_replay"] is False
+    assert snn_language_decoding_executor["writes_checkpoint"] is False
+    assert snn_language_decoding_executor["generates_text"] is True
+    assert snn_language_decoding_executor["decodes_text"] is True
+    assert snn_language_decoding_executor["trains_runtime_model"] is False
+    assert snn_language_decoding_executor["applies_plasticity"] is False
+    assert snn_language_decoding_executor["literal_text_returned"] is True
+    assert snn_language_decoding_executor["generated_text_returned"] is True
+    assert snn_language_decoding_executor["rendered_text"] == "spike language"
+    assert snn_language_decoding_executor["decoded_token_hashes"] == (
+        generation_token_hashes
+    )
+    assert len(snn_language_decoding_executor["rendered_text_hash"]) == 64
+    assert len(snn_language_decoding_executor["decoded_text_fragment_hashes"]) == 1
+    snn_language_decoding_event = snn_language_decoding_executor[
+        "autonomous_snn_language_decoding_event"
+    ]
+    assert snn_language_decoding_event["decoded_text_fragments"] == [
+        "spike language"
+    ]
+    assert snn_language_decoding_event["rendered_text"] == "spike language"
+    assert snn_language_decoding_event["semantic_constraint_valid"] is True
+    assert snn_language_decoding_event["text_normalized"] is True
+    assert snn_language_decoding_event["schema_valid"] is True
+    assert snn_language_decoding_event["promotes_fact"] is False
+    assert snn_language_decoding_event["executes_action"] is False
+    assert snn_language_decoding_executor["ledger_summary"][
+        "total_autonomous_snn_language_decoding_count"
+    ] == 1
+    assert snn_language_decoding_executor["promotion_gate"][
+        "eligible_for_autonomous_snn_language_decoding_event_review"
+    ] is True
+    assert snn_language_decoding_executor["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_decoding_executor["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_decoding_executor["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_decoding_executor["promotion_gate"][
+        "eligible_for_action"
+    ] is False
+    assert blocked_snn_language_decoding_event_review["accepted"] is False
+    assert (
+        blocked_snn_language_decoding_event_review["requires_operator_approval"]
+        is False
+    )
+    assert blocked_snn_language_decoding_event_review["promotion_gate"][
+        "required_evidence"
+    ]["executor_accepted"] is False
+    assert snn_language_decoding_event_review["surface"] == (
+        "snn_language_autonomous_snn_language_decoding_event_review.v1"
+    )
+    assert snn_language_decoding_event_review["accepted"] is True
+    assert snn_language_decoding_event_review["ready"] is True
+    assert len(snn_language_decoding_event_review["review_hash"]) == 64
+    assert snn_language_decoding_event_review["requires_operator_approval"] is False
+    assert snn_language_decoding_event_review["advisory"] is True
+    assert snn_language_decoding_event_review["executable"] is False
+    assert snn_language_decoding_event_review["records_ledger_event"] is False
+    assert snn_language_decoding_event_review["mutates_runtime_state"] is False
+    assert snn_language_decoding_event_review["runs_replay"] is False
+    assert snn_language_decoding_event_review["writes_checkpoint"] is False
+    assert snn_language_decoding_event_review["generates_text"] is True
+    assert snn_language_decoding_event_review["decodes_text"] is True
+    assert snn_language_decoding_event_review["trains_runtime_model"] is False
+    assert snn_language_decoding_event_review["applies_plasticity"] is False
+    assert snn_language_decoding_event_review["literal_text_returned"] is True
+    assert snn_language_decoding_event_review["generated_text_returned"] is True
+    assert snn_language_decoding_event_review["rendered_text"] == "spike language"
+    snn_language_decoding_review_body = snn_language_decoding_event_review[
+        "autonomous_snn_language_decoding_event_review"
+    ]
+    assert snn_language_decoding_review_body["event_recorded_in_ledger"] is True
+    assert snn_language_decoding_review_body["rendered_text"] == "spike language"
+    assert snn_language_decoding_review_body["decoded_text_fragments"] == [
+        "spike language"
+    ]
+    assert snn_language_decoding_review_body["decoded_token_hashes"] == (
+        generation_token_hashes
+    )
+    assert snn_language_decoding_review_body["schema_valid"] is True
+    assert snn_language_decoding_review_body["text_normalized"] is True
+    assert snn_language_decoding_review_body["semantic_constraint_valid"] is True
+    assert snn_language_decoding_event_review["promotion_gate"][
+        "eligible_for_autonomous_snn_language_thought_surface_design"
+    ] is True
+    assert snn_language_decoding_event_review["promotion_gate"][
+        "eligible_for_language_generation"
+    ] is False
+    assert snn_language_decoding_event_review["promotion_gate"][
+        "eligible_for_freeform_language_generation"
+    ] is False
+    assert snn_language_decoding_event_review["promotion_gate"][
+        "eligible_for_fact_promotion"
+    ] is False
+    assert snn_language_decoding_event_review["promotion_gate"][
+        "eligible_for_action"
+    ] is False
 
 
 def test_readout_ledger_emission_review_replay_policy_requires_internal_readout_match() -> None:

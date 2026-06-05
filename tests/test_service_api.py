@@ -30,6 +30,17 @@ from hecsn.training.model import HECSNModel
 from hecsn.training.trainer import HECSNTrainer
 
 
+def _sha256_json(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _build_checkpoint(root: Path, *, test_case: str) -> Path:
     cfg = HECSNConfig(
         n_columns=4,
@@ -1213,6 +1224,548 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     },
                 )
+                autonomous_decoded_output_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-decoded-output-executor",
+                    json={
+                        "autonomous_decoded_output_preflight": (
+                            autonomous_decoded_output_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "decode_evidence": {
+                            "decoded_token_results": [],
+                            "checkpoint_written": False,
+                        },
+                        "execution_policy": {
+                            "min_confidence_score": 0.5,
+                            "min_spike_sparsity": 0.5,
+                            "max_slot_drift": 0.2,
+                        },
+                    },
+                )
+                autonomous_decoded_output_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-decoded-output-event-review",
+                    json={
+                        "autonomous_decoded_output_executor": (
+                            autonomous_decoded_output_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "min_confidence_score": 0.5,
+                            "min_spike_sparsity": 0.5,
+                            "max_slot_drift": 0.2,
+                        },
+                    },
+                )
+                autonomous_bounded_text_emission_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-text-emission-design",
+                    json={
+                        "autonomous_decoded_output_event_review": (
+                            autonomous_decoded_output_event_review_response.json()
+                        ),
+                        "text_surface_binding": {
+                            "text_fragment_hashes": [],
+                            "text_surface_schema_hash": "",
+                            "text_normalizer_hash": "",
+                            "semantic_constraint_hash": "",
+                        },
+                        "emission_policy": {
+                            "emission_mode": "bounded_text_hash_sequence",
+                            "max_text_fragments": 3,
+                            "min_confidence_score": 0.5,
+                            "min_spike_sparsity": 0.5,
+                            "max_slot_drift": 0.2,
+                        },
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api",
+                        },
+                    },
+                )
+                autonomous_bounded_text_emission_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-text-emission-preflight",
+                    json={
+                        "autonomous_bounded_text_emission_design": (
+                            autonomous_bounded_text_emission_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api",
+                        },
+                        "executor_capabilities": {
+                            "autonomous_bounded_text_emission_executor": False,
+                        },
+                    },
+                )
+                autonomous_bounded_text_emission_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-text-emission-executor",
+                    json={
+                        "autonomous_bounded_text_emission_preflight": (
+                            autonomous_bounded_text_emission_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "emission_evidence": {
+                            "text_emission_results": [],
+                            "checkpoint_written": False,
+                        },
+                        "execution_policy": {
+                            "min_confidence_score": 0.5,
+                            "min_spike_sparsity": 0.5,
+                            "max_slot_drift": 0.2,
+                        },
+                    },
+                )
+                autonomous_bounded_text_emission_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-text-emission-event-review",
+                    json={
+                        "autonomous_bounded_text_emission_executor": (
+                            autonomous_bounded_text_emission_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "min_text_fragments": 1,
+                            "max_text_fragments": 3,
+                            "min_confidence_score": 0.5,
+                            "min_spike_sparsity": 0.5,
+                            "max_slot_drift": 0.2,
+                        },
+                    },
+                )
+                autonomous_text_surface_sequence_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-sequence-review",
+                    json={
+                        "autonomous_bounded_text_emission_event_review": (
+                            autonomous_bounded_text_emission_event_review_response.json()
+                        ),
+                        "sequence_policy": {
+                            "sequence_mode": "bounded_hash_fragment_sequence",
+                            "min_text_fragments": 1,
+                            "max_text_fragments": 3,
+                            "min_confidence_score": 0.5,
+                            "min_spike_sparsity": 0.5,
+                            "max_slot_drift": 0.2,
+                        },
+                    },
+                )
+                autonomous_text_surface_commit_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-commit-design",
+                    json={
+                        "autonomous_text_surface_sequence_review": (
+                            autonomous_text_surface_sequence_review_response.json()
+                        ),
+                        "commit_policy": {
+                            "commit_scope": "hash_surface_state",
+                            "retention_class": "ephemeral_hash_surface",
+                            "min_text_fragments": 1,
+                            "max_text_fragments": 3,
+                        },
+                    },
+                )
+                autonomous_text_surface_commit_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-commit-preflight",
+                    json={
+                        "autonomous_text_surface_commit_design": (
+                            autonomous_text_surface_commit_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api",
+                        },
+                        "executor_capabilities": {
+                            "autonomous_text_surface_commit_executor": False,
+                        },
+                    },
+                )
+                autonomous_text_surface_commit_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-commit-executor",
+                    json={
+                        "autonomous_text_surface_commit_preflight": (
+                            autonomous_text_surface_commit_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "commit_evidence": {
+                            "checkpoint_written": False,
+                        },
+                        "execution_policy": {
+                            "max_text_fragments": 3,
+                        },
+                    },
+                )
+                autonomous_text_surface_commit_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-commit-event-review",
+                    json={
+                        "autonomous_text_surface_commit_executor": (
+                            autonomous_text_surface_commit_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "max_text_fragments": 3,
+                        },
+                    },
+                )
+                autonomous_text_surface_materialization_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-materialization-design",
+                    json={
+                        "autonomous_text_surface_commit_event_review": (
+                            autonomous_text_surface_commit_event_review_response.json()
+                        ),
+                        "materialization_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_text_surface_materialization_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-materialization-preflight",
+                    json={
+                        "autonomous_text_surface_materialization_design": (
+                            autonomous_text_surface_materialization_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {
+                            "device": "cpu",
+                            "source": "service_api",
+                        },
+                        "executor_capabilities": {
+                            "autonomous_text_surface_materialization_executor": False,
+                        },
+                    },
+                )
+                autonomous_text_surface_materialization_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-materialization-executor",
+                    json={
+                        "autonomous_text_surface_materialization_preflight": (
+                            autonomous_text_surface_materialization_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "materialization_evidence": {
+                            "text_fragments": [
+                                "spike trace stable",
+                                "hash surface committed",
+                                "bounded output ready",
+                            ],
+                            "checkpoint_written": False,
+                        },
+                        "execution_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_text_surface_materialization_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-text-surface-materialization-event-review",
+                    json={
+                        "autonomous_text_surface_materialization_executor": (
+                            autonomous_text_surface_materialization_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-review",
+                    json={
+                        "autonomous_text_surface_materialization_event_review": (
+                            autonomous_text_surface_materialization_event_review_response.json()
+                        ),
+                        "language_surface_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_commit_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-commit-design",
+                    json={
+                        "autonomous_bounded_language_surface_review": (
+                            autonomous_bounded_language_surface_review_response.json()
+                        ),
+                        "commit_policy": {
+                            "commit_scope": "bounded_language_surface",
+                            "retention_class": "ephemeral_language_surface",
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_commit_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-commit-preflight",
+                    json={
+                        "autonomous_bounded_language_surface_commit_design": (
+                            autonomous_bounded_language_surface_commit_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "api-test"},
+                        "executor_capabilities": {
+                            "autonomous_bounded_language_surface_commit_executor": False
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_commit_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-commit-executor",
+                    json={
+                        "autonomous_bounded_language_surface_commit_preflight": (
+                            autonomous_bounded_language_surface_commit_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "commit_evidence": {"checkpoint_written": False},
+                        "execution_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_commit_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-commit-event-review",
+                    json={
+                        "autonomous_bounded_language_surface_commit_executor": (
+                            autonomous_bounded_language_surface_commit_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_use_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-use-review",
+                    json={
+                        "autonomous_bounded_language_surface_commit_event_review": (
+                            autonomous_bounded_language_surface_commit_event_review_response.json()
+                        ),
+                        "use_policy": {
+                            "language_use_scope": "bounded_language_evidence",
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_use_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-use-preflight",
+                    json={
+                        "autonomous_bounded_language_surface_use_review": (
+                            autonomous_bounded_language_surface_use_review_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "api-test"},
+                        "executor_capabilities": {
+                            "autonomous_bounded_language_surface_use_executor": False
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_use_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-use-executor",
+                    json={
+                        "autonomous_bounded_language_surface_use_preflight": (
+                            autonomous_bounded_language_surface_use_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "use_evidence": {
+                            "use_mode": "bounded_language_evidence_observation",
+                            "checkpoint_written": False,
+                        },
+                        "execution_policy": {
+                            "max_text_fragments": 3,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_bounded_language_surface_use_event_review_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-bounded-language-surface-use-event-review",
+                        json={
+                            "autonomous_bounded_language_surface_use_executor": (
+                                autonomous_bounded_language_surface_use_executor_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                            "review_policy": {
+                                "max_text_fragments": 3,
+                                "max_surface_chars": 256,
+                            },
+                        },
+                    )
+                )
+                autonomous_snn_language_generation_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-generation-design",
+                    json={
+                        "autonomous_bounded_language_surface_use_event_review": (
+                            autonomous_bounded_language_surface_use_event_review_response.json()
+                        ),
+                        "generation_policy": {
+                            "generation_mode": "snn_bounded_next_token_projection",
+                            "decoding_strategy": "spike_sparse_top_k",
+                            "max_new_tokens": 16,
+                            "max_generated_fragments": 2,
+                            "target_device": "cpu",
+                            "requires_cuda": False,
+                        },
+                    },
+                )
+                autonomous_snn_language_generation_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-generation-preflight",
+                    json={
+                        "autonomous_snn_language_generation_design": (
+                            autonomous_snn_language_generation_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {"device": "cpu", "source": "api-test"},
+                        "executor_capabilities": {
+                            "autonomous_snn_language_generation_executor": False
+                        },
+                    },
+                )
+                autonomous_snn_language_generation_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-generation-executor",
+                    json={
+                        "autonomous_snn_language_generation_preflight": (
+                            autonomous_snn_language_generation_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "generation_evidence": {
+                            "generated_token_hashes": [
+                                _sha256_json({"api_generated_token": 0})
+                            ],
+                            "spike_projection_hashes": [
+                                _sha256_json({"api_spike_projection": 0})
+                            ],
+                            "active_neuron_hashes": [
+                                _sha256_json({"api_active_neurons": [1, 2]})
+                            ],
+                            "membrane_state_hashes": [
+                                _sha256_json({"api_membrane_state": 0})
+                            ],
+                            "output_fragment_hashes": [
+                                _sha256_json({"api_output_fragment": 0})
+                            ],
+                            "checkpoint_written": False,
+                        },
+                        "execution_policy": {"max_new_tokens": 1},
+                    },
+                )
+                autonomous_snn_language_generation_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-generation-event-review",
+                    json={
+                        "autonomous_snn_language_generation_executor": (
+                            autonomous_snn_language_generation_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {"max_generated_tokens": 1},
+                    },
+                )
+                autonomous_snn_language_decoding_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-decoding-design",
+                    json={
+                        "autonomous_snn_language_generation_event_review": (
+                            autonomous_snn_language_generation_event_review_response.json()
+                        ),
+                        "decoding_policy": {
+                            "decoding_mode": "bounded_hash_token_projection",
+                            "materialization_target": "bounded_text_surface",
+                            "max_decoded_tokens": 1,
+                            "max_decoded_fragments": 1,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
+                autonomous_snn_language_decoding_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-decoding-preflight",
+                    json={
+                        "autonomous_snn_language_decoding_design": (
+                            autonomous_snn_language_decoding_design_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "device_evidence": {
+                            "device": "cuda:0",
+                            "cuda_available": True,
+                        },
+                        "decoder_capabilities": {
+                            "autonomous_snn_language_decoding_executor": True
+                        },
+                    },
+                )
+                autonomous_snn_language_decoding_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-decoding-executor",
+                    json={
+                        "autonomous_snn_language_decoding_preflight": (
+                            autonomous_snn_language_decoding_preflight_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "decoding_evidence": {
+                            "decoded_token_hashes": [
+                                _sha256_json({"api_generated_token": 0})
+                            ],
+                            "decoded_text_fragments": ["api spike"],
+                            "rendered_text": "api spike",
+                            "schema_valid": True,
+                            "text_normalized": True,
+                            "semantic_constraint_valid": True,
+                            "checkpoint_written": False,
+                        },
+                    },
+                )
+                autonomous_snn_language_decoding_event_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-decoding-event-review",
+                    json={
+                        "autonomous_snn_language_decoding_executor": (
+                            autonomous_snn_language_decoding_executor_response.json()
+                        ),
+                        "expected_state_revision": status_response.json()[
+                            "state_revision"
+                        ],
+                        "review_policy": {
+                            "max_decoded_tokens": 1,
+                            "max_decoded_fragments": 1,
+                            "max_surface_chars": 256,
+                        },
+                    },
+                )
             app.state.hecsn_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
@@ -1428,6 +1981,127 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(autonomous_decoded_output_design_response.status_code, 200)
         self.assertEqual(autonomous_decoded_output_preflight_response.status_code, 200)
+        self.assertEqual(autonomous_decoded_output_executor_response.status_code, 200)
+        self.assertEqual(
+            autonomous_decoded_output_event_review_response.status_code, 200
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_design_response.status_code, 200
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_preflight_response.status_code, 200
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_executor_response.status_code, 200
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_sequence_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_event_review_response.status_code,
+            200,
+        )
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
         capacity_expansion_design = capacity_expansion_response.json()
@@ -1623,6 +2297,102 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         autonomous_decoded_output_preflight = (
             autonomous_decoded_output_preflight_response.json()
+        )
+        autonomous_decoded_output_executor = (
+            autonomous_decoded_output_executor_response.json()
+        )
+        autonomous_decoded_output_event_review = (
+            autonomous_decoded_output_event_review_response.json()
+        )
+        autonomous_bounded_text_emission_design = (
+            autonomous_bounded_text_emission_design_response.json()
+        )
+        autonomous_bounded_text_emission_preflight = (
+            autonomous_bounded_text_emission_preflight_response.json()
+        )
+        autonomous_bounded_text_emission_executor = (
+            autonomous_bounded_text_emission_executor_response.json()
+        )
+        autonomous_bounded_text_emission_event_review = (
+            autonomous_bounded_text_emission_event_review_response.json()
+        )
+        autonomous_text_surface_sequence_review = (
+            autonomous_text_surface_sequence_review_response.json()
+        )
+        autonomous_text_surface_commit_design = (
+            autonomous_text_surface_commit_design_response.json()
+        )
+        autonomous_text_surface_commit_preflight = (
+            autonomous_text_surface_commit_preflight_response.json()
+        )
+        autonomous_text_surface_commit_executor = (
+            autonomous_text_surface_commit_executor_response.json()
+        )
+        autonomous_text_surface_commit_event_review = (
+            autonomous_text_surface_commit_event_review_response.json()
+        )
+        autonomous_text_surface_materialization_design = (
+            autonomous_text_surface_materialization_design_response.json()
+        )
+        autonomous_text_surface_materialization_preflight = (
+            autonomous_text_surface_materialization_preflight_response.json()
+        )
+        autonomous_text_surface_materialization_executor = (
+            autonomous_text_surface_materialization_executor_response.json()
+        )
+        autonomous_text_surface_materialization_event_review = (
+            autonomous_text_surface_materialization_event_review_response.json()
+        )
+        autonomous_bounded_language_surface_review = (
+            autonomous_bounded_language_surface_review_response.json()
+        )
+        autonomous_bounded_language_surface_commit_design = (
+            autonomous_bounded_language_surface_commit_design_response.json()
+        )
+        autonomous_bounded_language_surface_commit_preflight = (
+            autonomous_bounded_language_surface_commit_preflight_response.json()
+        )
+        autonomous_bounded_language_surface_commit_executor = (
+            autonomous_bounded_language_surface_commit_executor_response.json()
+        )
+        autonomous_bounded_language_surface_commit_event_review = (
+            autonomous_bounded_language_surface_commit_event_review_response.json()
+        )
+        autonomous_bounded_language_surface_use_review = (
+            autonomous_bounded_language_surface_use_review_response.json()
+        )
+        autonomous_bounded_language_surface_use_preflight = (
+            autonomous_bounded_language_surface_use_preflight_response.json()
+        )
+        autonomous_bounded_language_surface_use_executor = (
+            autonomous_bounded_language_surface_use_executor_response.json()
+        )
+        autonomous_bounded_language_surface_use_event_review = (
+            autonomous_bounded_language_surface_use_event_review_response.json()
+        )
+        autonomous_snn_language_generation_design = (
+            autonomous_snn_language_generation_design_response.json()
+        )
+        autonomous_snn_language_generation_preflight = (
+            autonomous_snn_language_generation_preflight_response.json()
+        )
+        autonomous_snn_language_generation_executor = (
+            autonomous_snn_language_generation_executor_response.json()
+        )
+        autonomous_snn_language_generation_event_review = (
+            autonomous_snn_language_generation_event_review_response.json()
+        )
+        autonomous_snn_language_decoding_design = (
+            autonomous_snn_language_decoding_design_response.json()
+        )
+        autonomous_snn_language_decoding_preflight = (
+            autonomous_snn_language_decoding_preflight_response.json()
+        )
+        autonomous_snn_language_decoding_executor = (
+            autonomous_snn_language_decoding_executor_response.json()
+        )
+        autonomous_snn_language_decoding_event_review = (
+            autonomous_snn_language_decoding_event_review_response.json()
         )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
@@ -4286,6 +5056,1545 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         self.assertFalse(
             autonomous_decoded_output_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_decoded_output_executor["surface"],
+            "snn_language_autonomous_decoded_output_executor.v1",
+        )
+        self.assertFalse(autonomous_decoded_output_executor["accepted"])
+        self.assertFalse(
+            autonomous_decoded_output_executor["requires_operator_approval"]
+        )
+        self.assertFalse(autonomous_decoded_output_executor["executable"])
+        self.assertFalse(autonomous_decoded_output_executor["records_ledger_event"])
+        self.assertFalse(autonomous_decoded_output_executor["mutates_runtime_state"])
+        self.assertFalse(autonomous_decoded_output_executor["runs_replay"])
+        self.assertFalse(autonomous_decoded_output_executor["runs_calibration_update"])
+        self.assertFalse(autonomous_decoded_output_executor["writes_checkpoint"])
+        self.assertFalse(autonomous_decoded_output_executor["generates_text"])
+        self.assertFalse(autonomous_decoded_output_executor["decodes_text"])
+        self.assertFalse(autonomous_decoded_output_executor["trains_runtime_model"])
+        self.assertFalse(autonomous_decoded_output_executor["applies_plasticity"])
+        self.assertFalse(
+            autonomous_decoded_output_executor["promotion_gate"][
+                "eligible_for_autonomous_decoded_output_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_decoded_output_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_decoded_output_event_review["surface"],
+            "snn_language_autonomous_decoded_output_event_review.v1",
+        )
+        self.assertFalse(autonomous_decoded_output_event_review["ready"])
+        self.assertFalse(
+            autonomous_decoded_output_event_review["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_decoded_output_event_review["advisory"])
+        self.assertFalse(autonomous_decoded_output_event_review["executable"])
+        self.assertFalse(
+            autonomous_decoded_output_event_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_decoded_output_event_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_decoded_output_event_review["runs_replay"])
+        self.assertFalse(
+            autonomous_decoded_output_event_review["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_decoded_output_event_review["writes_checkpoint"])
+        self.assertFalse(autonomous_decoded_output_event_review["generates_text"])
+        self.assertFalse(autonomous_decoded_output_event_review["decodes_text"])
+        self.assertFalse(
+            autonomous_decoded_output_event_review["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_decoded_output_event_review["applies_plasticity"])
+        self.assertFalse(
+            autonomous_decoded_output_event_review["promotion_gate"][
+                "eligible_for_autonomous_bounded_text_emission_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_decoded_output_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_design["surface"],
+            "snn_language_autonomous_bounded_text_emission_design.v1",
+        )
+        self.assertFalse(autonomous_bounded_text_emission_design["ready"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_bounded_text_emission_design["advisory"])
+        self.assertFalse(autonomous_bounded_text_emission_design["executable"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_design["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_design["writes_checkpoint"])
+        self.assertFalse(autonomous_bounded_text_emission_design["generates_text"])
+        self.assertFalse(autonomous_bounded_text_emission_design["decodes_text"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_design["applies_plasticity"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["promotion_gate"][
+                "eligible_for_autonomous_bounded_text_emission_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_preflight["surface"],
+            "snn_language_autonomous_bounded_text_emission_preflight.v1",
+        )
+        self.assertFalse(autonomous_bounded_text_emission_preflight["ready"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_bounded_text_emission_preflight["advisory"])
+        self.assertFalse(autonomous_bounded_text_emission_preflight["executable"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_preflight["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_preflight["generates_text"])
+        self.assertFalse(autonomous_bounded_text_emission_preflight["decodes_text"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["promotion_gate"][
+                "eligible_for_autonomous_bounded_text_emission_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_executor["surface"],
+            "snn_language_autonomous_bounded_text_emission_executor.v1",
+        )
+        self.assertFalse(autonomous_bounded_text_emission_executor["accepted"])
+        self.assertFalse(autonomous_bounded_text_emission_executor["ready"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["requires_operator_approval"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_executor["advisory"])
+        self.assertFalse(autonomous_bounded_text_emission_executor["executable"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_executor["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_executor["generates_text"])
+        self.assertFalse(autonomous_bounded_text_emission_executor["decodes_text"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["promotion_gate"][
+                "eligible_for_autonomous_bounded_text_emission_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_text_emission_event_review["surface"],
+            "snn_language_autonomous_bounded_text_emission_event_review.v1",
+        )
+        self.assertFalse(autonomous_bounded_text_emission_event_review["ready"])
+        self.assertFalse(autonomous_bounded_text_emission_event_review["accepted"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_bounded_text_emission_event_review["advisory"])
+        self.assertFalse(autonomous_bounded_text_emission_event_review["executable"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_text_emission_event_review["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["promotion_gate"][
+                "eligible_for_autonomous_text_surface_sequence_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_text_emission_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_sequence_review["surface"],
+            "snn_language_autonomous_text_surface_sequence_review.v1",
+        )
+        self.assertFalse(autonomous_text_surface_sequence_review["ready"])
+        self.assertFalse(autonomous_text_surface_sequence_review["accepted"])
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_text_surface_sequence_review["advisory"])
+        self.assertFalse(autonomous_text_surface_sequence_review["executable"])
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_text_surface_sequence_review["runs_replay"])
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_text_surface_sequence_review["writes_checkpoint"])
+        self.assertFalse(autonomous_text_surface_sequence_review["generates_text"])
+        self.assertFalse(autonomous_text_surface_sequence_review["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_text_surface_sequence_review["applies_plasticity"])
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["promotion_gate"][
+                "eligible_for_autonomous_text_surface_commit_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_sequence_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_design["surface"],
+            "snn_language_autonomous_text_surface_commit_design.v1",
+        )
+        self.assertFalse(autonomous_text_surface_commit_design["ready"])
+        self.assertFalse(autonomous_text_surface_commit_design["accepted"])
+        self.assertFalse(
+            autonomous_text_surface_commit_design["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_text_surface_commit_design["advisory"])
+        self.assertFalse(autonomous_text_surface_commit_design["executable"])
+        self.assertFalse(
+            autonomous_text_surface_commit_design["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_design["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_design["runs_replay"])
+        self.assertFalse(
+            autonomous_text_surface_commit_design["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_design["writes_checkpoint"])
+        self.assertFalse(autonomous_text_surface_commit_design["generates_text"])
+        self.assertFalse(autonomous_text_surface_commit_design["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_commit_design["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_design["applies_plasticity"])
+        self.assertFalse(
+            autonomous_text_surface_commit_design["promotion_gate"][
+                "eligible_for_autonomous_text_surface_commit_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_preflight["surface"],
+            "snn_language_autonomous_text_surface_commit_preflight.v1",
+        )
+        self.assertFalse(autonomous_text_surface_commit_preflight["ready"])
+        self.assertFalse(autonomous_text_surface_commit_preflight["accepted"])
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_text_surface_commit_preflight["advisory"])
+        self.assertFalse(autonomous_text_surface_commit_preflight["executable"])
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_preflight["runs_replay"])
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_preflight["writes_checkpoint"])
+        self.assertFalse(autonomous_text_surface_commit_preflight["generates_text"])
+        self.assertFalse(autonomous_text_surface_commit_preflight["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_preflight["applies_plasticity"])
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["promotion_gate"][
+                "eligible_for_autonomous_text_surface_commit_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_executor["surface"],
+            "snn_language_autonomous_text_surface_commit_executor.v1",
+        )
+        self.assertFalse(autonomous_text_surface_commit_executor["accepted"])
+        self.assertFalse(autonomous_text_surface_commit_executor["ready"])
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["requires_operator_approval"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_executor["advisory"])
+        self.assertFalse(autonomous_text_surface_commit_executor["executable"])
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_executor["runs_replay"])
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_executor["writes_checkpoint"])
+        self.assertFalse(autonomous_text_surface_commit_executor["generates_text"])
+        self.assertFalse(autonomous_text_surface_commit_executor["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_executor["applies_plasticity"])
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["promotion_gate"][
+                "eligible_for_autonomous_text_surface_commit_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_commit_event_review["surface"],
+            "snn_language_autonomous_text_surface_commit_event_review.v1",
+        )
+        self.assertFalse(autonomous_text_surface_commit_event_review["accepted"])
+        self.assertFalse(autonomous_text_surface_commit_event_review["ready"])
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_text_surface_commit_event_review["advisory"])
+        self.assertFalse(autonomous_text_surface_commit_event_review["executable"])
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_event_review["runs_replay"])
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_text_surface_commit_event_review["generates_text"])
+        self.assertFalse(autonomous_text_surface_commit_event_review["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["promotion_gate"][
+                "eligible_for_autonomous_text_surface_materialization_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_commit_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_design["surface"],
+            "snn_language_autonomous_text_surface_materialization_design.v1",
+        )
+        self.assertFalse(autonomous_text_surface_materialization_design["accepted"])
+        self.assertFalse(autonomous_text_surface_materialization_design["ready"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_design[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_text_surface_materialization_design["advisory"])
+        self.assertFalse(autonomous_text_surface_materialization_design["executable"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_text_surface_materialization_design["runs_replay"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_design[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["generates_text"]
+        )
+        self.assertFalse(autonomous_text_surface_materialization_design["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["promotion_gate"][
+                "eligible_for_autonomous_text_surface_materialization_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_preflight["surface"],
+            "snn_language_autonomous_text_surface_materialization_preflight.v1",
+        )
+        self.assertFalse(autonomous_text_surface_materialization_preflight["accepted"])
+        self.assertFalse(autonomous_text_surface_materialization_preflight["ready"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_text_surface_materialization_preflight["advisory"])
+        self.assertFalse(autonomous_text_surface_materialization_preflight["executable"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["promotion_gate"][
+                "eligible_for_autonomous_text_surface_materialization_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_executor["surface"],
+            "snn_language_autonomous_text_surface_materialization_executor.v1",
+        )
+        self.assertFalse(autonomous_text_surface_materialization_executor["accepted"])
+        self.assertFalse(autonomous_text_surface_materialization_executor["ready"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(autonomous_text_surface_materialization_executor["advisory"])
+        self.assertFalse(autonomous_text_surface_materialization_executor["executable"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["generates_text"]
+        )
+        self.assertFalse(autonomous_text_surface_materialization_executor["decodes_text"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["literal_text_returned"]
+        )
+        self.assertIsNone(autonomous_text_surface_materialization_executor["rendered_text"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["promotion_gate"][
+                "eligible_for_autonomous_text_surface_materialization_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_text_surface_materialization_event_review["surface"],
+            "snn_language_autonomous_text_surface_materialization_event_review.v1",
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["accepted"]
+        )
+        self.assertFalse(autonomous_text_surface_materialization_event_review["ready"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_text_surface_materialization_event_review["advisory"])
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["executable"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_text_surface_materialization_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_review["surface"],
+            "snn_language_autonomous_bounded_language_surface_review.v1",
+        )
+        self.assertFalse(autonomous_bounded_language_surface_review["accepted"])
+        self.assertFalse(autonomous_bounded_language_surface_review["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_bounded_language_surface_review["advisory"])
+        self.assertFalse(autonomous_bounded_language_surface_review["executable"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_review["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_review["generates_text"])
+        self.assertFalse(autonomous_bounded_language_surface_review["decodes_text"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["applies_plasticity"]
+        )
+        self.assertIsNone(autonomous_bounded_language_surface_review["rendered_text"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_commit_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_design["surface"],
+            "snn_language_autonomous_bounded_language_surface_commit_design.v1",
+        )
+        self.assertFalse(autonomous_bounded_language_surface_commit_design["accepted"])
+        self.assertFalse(autonomous_bounded_language_surface_commit_design["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_bounded_language_surface_commit_design["advisory"])
+        self.assertFalse(autonomous_bounded_language_surface_commit_design["executable"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_commit_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_preflight["surface"],
+            "snn_language_autonomous_bounded_language_surface_commit_preflight.v1",
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["accepted"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_commit_preflight["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_bounded_language_surface_commit_preflight["advisory"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["executable"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_commit_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_executor["surface"],
+            "snn_language_autonomous_bounded_language_surface_commit_executor.v1",
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["accepted"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_commit_executor["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_commit_executor["advisory"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["executable"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_commit_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_commit_event_review["surface"],
+            "snn_language_autonomous_bounded_language_surface_commit_event_review.v1",
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["accepted"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["ready"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(
+            autonomous_bounded_language_surface_commit_event_review["advisory"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["executable"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "generates_text"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review[
+                "applies_plasticity"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_use_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_commit_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_review["surface"],
+            "snn_language_autonomous_bounded_language_surface_use_review.v1",
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_review["accepted"])
+        self.assertFalse(autonomous_bounded_language_surface_use_review["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_bounded_language_surface_use_review["advisory"])
+        self.assertFalse(autonomous_bounded_language_surface_use_review["executable"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_review["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_use_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_preflight["surface"],
+            "snn_language_autonomous_bounded_language_surface_use_preflight.v1",
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_preflight["accepted"])
+        self.assertFalse(autonomous_bounded_language_surface_use_preflight["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_bounded_language_surface_use_preflight["advisory"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["executable"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_preflight["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_use_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_executor["surface"],
+            "snn_language_autonomous_bounded_language_surface_use_executor.v1",
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_executor["accepted"])
+        self.assertFalse(autonomous_bounded_language_surface_use_executor["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_executor["advisory"])
+        self.assertFalse(autonomous_bounded_language_surface_use_executor["executable"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_executor["runs_replay"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["promotion_gate"][
+                "eligible_for_autonomous_bounded_language_surface_use_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_bounded_language_surface_use_event_review["surface"],
+            "snn_language_autonomous_bounded_language_surface_use_event_review.v1",
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["accepted"]
+        )
+        self.assertFalse(autonomous_bounded_language_surface_use_event_review["ready"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_bounded_language_surface_use_event_review["advisory"])
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["executable"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review[
+                "trains_runtime_model"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["promotion_gate"][
+                "eligible_for_autonomous_snn_language_generation_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_bounded_language_surface_use_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_design["surface"],
+            "snn_language_autonomous_snn_language_generation_design.v1",
+        )
+        self.assertFalse(autonomous_snn_language_generation_design["accepted"])
+        self.assertFalse(autonomous_snn_language_generation_design["ready"])
+        self.assertFalse(
+            autonomous_snn_language_generation_design["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_snn_language_generation_design["advisory"])
+        self.assertFalse(autonomous_snn_language_generation_design["executable"])
+        self.assertFalse(
+            autonomous_snn_language_generation_design["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_design["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_design["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_generation_design["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_design["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_design["generates_text"])
+        self.assertFalse(autonomous_snn_language_generation_design["decodes_text"])
+        self.assertFalse(
+            autonomous_snn_language_generation_design["trains_runtime_model"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_design["applies_plasticity"])
+        self.assertFalse(autonomous_snn_language_generation_design["planned_generation"])
+        self.assertFalse(
+            autonomous_snn_language_generation_design["promotion_gate"][
+                "eligible_for_autonomous_snn_language_generation_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_preflight["surface"],
+            "snn_language_autonomous_snn_language_generation_preflight.v1",
+        )
+        self.assertFalse(autonomous_snn_language_generation_preflight["accepted"])
+        self.assertFalse(autonomous_snn_language_generation_preflight["ready"])
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_snn_language_generation_preflight["advisory"])
+        self.assertFalse(autonomous_snn_language_generation_preflight["executable"])
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_preflight["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_preflight["generates_text"])
+        self.assertFalse(autonomous_snn_language_generation_preflight["decodes_text"])
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["promotion_gate"][
+                "eligible_for_autonomous_snn_language_generation_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_executor["surface"],
+            "snn_language_autonomous_snn_language_generation_executor.v1",
+        )
+        self.assertFalse(autonomous_snn_language_generation_executor["accepted"])
+        self.assertFalse(autonomous_snn_language_generation_executor["ready"])
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["requires_operator_approval"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_executor["advisory"])
+        self.assertFalse(autonomous_snn_language_generation_executor["executable"])
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_executor["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_executor["generates_text"])
+        self.assertFalse(autonomous_snn_language_generation_executor["decodes_text"])
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["generated_text_returned"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["promotion_gate"][
+                "eligible_for_autonomous_snn_language_generation_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_generation_event_review["surface"],
+            "snn_language_autonomous_snn_language_generation_event_review.v1",
+        )
+        self.assertFalse(autonomous_snn_language_generation_event_review["accepted"])
+        self.assertFalse(autonomous_snn_language_generation_event_review["ready"])
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_snn_language_generation_event_review["advisory"])
+        self.assertFalse(autonomous_snn_language_generation_event_review["executable"])
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_generation_event_review["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["generated_text_returned"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["promotion_gate"][
+                "eligible_for_autonomous_snn_language_decoding_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_generation_event_review["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_design["surface"],
+            "snn_language_autonomous_snn_language_decoding_design.v1",
+        )
+        self.assertFalse(autonomous_snn_language_decoding_design["accepted"])
+        self.assertFalse(autonomous_snn_language_decoding_design["ready"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["requires_operator_approval"]
+        )
+        self.assertTrue(autonomous_snn_language_decoding_design["advisory"])
+        self.assertFalse(autonomous_snn_language_decoding_design["executable"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_decoding_design["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["runs_calibration_update"]
+        )
+        self.assertFalse(autonomous_snn_language_decoding_design["writes_checkpoint"])
+        self.assertFalse(autonomous_snn_language_decoding_design["generates_text"])
+        self.assertFalse(autonomous_snn_language_decoding_design["decodes_text"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["generated_text_returned"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["promotion_gate"][
+                "eligible_for_autonomous_snn_language_decoding_preflight"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_design["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_preflight["surface"],
+            "snn_language_autonomous_snn_language_decoding_preflight.v1",
+        )
+        self.assertFalse(autonomous_snn_language_decoding_preflight["accepted"])
+        self.assertFalse(autonomous_snn_language_decoding_preflight["ready"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_snn_language_decoding_preflight["advisory"])
+        self.assertFalse(autonomous_snn_language_decoding_preflight["executable"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_decoding_preflight["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["generated_text_returned"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["promotion_gate"][
+                "eligible_for_autonomous_snn_language_decoding_executor"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_preflight["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_executor["surface"],
+            "snn_language_autonomous_snn_language_decoding_executor.v1",
+        )
+        self.assertFalse(autonomous_snn_language_decoding_executor["accepted"])
+        self.assertFalse(autonomous_snn_language_decoding_executor["ready"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(autonomous_snn_language_decoding_executor["advisory"])
+        self.assertTrue(autonomous_snn_language_decoding_executor["executable"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["mutates_runtime_state"]
+        )
+        self.assertFalse(autonomous_snn_language_decoding_executor["runs_replay"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["runs_calibration_update"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["writes_checkpoint"]
+        )
+        self.assertFalse(autonomous_snn_language_decoding_executor["generates_text"])
+        self.assertFalse(autonomous_snn_language_decoding_executor["decodes_text"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["generated_text_returned"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["promotion_gate"][
+                "eligible_for_autonomous_snn_language_decoding_event_review"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_executor["promotion_gate"][
+                "eligible_for_language_generation"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_decoding_event_review["surface"],
+            "snn_language_autonomous_snn_language_decoding_event_review.v1",
+        )
+        self.assertFalse(autonomous_snn_language_decoding_event_review["accepted"])
+        self.assertFalse(autonomous_snn_language_decoding_event_review["ready"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(autonomous_snn_language_decoding_event_review["advisory"])
+        self.assertFalse(autonomous_snn_language_decoding_event_review["executable"])
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["records_ledger_event"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["mutates_runtime_state"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["runs_replay"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review[
+                "runs_calibration_update"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["writes_checkpoint"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["generates_text"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["decodes_text"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["trains_runtime_model"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["applies_plasticity"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["generated_text_returned"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["promotion_gate"][
+                "eligible_for_autonomous_snn_language_thought_surface_design"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_decoding_event_review["promotion_gate"][
                 "eligible_for_language_generation"
             ]
         )
