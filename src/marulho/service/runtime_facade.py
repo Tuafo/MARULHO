@@ -519,6 +519,96 @@ class RuntimeFacade:
             **kwargs
         )
 
+    def snn_language_autonomous_snn_language_thought_surface_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_surface_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_surface_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_surface_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_surface_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_surface(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_surface_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_surface_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_memory_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_memory_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_memory_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_memory_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_memory_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_memory(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_memory_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_memory_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_consolidation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_consolidation_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_consolidation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_consolidation_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_consolidation_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_consolidation(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_consolidation_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_consolidation_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_structural_plasticity_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_structural_plasticity_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_structural_plasticity_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_structural_plasticity_preflight(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_structural_plasticity_executor(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.execute_autonomous_snn_language_thought_structural_plasticity(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_structural_plasticity_event_review(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_structural_plasticity_event_review(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_capacity_mutation_design(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_capacity_mutation_design(
+            **kwargs
+        )
+
+    def snn_language_autonomous_snn_language_thought_capacity_mutation_preflight(self, **kwargs: Any) -> dict[str, Any]:
+        return self._root._snn_language_readout_ledger.autonomous_snn_language_thought_capacity_mutation_preflight(
+            **kwargs
+        )
+
     def snn_language_readout_emission_replay_evaluation_policy(self, **kwargs: Any) -> dict[str, Any]:
         return self._root._snn_language_readout_ledger.emission_review_replay_evaluation_policy(**kwargs)
 

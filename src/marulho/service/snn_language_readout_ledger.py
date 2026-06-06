@@ -21462,6 +21462,6021 @@ class SNNLanguageReadoutEvidenceLedger:
                 },
             }
 
+    def autonomous_snn_language_thought_surface_design(
+        self,
+        *,
+        autonomous_snn_language_decoding_event_review: Mapping[str, Any],
+        thought_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded internal thought surface from reviewed SNN language."""
+
+        review_artifact = dict(autonomous_snn_language_decoding_event_review or {})
+        gate = (
+            review_artifact.get("promotion_gate")
+            if isinstance(review_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        review = (
+            dict(review_artifact.get("autonomous_snn_language_decoding_event_review"))
+            if isinstance(
+                review_artifact.get("autonomous_snn_language_decoding_event_review"),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(thought_policy or {})
+        allowed_roles = {
+            "inner_speech_candidate",
+            "working_thought_surface",
+            "conceptual_association_surface",
+        }
+        allowed_binding_modes = {
+            "hash_bound_inner_language",
+            "spike_context_association",
+            "semantic_constraint_association",
+        }
+        thought_role = str(policy.get("thought_role") or "inner_speech_candidate")
+        binding_mode = str(
+            policy.get("binding_mode") or "hash_bound_inner_language"
+        )
+        max_thought_fragments = min(
+            16,
+            max(1, int(policy.get("max_thought_fragments", 4) or 4)),
+        )
+        max_surface_chars = min(
+            4096,
+            max(1, int(policy.get("max_surface_chars", 512) or 512)),
+        )
+        max_association_edges = min(
+            64,
+            max(1, int(policy.get("max_association_edges", 8) or 8)),
+        )
+        rendered_text = str(review.get("rendered_text") or "")
+        rendered_text_hash = str(review.get("rendered_text_hash") or "")
+        decoded_fragments = [
+            str(value)
+            for value in list(review.get("decoded_text_fragments") or [])
+            if str(value)
+        ][:max_thought_fragments]
+        decoded_fragment_hashes = [
+            str(value)
+            for value in list(review.get("decoded_text_fragment_hashes") or [])
+            if str(value)
+        ][:max_thought_fragments]
+        generated_token_hashes = [
+            str(value)
+            for value in list(review.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        decoded_token_hashes = [
+            str(value)
+            for value in list(review.get("decoded_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(review.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(review.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(review.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(review.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        review_hash = str(review_artifact.get("review_hash") or "")
+        decoding_event_hash = str(
+            review.get("autonomous_snn_language_decoding_event_hash") or ""
+        )
+        decoding_preflight_hash = str(
+            review.get("language_decoding_preflight_hash") or ""
+        )
+        decoding_design_hash = str(review.get("language_decoding_design_hash") or "")
+        decoding_plan_hash = str(review.get("decoding_plan_hash") or "")
+        generation_event_hash = str(
+            review.get("autonomous_snn_language_generation_event_hash") or ""
+        )
+        generation_event_review_hash = str(
+            review.get("generation_event_review_hash") or ""
+        )
+        schema_hash = str(review.get("text_surface_schema_hash") or "")
+        normalizer_hash = str(review.get("text_normalizer_hash") or "")
+        semantic_constraint_hash = str(review.get("semantic_constraint_hash") or "")
+        thought_surface_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+                "review_hash": review_hash,
+                "decoding_event_hash": decoding_event_hash,
+                "rendered_text_hash": rendered_text_hash,
+                "decoded_fragment_hashes": decoded_fragment_hashes,
+                "decoded_token_hashes": decoded_token_hashes,
+                "spike_projection_hashes": spike_projection_hashes,
+                "active_neuron_hashes": active_neuron_hashes,
+                "membrane_state_hashes": membrane_state_hashes,
+                "thought_role": thought_role,
+                "binding_mode": binding_mode,
+                "max_association_edges": max_association_edges,
+            }
+        )
+        required = {
+            "decoding_event_review_surface_available": review_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_decoding_event_review.v1",
+            "decoding_event_review_ready": bool(review_artifact.get("accepted"))
+            and bool(review_artifact.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_snn_language_thought_surface_design")
+            ),
+            "operator_approval_not_required": not bool(
+                review_artifact.get("requires_operator_approval")
+            )
+            and not bool(review.get("operator_approval_required")),
+            "thought_role_supported": thought_role in allowed_roles,
+            "binding_mode_supported": binding_mode in allowed_binding_modes,
+            "review_hash_available": len(review_hash) == 64,
+            "decoding_event_hash_available": len(decoding_event_hash) == 64,
+            "decoding_preflight_hash_available": len(decoding_preflight_hash) == 64,
+            "decoding_design_hash_available": len(decoding_design_hash) == 64,
+            "decoding_plan_hash_available": len(decoding_plan_hash) == 64,
+            "generation_event_hash_available": len(generation_event_hash) == 64,
+            "generation_event_review_hash_available": len(
+                generation_event_review_hash
+            )
+            == 64,
+            "rendered_text_hash_available": len(rendered_text_hash) == 64,
+            "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars,
+            "decoded_fragments_bounded": bool(decoded_fragments)
+            and len(decoded_fragments) <= max_thought_fragments
+            and all(0 < len(value) <= max_surface_chars for value in decoded_fragments),
+            "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+            and len(decoded_fragment_hashes) == len(decoded_fragments)
+            and all(len(value) == 64 for value in decoded_fragment_hashes),
+            "decoded_token_hashes_valid": bool(decoded_token_hashes)
+            and all(len(value) == 64 for value in decoded_token_hashes),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "output_fragment_hashes_valid": bool(output_fragment_hashes)
+            and all(len(value) == 64 for value in output_fragment_hashes),
+            "schema_hash_available": len(schema_hash) == 64,
+            "normalizer_hash_available": len(normalizer_hash) == 64,
+            "semantic_constraint_hash_available": len(semantic_constraint_hash)
+            == 64,
+            "schema_valid": bool(review.get("schema_valid")),
+            "text_normalized": bool(review.get("text_normalized")),
+            "semantic_constraint_valid": bool(review.get("semantic_constraint_valid")),
+            "association_budget_bounded": 1 <= max_association_edges <= 64,
+            "checkpoint_write_absent": not bool(review_artifact.get("writes_checkpoint")),
+            "replay_execution_absent": not bool(review_artifact.get("runs_replay")),
+            "plasticity_absent": not bool(review_artifact.get("applies_plasticity")),
+            "training_absent": not bool(review_artifact.get("trains_runtime_model")),
+        }
+        ready = all(required.values())
+        design = {
+            "thought_role": thought_role,
+            "binding_mode": binding_mode,
+            "max_thought_fragments": max_thought_fragments,
+            "max_surface_chars": max_surface_chars,
+            "max_association_edges": max_association_edges,
+            "thought_surface_hash": thought_surface_hash,
+            "decoding_event_review_hash": review_hash,
+            "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
+            "language_decoding_preflight_hash": decoding_preflight_hash,
+            "language_decoding_design_hash": decoding_design_hash,
+            "decoding_plan_hash": decoding_plan_hash,
+            "autonomous_snn_language_generation_event_hash": generation_event_hash,
+            "generation_event_review_hash": generation_event_review_hash,
+            "rendered_text_hash": rendered_text_hash,
+            "rendered_text": rendered_text if ready else "",
+            "decoded_text_fragments": decoded_fragments if ready else [],
+            "decoded_text_fragment_hashes": (
+                decoded_fragment_hashes if ready else []
+            ),
+            "generated_token_hashes": generated_token_hashes if ready else [],
+            "decoded_token_hashes": decoded_token_hashes if ready else [],
+            "spike_projection_hashes": spike_projection_hashes if ready else [],
+            "active_neuron_hashes": active_neuron_hashes if ready else [],
+            "membrane_state_hashes": membrane_state_hashes if ready else [],
+            "output_fragment_hashes": output_fragment_hashes if ready else [],
+            "text_surface_schema_hash": schema_hash,
+            "text_normalizer_hash": normalizer_hash,
+            "semantic_constraint_hash": semantic_constraint_hash,
+            "operator_approval_required": False,
+            "execution_allowed": False,
+            "mutation_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+        }
+        design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+                "ready": ready,
+                "required_evidence": required,
+                "autonomous_snn_language_thought_surface_design": design,
+            }
+        )
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_surface_design"
+            ),
+            "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_surface_design"
+            ),
+            "available": bool(review_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "language_thought_surface_design_hash": design_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_surface_design": design,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_surface_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_surface_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_surface_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_surface_preflight"
+                    if ready
+                    else "collect_snn_language_decoding_event_review_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_snn_language_thought_surface_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_surface_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a bounded internal SNN thought-surface event."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design_artifact = dict(autonomous_snn_language_thought_surface_design or {})
+        gate = (
+            design_artifact.get("promotion_gate")
+            if isinstance(design_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design_artifact.get("autonomous_snn_language_thought_surface_design")
+            if isinstance(
+                design_artifact.get("autonomous_snn_language_thought_surface_design"),
+                Mapping,
+            )
+            else {}
+        )
+        device = dict(device_evidence or {})
+        capabilities = dict(executor_capabilities or {})
+        requested_device = str(
+            device.get("device") or device.get("tensor_device") or "cpu"
+        )
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith(
+            "cuda"
+        )
+        cuda_evidence_available = bool(device.get("cuda_available")) or bool(
+            device.get("cuda_evidence_available")
+        ) or torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_evidence_available
+        executor_ready = bool(
+            capabilities.get("autonomous_snn_language_thought_surface_executor")
+        )
+        design_hash = str(
+            design_artifact.get("language_thought_surface_design_hash") or ""
+        )
+        thought_surface_hash = str(body.get("thought_surface_hash") or "")
+        decoding_event_review_hash = str(
+            body.get("decoding_event_review_hash") or ""
+        )
+        decoding_event_hash = str(
+            body.get("autonomous_snn_language_decoding_event_hash") or ""
+        )
+        rendered_text = str(body.get("rendered_text") or "")
+        rendered_text_hash = str(body.get("rendered_text_hash") or "")
+        decoded_fragments = [
+            str(value)
+            for value in list(body.get("decoded_text_fragments") or [])
+            if str(value)
+        ]
+        decoded_fragment_hashes = [
+            str(value)
+            for value in list(body.get("decoded_text_fragment_hashes") or [])
+            if str(value)
+        ]
+        generated_token_hashes = [
+            str(value)
+            for value in list(body.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        decoded_token_hashes = [
+            str(value)
+            for value in list(body.get("decoded_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(body.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(body.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(body.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(body.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        max_thought_fragments = int(body.get("max_thought_fragments", 0) or 0)
+        max_surface_chars = int(body.get("max_surface_chars", 0) or 0)
+        max_association_edges = int(body.get("max_association_edges", 0) or 0)
+        thought_role = str(body.get("thought_role") or "")
+        binding_mode = str(body.get("binding_mode") or "")
+        schema_hash = str(body.get("text_surface_schema_hash") or "")
+        normalizer_hash = str(body.get("text_normalizer_hash") or "")
+        semantic_constraint_hash = str(body.get("semantic_constraint_hash") or "")
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+                "state_revision": before_revision,
+                "language_thought_surface_design_hash": design_hash,
+                "thought_surface_hash": thought_surface_hash,
+                "decoding_event_review_hash": decoding_event_review_hash,
+                "decoding_event_hash": decoding_event_hash,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "executor_ready": executor_ready,
+            }
+        )
+        required = {
+            "thought_surface_design_available": design_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_surface_design.v1",
+            "thought_surface_design_ready": bool(design_artifact.get("accepted"))
+            and bool(design_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_surface_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design_artifact.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "design_hash_available": len(design_hash) == 64,
+            "thought_surface_hash_available": len(thought_surface_hash) == 64,
+            "decoding_event_review_hash_available": len(
+                decoding_event_review_hash
+            )
+            == 64,
+            "decoding_event_hash_available": len(decoding_event_hash) == 64,
+            "thought_role_available": bool(thought_role),
+            "binding_mode_available": bool(binding_mode),
+            "rendered_text_hash_available": len(rendered_text_hash) == 64,
+            "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars,
+            "decoded_fragment_budget_bounded": 1
+            <= len(decoded_fragments)
+            <= max(1, max_thought_fragments)
+            <= 16,
+            "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+            and len(decoded_fragment_hashes) == len(decoded_fragments)
+            and all(len(value) == 64 for value in decoded_fragment_hashes),
+            "decoded_token_hashes_valid": bool(decoded_token_hashes)
+            and all(len(value) == 64 for value in decoded_token_hashes),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "output_fragment_hashes_valid": bool(output_fragment_hashes)
+            and all(len(value) == 64 for value in output_fragment_hashes),
+            "schema_hash_available": len(schema_hash) == 64,
+            "normalizer_hash_available": len(normalizer_hash) == 64,
+            "semantic_constraint_hash_available": len(semantic_constraint_hash)
+            == 64,
+            "association_budget_bounded": 1 <= max_association_edges <= 64,
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied": cuda_satisfied,
+            "executor_capability_available": executor_ready,
+            "fact_promotion_disallowed": not bool(body.get("fact_promotion_allowed")),
+            "action_disallowed": not bool(body.get("action_allowed")),
+            "replay_disallowed": not bool(body.get("replay_allowed")),
+            "plasticity_disallowed": not bool(body.get("plasticity_allowed")),
+        }
+        ready = all(required.values())
+        preflight = {
+            "language_thought_surface_design_hash": design_hash,
+            "thought_surface_hash": thought_surface_hash,
+            "decoding_event_review_hash": decoding_event_review_hash,
+            "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
+            "thought_role": thought_role,
+            "binding_mode": binding_mode,
+            "requested_device": requested_device,
+            "requires_cuda": requires_cuda,
+            "cuda_satisfied": cuda_satisfied,
+            "executor_ready": executor_ready,
+            "rendered_text_hash": rendered_text_hash,
+            "rendered_text": rendered_text if ready else "",
+            "decoded_text_fragments": decoded_fragments if ready else [],
+            "decoded_text_fragment_hashes": (
+                decoded_fragment_hashes if ready else []
+            ),
+            "generated_token_hashes": generated_token_hashes if ready else [],
+            "decoded_token_hashes": decoded_token_hashes if ready else [],
+            "spike_projection_hashes": spike_projection_hashes if ready else [],
+            "active_neuron_hashes": active_neuron_hashes if ready else [],
+            "membrane_state_hashes": membrane_state_hashes if ready else [],
+            "output_fragment_hashes": output_fragment_hashes if ready else [],
+            "text_surface_schema_hash": schema_hash,
+            "text_normalizer_hash": normalizer_hash,
+            "semantic_constraint_hash": semantic_constraint_hash,
+            "max_thought_fragments": max_thought_fragments,
+            "max_surface_chars": max_surface_chars,
+            "max_association_edges": max_association_edges,
+            "preflight_hash": preflight_hash,
+            "operator_approval_required": False,
+            "execution_allowed": ready,
+            "mutation_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_surface_preflight"
+            ),
+            "surface": "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_surface_preflight"
+            ),
+            "available": bool(design_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "preflight_hash": preflight_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": ready,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_surface_preflight": preflight,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_surface_executor"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_surface_preflight_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_surface_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_surface_executor"
+                    if ready
+                    else "collect_snn_language_thought_surface_preflight_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_snn_language_thought_surface(
+        self,
+        *,
+        autonomous_snn_language_thought_surface_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record a bounded internal SNN language thought-surface event."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_snn_language_thought_surface_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("autonomous_snn_language_thought_surface_preflight")
+                if isinstance(
+                    preflight.get(
+                        "autonomous_snn_language_thought_surface_preflight"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(execution_policy or {})
+            rendered_text = str(body.get("rendered_text") or "").strip()
+            decoded_fragments = [
+                str(value)
+                for value in list(body.get("decoded_text_fragments") or [])
+                if str(value).strip()
+            ]
+            decoded_fragment_hashes = [
+                str(value)
+                for value in list(body.get("decoded_text_fragment_hashes") or [])
+                if str(value)
+            ]
+            generated_token_hashes = [
+                str(value)
+                for value in list(body.get("generated_token_hashes") or [])
+                if str(value)
+            ]
+            decoded_token_hashes = [
+                str(value)
+                for value in list(body.get("decoded_token_hashes") or [])
+                if str(value)
+            ]
+            spike_projection_hashes = [
+                str(value)
+                for value in list(body.get("spike_projection_hashes") or [])
+                if str(value)
+            ]
+            active_neuron_hashes = [
+                str(value)
+                for value in list(body.get("active_neuron_hashes") or [])
+                if str(value)
+            ]
+            membrane_state_hashes = [
+                str(value)
+                for value in list(body.get("membrane_state_hashes") or [])
+                if str(value)
+            ]
+            output_fragment_hashes = [
+                str(value)
+                for value in list(body.get("output_fragment_hashes") or [])
+                if str(value)
+            ]
+            max_thought_fragments = int(body.get("max_thought_fragments", 0) or 0)
+            max_surface_chars = int(body.get("max_surface_chars", 0) or 0)
+            max_association_edges = int(body.get("max_association_edges", 0) or 0)
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            design_hash = str(
+                body.get("language_thought_surface_design_hash") or ""
+            )
+            thought_surface_hash = str(body.get("thought_surface_hash") or "")
+            decoding_event_review_hash = str(
+                body.get("decoding_event_review_hash") or ""
+            )
+            decoding_event_hash = str(
+                body.get("autonomous_snn_language_decoding_event_hash") or ""
+            )
+            event = {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_surface_event"
+                ),
+                "surface": "snn_language_autonomous_snn_language_thought_surface_event.v1",
+                "state_revision": before_revision,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "language_thought_surface_preflight_hash": preflight_hash,
+                "language_thought_surface_design_hash": design_hash,
+                "thought_surface_hash": thought_surface_hash,
+                "decoding_event_review_hash": decoding_event_review_hash,
+                "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
+                "thought_role": str(body.get("thought_role") or ""),
+                "binding_mode": str(body.get("binding_mode") or ""),
+                "rendered_text": rendered_text,
+                "rendered_text_hash": str(body.get("rendered_text_hash") or ""),
+                "decoded_text_fragments": decoded_fragments,
+                "decoded_text_fragment_hashes": decoded_fragment_hashes,
+                "generated_token_hashes": generated_token_hashes,
+                "decoded_token_hashes": decoded_token_hashes,
+                "spike_projection_hashes": spike_projection_hashes,
+                "active_neuron_hashes": active_neuron_hashes,
+                "membrane_state_hashes": membrane_state_hashes,
+                "output_fragment_hashes": output_fragment_hashes,
+                "text_surface_schema_hash": str(
+                    body.get("text_surface_schema_hash") or ""
+                ),
+                "text_normalizer_hash": str(body.get("text_normalizer_hash") or ""),
+                "semantic_constraint_hash": str(
+                    body.get("semantic_constraint_hash") or ""
+                ),
+                "requested_device": str(body.get("requested_device") or ""),
+                "max_thought_fragments": max_thought_fragments,
+                "max_surface_chars": max_surface_chars,
+                "max_association_edges": max_association_edges,
+                "operator_approval_required": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": True,
+                "generates_text": True,
+                "decodes_text": True,
+                "literal_text_returned": True,
+                "generated_text_returned": True,
+                "promotes_fact": False,
+                "executes_action": False,
+                "cognition_substrate_claimed": False,
+            }
+            event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "recorded_at"
+                    and key
+                    != "autonomous_snn_language_thought_surface_event_hash"
+                }
+            )
+            event["autonomous_snn_language_thought_surface_event_hash"] = event_hash
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_snn_language_thought_surface_preflight.v1",
+                "preflight_ready": bool(preflight.get("accepted"))
+                and bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_surface_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "decoding_event_review_hash_available": len(
+                    decoding_event_review_hash
+                )
+                == 64,
+                "decoding_event_hash_available": len(decoding_event_hash) == 64,
+                "thought_role_available": bool(event["thought_role"]),
+                "binding_mode_available": bool(event["binding_mode"]),
+                "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars,
+                "decoded_fragment_budget_bounded": 1
+                <= len(decoded_fragments)
+                <= max(1, max_thought_fragments)
+                <= 16,
+                "association_budget_bounded": 1 <= max_association_edges <= 64,
+                "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+                and len(decoded_fragment_hashes) == len(decoded_fragments)
+                and all(len(value) == 64 for value in decoded_fragment_hashes),
+                "decoded_token_hashes_valid": bool(decoded_token_hashes)
+                and all(len(value) == 64 for value in decoded_token_hashes),
+                "generated_token_hashes_valid": bool(generated_token_hashes)
+                and all(len(value) == 64 for value in generated_token_hashes),
+                "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+                == len(generated_token_hashes),
+                "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+                == len(generated_token_hashes),
+                "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+                == len(generated_token_hashes),
+                "output_fragment_hashes_valid": bool(output_fragment_hashes)
+                and all(len(value) == 64 for value in output_fragment_hashes),
+                "execution_allowed": bool(body.get("execution_allowed")),
+                "mutation_allowed_only_for_ledger_event": not bool(
+                    body.get("mutation_allowed")
+                ),
+                "checkpoint_write_absent": not bool(policy.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(policy.get("runs_replay")),
+                "plasticity_absent": not bool(policy.get("applies_plasticity")),
+                "training_absent": not bool(policy.get("trains_runtime_model")),
+                "fact_promotion_absent": not bool(policy.get("promotes_fact")),
+                "action_absent": not bool(policy.get("executes_action")),
+            }
+            accepted = all(required.values())
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(
+                        item.get(
+                            "autonomous_snn_language_thought_surface_event_hash"
+                        )
+                        or ""
+                    )
+                    for item in state[
+                        "autonomous_snn_language_thought_surface_events"
+                    ]
+                }
+                duplicate = event_hash in existing_hashes
+                if not duplicate:
+                    state[
+                        "autonomous_snn_language_thought_surface_events"
+                    ].appendleft(deepcopy(event))
+                    state[
+                        "total_autonomous_snn_language_thought_surface_count"
+                    ] = (
+                        int(
+                            state.get(
+                                "total_autonomous_snn_language_thought_surface_count",
+                                0,
+                            )
+                            or 0
+                        )
+                        + 1
+                    )
+                    state[
+                        "last_autonomous_snn_language_thought_surface_recorded_at"
+                    ] = event["recorded_at"]
+                    self._store_state(state)
+                    self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_surface_executor"
+                ),
+                "surface": "snn_language_autonomous_snn_language_thought_surface_executor.v1",
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "execute_autonomous_snn_language_thought_surface"
+                ),
+                "available": bool(preflight),
+                "ready": accepted,
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "autonomous_snn_language_thought_surface_event_hash": event_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": True,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": accepted,
+                "decodes_text": accepted,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "literal_text_returned": accepted,
+                "generated_text_returned": accepted,
+                "rendered_text": rendered_text if accepted else "",
+                "rendered_text_hash": event["rendered_text_hash"],
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_snn_language_thought_surface_event": (
+                    event if accepted else None
+                ),
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_snn_language_thought_surface_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_snn_language_thought_surface_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_snn_language_thought_surface_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_surface_event_review": (
+                        accepted
+                    ),
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_surface_event_review"
+                        if accepted
+                        else "collect_snn_language_thought_surface_execution_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_surface_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_surface_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded bounded internal SNN language thought-surface event."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(autonomous_snn_language_thought_surface_executor or {})
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(executor.get("autonomous_snn_language_thought_surface_event"))
+                if isinstance(
+                    executor.get("autonomous_snn_language_thought_surface_event"),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_surface_chars = min(
+                4096,
+                max(1, int(policy.get("max_surface_chars", 512) or 512)),
+            )
+            max_thought_fragments = min(
+                16,
+                max(1, int(policy.get("max_thought_fragments", 16) or 16)),
+            )
+            max_association_edges = min(
+                64,
+                max(1, int(policy.get("max_association_edges", 64) or 64)),
+            )
+            event_hash = str(
+                event.get("autonomous_snn_language_thought_surface_event_hash")
+                or ""
+            )
+            executor_event_hash = str(
+                executor.get("autonomous_snn_language_thought_surface_event_hash")
+                or ""
+            )
+            event_revision = int(event.get("state_revision", -1) or -1)
+            rendered_text = str(event.get("rendered_text") or "")
+            rendered_text_hash = str(event.get("rendered_text_hash") or "")
+            decoded_fragments = [
+                str(value)
+                for value in list(event.get("decoded_text_fragments") or [])
+                if str(value)
+            ]
+            decoded_fragment_hashes = [
+                str(value)
+                for value in list(event.get("decoded_text_fragment_hashes") or [])
+                if str(value)
+            ]
+            generated_token_hashes = [
+                str(value)
+                for value in list(event.get("generated_token_hashes") or [])
+                if str(value)
+            ]
+            decoded_token_hashes = [
+                str(value)
+                for value in list(event.get("decoded_token_hashes") or [])
+                if str(value)
+            ]
+            spike_projection_hashes = [
+                str(value)
+                for value in list(event.get("spike_projection_hashes") or [])
+                if str(value)
+            ]
+            active_neuron_hashes = [
+                str(value)
+                for value in list(event.get("active_neuron_hashes") or [])
+                if str(value)
+            ]
+            membrane_state_hashes = [
+                str(value)
+                for value in list(event.get("membrane_state_hashes") or [])
+                if str(value)
+            ]
+            output_fragment_hashes = [
+                str(value)
+                for value in list(event.get("output_fragment_hashes") or [])
+                if str(value)
+            ]
+            preflight_hash = str(
+                event.get("language_thought_surface_preflight_hash") or ""
+            )
+            design_hash = str(
+                event.get("language_thought_surface_design_hash") or ""
+            )
+            thought_surface_hash = str(event.get("thought_surface_hash") or "")
+            decoding_event_review_hash = str(
+                event.get("decoding_event_review_hash") or ""
+            )
+            decoding_event_hash = str(
+                event.get("autonomous_snn_language_decoding_event_hash") or ""
+            )
+            schema_hash = str(event.get("text_surface_schema_hash") or "")
+            normalizer_hash = str(event.get("text_normalizer_hash") or "")
+            semantic_constraint_hash = str(
+                event.get("semantic_constraint_hash") or ""
+            )
+            thought_role = str(event.get("thought_role") or "")
+            binding_mode = str(event.get("binding_mode") or "")
+            event_max_thought_fragments = int(
+                event.get("max_thought_fragments", 0) or 0
+            )
+            event_max_surface_chars = int(event.get("max_surface_chars", 0) or 0)
+            event_max_association_edges = int(
+                event.get("max_association_edges", 0) or 0
+            )
+            state = self._normalized_state()
+            recorded_event = next(
+                (
+                    deepcopy(dict(item))
+                    for item in list(
+                        state["autonomous_snn_language_thought_surface_events"]
+                    )
+                    if str(
+                        item.get(
+                            "autonomous_snn_language_thought_surface_event_hash"
+                        )
+                        or ""
+                    )
+                    == event_hash
+                ),
+                None,
+            )
+            event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == "snn_language_autonomous_snn_language_thought_surface_executor.v1",
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_surface_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_current_or_previous": event_revision
+                in {before_revision, before_revision - 1},
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_matches_executor": bool(event_hash)
+                and event_hash == executor_event_hash,
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "decoding_event_review_hash_available": len(
+                    decoding_event_review_hash
+                )
+                == 64,
+                "decoding_event_hash_available": len(decoding_event_hash) == 64,
+                "schema_hash_available": len(schema_hash) == 64,
+                "normalizer_hash_available": len(normalizer_hash) == 64,
+                "semantic_constraint_hash_available": len(
+                    semantic_constraint_hash
+                )
+                == 64,
+                "thought_role_available": bool(thought_role),
+                "binding_mode_available": bool(binding_mode),
+                "decoded_token_hashes_valid": bool(decoded_token_hashes)
+                and all(len(value) == 64 for value in decoded_token_hashes),
+                "generated_token_hashes_valid": bool(generated_token_hashes)
+                and all(len(value) == 64 for value in generated_token_hashes),
+                "decoded_tokens_match_generated_prefix": decoded_token_hashes
+                == generated_token_hashes[: len(decoded_token_hashes)],
+                "decoded_fragment_count_bounded": 1
+                <= len(decoded_fragments)
+                <= max_thought_fragments
+                and len(decoded_fragments) <= max(1, event_max_thought_fragments),
+                "decoded_fragments_bounded": bool(decoded_fragments)
+                and all(0 < len(value) <= max_surface_chars for value in decoded_fragments),
+                "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+                and len(decoded_fragment_hashes) == len(decoded_fragments)
+                and all(len(value) == 64 for value in decoded_fragment_hashes),
+                "rendered_text_bounded": 0 < len(rendered_text) <= max_surface_chars
+                and len(rendered_text) <= max(1, event_max_surface_chars),
+                "rendered_text_hash_available": len(rendered_text_hash) == 64,
+                "association_budget_bounded": 1
+                <= event_max_association_edges
+                <= max_association_edges,
+                "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+                == len(generated_token_hashes),
+                "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+                == len(generated_token_hashes),
+                "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+                == len(generated_token_hashes),
+                "output_fragment_hashes_valid": bool(output_fragment_hashes)
+                and all(len(value) == 64 for value in output_fragment_hashes),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(executor.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(executor.get("runs_replay")),
+                "plasticity_absent": not bool(event.get("applies_plasticity"))
+                and not bool(executor.get("applies_plasticity")),
+                "training_absent": not bool(event.get("trains_runtime_model"))
+                and not bool(executor.get("trains_runtime_model")),
+                "fact_promotion_absent": not bool(event.get("promotes_fact")),
+                "action_absent": not bool(event.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    event.get("cognition_substrate_claimed")
+                ),
+            }
+            ready = all(required.values())
+            review = {
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "event_revision": event_revision if event else None,
+                "autonomous_snn_language_thought_surface_event_hash": event_hash,
+                "language_thought_surface_preflight_hash": preflight_hash,
+                "language_thought_surface_design_hash": design_hash,
+                "thought_surface_hash": thought_surface_hash,
+                "decoding_event_review_hash": decoding_event_review_hash,
+                "autonomous_snn_language_decoding_event_hash": (
+                    decoding_event_hash
+                ),
+                "thought_role": thought_role,
+                "binding_mode": binding_mode,
+                "rendered_text_hash": rendered_text_hash,
+                "rendered_text": rendered_text if ready else "",
+                "decoded_text_fragments": decoded_fragments if ready else [],
+                "decoded_text_fragment_hashes": (
+                    decoded_fragment_hashes if ready else []
+                ),
+                "generated_token_hashes": generated_token_hashes if ready else [],
+                "decoded_token_hashes": decoded_token_hashes if ready else [],
+                "spike_projection_hashes": spike_projection_hashes if ready else [],
+                "active_neuron_hashes": active_neuron_hashes if ready else [],
+                "membrane_state_hashes": membrane_state_hashes if ready else [],
+                "output_fragment_hashes": output_fragment_hashes if ready else [],
+                "text_surface_schema_hash": schema_hash,
+                "text_normalizer_hash": normalizer_hash,
+                "semantic_constraint_hash": semantic_constraint_hash,
+                "max_thought_fragments": event_max_thought_fragments,
+                "max_surface_chars": event_max_surface_chars,
+                "max_association_edges": event_max_association_edges,
+                "operator_approval_required": False,
+                "mutation_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "replay_allowed": False,
+                "plasticity_allowed": False,
+                "cognition_substrate_claimed": False,
+                "review_policy": {
+                    "max_thought_fragments": max_thought_fragments,
+                    "max_surface_chars": max_surface_chars,
+                    "max_association_edges": max_association_edges,
+                },
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "surface_event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_snn_language_thought_surface_event_review": review,
+                }
+            )
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "surface_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_surface_"
+                    "event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_surface_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": ready,
+                "decodes_text": ready,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "mutates_runtime_state": False,
+                "literal_text_returned": ready,
+                "generated_text_returned": ready,
+                "rendered_text": rendered_text if ready else "",
+                "rendered_text_hash": rendered_text_hash,
+                "autonomous_snn_language_thought_surface_event_hash": event_hash,
+                "autonomous_snn_language_thought_surface_event_review": review,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_memory_design"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_surface_event_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_memory_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_memory_design"
+                        if ready
+                        else "collect_snn_language_thought_surface_event_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_memory_design(
+        self,
+        *,
+        autonomous_snn_language_thought_surface_event_review: Mapping[str, Any],
+        memory_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design a bounded memory trace from a reviewed internal thought event."""
+
+        review_artifact = dict(
+            autonomous_snn_language_thought_surface_event_review or {}
+        )
+        gate = (
+            review_artifact.get("promotion_gate")
+            if isinstance(review_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        review = (
+            dict(
+                review_artifact.get(
+                    "autonomous_snn_language_thought_surface_event_review"
+                )
+            )
+            if isinstance(
+                review_artifact.get(
+                    "autonomous_snn_language_thought_surface_event_review"
+                ),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(memory_policy or {})
+        memory_scope = str(policy.get("memory_scope") or "working_trace").strip()
+        consolidation_route = str(
+            policy.get("consolidation_route") or "deferred_local_trace"
+        ).strip()
+        allowed_scopes = {
+            "working_trace",
+            "episodic_candidate",
+            "semantic_association_candidate",
+        }
+        allowed_routes = {
+            "deferred_local_trace",
+            "sleep_replay_candidate",
+            "homeostatic_plasticity_candidate",
+        }
+        if memory_scope not in allowed_scopes:
+            memory_scope = "working_trace"
+        if consolidation_route not in allowed_routes:
+            consolidation_route = "deferred_local_trace"
+        max_trace_fragments = min(
+            16,
+            max(1, int(policy.get("max_trace_fragments", 4) or 4)),
+        )
+        max_trace_chars = min(
+            4096,
+            max(1, int(policy.get("max_trace_chars", 512) or 512)),
+        )
+        max_local_learning_targets = min(
+            64,
+            max(1, int(policy.get("max_local_learning_targets", 8) or 8)),
+        )
+        rendered_text = str(review.get("rendered_text") or "").strip()[
+            :max_trace_chars
+        ]
+        decoded_fragments = [
+            str(value).strip()[:max_trace_chars]
+            for value in list(review.get("decoded_text_fragments") or [])
+            if str(value).strip()
+        ][:max_trace_fragments]
+        decoded_fragment_hashes = [
+            str(value)
+            for value in list(review.get("decoded_text_fragment_hashes") or [])
+            if str(value)
+        ][: len(decoded_fragments)]
+        generated_token_hashes = [
+            str(value)
+            for value in list(review.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        decoded_token_hashes = [
+            str(value)
+            for value in list(review.get("decoded_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(review.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(review.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(review.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(review.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        event_hash = str(
+            review.get("autonomous_snn_language_thought_surface_event_hash") or ""
+        )
+        thought_surface_hash = str(review.get("thought_surface_hash") or "")
+        preflight_hash = str(
+            review.get("language_thought_surface_preflight_hash") or ""
+        )
+        design_hash = str(review.get("language_thought_surface_design_hash") or "")
+        decoding_event_review_hash = str(
+            review.get("decoding_event_review_hash") or ""
+        )
+        decoding_event_hash = str(
+            review.get("autonomous_snn_language_decoding_event_hash") or ""
+        )
+        review_hash = str(review_artifact.get("review_hash") or "")
+        schema_hash = str(review.get("text_surface_schema_hash") or "")
+        normalizer_hash = str(review.get("text_normalizer_hash") or "")
+        semantic_constraint_hash = str(review.get("semantic_constraint_hash") or "")
+        trace_hash = self._sha256_json(
+            {
+                "memory_scope": memory_scope,
+                "consolidation_route": consolidation_route,
+                "thought_surface_event_hash": event_hash,
+                "thought_surface_hash": thought_surface_hash,
+                "rendered_text_hash": review.get("rendered_text_hash"),
+                "decoded_fragment_hashes": decoded_fragment_hashes,
+                "generated_token_hashes": generated_token_hashes,
+                "spike_projection_hashes": spike_projection_hashes,
+                "active_neuron_hashes": active_neuron_hashes,
+                "membrane_state_hashes": membrane_state_hashes,
+            }
+        )
+        local_learning_target_hashes = [
+            self._sha256_json(
+                {
+                    "target_index": index,
+                    "memory_trace_hash": trace_hash,
+                    "generated_token_hash": token_hash,
+                    "decoded_token_hash": (
+                        decoded_token_hashes[index]
+                        if index < len(decoded_token_hashes)
+                        else ""
+                    ),
+                    "spike_projection_hash": (
+                        spike_projection_hashes[index]
+                        if index < len(spike_projection_hashes)
+                        else ""
+                    ),
+                    "active_neuron_hash": (
+                        active_neuron_hashes[index]
+                        if index < len(active_neuron_hashes)
+                        else ""
+                    ),
+                    "membrane_state_hash": (
+                        membrane_state_hashes[index]
+                        if index < len(membrane_state_hashes)
+                        else ""
+                    ),
+                }
+            )
+            for index, token_hash in enumerate(
+                generated_token_hashes[:max_local_learning_targets]
+            )
+        ]
+        memory_design_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_snn_language_thought_memory_design.v1",
+                "review_hash": review_hash,
+                "event_hash": event_hash,
+                "memory_trace_hash": trace_hash,
+                "local_learning_target_hashes": local_learning_target_hashes,
+                "memory_scope": memory_scope,
+                "consolidation_route": consolidation_route,
+            }
+        )
+        required = {
+            "thought_surface_event_review_available": review_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_surface_event_review.v1",
+            "thought_surface_event_review_ready": bool(review_artifact.get("accepted"))
+            and bool(review_artifact.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_snn_language_thought_memory_design")
+            ),
+            "operator_approval_not_required": not bool(
+                review_artifact.get("requires_operator_approval")
+            )
+            and not bool(review.get("operator_approval_required")),
+            "review_hash_available": len(review_hash) == 64,
+            "event_hash_available": len(event_hash) == 64,
+            "thought_surface_hash_available": len(thought_surface_hash) == 64,
+            "preflight_hash_available": len(preflight_hash) == 64,
+            "design_hash_available": len(design_hash) == 64,
+            "decoding_event_review_hash_available": len(decoding_event_review_hash)
+            == 64,
+            "decoding_event_hash_available": len(decoding_event_hash) == 64,
+            "schema_hash_available": len(schema_hash) == 64,
+            "normalizer_hash_available": len(normalizer_hash) == 64,
+            "semantic_constraint_hash_available": len(semantic_constraint_hash)
+            == 64,
+            "memory_scope_available": bool(memory_scope),
+            "consolidation_route_available": bool(consolidation_route),
+            "rendered_text_bounded": 0 < len(rendered_text) <= max_trace_chars,
+            "trace_fragment_count_bounded": 1
+            <= len(decoded_fragments)
+            <= max_trace_fragments,
+            "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+            and len(decoded_fragment_hashes) == len(decoded_fragments)
+            and all(len(value) == 64 for value in decoded_fragment_hashes),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "decoded_token_hashes_valid": bool(decoded_token_hashes)
+            and all(len(value) == 64 for value in decoded_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "output_fragment_hashes_valid": bool(output_fragment_hashes)
+            and all(len(value) == 64 for value in output_fragment_hashes),
+            "local_learning_targets_bounded": 1
+            <= len(local_learning_target_hashes)
+            <= max_local_learning_targets,
+            "local_learning_target_hashes_valid": all(
+                len(value) == 64 for value in local_learning_target_hashes
+            ),
+            "memory_consolidation_not_run": True,
+            "checkpoint_write_absent": not bool(review_artifact.get("writes_checkpoint")),
+            "replay_execution_absent": not bool(review_artifact.get("runs_replay")),
+            "plasticity_absent": not bool(review_artifact.get("applies_plasticity")),
+            "training_absent": not bool(review_artifact.get("trains_runtime_model")),
+            "fact_promotion_absent": not bool(review.get("fact_promotion_allowed")),
+            "action_absent": not bool(review.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                review.get("cognition_substrate_claimed")
+            )
+            and not bool(
+                review_artifact.get("promotion_gate", {}).get(
+                    "eligible_for_cognition_substrate"
+                )
+                if isinstance(review_artifact.get("promotion_gate"), Mapping)
+                else False
+            ),
+        }
+        ready = all(required.values())
+        design = {
+            "memory_scope": memory_scope,
+            "consolidation_route": consolidation_route,
+            "memory_trace_hash": trace_hash,
+            "language_thought_memory_design_hash": memory_design_hash,
+            "thought_surface_event_review_hash": review_hash,
+            "autonomous_snn_language_thought_surface_event_hash": event_hash,
+            "language_thought_surface_preflight_hash": preflight_hash,
+            "language_thought_surface_design_hash": design_hash,
+            "thought_surface_hash": thought_surface_hash,
+            "decoding_event_review_hash": decoding_event_review_hash,
+            "autonomous_snn_language_decoding_event_hash": decoding_event_hash,
+            "thought_role": str(review.get("thought_role") or ""),
+            "binding_mode": str(review.get("binding_mode") or ""),
+            "rendered_text_hash": str(review.get("rendered_text_hash") or ""),
+            "rendered_text": rendered_text if ready else "",
+            "decoded_text_fragments": decoded_fragments if ready else [],
+            "decoded_text_fragment_hashes": decoded_fragment_hashes if ready else [],
+            "generated_token_hashes": generated_token_hashes if ready else [],
+            "decoded_token_hashes": decoded_token_hashes if ready else [],
+            "spike_projection_hashes": spike_projection_hashes if ready else [],
+            "active_neuron_hashes": active_neuron_hashes if ready else [],
+            "membrane_state_hashes": membrane_state_hashes if ready else [],
+            "output_fragment_hashes": output_fragment_hashes if ready else [],
+            "local_learning_target_hashes": (
+                local_learning_target_hashes if ready else []
+            ),
+            "text_surface_schema_hash": schema_hash,
+            "text_normalizer_hash": normalizer_hash,
+            "semantic_constraint_hash": semantic_constraint_hash,
+            "max_trace_fragments": max_trace_fragments,
+            "max_trace_chars": max_trace_chars,
+            "max_local_learning_targets": max_local_learning_targets,
+            "operator_approval_required": False,
+            "memory_recording_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_memory_design"
+            ),
+            "surface": "snn_language_autonomous_snn_language_thought_memory_design.v1",
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_memory_design"
+            ),
+            "available": bool(review_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "language_thought_memory_design_hash": memory_design_hash,
+            "memory_trace_hash": trace_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_memory_design": design,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_memory_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_memory_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_memory_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_memory_preflight"
+                    if ready
+                    else "collect_snn_language_thought_memory_design_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_snn_language_thought_memory_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_memory_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight a bounded SNN thought-memory trace without recording memory."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design_artifact = dict(autonomous_snn_language_thought_memory_design or {})
+        gate = (
+            design_artifact.get("promotion_gate")
+            if isinstance(design_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design_artifact.get("autonomous_snn_language_thought_memory_design")
+            if isinstance(
+                design_artifact.get("autonomous_snn_language_thought_memory_design"),
+                Mapping,
+            )
+            else {}
+        )
+        device = dict(device_evidence or {})
+        capabilities = dict(executor_capabilities or {})
+        requested_device = str(
+            device.get("device")
+            or device.get("tensor_device")
+            or body.get("requested_device")
+            or "cpu"
+        )
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith(
+            "cuda"
+        )
+        cuda_evidence_available = bool(device.get("cuda_available")) or bool(
+            device.get("cuda_evidence_available")
+        ) or torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_evidence_available
+        executor_ready = bool(
+            capabilities.get("autonomous_snn_language_thought_memory_executor")
+        )
+        memory_design_hash = str(
+            design_artifact.get("language_thought_memory_design_hash")
+            or body.get("language_thought_memory_design_hash")
+            or ""
+        )
+        memory_trace_hash = str(
+            design_artifact.get("memory_trace_hash")
+            or body.get("memory_trace_hash")
+            or ""
+        )
+        thought_surface_event_review_hash = str(
+            body.get("thought_surface_event_review_hash") or ""
+        )
+        thought_surface_event_hash = str(
+            body.get("autonomous_snn_language_thought_surface_event_hash") or ""
+        )
+        thought_surface_hash = str(body.get("thought_surface_hash") or "")
+        rendered_text = str(body.get("rendered_text") or "")
+        decoded_fragments = [
+            str(value)
+            for value in list(body.get("decoded_text_fragments") or [])
+            if str(value)
+        ]
+        decoded_fragment_hashes = [
+            str(value)
+            for value in list(body.get("decoded_text_fragment_hashes") or [])
+            if str(value)
+        ]
+        generated_token_hashes = [
+            str(value)
+            for value in list(body.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        decoded_token_hashes = [
+            str(value)
+            for value in list(body.get("decoded_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(body.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(body.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(body.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(body.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        local_learning_target_hashes = [
+            str(value)
+            for value in list(body.get("local_learning_target_hashes") or [])
+            if str(value)
+        ]
+        max_trace_fragments = int(body.get("max_trace_fragments", 0) or 0)
+        max_trace_chars = int(body.get("max_trace_chars", 0) or 0)
+        max_local_learning_targets = int(
+            body.get("max_local_learning_targets", 0) or 0
+        )
+        memory_scope = str(body.get("memory_scope") or "")
+        consolidation_route = str(body.get("consolidation_route") or "")
+        schema_hash = str(body.get("text_surface_schema_hash") or "")
+        normalizer_hash = str(body.get("text_normalizer_hash") or "")
+        semantic_constraint_hash = str(body.get("semantic_constraint_hash") or "")
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_snn_language_thought_memory_preflight.v1",
+                "state_revision": before_revision,
+                "language_thought_memory_design_hash": memory_design_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "thought_surface_event_review_hash": (
+                    thought_surface_event_review_hash
+                ),
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "executor_ready": executor_ready,
+            }
+        )
+        required = {
+            "thought_memory_design_available": design_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_memory_design.v1",
+            "thought_memory_design_ready": bool(design_artifact.get("accepted"))
+            and bool(design_artifact.get("ready"))
+            and bool(
+                gate.get("eligible_for_autonomous_snn_language_thought_memory_preflight")
+            ),
+            "operator_approval_not_required": not bool(
+                design_artifact.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "memory_design_hash_available": len(memory_design_hash) == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "thought_surface_event_review_hash_available": len(
+                thought_surface_event_review_hash
+            )
+            == 64,
+            "thought_surface_event_hash_available": len(
+                thought_surface_event_hash
+            )
+            == 64,
+            "thought_surface_hash_available": len(thought_surface_hash) == 64,
+            "memory_scope_available": bool(memory_scope),
+            "consolidation_route_available": bool(consolidation_route),
+            "schema_hash_available": len(schema_hash) == 64,
+            "normalizer_hash_available": len(normalizer_hash) == 64,
+            "semantic_constraint_hash_available": len(semantic_constraint_hash)
+            == 64,
+            "rendered_text_bounded": 0 < len(rendered_text) <= max_trace_chars,
+            "trace_fragment_count_bounded": 1
+            <= len(decoded_fragments)
+            <= max(1, max_trace_fragments)
+            <= 16,
+            "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+            and len(decoded_fragment_hashes) == len(decoded_fragments)
+            and all(len(value) == 64 for value in decoded_fragment_hashes),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "decoded_token_hashes_valid": bool(decoded_token_hashes)
+            and all(len(value) == 64 for value in decoded_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "output_fragment_hashes_valid": bool(output_fragment_hashes)
+            and all(len(value) == 64 for value in output_fragment_hashes),
+            "local_learning_targets_bounded": 1
+            <= len(local_learning_target_hashes)
+            <= max(1, max_local_learning_targets)
+            <= 64,
+            "local_learning_target_hashes_valid": all(
+                len(value) == 64 for value in local_learning_target_hashes
+            ),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied": cuda_satisfied,
+            "executor_capability_available": executor_ready,
+            "memory_recording_not_allowed": not bool(
+                body.get("memory_recording_allowed")
+            ),
+            "replay_disallowed": not bool(body.get("replay_allowed")),
+            "plasticity_disallowed": not bool(body.get("plasticity_allowed")),
+            "training_disallowed": not bool(body.get("training_allowed")),
+            "checkpoint_disallowed": not bool(body.get("checkpoint_allowed")),
+            "fact_promotion_disallowed": not bool(body.get("fact_promotion_allowed")),
+            "action_disallowed": not bool(body.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                body.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        preflight = {
+            "language_thought_memory_design_hash": memory_design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "thought_surface_event_review_hash": thought_surface_event_review_hash,
+            "autonomous_snn_language_thought_surface_event_hash": (
+                thought_surface_event_hash
+            ),
+            "thought_surface_hash": thought_surface_hash,
+            "memory_scope": memory_scope,
+            "consolidation_route": consolidation_route,
+            "requested_device": requested_device,
+            "requires_cuda": requires_cuda,
+            "cuda_satisfied": cuda_satisfied,
+            "executor_ready": executor_ready,
+            "rendered_text": rendered_text if ready else "",
+            "decoded_text_fragments": decoded_fragments if ready else [],
+            "decoded_text_fragment_hashes": decoded_fragment_hashes if ready else [],
+            "generated_token_hashes": generated_token_hashes if ready else [],
+            "decoded_token_hashes": decoded_token_hashes if ready else [],
+            "spike_projection_hashes": spike_projection_hashes if ready else [],
+            "active_neuron_hashes": active_neuron_hashes if ready else [],
+            "membrane_state_hashes": membrane_state_hashes if ready else [],
+            "output_fragment_hashes": output_fragment_hashes if ready else [],
+            "local_learning_target_hashes": (
+                local_learning_target_hashes if ready else []
+            ),
+            "text_surface_schema_hash": schema_hash,
+            "text_normalizer_hash": normalizer_hash,
+            "semantic_constraint_hash": semantic_constraint_hash,
+            "max_trace_fragments": max_trace_fragments,
+            "max_trace_chars": max_trace_chars,
+            "max_local_learning_targets": max_local_learning_targets,
+            "preflight_hash": preflight_hash,
+            "operator_approval_required": False,
+            "execution_allowed": ready,
+            "memory_recording_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_memory_preflight"
+            ),
+            "surface": "snn_language_autonomous_snn_language_thought_memory_preflight.v1",
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_memory_preflight"
+            ),
+            "available": bool(design_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "preflight_hash": preflight_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": ready,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_memory_preflight": preflight,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_memory_executor"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_memory_preflight_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_memory_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_memory_executor"
+                    if ready
+                    else "collect_snn_language_thought_memory_preflight_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_snn_language_thought_memory(
+        self,
+        *,
+        autonomous_snn_language_thought_memory_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record a bounded SNN thought-memory trace without consolidation."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(autonomous_snn_language_thought_memory_preflight or {})
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get("autonomous_snn_language_thought_memory_preflight")
+                if isinstance(
+                    preflight.get("autonomous_snn_language_thought_memory_preflight"),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(execution_policy or {})
+            rendered_text = str(body.get("rendered_text") or "").strip()
+            decoded_fragments = [
+                str(value)
+                for value in list(body.get("decoded_text_fragments") or [])
+                if str(value).strip()
+            ]
+            decoded_fragment_hashes = [
+                str(value)
+                for value in list(body.get("decoded_text_fragment_hashes") or [])
+                if str(value)
+            ]
+            generated_token_hashes = [
+                str(value)
+                for value in list(body.get("generated_token_hashes") or [])
+                if str(value)
+            ]
+            decoded_token_hashes = [
+                str(value)
+                for value in list(body.get("decoded_token_hashes") or [])
+                if str(value)
+            ]
+            spike_projection_hashes = [
+                str(value)
+                for value in list(body.get("spike_projection_hashes") or [])
+                if str(value)
+            ]
+            active_neuron_hashes = [
+                str(value)
+                for value in list(body.get("active_neuron_hashes") or [])
+                if str(value)
+            ]
+            membrane_state_hashes = [
+                str(value)
+                for value in list(body.get("membrane_state_hashes") or [])
+                if str(value)
+            ]
+            output_fragment_hashes = [
+                str(value)
+                for value in list(body.get("output_fragment_hashes") or [])
+                if str(value)
+            ]
+            local_learning_target_hashes = [
+                str(value)
+                for value in list(body.get("local_learning_target_hashes") or [])
+                if str(value)
+            ]
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            memory_design_hash = str(
+                body.get("language_thought_memory_design_hash") or ""
+            )
+            memory_trace_hash = str(body.get("memory_trace_hash") or "")
+            thought_surface_event_review_hash = str(
+                body.get("thought_surface_event_review_hash") or ""
+            )
+            thought_surface_event_hash = str(
+                body.get("autonomous_snn_language_thought_surface_event_hash") or ""
+            )
+            thought_surface_hash = str(body.get("thought_surface_hash") or "")
+            max_trace_fragments = int(body.get("max_trace_fragments", 0) or 0)
+            max_trace_chars = int(body.get("max_trace_chars", 0) or 0)
+            max_local_learning_targets = int(
+                body.get("max_local_learning_targets", 0) or 0
+            )
+            event = {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_memory_event"
+                ),
+                "surface": "snn_language_autonomous_snn_language_thought_memory_event.v1",
+                "state_revision": before_revision,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "language_thought_memory_preflight_hash": preflight_hash,
+                "language_thought_memory_design_hash": memory_design_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "thought_surface_event_review_hash": (
+                    thought_surface_event_review_hash
+                ),
+                "autonomous_snn_language_thought_surface_event_hash": (
+                    thought_surface_event_hash
+                ),
+                "thought_surface_hash": thought_surface_hash,
+                "memory_scope": str(body.get("memory_scope") or ""),
+                "consolidation_route": str(body.get("consolidation_route") or ""),
+                "requested_device": str(body.get("requested_device") or ""),
+                "thought_role": str(body.get("thought_role") or ""),
+                "binding_mode": str(body.get("binding_mode") or ""),
+                "rendered_text": rendered_text,
+                "decoded_text_fragments": decoded_fragments,
+                "decoded_text_fragment_hashes": decoded_fragment_hashes,
+                "generated_token_hashes": generated_token_hashes,
+                "decoded_token_hashes": decoded_token_hashes,
+                "spike_projection_hashes": spike_projection_hashes,
+                "active_neuron_hashes": active_neuron_hashes,
+                "membrane_state_hashes": membrane_state_hashes,
+                "output_fragment_hashes": output_fragment_hashes,
+                "local_learning_target_hashes": local_learning_target_hashes,
+                "text_surface_schema_hash": str(
+                    body.get("text_surface_schema_hash") or ""
+                ),
+                "text_normalizer_hash": str(body.get("text_normalizer_hash") or ""),
+                "semantic_constraint_hash": str(
+                    body.get("semantic_constraint_hash") or ""
+                ),
+                "max_trace_fragments": max_trace_fragments,
+                "max_trace_chars": max_trace_chars,
+                "max_local_learning_targets": max_local_learning_targets,
+                "operator_approval_required": False,
+                "memory_recorded": True,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "prunes_network": False,
+                "mutates_runtime_state": True,
+                "generates_text": True,
+                "decodes_text": True,
+                "literal_text_returned": True,
+                "generated_text_returned": True,
+                "promotes_fact": False,
+                "executes_action": False,
+                "cognition_substrate_claimed": False,
+            }
+            event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "recorded_at"
+                    and key != "autonomous_snn_language_thought_memory_event_hash"
+                }
+            )
+            event["autonomous_snn_language_thought_memory_event_hash"] = event_hash
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_snn_language_thought_memory_preflight.v1",
+                "preflight_ready": bool(preflight.get("accepted"))
+                and bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_memory_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "memory_design_hash_available": len(memory_design_hash) == 64,
+                "memory_trace_hash_available": len(memory_trace_hash) == 64,
+                "thought_surface_event_review_hash_available": len(
+                    thought_surface_event_review_hash
+                )
+                == 64,
+                "thought_surface_event_hash_available": len(
+                    thought_surface_event_hash
+                )
+                == 64,
+                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "memory_scope_available": bool(event["memory_scope"]),
+                "consolidation_route_available": bool(event["consolidation_route"]),
+                "rendered_text_bounded": 0 < len(rendered_text) <= max_trace_chars,
+                "trace_fragment_count_bounded": 1
+                <= len(decoded_fragments)
+                <= max(1, max_trace_fragments)
+                <= 16,
+                "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+                and len(decoded_fragment_hashes) == len(decoded_fragments)
+                and all(len(value) == 64 for value in decoded_fragment_hashes),
+                "generated_token_hashes_valid": bool(generated_token_hashes)
+                and all(len(value) == 64 for value in generated_token_hashes),
+                "decoded_token_hashes_valid": bool(decoded_token_hashes)
+                and all(len(value) == 64 for value in decoded_token_hashes),
+                "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+                == len(generated_token_hashes),
+                "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+                == len(generated_token_hashes),
+                "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+                == len(generated_token_hashes),
+                "output_fragment_hashes_valid": bool(output_fragment_hashes)
+                and all(len(value) == 64 for value in output_fragment_hashes),
+                "local_learning_targets_bounded": 1
+                <= len(local_learning_target_hashes)
+                <= max(1, max_local_learning_targets)
+                <= 64,
+                "local_learning_target_hashes_valid": all(
+                    len(value) == 64 for value in local_learning_target_hashes
+                ),
+                "execution_allowed": bool(body.get("execution_allowed")),
+                "memory_recording_was_preflight_blocked": not bool(
+                    body.get("memory_recording_allowed")
+                ),
+                "checkpoint_write_absent": not bool(policy.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(policy.get("runs_replay")),
+                "plasticity_absent": not bool(policy.get("applies_plasticity")),
+                "training_absent": not bool(policy.get("trains_runtime_model")),
+                "resize_absent": not bool(policy.get("resizes_network")),
+                "prune_absent": not bool(policy.get("prunes_network")),
+                "fact_promotion_absent": not bool(policy.get("promotes_fact")),
+                "action_absent": not bool(policy.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    policy.get("cognition_substrate_claimed")
+                ),
+            }
+            accepted = all(required.values())
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(
+                        item.get("autonomous_snn_language_thought_memory_event_hash")
+                        or ""
+                    )
+                    for item in state[
+                        "autonomous_snn_language_thought_memory_events"
+                    ]
+                }
+                duplicate = event_hash in existing_hashes
+                if not duplicate:
+                    state["autonomous_snn_language_thought_memory_events"].appendleft(
+                        deepcopy(event)
+                    )
+                    state["total_autonomous_snn_language_thought_memory_count"] = (
+                        int(
+                            state.get(
+                                "total_autonomous_snn_language_thought_memory_count",
+                                0,
+                            )
+                            or 0
+                        )
+                        + 1
+                    )
+                    state["last_autonomous_snn_language_thought_memory_recorded_at"] = (
+                        event["recorded_at"]
+                    )
+                    self._store_state(state)
+                    self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_memory_executor"
+                ),
+                "surface": "snn_language_autonomous_snn_language_thought_memory_executor.v1",
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "execute_autonomous_snn_language_thought_memory"
+                ),
+                "available": bool(preflight),
+                "ready": accepted,
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "autonomous_snn_language_thought_memory_event_hash": event_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": True,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": accepted,
+                "decodes_text": accepted,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "prunes_network": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "literal_text_returned": accepted,
+                "generated_text_returned": accepted,
+                "rendered_text": rendered_text if accepted else "",
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_snn_language_thought_memory_event": (
+                    event if accepted else None
+                ),
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_snn_language_thought_memory_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_snn_language_thought_memory_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_snn_language_thought_memory_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_memory_event_review": (
+                        accepted
+                    ),
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_memory_event_review"
+                        if accepted
+                        else "collect_snn_language_thought_memory_execution_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_memory_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_memory_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded bounded SNN thought-memory trace."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(autonomous_snn_language_thought_memory_executor or {})
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(executor.get("autonomous_snn_language_thought_memory_event"))
+                if isinstance(
+                    executor.get("autonomous_snn_language_thought_memory_event"),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_trace_fragments = min(
+                16,
+                max(1, int(policy.get("max_trace_fragments", 16) or 16)),
+            )
+            max_trace_chars = min(
+                4096,
+                max(1, int(policy.get("max_trace_chars", 512) or 512)),
+            )
+            max_local_learning_targets = min(
+                64,
+                max(1, int(policy.get("max_local_learning_targets", 64) or 64)),
+            )
+            event_hash = str(
+                event.get("autonomous_snn_language_thought_memory_event_hash") or ""
+            )
+            executor_event_hash = str(
+                executor.get("autonomous_snn_language_thought_memory_event_hash")
+                or ""
+            )
+            event_revision = int(event.get("state_revision", -1) or -1)
+            rendered_text = str(event.get("rendered_text") or "")
+            decoded_fragments = [
+                str(value)
+                for value in list(event.get("decoded_text_fragments") or [])
+                if str(value)
+            ]
+            decoded_fragment_hashes = [
+                str(value)
+                for value in list(event.get("decoded_text_fragment_hashes") or [])
+                if str(value)
+            ]
+            generated_token_hashes = [
+                str(value)
+                for value in list(event.get("generated_token_hashes") or [])
+                if str(value)
+            ]
+            decoded_token_hashes = [
+                str(value)
+                for value in list(event.get("decoded_token_hashes") or [])
+                if str(value)
+            ]
+            spike_projection_hashes = [
+                str(value)
+                for value in list(event.get("spike_projection_hashes") or [])
+                if str(value)
+            ]
+            active_neuron_hashes = [
+                str(value)
+                for value in list(event.get("active_neuron_hashes") or [])
+                if str(value)
+            ]
+            membrane_state_hashes = [
+                str(value)
+                for value in list(event.get("membrane_state_hashes") or [])
+                if str(value)
+            ]
+            output_fragment_hashes = [
+                str(value)
+                for value in list(event.get("output_fragment_hashes") or [])
+                if str(value)
+            ]
+            local_learning_target_hashes = [
+                str(value)
+                for value in list(event.get("local_learning_target_hashes") or [])
+                if str(value)
+            ]
+            preflight_hash = str(
+                event.get("language_thought_memory_preflight_hash") or ""
+            )
+            design_hash = str(
+                event.get("language_thought_memory_design_hash") or ""
+            )
+            memory_trace_hash = str(event.get("memory_trace_hash") or "")
+            thought_surface_event_review_hash = str(
+                event.get("thought_surface_event_review_hash") or ""
+            )
+            thought_surface_event_hash = str(
+                event.get("autonomous_snn_language_thought_surface_event_hash") or ""
+            )
+            thought_surface_hash = str(event.get("thought_surface_hash") or "")
+            schema_hash = str(event.get("text_surface_schema_hash") or "")
+            normalizer_hash = str(event.get("text_normalizer_hash") or "")
+            semantic_constraint_hash = str(
+                event.get("semantic_constraint_hash") or ""
+            )
+            event_max_trace_fragments = int(
+                event.get("max_trace_fragments", 0) or 0
+            )
+            event_max_trace_chars = int(event.get("max_trace_chars", 0) or 0)
+            event_max_local_learning_targets = int(
+                event.get("max_local_learning_targets", 0) or 0
+            )
+            state = self._normalized_state()
+            recorded_event = next(
+                (
+                    deepcopy(dict(item))
+                    for item in list(
+                        state["autonomous_snn_language_thought_memory_events"]
+                    )
+                    if str(
+                        item.get("autonomous_snn_language_thought_memory_event_hash")
+                        or ""
+                    )
+                    == event_hash
+                ),
+                None,
+            )
+            event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == "snn_language_autonomous_snn_language_thought_memory_executor.v1",
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_memory_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_current_or_previous": event_revision
+                in {before_revision, before_revision - 1},
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_matches_executor": bool(event_hash)
+                and event_hash == executor_event_hash,
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "memory_trace_hash_available": len(memory_trace_hash) == 64,
+                "thought_surface_event_review_hash_available": len(
+                    thought_surface_event_review_hash
+                )
+                == 64,
+                "thought_surface_event_hash_available": len(
+                    thought_surface_event_hash
+                )
+                == 64,
+                "thought_surface_hash_available": len(thought_surface_hash) == 64,
+                "schema_hash_available": len(schema_hash) == 64,
+                "normalizer_hash_available": len(normalizer_hash) == 64,
+                "semantic_constraint_hash_available": len(
+                    semantic_constraint_hash
+                )
+                == 64,
+                "memory_scope_available": bool(event.get("memory_scope")),
+                "consolidation_route_available": bool(
+                    event.get("consolidation_route")
+                ),
+                "rendered_text_bounded": 0 < len(rendered_text) <= max_trace_chars
+                and len(rendered_text) <= max(1, event_max_trace_chars),
+                "trace_fragment_count_bounded": 1
+                <= len(decoded_fragments)
+                <= max_trace_fragments
+                and len(decoded_fragments) <= max(1, event_max_trace_fragments),
+                "decoded_fragment_hashes_valid": bool(decoded_fragment_hashes)
+                and len(decoded_fragment_hashes) == len(decoded_fragments)
+                and all(len(value) == 64 for value in decoded_fragment_hashes),
+                "generated_token_hashes_valid": bool(generated_token_hashes)
+                and all(len(value) == 64 for value in generated_token_hashes),
+                "decoded_token_hashes_valid": bool(decoded_token_hashes)
+                and all(len(value) == 64 for value in decoded_token_hashes),
+                "decoded_tokens_match_generated_prefix": decoded_token_hashes
+                == generated_token_hashes[: len(decoded_token_hashes)],
+                "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+                == len(generated_token_hashes),
+                "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+                == len(generated_token_hashes),
+                "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+                == len(generated_token_hashes),
+                "output_fragment_hashes_valid": bool(output_fragment_hashes)
+                and all(len(value) == 64 for value in output_fragment_hashes),
+                "local_learning_targets_bounded": 1
+                <= len(local_learning_target_hashes)
+                <= max_local_learning_targets
+                and len(local_learning_target_hashes)
+                <= max(1, event_max_local_learning_targets),
+                "local_learning_target_hashes_valid": all(
+                    len(value) == 64 for value in local_learning_target_hashes
+                ),
+                "memory_recorded": bool(event.get("memory_recorded")),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(executor.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(executor.get("runs_replay")),
+                "plasticity_absent": not bool(event.get("applies_plasticity"))
+                and not bool(executor.get("applies_plasticity")),
+                "training_absent": not bool(event.get("trains_runtime_model"))
+                and not bool(executor.get("trains_runtime_model")),
+                "resize_absent": not bool(event.get("resizes_network"))
+                and not bool(executor.get("resizes_network")),
+                "prune_absent": not bool(event.get("prunes_network"))
+                and not bool(executor.get("prunes_network")),
+                "fact_promotion_absent": not bool(event.get("promotes_fact")),
+                "action_absent": not bool(event.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    event.get("cognition_substrate_claimed")
+                ),
+            }
+            ready = all(required.values())
+            review = {
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "event_revision": event_revision if event else None,
+                "autonomous_snn_language_thought_memory_event_hash": event_hash,
+                "language_thought_memory_preflight_hash": preflight_hash,
+                "language_thought_memory_design_hash": design_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "thought_surface_event_review_hash": (
+                    thought_surface_event_review_hash
+                ),
+                "autonomous_snn_language_thought_surface_event_hash": (
+                    thought_surface_event_hash
+                ),
+                "thought_surface_hash": thought_surface_hash,
+                "memory_scope": str(event.get("memory_scope") or ""),
+                "consolidation_route": str(event.get("consolidation_route") or ""),
+                "thought_role": str(event.get("thought_role") or ""),
+                "binding_mode": str(event.get("binding_mode") or ""),
+                "rendered_text": rendered_text if ready else "",
+                "decoded_text_fragments": decoded_fragments if ready else [],
+                "decoded_text_fragment_hashes": (
+                    decoded_fragment_hashes if ready else []
+                ),
+                "generated_token_hashes": generated_token_hashes if ready else [],
+                "decoded_token_hashes": decoded_token_hashes if ready else [],
+                "spike_projection_hashes": spike_projection_hashes if ready else [],
+                "active_neuron_hashes": active_neuron_hashes if ready else [],
+                "membrane_state_hashes": membrane_state_hashes if ready else [],
+                "output_fragment_hashes": output_fragment_hashes if ready else [],
+                "local_learning_target_hashes": (
+                    local_learning_target_hashes if ready else []
+                ),
+                "text_surface_schema_hash": schema_hash,
+                "text_normalizer_hash": normalizer_hash,
+                "semantic_constraint_hash": semantic_constraint_hash,
+                "max_trace_fragments": event_max_trace_fragments,
+                "max_trace_chars": event_max_trace_chars,
+                "max_local_learning_targets": event_max_local_learning_targets,
+                "operator_approval_required": False,
+                "memory_recorded": bool(event.get("memory_recorded")) and ready,
+                "replay_allowed": False,
+                "plasticity_allowed": False,
+                "training_allowed": False,
+                "checkpoint_allowed": False,
+                "resize_allowed": False,
+                "prune_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "cognition_substrate_claimed": False,
+                "review_policy": {
+                    "max_trace_fragments": max_trace_fragments,
+                    "max_trace_chars": max_trace_chars,
+                    "max_local_learning_targets": max_local_learning_targets,
+                },
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "memory_event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_snn_language_thought_memory_event_review": review,
+                }
+            )
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "memory_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_memory_"
+                    "event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_memory_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": ready,
+                "decodes_text": ready,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "literal_text_returned": ready,
+                "generated_text_returned": ready,
+                "rendered_text": rendered_text if ready else "",
+                "autonomous_snn_language_thought_memory_event_hash": event_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_memory_event_review": review,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_consolidation_design"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_memory_event_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_consolidation_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_consolidation_design"
+                        if ready
+                        else "collect_snn_language_thought_memory_event_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_consolidation_design(
+        self,
+        *,
+        autonomous_snn_language_thought_memory_event_review: Mapping[str, Any],
+        consolidation_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded local thought consolidation without applying plasticity."""
+
+        review_artifact = dict(autonomous_snn_language_thought_memory_event_review or {})
+        gate = (
+            review_artifact.get("promotion_gate")
+            if isinstance(review_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        review = (
+            dict(review_artifact.get("autonomous_snn_language_thought_memory_event_review"))
+            if isinstance(
+                review_artifact.get("autonomous_snn_language_thought_memory_event_review"),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(consolidation_policy or {})
+        consolidation_scope = str(
+            policy.get("consolidation_scope") or "local_trace_reinforcement"
+        ).strip()
+        consolidation_route = str(
+            policy.get("consolidation_route")
+            or review.get("consolidation_route")
+            or "deferred_local_trace"
+        ).strip()
+        allowed_scopes = {
+            "local_trace_reinforcement",
+            "sleep_replay_candidate",
+            "homeostatic_sparse_update",
+        }
+        allowed_routes = {
+            "deferred_local_trace",
+            "sleep_replay_candidate",
+            "homeostatic_plasticity_candidate",
+        }
+        if consolidation_scope not in allowed_scopes:
+            consolidation_scope = "local_trace_reinforcement"
+        if consolidation_route not in allowed_routes:
+            consolidation_route = "deferred_local_trace"
+        learning_rate = max(
+            0.0,
+            min(float(policy.get("learning_rate", 0.02) or 0.02), 0.25),
+        )
+        max_weight_delta = max(
+            0.0,
+            min(float(policy.get("max_weight_delta", 0.04) or 0.04), 0.25),
+        )
+        homeostatic_decay = max(
+            0.0,
+            min(float(policy.get("homeostatic_decay", 0.01) or 0.01), 0.25),
+        )
+        max_candidate_updates = min(
+            64,
+            max(1, int(policy.get("max_candidate_updates", 8) or 8)),
+        )
+        local_only = bool(policy.get("local_only", True))
+        normalization = bool(policy.get("normalization", True))
+        memory_trace_hash = str(review.get("memory_trace_hash") or "")
+        memory_event_hash = str(
+            review.get("autonomous_snn_language_thought_memory_event_hash") or ""
+        )
+        memory_event_review_hash = str(review_artifact.get("review_hash") or "")
+        memory_design_hash = str(review.get("language_thought_memory_design_hash") or "")
+        memory_preflight_hash = str(
+            review.get("language_thought_memory_preflight_hash") or ""
+        )
+        thought_surface_event_review_hash = str(
+            review.get("thought_surface_event_review_hash") or ""
+        )
+        thought_surface_event_hash = str(
+            review.get("autonomous_snn_language_thought_surface_event_hash") or ""
+        )
+        local_learning_target_hashes = [
+            str(value)
+            for value in list(review.get("local_learning_target_hashes") or [])
+            if str(value)
+        ][:max_candidate_updates]
+        generated_token_hashes = [
+            str(value)
+            for value in list(review.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        decoded_token_hashes = [
+            str(value)
+            for value in list(review.get("decoded_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(review.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(review.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(review.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(review.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        rendered_text = str(review.get("rendered_text") or "")
+        decoded_fragments = [
+            str(value)
+            for value in list(review.get("decoded_text_fragments") or [])
+            if str(value)
+        ]
+        proposed_delta = min(max_weight_delta, learning_rate)
+        candidate_updates = []
+        for index, target_hash in enumerate(local_learning_target_hashes):
+            candidate_updates.append(
+                {
+                    "candidate_update_id": (
+                        f"snn-thought-local:{memory_trace_hash[:12]}:{index}"
+                    ),
+                    "target_index": index,
+                    "local_learning_target_hash": target_hash,
+                    "generated_token_hash": (
+                        generated_token_hashes[index]
+                        if index < len(generated_token_hashes)
+                        else ""
+                    ),
+                    "decoded_token_hash": (
+                        decoded_token_hashes[index]
+                        if index < len(decoded_token_hashes)
+                        else ""
+                    ),
+                    "spike_projection_hash": (
+                        spike_projection_hashes[index]
+                        if index < len(spike_projection_hashes)
+                        else ""
+                    ),
+                    "active_neuron_hash": (
+                        active_neuron_hashes[index]
+                        if index < len(active_neuron_hashes)
+                        else ""
+                    ),
+                    "membrane_state_hash": (
+                        membrane_state_hashes[index]
+                        if index < len(membrane_state_hashes)
+                        else ""
+                    ),
+                    "proposed_weight_delta": float(proposed_delta),
+                    "homeostatic_decay": float(homeostatic_decay),
+                    "local_only": local_only,
+                    "normalization": normalization,
+                    "applied_to_runtime": False,
+                }
+            )
+        consolidation_design_material = {
+            "consolidation_scope": consolidation_scope,
+            "consolidation_route": consolidation_route,
+            "memory_trace_hash": memory_trace_hash,
+            "thought_memory_event_hash": memory_event_hash,
+            "thought_memory_event_review_hash": memory_event_review_hash,
+            "language_thought_memory_design_hash": memory_design_hash,
+            "language_thought_memory_preflight_hash": memory_preflight_hash,
+            "thought_surface_event_review_hash": thought_surface_event_review_hash,
+            "thought_surface_event_hash": thought_surface_event_hash,
+            "learning_rate": learning_rate,
+            "max_weight_delta": max_weight_delta,
+            "homeostatic_decay": homeostatic_decay,
+            "local_only": local_only,
+            "normalization": normalization,
+            "candidate_updates": candidate_updates,
+        }
+        consolidation_design_hash = self._sha256_json(consolidation_design_material)
+        required = {
+            "thought_memory_event_review_available": review_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_memory_event_review.v1",
+            "thought_memory_event_review_ready": bool(review_artifact.get("accepted"))
+            and bool(review_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_consolidation_design"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                review_artifact.get("requires_operator_approval")
+            )
+            and not bool(review.get("operator_approval_required")),
+            "review_hash_available": len(memory_event_review_hash) == 64,
+            "memory_event_hash_available": len(memory_event_hash) == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "memory_design_hash_available": len(memory_design_hash) == 64,
+            "memory_preflight_hash_available": len(memory_preflight_hash) == 64,
+            "thought_surface_event_review_hash_available": len(
+                thought_surface_event_review_hash
+            )
+            == 64,
+            "thought_surface_event_hash_available": len(thought_surface_event_hash)
+            == 64,
+            "local_learning_targets_available": bool(local_learning_target_hashes),
+            "local_learning_targets_valid": all(
+                len(value) == 64 for value in local_learning_target_hashes
+            ),
+            "candidate_updates_available": bool(candidate_updates),
+            "candidate_updates_bounded": 1
+            <= len(candidate_updates)
+            <= max_candidate_updates
+            <= 64,
+            "candidate_update_hashes_bound": all(
+                len(str(item.get("local_learning_target_hash") or "")) == 64
+                for item in candidate_updates
+            ),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "output_fragment_hashes_valid": bool(output_fragment_hashes)
+            and all(len(value) == 64 for value in output_fragment_hashes),
+            "rendered_text_available": bool(rendered_text),
+            "decoded_fragments_available": bool(decoded_fragments),
+            "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
+            "max_weight_delta_bounded": 0.0 < max_weight_delta <= 0.25,
+            "homeostatic_decay_bounded": 0.0 <= homeostatic_decay <= 0.25,
+            "local_only_policy": local_only,
+            "normalization_enabled": normalization,
+            "memory_recorded": bool(review.get("memory_recorded")),
+            "runtime_mutation_absent": not bool(review_artifact.get("mutates_runtime_state")),
+            "checkpoint_write_absent": not bool(review_artifact.get("writes_checkpoint")),
+            "replay_execution_absent": not bool(review_artifact.get("runs_replay")),
+            "plasticity_absent": not bool(review_artifact.get("applies_plasticity")),
+            "training_absent": not bool(review_artifact.get("trains_runtime_model")),
+            "resize_absent": not bool(review_artifact.get("resizes_network")),
+            "prune_absent": not bool(review_artifact.get("prunes_network")),
+            "fact_promotion_absent": not bool(review.get("fact_promotion_allowed")),
+            "action_absent": not bool(review.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                review.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        design = {
+            "consolidation_scope": consolidation_scope,
+            "consolidation_route": consolidation_route,
+            "thought_consolidation_design_hash": consolidation_design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "autonomous_snn_language_thought_memory_event_hash": memory_event_hash,
+            "thought_memory_event_review_hash": memory_event_review_hash,
+            "language_thought_memory_design_hash": memory_design_hash,
+            "language_thought_memory_preflight_hash": memory_preflight_hash,
+            "thought_surface_event_review_hash": thought_surface_event_review_hash,
+            "autonomous_snn_language_thought_surface_event_hash": (
+                thought_surface_event_hash
+            ),
+            "candidate_update_count": len(candidate_updates) if ready else 0,
+            "candidate_updates": candidate_updates if ready else [],
+            "local_learning_target_hashes": (
+                local_learning_target_hashes if ready else []
+            ),
+            "generated_token_hashes": generated_token_hashes if ready else [],
+            "decoded_token_hashes": decoded_token_hashes if ready else [],
+            "spike_projection_hashes": spike_projection_hashes if ready else [],
+            "active_neuron_hashes": active_neuron_hashes if ready else [],
+            "membrane_state_hashes": membrane_state_hashes if ready else [],
+            "output_fragment_hashes": output_fragment_hashes if ready else [],
+            "rendered_text": rendered_text if ready else "",
+            "decoded_text_fragments": decoded_fragments if ready else [],
+            "learning_rate": float(learning_rate),
+            "max_weight_delta": float(max_weight_delta),
+            "homeostatic_decay": float(homeostatic_decay),
+            "local_only": local_only,
+            "normalization": normalization,
+            "operator_approval_required": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "resize_allowed": False,
+            "prune_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_consolidation_design"
+            ),
+            "surface": (
+                "snn_language_autonomous_snn_language_thought_consolidation_design.v1"
+            ),
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_consolidation_design"
+            ),
+            "available": bool(review_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "thought_consolidation_design_hash": consolidation_design_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "resizes_network": False,
+            "prunes_network": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_consolidation_design": design,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_consolidation_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_consolidation_design_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_consolidation_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_consolidation_preflight"
+                    if ready
+                    else "collect_snn_language_thought_consolidation_design_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_snn_language_thought_consolidation_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_consolidation_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight bounded thought consolidation without applying updates."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design_artifact = dict(autonomous_snn_language_thought_consolidation_design or {})
+        gate = (
+            design_artifact.get("promotion_gate")
+            if isinstance(design_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design_artifact.get("autonomous_snn_language_thought_consolidation_design")
+            if isinstance(
+                design_artifact.get(
+                    "autonomous_snn_language_thought_consolidation_design"
+                ),
+                Mapping,
+            )
+            else {}
+        )
+        device = dict(device_evidence or {})
+        capabilities = dict(executor_capabilities or {})
+        requested_device = str(
+            device.get("device")
+            or device.get("tensor_device")
+            or body.get("requested_device")
+            or "cpu"
+        )
+        requires_cuda = bool(device.get("requires_cuda")) or requested_device.startswith(
+            "cuda"
+        )
+        cuda_evidence_available = bool(device.get("cuda_available")) or bool(
+            device.get("cuda_evidence_available")
+        ) or torch.cuda.is_available()
+        cuda_satisfied = (not requires_cuda) or cuda_evidence_available
+        executor_ready = bool(
+            capabilities.get("autonomous_snn_language_thought_consolidation_executor")
+        )
+        design_hash = str(
+            design_artifact.get("thought_consolidation_design_hash")
+            or body.get("thought_consolidation_design_hash")
+            or ""
+        )
+        memory_trace_hash = str(body.get("memory_trace_hash") or "")
+        memory_event_hash = str(
+            body.get("autonomous_snn_language_thought_memory_event_hash") or ""
+        )
+        memory_event_review_hash = str(body.get("thought_memory_event_review_hash") or "")
+        candidate_updates = [
+            dict(item)
+            for item in list(body.get("candidate_updates") or [])
+            if isinstance(item, Mapping)
+        ]
+        local_learning_target_hashes = [
+            str(value)
+            for value in list(body.get("local_learning_target_hashes") or [])
+            if str(value)
+        ]
+        generated_token_hashes = [
+            str(value)
+            for value in list(body.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(body.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(body.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(body.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(body.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        consolidation_scope = str(body.get("consolidation_scope") or "")
+        consolidation_route = str(body.get("consolidation_route") or "")
+        learning_rate = float(body.get("learning_rate", 0.0) or 0.0)
+        max_weight_delta = float(body.get("max_weight_delta", 0.0) or 0.0)
+        homeostatic_decay = float(body.get("homeostatic_decay", 0.0) or 0.0)
+        preflight_hash = self._sha256_json(
+            {
+                "surface": "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1",
+                "state_revision": before_revision,
+                "thought_consolidation_design_hash": design_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "memory_event_hash": memory_event_hash,
+                "requested_device": requested_device,
+                "requires_cuda": requires_cuda,
+                "executor_ready": executor_ready,
+            }
+        )
+        required = {
+            "thought_consolidation_design_available": design_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_consolidation_design.v1",
+            "thought_consolidation_design_ready": bool(design_artifact.get("accepted"))
+            and bool(design_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_consolidation_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design_artifact.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "design_hash_available": len(design_hash) == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "memory_event_hash_available": len(memory_event_hash) == 64,
+            "memory_event_review_hash_available": len(memory_event_review_hash) == 64,
+            "consolidation_scope_available": bool(consolidation_scope),
+            "consolidation_route_available": bool(consolidation_route),
+            "candidate_updates_available": bool(candidate_updates),
+            "candidate_updates_bounded": 1 <= len(candidate_updates) <= 64,
+            "candidate_updates_not_applied": all(
+                not bool(item.get("applied_to_runtime")) for item in candidate_updates
+            ),
+            "candidate_target_hashes_valid": all(
+                len(str(item.get("local_learning_target_hash") or "")) == 64
+                for item in candidate_updates
+            ),
+            "local_learning_targets_valid": bool(local_learning_target_hashes)
+            and all(len(value) == 64 for value in local_learning_target_hashes),
+            "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
+            "max_weight_delta_bounded": 0.0 < max_weight_delta <= 0.25,
+            "homeostatic_decay_bounded": 0.0 <= homeostatic_decay <= 0.25,
+            "local_only_policy": bool(body.get("local_only")),
+            "normalization_enabled": bool(body.get("normalization")),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "output_fragment_hashes_valid": bool(output_fragment_hashes)
+            and all(len(value) == 64 for value in output_fragment_hashes),
+            "device_evidence_available": bool(requested_device),
+            "cuda_requirement_satisfied": cuda_satisfied,
+            "executor_capability_available": executor_ready,
+            "replay_disallowed": not bool(body.get("replay_allowed")),
+            "plasticity_disallowed": not bool(body.get("plasticity_allowed")),
+            "training_disallowed": not bool(body.get("training_allowed")),
+            "checkpoint_disallowed": not bool(body.get("checkpoint_allowed")),
+            "resize_disallowed": not bool(body.get("resize_allowed")),
+            "prune_disallowed": not bool(body.get("prune_allowed")),
+            "fact_promotion_disallowed": not bool(body.get("fact_promotion_allowed")),
+            "action_disallowed": not bool(body.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                body.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        preflight = {
+            "thought_consolidation_design_hash": design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "autonomous_snn_language_thought_memory_event_hash": memory_event_hash,
+            "thought_memory_event_review_hash": memory_event_review_hash,
+            "consolidation_scope": consolidation_scope,
+            "consolidation_route": consolidation_route,
+            "requested_device": requested_device,
+            "requires_cuda": requires_cuda,
+            "cuda_satisfied": cuda_satisfied,
+            "executor_ready": executor_ready,
+            "candidate_update_count": len(candidate_updates) if ready else 0,
+            "candidate_updates": candidate_updates if ready else [],
+            "local_learning_target_hashes": (
+                local_learning_target_hashes if ready else []
+            ),
+            "generated_token_hashes": generated_token_hashes if ready else [],
+            "spike_projection_hashes": spike_projection_hashes if ready else [],
+            "active_neuron_hashes": active_neuron_hashes if ready else [],
+            "membrane_state_hashes": membrane_state_hashes if ready else [],
+            "output_fragment_hashes": output_fragment_hashes if ready else [],
+            "learning_rate": float(learning_rate),
+            "max_weight_delta": float(max_weight_delta),
+            "homeostatic_decay": float(homeostatic_decay),
+            "local_only": bool(body.get("local_only")),
+            "normalization": bool(body.get("normalization")),
+            "preflight_hash": preflight_hash,
+            "operator_approval_required": False,
+            "execution_allowed": ready,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "resize_allowed": False,
+            "prune_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_consolidation_preflight"
+            ),
+            "surface": (
+                "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1"
+            ),
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_consolidation_preflight"
+            ),
+            "available": bool(design_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "preflight_hash": preflight_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": ready,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "resizes_network": False,
+            "prunes_network": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_consolidation_preflight": preflight,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_consolidation_executor"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_consolidation_preflight_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_consolidation_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_consolidation_executor"
+                    if ready
+                    else "collect_snn_language_thought_consolidation_preflight_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_snn_language_thought_consolidation(
+        self,
+        *,
+        autonomous_snn_language_thought_consolidation_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Apply bounded local thought consolidation as a ledgered plasticity event."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(
+                autonomous_snn_language_thought_consolidation_preflight or {}
+            )
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get(
+                    "autonomous_snn_language_thought_consolidation_preflight"
+                )
+                if isinstance(
+                    preflight.get(
+                        "autonomous_snn_language_thought_consolidation_preflight"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(execution_policy or {})
+            candidate_updates = [
+                dict(item)
+                for item in list(body.get("candidate_updates") or [])
+                if isinstance(item, Mapping)
+            ]
+            applied_updates = [
+                {
+                    **item,
+                    "applied_to_runtime": True,
+                    "applied_in_ledger": True,
+                }
+                for item in candidate_updates
+            ]
+            local_learning_target_hashes = [
+                str(value)
+                for value in list(body.get("local_learning_target_hashes") or [])
+                if str(value)
+            ]
+            generated_token_hashes = [
+                str(value)
+                for value in list(body.get("generated_token_hashes") or [])
+                if str(value)
+            ]
+            spike_projection_hashes = [
+                str(value)
+                for value in list(body.get("spike_projection_hashes") or [])
+                if str(value)
+            ]
+            active_neuron_hashes = [
+                str(value)
+                for value in list(body.get("active_neuron_hashes") or [])
+                if str(value)
+            ]
+            membrane_state_hashes = [
+                str(value)
+                for value in list(body.get("membrane_state_hashes") or [])
+                if str(value)
+            ]
+            output_fragment_hashes = [
+                str(value)
+                for value in list(body.get("output_fragment_hashes") or [])
+                if str(value)
+            ]
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            design_hash = str(body.get("thought_consolidation_design_hash") or "")
+            memory_trace_hash = str(body.get("memory_trace_hash") or "")
+            memory_event_hash = str(
+                body.get("autonomous_snn_language_thought_memory_event_hash") or ""
+            )
+            learning_rate = float(body.get("learning_rate", 0.0) or 0.0)
+            max_weight_delta = float(body.get("max_weight_delta", 0.0) or 0.0)
+            homeostatic_decay = float(body.get("homeostatic_decay", 0.0) or 0.0)
+            event = {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_consolidation_event"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_consolidation_event.v1"
+                ),
+                "state_revision": before_revision,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "thought_consolidation_preflight_hash": preflight_hash,
+                "thought_consolidation_design_hash": design_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_memory_event_hash": (
+                    memory_event_hash
+                ),
+                "consolidation_scope": str(body.get("consolidation_scope") or ""),
+                "consolidation_route": str(body.get("consolidation_route") or ""),
+                "requested_device": str(body.get("requested_device") or ""),
+                "candidate_update_count": len(applied_updates),
+                "candidate_updates": applied_updates,
+                "local_learning_target_hashes": local_learning_target_hashes,
+                "generated_token_hashes": generated_token_hashes,
+                "spike_projection_hashes": spike_projection_hashes,
+                "active_neuron_hashes": active_neuron_hashes,
+                "membrane_state_hashes": membrane_state_hashes,
+                "output_fragment_hashes": output_fragment_hashes,
+                "learning_rate": learning_rate,
+                "max_weight_delta": max_weight_delta,
+                "homeostatic_decay": homeostatic_decay,
+                "local_only": bool(body.get("local_only")),
+                "normalization": bool(body.get("normalization")),
+                "operator_approval_required": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": True,
+                "resizes_network": False,
+                "prunes_network": False,
+                "mutates_runtime_state": True,
+                "generates_text": bool(body.get("generated_text_returned", True)),
+                "decodes_text": True,
+                "literal_text_returned": True,
+                "generated_text_returned": True,
+                "promotes_fact": False,
+                "executes_action": False,
+                "cognition_substrate_claimed": False,
+            }
+            event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "recorded_at"
+                    and key
+                    != "autonomous_snn_language_thought_consolidation_event_hash"
+                }
+            )
+            event["autonomous_snn_language_thought_consolidation_event_hash"] = (
+                event_hash
+            )
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_snn_language_thought_consolidation_preflight.v1",
+                "preflight_ready": bool(preflight.get("accepted"))
+                and bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_consolidation_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "memory_trace_hash_available": len(memory_trace_hash) == 64,
+                "memory_event_hash_available": len(memory_event_hash) == 64,
+                "candidate_updates_available": bool(candidate_updates),
+                "candidate_updates_bounded": 1 <= len(candidate_updates) <= 64,
+                "candidate_updates_previously_unapplied": all(
+                    not bool(item.get("applied_to_runtime"))
+                    for item in candidate_updates
+                ),
+                "candidate_target_hashes_valid": all(
+                    len(str(item.get("local_learning_target_hash") or "")) == 64
+                    for item in candidate_updates
+                ),
+                "local_learning_targets_valid": bool(local_learning_target_hashes)
+                and all(len(value) == 64 for value in local_learning_target_hashes),
+                "generated_token_hashes_valid": bool(generated_token_hashes)
+                and all(len(value) == 64 for value in generated_token_hashes),
+                "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+                == len(generated_token_hashes),
+                "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+                == len(generated_token_hashes),
+                "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+                == len(generated_token_hashes),
+                "output_fragment_hashes_valid": bool(output_fragment_hashes)
+                and all(len(value) == 64 for value in output_fragment_hashes),
+                "learning_rate_bounded": 0.0 < learning_rate <= 0.25,
+                "max_weight_delta_bounded": 0.0 < max_weight_delta <= 0.25,
+                "homeostatic_decay_bounded": 0.0 <= homeostatic_decay <= 0.25,
+                "execution_allowed": bool(body.get("execution_allowed")),
+                "checkpoint_write_absent": not bool(policy.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(policy.get("runs_replay")),
+                "training_absent": not bool(policy.get("trains_runtime_model")),
+                "resize_absent": not bool(policy.get("resizes_network")),
+                "prune_absent": not bool(policy.get("prunes_network")),
+                "fact_promotion_absent": not bool(policy.get("promotes_fact")),
+                "action_absent": not bool(policy.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    policy.get("cognition_substrate_claimed")
+                ),
+            }
+            accepted = all(required.values())
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(
+                        item.get(
+                            "autonomous_snn_language_thought_consolidation_event_hash"
+                        )
+                        or ""
+                    )
+                    for item in state[
+                        "autonomous_snn_language_thought_consolidation_events"
+                    ]
+                }
+                duplicate = event_hash in existing_hashes
+                if not duplicate:
+                    state[
+                        "autonomous_snn_language_thought_consolidation_events"
+                    ].appendleft(deepcopy(event))
+                    state[
+                        "total_autonomous_snn_language_thought_consolidation_count"
+                    ] = (
+                        int(
+                            state.get(
+                                "total_autonomous_snn_language_thought_consolidation_count",
+                                0,
+                            )
+                            or 0
+                        )
+                        + 1
+                    )
+                    state[
+                        "last_autonomous_snn_language_thought_consolidated_at"
+                    ] = event["recorded_at"]
+                    self._store_state(state)
+                    self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_consolidation_executor"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_consolidation_executor.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "execute_autonomous_snn_language_thought_consolidation"
+                ),
+                "available": bool(preflight),
+                "ready": accepted,
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "autonomous_snn_language_thought_consolidation_event_hash": (
+                    event_hash
+                ),
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": True,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": accepted,
+                "decodes_text": accepted,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": accepted,
+                "resizes_network": False,
+                "prunes_network": False,
+                "mutates_runtime_state": accepted and not duplicate,
+                "literal_text_returned": accepted,
+                "generated_text_returned": accepted,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_snn_language_thought_consolidation_event": (
+                    event if accepted else None
+                ),
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_snn_language_thought_consolidation_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_snn_language_thought_consolidation_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_snn_language_thought_consolidation_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_consolidation_event_review": (
+                        accepted
+                    ),
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_consolidation_event_review"
+                        if accepted
+                        else "collect_snn_language_thought_consolidation_execution_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_consolidation_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_consolidation_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded bounded SNN thought-consolidation plasticity event."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(
+                autonomous_snn_language_thought_consolidation_executor or {}
+            )
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(
+                    executor.get(
+                        "autonomous_snn_language_thought_consolidation_event"
+                    )
+                )
+                if isinstance(
+                    executor.get(
+                        "autonomous_snn_language_thought_consolidation_event"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_candidate_updates = min(
+                64,
+                max(1, int(policy.get("max_candidate_updates", 64) or 64)),
+            )
+            max_learning_rate = min(
+                0.25,
+                max(0.000001, float(policy.get("max_learning_rate", 0.25) or 0.25)),
+            )
+            max_weight_delta = min(
+                0.25,
+                max(0.000001, float(policy.get("max_weight_delta", 0.25) or 0.25)),
+            )
+            max_homeostatic_decay = min(
+                0.25,
+                max(
+                    0.0,
+                    float(policy.get("max_homeostatic_decay", 0.25) or 0.25),
+                ),
+            )
+            event_hash = str(
+                event.get(
+                    "autonomous_snn_language_thought_consolidation_event_hash"
+                )
+                or ""
+            )
+            executor_event_hash = str(
+                executor.get(
+                    "autonomous_snn_language_thought_consolidation_event_hash"
+                )
+                or ""
+            )
+            event_revision = int(event.get("state_revision", -1) or -1)
+            candidate_updates = [
+                dict(item)
+                for item in list(event.get("candidate_updates") or [])
+                if isinstance(item, Mapping)
+            ]
+            local_learning_target_hashes = [
+                str(value)
+                for value in list(event.get("local_learning_target_hashes") or [])
+                if str(value)
+            ]
+            generated_token_hashes = [
+                str(value)
+                for value in list(event.get("generated_token_hashes") or [])
+                if str(value)
+            ]
+            spike_projection_hashes = [
+                str(value)
+                for value in list(event.get("spike_projection_hashes") or [])
+                if str(value)
+            ]
+            active_neuron_hashes = [
+                str(value)
+                for value in list(event.get("active_neuron_hashes") or [])
+                if str(value)
+            ]
+            membrane_state_hashes = [
+                str(value)
+                for value in list(event.get("membrane_state_hashes") or [])
+                if str(value)
+            ]
+            output_fragment_hashes = [
+                str(value)
+                for value in list(event.get("output_fragment_hashes") or [])
+                if str(value)
+            ]
+            preflight_hash = str(
+                event.get("thought_consolidation_preflight_hash") or ""
+            )
+            design_hash = str(
+                event.get("thought_consolidation_design_hash") or ""
+            )
+            memory_trace_hash = str(event.get("memory_trace_hash") or "")
+            memory_event_hash = str(
+                event.get("autonomous_snn_language_thought_memory_event_hash") or ""
+            )
+            learning_rate = float(event.get("learning_rate", 0.0) or 0.0)
+            event_max_weight_delta = float(
+                event.get("max_weight_delta", 0.0) or 0.0
+            )
+            homeostatic_decay = float(
+                event.get("homeostatic_decay", 0.0) or 0.0
+            )
+            state = self._normalized_state()
+            recorded_event = next(
+                (
+                    deepcopy(dict(item))
+                    for item in list(
+                        state[
+                            "autonomous_snn_language_thought_consolidation_events"
+                        ]
+                    )
+                    if str(
+                        item.get(
+                            "autonomous_snn_language_thought_consolidation_event_hash"
+                        )
+                        or ""
+                    )
+                    == event_hash
+                ),
+                None,
+            )
+            event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == "snn_language_autonomous_snn_language_thought_consolidation_executor.v1",
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_consolidation_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_current_or_previous": event_revision
+                in {before_revision, before_revision - 1},
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_matches_executor": bool(event_hash)
+                and event_hash == executor_event_hash,
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "memory_trace_hash_available": len(memory_trace_hash) == 64,
+                "memory_event_hash_available": len(memory_event_hash) == 64,
+                "consolidation_scope_available": bool(
+                    event.get("consolidation_scope")
+                ),
+                "consolidation_route_available": bool(
+                    event.get("consolidation_route")
+                ),
+                "requested_device_available": bool(event.get("requested_device")),
+                "candidate_update_count_bounded": 1
+                <= len(candidate_updates)
+                <= max_candidate_updates
+                and int(event.get("candidate_update_count", 0) or 0)
+                == len(candidate_updates),
+                "candidate_updates_applied": bool(candidate_updates)
+                and all(
+                    bool(item.get("applied_to_runtime"))
+                    and bool(item.get("applied_in_ledger"))
+                    for item in candidate_updates
+                ),
+                "candidate_target_hashes_valid": all(
+                    len(str(item.get("local_learning_target_hash") or "")) == 64
+                    for item in candidate_updates
+                ),
+                "local_learning_targets_valid": bool(local_learning_target_hashes)
+                and all(len(value) == 64 for value in local_learning_target_hashes),
+                "generated_token_hashes_valid": bool(generated_token_hashes)
+                and all(len(value) == 64 for value in generated_token_hashes),
+                "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+                == len(generated_token_hashes),
+                "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+                == len(generated_token_hashes),
+                "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+                == len(generated_token_hashes),
+                "output_fragment_hashes_valid": bool(output_fragment_hashes)
+                and all(len(value) == 64 for value in output_fragment_hashes),
+                "learning_rate_bounded": 0.0 < learning_rate <= max_learning_rate,
+                "max_weight_delta_bounded": 0.0
+                < event_max_weight_delta
+                <= max_weight_delta,
+                "homeostatic_decay_bounded": 0.0
+                <= homeostatic_decay
+                <= max_homeostatic_decay,
+                "local_only": bool(event.get("local_only")),
+                "normalization_enabled": bool(event.get("normalization")),
+                "plasticity_applied": bool(event.get("applies_plasticity"))
+                and bool(executor.get("applies_plasticity")),
+                "runtime_state_mutated_by_executor": bool(
+                    event.get("mutates_runtime_state")
+                )
+                and bool(executor.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(executor.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(executor.get("runs_replay")),
+                "training_absent": not bool(event.get("trains_runtime_model"))
+                and not bool(executor.get("trains_runtime_model")),
+                "resize_absent": not bool(event.get("resizes_network"))
+                and not bool(executor.get("resizes_network")),
+                "prune_absent": not bool(event.get("prunes_network"))
+                and not bool(executor.get("prunes_network")),
+                "fact_promotion_absent": not bool(event.get("promotes_fact")),
+                "action_absent": not bool(event.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    event.get("cognition_substrate_claimed")
+                ),
+            }
+            ready = all(required.values())
+            review = {
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "event_revision": event_revision if event else None,
+                "autonomous_snn_language_thought_consolidation_event_hash": (
+                    event_hash
+                ),
+                "thought_consolidation_preflight_hash": preflight_hash,
+                "thought_consolidation_design_hash": design_hash,
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_memory_event_hash": (
+                    memory_event_hash
+                ),
+                "consolidation_scope": str(event.get("consolidation_scope") or ""),
+                "consolidation_route": str(event.get("consolidation_route") or ""),
+                "requested_device": str(event.get("requested_device") or ""),
+                "candidate_update_count": len(candidate_updates) if ready else 0,
+                "candidate_updates": candidate_updates if ready else [],
+                "local_learning_target_hashes": (
+                    local_learning_target_hashes if ready else []
+                ),
+                "generated_token_hashes": generated_token_hashes if ready else [],
+                "spike_projection_hashes": spike_projection_hashes if ready else [],
+                "active_neuron_hashes": active_neuron_hashes if ready else [],
+                "membrane_state_hashes": membrane_state_hashes if ready else [],
+                "output_fragment_hashes": output_fragment_hashes if ready else [],
+                "learning_rate": learning_rate,
+                "max_weight_delta": event_max_weight_delta,
+                "homeostatic_decay": homeostatic_decay,
+                "local_only": bool(event.get("local_only")) and ready,
+                "normalization": bool(event.get("normalization")) and ready,
+                "operator_approval_required": False,
+                "plasticity_applied": bool(event.get("applies_plasticity"))
+                and ready,
+                "runtime_state_mutated": bool(event.get("mutates_runtime_state"))
+                and ready,
+                "replay_allowed": False,
+                "training_allowed": False,
+                "checkpoint_allowed": False,
+                "resize_allowed": False,
+                "prune_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "cognition_substrate_claimed": False,
+                "review_policy": {
+                    "max_candidate_updates": max_candidate_updates,
+                    "max_learning_rate": max_learning_rate,
+                    "max_weight_delta": max_weight_delta,
+                    "max_homeostatic_decay": max_homeostatic_decay,
+                },
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "consolidation_event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_snn_language_thought_consolidation_event_review": (
+                        review
+                    ),
+                }
+            )
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "consolidation_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "consolidation_event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_consolidation_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": ready,
+                "decodes_text": ready,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": ready,
+                "resizes_network": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "literal_text_returned": ready,
+                "generated_text_returned": ready,
+                "autonomous_snn_language_thought_consolidation_event_hash": (
+                    event_hash
+                ),
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_consolidation_event_review": (
+                    review
+                ),
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_structural_plasticity_design"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_consolidation_event_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_structural_plasticity_design"
+                        if ready
+                        else "collect_snn_language_thought_consolidation_event_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_structural_plasticity_design(
+        self,
+        *,
+        autonomous_snn_language_thought_consolidation_event_review: Mapping[str, Any],
+        structural_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded thought-driven structural plasticity without mutation."""
+
+        review_artifact = dict(
+            autonomous_snn_language_thought_consolidation_event_review or {}
+        )
+        gate = (
+            review_artifact.get("promotion_gate")
+            if isinstance(review_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        review = (
+            dict(
+                review_artifact.get(
+                    "autonomous_snn_language_thought_consolidation_event_review"
+                )
+            )
+            if isinstance(
+                review_artifact.get(
+                    "autonomous_snn_language_thought_consolidation_event_review"
+                ),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(structural_policy or {})
+        structural_scope = str(
+            policy.get("structural_scope") or "thought_trace_sparse_capacity"
+        ).strip()
+        structural_route = str(
+            policy.get("structural_route")
+            or "reviewed_consolidation_to_growth_prune"
+        ).strip()
+        allowed_scopes = {
+            "thought_trace_sparse_capacity",
+            "thought_trace_neurogenesis_candidate",
+            "thought_trace_homeostatic_prune_candidate",
+        }
+        allowed_routes = {
+            "reviewed_consolidation_to_growth_prune",
+            "reviewed_consolidation_to_neurogenesis",
+            "reviewed_consolidation_to_homeostatic_prune",
+        }
+        if structural_scope not in allowed_scopes:
+            structural_scope = "thought_trace_sparse_capacity"
+        if structural_route not in allowed_routes:
+            structural_route = "reviewed_consolidation_to_growth_prune"
+        max_growth_candidates = min(
+            32,
+            max(1, int(policy.get("max_growth_candidates", 4) or 4)),
+        )
+        max_prune_candidates = min(
+            32,
+            max(0, int(policy.get("max_prune_candidates", 2) or 2)),
+        )
+        max_new_neurons = min(
+            32,
+            max(0, int(policy.get("max_new_neurons", 2) or 2)),
+        )
+        max_new_synapses = min(
+            128,
+            max(1, int(policy.get("max_new_synapses", 8) or 8)),
+        )
+        max_prune_synapses = min(
+            128,
+            max(0, int(policy.get("max_prune_synapses", 4) or 4)),
+        )
+        consolidation_event_hash = str(
+            review.get("autonomous_snn_language_thought_consolidation_event_hash")
+            or ""
+        )
+        consolidation_preflight_hash = str(
+            review.get("thought_consolidation_preflight_hash") or ""
+        )
+        consolidation_design_hash = str(
+            review.get("thought_consolidation_design_hash") or ""
+        )
+        memory_trace_hash = str(review.get("memory_trace_hash") or "")
+        memory_event_hash = str(
+            review.get("autonomous_snn_language_thought_memory_event_hash") or ""
+        )
+        review_hash = str(review_artifact.get("review_hash") or "")
+        requested_device = str(review.get("requested_device") or "")
+        candidate_updates = [
+            dict(item)
+            for item in list(review.get("candidate_updates") or [])
+            if isinstance(item, Mapping)
+        ]
+        local_learning_target_hashes = [
+            str(value)
+            for value in list(review.get("local_learning_target_hashes") or [])
+            if str(value)
+        ]
+        generated_token_hashes = [
+            str(value)
+            for value in list(review.get("generated_token_hashes") or [])
+            if str(value)
+        ]
+        spike_projection_hashes = [
+            str(value)
+            for value in list(review.get("spike_projection_hashes") or [])
+            if str(value)
+        ]
+        active_neuron_hashes = [
+            str(value)
+            for value in list(review.get("active_neuron_hashes") or [])
+            if str(value)
+        ]
+        membrane_state_hashes = [
+            str(value)
+            for value in list(review.get("membrane_state_hashes") or [])
+            if str(value)
+        ]
+        output_fragment_hashes = [
+            str(value)
+            for value in list(review.get("output_fragment_hashes") or [])
+            if str(value)
+        ]
+        growth_candidates = []
+        for index, update in enumerate(candidate_updates[:max_growth_candidates]):
+            target_hash = str(update.get("local_learning_target_hash") or "")
+            growth_candidates.append(
+                {
+                    "growth_candidate_id": (
+                        f"snn-thought-growth:{consolidation_event_hash[:12]}:{index}"
+                    ),
+                    "candidate_update_id": str(
+                        update.get("candidate_update_id") or ""
+                    ),
+                    "local_learning_target_hash": target_hash,
+                    "generated_token_hash": str(
+                        update.get("generated_token_hash")
+                        or (
+                            generated_token_hashes[index]
+                            if index < len(generated_token_hashes)
+                            else ""
+                        )
+                    ),
+                    "spike_projection_hash": str(
+                        update.get("spike_projection_hash")
+                        or (
+                            spike_projection_hashes[index]
+                            if index < len(spike_projection_hashes)
+                            else ""
+                        )
+                    ),
+                    "active_neuron_hash": str(
+                        update.get("active_neuron_hash")
+                        or (
+                            active_neuron_hashes[index]
+                            if index < len(active_neuron_hashes)
+                            else ""
+                        )
+                    ),
+                    "membrane_state_hash": str(
+                        update.get("membrane_state_hash")
+                        or (
+                            membrane_state_hashes[index]
+                            if index < len(membrane_state_hashes)
+                            else ""
+                        )
+                    ),
+                    "proposed_new_neuron_count": 1 if index < max_new_neurons else 0,
+                    "proposed_new_synapse_count": 1,
+                    "growth_reason": "reviewed_local_plasticity_trace",
+                    "applied_to_runtime": False,
+                }
+            )
+        prune_source_hashes = output_fragment_hashes or local_learning_target_hashes
+        prune_candidates = []
+        for index, source_hash in enumerate(prune_source_hashes[:max_prune_candidates]):
+            prune_candidates.append(
+                {
+                    "prune_candidate_id": (
+                        f"snn-thought-prune:{consolidation_event_hash[:12]}:{index}"
+                    ),
+                    "source_hash": source_hash,
+                    "proposed_prune_synapse_count": 1
+                    if index < max_prune_synapses
+                    else 0,
+                    "prune_reason": "homeostatic_decay_after_local_plasticity",
+                    "applied_to_runtime": False,
+                }
+            )
+        structural_design_material = {
+            "structural_scope": structural_scope,
+            "structural_route": structural_route,
+            "consolidation_event_review_hash": review_hash,
+            "thought_consolidation_event_hash": consolidation_event_hash,
+            "thought_consolidation_preflight_hash": consolidation_preflight_hash,
+            "thought_consolidation_design_hash": consolidation_design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "thought_memory_event_hash": memory_event_hash,
+            "requested_device": requested_device,
+            "growth_candidates": growth_candidates,
+            "prune_candidates": prune_candidates,
+            "max_new_neurons": max_new_neurons,
+            "max_new_synapses": max_new_synapses,
+            "max_prune_synapses": max_prune_synapses,
+        }
+        structural_design_hash = self._sha256_json(structural_design_material)
+        required = {
+            "consolidation_event_review_available": review_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_consolidation_event_review.v1",
+            "consolidation_event_review_ready": bool(review_artifact.get("accepted"))
+            and bool(review_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_design"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                review_artifact.get("requires_operator_approval")
+            )
+            and not bool(review.get("operator_approval_required")),
+            "review_hash_available": len(review_hash) == 64,
+            "consolidation_event_hash_available": len(consolidation_event_hash)
+            == 64,
+            "consolidation_preflight_hash_available": len(
+                consolidation_preflight_hash
+            )
+            == 64,
+            "consolidation_design_hash_available": len(consolidation_design_hash)
+            == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "memory_event_hash_available": len(memory_event_hash) == 64,
+            "requested_device_available": bool(requested_device),
+            "candidate_updates_available": bool(candidate_updates),
+            "candidate_updates_applied": all(
+                bool(item.get("applied_to_runtime"))
+                and bool(item.get("applied_in_ledger"))
+                for item in candidate_updates
+            ),
+            "local_learning_targets_valid": bool(local_learning_target_hashes)
+            and all(len(value) == 64 for value in local_learning_target_hashes),
+            "generated_token_hashes_valid": bool(generated_token_hashes)
+            and all(len(value) == 64 for value in generated_token_hashes),
+            "spike_projection_hashes_match_tokens": len(spike_projection_hashes)
+            == len(generated_token_hashes),
+            "active_neuron_hashes_match_tokens": len(active_neuron_hashes)
+            == len(generated_token_hashes),
+            "membrane_state_hashes_match_tokens": len(membrane_state_hashes)
+            == len(generated_token_hashes),
+            "growth_candidates_available": bool(growth_candidates),
+            "growth_candidates_bounded": 1
+            <= len(growth_candidates)
+            <= max_growth_candidates,
+            "growth_candidate_hashes_valid": all(
+                len(str(item.get("local_learning_target_hash") or "")) == 64
+                for item in growth_candidates
+            ),
+            "growth_synapse_budget_bounded": sum(
+                int(item.get("proposed_new_synapse_count", 0) or 0)
+                for item in growth_candidates
+            )
+            <= max_new_synapses,
+            "growth_neuron_budget_bounded": sum(
+                int(item.get("proposed_new_neuron_count", 0) or 0)
+                for item in growth_candidates
+            )
+            <= max_new_neurons,
+            "prune_candidates_bounded": len(prune_candidates)
+            <= max_prune_candidates,
+            "prune_synapse_budget_bounded": sum(
+                int(item.get("proposed_prune_synapse_count", 0) or 0)
+                for item in prune_candidates
+            )
+            <= max_prune_synapses,
+            "plasticity_reviewed": bool(review.get("plasticity_applied")),
+            "runtime_mutation_absent": not bool(
+                review_artifact.get("mutates_runtime_state")
+            ),
+            "checkpoint_write_absent": not bool(
+                review_artifact.get("writes_checkpoint")
+            ),
+            "replay_execution_absent": not bool(review_artifact.get("runs_replay")),
+            "training_absent": not bool(
+                review_artifact.get("trains_runtime_model")
+            ),
+            "resize_absent": not bool(review_artifact.get("resizes_network")),
+            "prune_execution_absent": not bool(
+                review_artifact.get("prunes_network")
+            ),
+            "fact_promotion_absent": not bool(review.get("fact_promotion_allowed")),
+            "action_absent": not bool(review.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                review.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        design = {
+            "structural_scope": structural_scope,
+            "structural_route": structural_route,
+            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "consolidation_event_review_hash": review_hash,
+            "autonomous_snn_language_thought_consolidation_event_hash": (
+                consolidation_event_hash
+            ),
+            "thought_consolidation_preflight_hash": consolidation_preflight_hash,
+            "thought_consolidation_design_hash": consolidation_design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "autonomous_snn_language_thought_memory_event_hash": memory_event_hash,
+            "requested_device": requested_device,
+            "growth_candidate_count": len(growth_candidates) if ready else 0,
+            "growth_candidates": growth_candidates if ready else [],
+            "prune_candidate_count": len(prune_candidates) if ready else 0,
+            "prune_candidates": prune_candidates if ready else [],
+            "max_new_neurons": max_new_neurons,
+            "max_new_synapses": max_new_synapses,
+            "max_prune_synapses": max_prune_synapses,
+            "operator_approval_required": False,
+            "structural_growth_designed": ready,
+            "structural_prune_designed": ready and bool(prune_candidates),
+            "growth_allowed": False,
+            "prune_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "resize_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_"
+                "structural_plasticity_design"
+            ),
+            "surface": (
+                "snn_language_autonomous_snn_language_thought_"
+                "structural_plasticity_design.v1"
+            ),
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_structural_plasticity_design"
+            ),
+            "available": bool(review_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "resizes_network": False,
+            "prunes_network": False,
+            "adds_neurons": False,
+            "adds_synapses": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_structural_plasticity_design": (
+                design
+            ),
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_structural_plasticity_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_design_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_structural_plasticity_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_structural_plasticity_preflight"
+                    if ready
+                    else "collect_snn_language_thought_structural_plasticity_design_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_snn_language_thought_structural_plasticity_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_structural_plasticity_design: Mapping[str, Any],
+        expected_state_revision: int,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight bounded thought-driven structural plasticity."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design_artifact = dict(
+            autonomous_snn_language_thought_structural_plasticity_design or {}
+        )
+        gate = (
+            design_artifact.get("promotion_gate")
+            if isinstance(design_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design_artifact.get(
+                "autonomous_snn_language_thought_structural_plasticity_design"
+            )
+            if isinstance(
+                design_artifact.get(
+                    "autonomous_snn_language_thought_structural_plasticity_design"
+                ),
+                Mapping,
+            )
+            else {}
+        )
+        device = dict(device_evidence or {})
+        capabilities = dict(executor_capabilities or {})
+        requested_device = str(
+            device.get("device")
+            or device.get("tensor_device")
+            or body.get("requested_device")
+            or "cuda:0"
+        )
+        cuda_available = bool(device.get("cuda_available", True))
+        requires_cuda = bool(device.get("requires_cuda", True))
+        executor_ready = bool(
+            capabilities.get("autonomous_snn_language_thought_structural_plasticity_executor")
+        )
+        design_hash = str(
+            design_artifact.get("thought_structural_plasticity_design_hash")
+            or body.get("thought_structural_plasticity_design_hash")
+            or ""
+        )
+        consolidation_event_review_hash = str(
+            body.get("consolidation_event_review_hash") or ""
+        )
+        consolidation_event_hash = str(
+            body.get("autonomous_snn_language_thought_consolidation_event_hash")
+            or ""
+        )
+        consolidation_preflight_hash = str(
+            body.get("thought_consolidation_preflight_hash") or ""
+        )
+        consolidation_design_hash = str(
+            body.get("thought_consolidation_design_hash") or ""
+        )
+        memory_trace_hash = str(body.get("memory_trace_hash") or "")
+        memory_event_hash = str(
+            body.get("autonomous_snn_language_thought_memory_event_hash") or ""
+        )
+        growth_candidates = [
+            dict(item)
+            for item in list(body.get("growth_candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        prune_candidates = [
+            dict(item)
+            for item in list(body.get("prune_candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        max_new_neurons = int(body.get("max_new_neurons", 0) or 0)
+        max_new_synapses = int(body.get("max_new_synapses", 0) or 0)
+        max_prune_synapses = int(body.get("max_prune_synapses", 0) or 0)
+        proposed_new_neurons = sum(
+            int(item.get("proposed_new_neuron_count", 0) or 0)
+            for item in growth_candidates
+        )
+        proposed_new_synapses = sum(
+            int(item.get("proposed_new_synapse_count", 0) or 0)
+            for item in growth_candidates
+        )
+        proposed_prune_synapses = sum(
+            int(item.get("proposed_prune_synapse_count", 0) or 0)
+            for item in prune_candidates
+        )
+        growth_candidate_hashes = [
+            str(item.get("local_learning_target_hash") or "")
+            for item in growth_candidates
+        ]
+        prune_candidate_hashes = [
+            str(item.get("source_hash") or "") for item in prune_candidates
+        ]
+        preflight = {
+            "structural_scope": str(body.get("structural_scope") or ""),
+            "structural_route": str(body.get("structural_route") or ""),
+            "thought_structural_plasticity_design_hash": design_hash,
+            "consolidation_event_review_hash": consolidation_event_review_hash,
+            "autonomous_snn_language_thought_consolidation_event_hash": (
+                consolidation_event_hash
+            ),
+            "thought_consolidation_preflight_hash": consolidation_preflight_hash,
+            "thought_consolidation_design_hash": consolidation_design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "autonomous_snn_language_thought_memory_event_hash": memory_event_hash,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "requested_device": requested_device,
+            "requires_cuda": requires_cuda,
+            "cuda_satisfied": (not requires_cuda)
+            or (cuda_available and requested_device.startswith("cuda")),
+            "executor_ready": executor_ready,
+            "growth_candidate_count": len(growth_candidates),
+            "growth_candidates": growth_candidates,
+            "prune_candidate_count": len(prune_candidates),
+            "prune_candidates": prune_candidates,
+            "proposed_new_neuron_count": proposed_new_neurons,
+            "proposed_new_synapse_count": proposed_new_synapses,
+            "proposed_prune_synapse_count": proposed_prune_synapses,
+            "max_new_neurons": max_new_neurons,
+            "max_new_synapses": max_new_synapses,
+            "max_prune_synapses": max_prune_synapses,
+            "operator_approval_required": False,
+            "execution_allowed": False,
+            "growth_allowed": False,
+            "prune_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "resize_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        preflight_hash = self._sha256_json(
+            {
+                key: value
+                for key, value in preflight.items()
+                if key != "preflight_hash"
+            }
+        )
+        preflight["preflight_hash"] = preflight_hash
+        required = {
+            "structural_plasticity_design_available": design_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_structural_plasticity_design.v1",
+            "structural_plasticity_design_ready": bool(
+                design_artifact.get("accepted")
+            )
+            and bool(design_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design_artifact.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "design_hash_available": len(design_hash) == 64,
+            "consolidation_event_review_hash_available": len(
+                consolidation_event_review_hash
+            )
+            == 64,
+            "consolidation_event_hash_available": len(consolidation_event_hash)
+            == 64,
+            "consolidation_preflight_hash_available": len(
+                consolidation_preflight_hash
+            )
+            == 64,
+            "consolidation_design_hash_available": len(consolidation_design_hash)
+            == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "memory_event_hash_available": len(memory_event_hash) == 64,
+            "cuda_satisfied": bool(preflight["cuda_satisfied"]),
+            "requested_device_available": bool(requested_device),
+            "executor_capability_available": executor_ready,
+            "growth_candidates_available": bool(growth_candidates),
+            "growth_candidates_unapplied": all(
+                not bool(item.get("applied_to_runtime"))
+                for item in growth_candidates
+            ),
+            "growth_candidate_hashes_valid": all(
+                len(value) == 64 for value in growth_candidate_hashes
+            ),
+            "growth_neuron_budget_bounded": 0
+            <= proposed_new_neurons
+            <= max_new_neurons
+            <= 32,
+            "growth_synapse_budget_bounded": 1
+            <= proposed_new_synapses
+            <= max_new_synapses
+            <= 128,
+            "prune_candidates_unapplied": all(
+                not bool(item.get("applied_to_runtime"))
+                for item in prune_candidates
+            ),
+            "prune_candidate_hashes_valid": all(
+                len(value) == 64 for value in prune_candidate_hashes
+            ),
+            "prune_synapse_budget_bounded": 0
+            <= proposed_prune_synapses
+            <= max_prune_synapses
+            <= 128,
+            "execution_still_blocked": not bool(preflight["execution_allowed"]),
+            "checkpoint_write_absent": not bool(
+                design_artifact.get("writes_checkpoint")
+            ),
+            "replay_execution_absent": not bool(design_artifact.get("runs_replay")),
+            "plasticity_absent": not bool(design_artifact.get("applies_plasticity")),
+            "training_absent": not bool(
+                design_artifact.get("trains_runtime_model")
+            ),
+            "resize_absent": not bool(design_artifact.get("resizes_network")),
+            "prune_execution_absent": not bool(
+                design_artifact.get("prunes_network")
+            ),
+            "neuron_add_absent": not bool(design_artifact.get("adds_neurons")),
+            "synapse_add_absent": not bool(design_artifact.get("adds_synapses")),
+            "fact_promotion_absent": not bool(body.get("fact_promotion_allowed")),
+            "action_absent": not bool(body.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                body.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_"
+                "structural_plasticity_preflight"
+            ),
+            "surface": (
+                "snn_language_autonomous_snn_language_thought_"
+                "structural_plasticity_preflight.v1"
+            ),
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_structural_plasticity_preflight"
+            ),
+            "available": bool(design_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "preflight_hash": preflight_hash,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": True,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "resizes_network": False,
+            "prunes_network": False,
+            "adds_neurons": False,
+            "adds_synapses": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_structural_plasticity_preflight": (
+                preflight if ready else {**preflight, "growth_candidates": [], "prune_candidates": []}
+            ),
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_structural_plasticity_executor"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_preflight_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_structural_plasticity_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_structural_plasticity_executor"
+                    if ready
+                    else "collect_snn_language_thought_structural_plasticity_preflight_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def execute_autonomous_snn_language_thought_structural_plasticity(
+        self,
+        *,
+        autonomous_snn_language_thought_structural_plasticity_preflight: Mapping[str, Any],
+        expected_state_revision: int,
+        execution_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Apply bounded thought-driven structural plasticity to the ledger."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            preflight = dict(
+                autonomous_snn_language_thought_structural_plasticity_preflight
+                or {}
+            )
+            gate = (
+                preflight.get("promotion_gate")
+                if isinstance(preflight.get("promotion_gate"), Mapping)
+                else {}
+            )
+            body = (
+                preflight.get(
+                    "autonomous_snn_language_thought_structural_plasticity_preflight"
+                )
+                if isinstance(
+                    preflight.get(
+                        "autonomous_snn_language_thought_structural_plasticity_preflight"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(execution_policy or {})
+            growth_candidates = [
+                dict(item)
+                for item in list(body.get("growth_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            prune_candidates = [
+                dict(item)
+                for item in list(body.get("prune_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            applied_growth_candidates = [
+                {
+                    **item,
+                    "applied_to_runtime": True,
+                    "applied_in_ledger": True,
+                }
+                for item in growth_candidates
+            ]
+            applied_prune_candidates = [
+                {
+                    **item,
+                    "applied_to_runtime": True,
+                    "applied_in_ledger": True,
+                }
+                for item in prune_candidates
+            ]
+            preflight_hash = str(preflight.get("preflight_hash") or "")
+            design_hash = str(
+                body.get("thought_structural_plasticity_design_hash") or ""
+            )
+            consolidation_event_review_hash = str(
+                body.get("consolidation_event_review_hash") or ""
+            )
+            consolidation_event_hash = str(
+                body.get("autonomous_snn_language_thought_consolidation_event_hash")
+                or ""
+            )
+            memory_trace_hash = str(body.get("memory_trace_hash") or "")
+            memory_event_hash = str(
+                body.get("autonomous_snn_language_thought_memory_event_hash") or ""
+            )
+            proposed_new_neurons = int(
+                body.get("proposed_new_neuron_count", 0) or 0
+            )
+            proposed_new_synapses = int(
+                body.get("proposed_new_synapse_count", 0) or 0
+            )
+            proposed_prune_synapses = int(
+                body.get("proposed_prune_synapse_count", 0) or 0
+            )
+            max_new_neurons = int(body.get("max_new_neurons", 0) or 0)
+            max_new_synapses = int(body.get("max_new_synapses", 0) or 0)
+            max_prune_synapses = int(body.get("max_prune_synapses", 0) or 0)
+            growth_candidate_hashes = [
+                str(item.get("local_learning_target_hash") or "")
+                for item in growth_candidates
+            ]
+            prune_candidate_hashes = [
+                str(item.get("source_hash") or "") for item in prune_candidates
+            ]
+            event = {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "structural_plasticity_event"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "structural_plasticity_event.v1"
+                ),
+                "state_revision": before_revision,
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "thought_structural_plasticity_preflight_hash": preflight_hash,
+                "thought_structural_plasticity_design_hash": design_hash,
+                "consolidation_event_review_hash": (
+                    consolidation_event_review_hash
+                ),
+                "autonomous_snn_language_thought_consolidation_event_hash": (
+                    consolidation_event_hash
+                ),
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_memory_event_hash": (
+                    memory_event_hash
+                ),
+                "structural_scope": str(body.get("structural_scope") or ""),
+                "structural_route": str(body.get("structural_route") or ""),
+                "requested_device": str(body.get("requested_device") or ""),
+                "growth_candidate_count": len(applied_growth_candidates),
+                "growth_candidates": applied_growth_candidates,
+                "prune_candidate_count": len(applied_prune_candidates),
+                "prune_candidates": applied_prune_candidates,
+                "proposed_new_neuron_count": proposed_new_neurons,
+                "proposed_new_synapse_count": proposed_new_synapses,
+                "proposed_prune_synapse_count": proposed_prune_synapses,
+                "max_new_neurons": max_new_neurons,
+                "max_new_synapses": max_new_synapses,
+                "max_prune_synapses": max_prune_synapses,
+                "operator_approval_required": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "structural_plasticity_applied": True,
+                "resizes_network": False,
+                "adds_neurons": proposed_new_neurons > 0,
+                "adds_synapses": proposed_new_synapses > 0,
+                "prunes_network": proposed_prune_synapses > 0,
+                "mutates_runtime_state": True,
+                "generates_text": True,
+                "decodes_text": True,
+                "literal_text_returned": True,
+                "generated_text_returned": True,
+                "promotes_fact": False,
+                "executes_action": False,
+                "cognition_substrate_claimed": False,
+            }
+            event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "recorded_at"
+                    and key
+                    != "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                }
+            )
+            event[
+                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+            ] = event_hash
+            required = {
+                "preflight_surface_available": preflight.get("surface")
+                == "snn_language_autonomous_snn_language_thought_structural_plasticity_preflight.v1",
+                "preflight_ready": bool(preflight.get("accepted"))
+                and bool(preflight.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_structural_plasticity_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    preflight.get("requires_operator_approval")
+                )
+                and not bool(body.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "preflight_revision_current": int(
+                    preflight.get("observed_state_revision", -1)
+                )
+                == before_revision
+                and int(preflight.get("expected_state_revision", -1))
+                == before_revision,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "consolidation_event_review_hash_available": len(
+                    consolidation_event_review_hash
+                )
+                == 64,
+                "consolidation_event_hash_available": len(
+                    consolidation_event_hash
+                )
+                == 64,
+                "memory_trace_hash_available": len(memory_trace_hash) == 64,
+                "memory_event_hash_available": len(memory_event_hash) == 64,
+                "cuda_satisfied": bool(body.get("cuda_satisfied")),
+                "requested_device_available": bool(body.get("requested_device")),
+                "executor_ready": bool(body.get("executor_ready")),
+                "growth_candidates_available": bool(growth_candidates),
+                "growth_candidates_previously_unapplied": all(
+                    not bool(item.get("applied_to_runtime"))
+                    for item in growth_candidates
+                ),
+                "growth_candidate_hashes_valid": all(
+                    len(value) == 64 for value in growth_candidate_hashes
+                ),
+                "growth_neuron_budget_bounded": 0
+                <= proposed_new_neurons
+                <= max_new_neurons
+                <= 32,
+                "growth_synapse_budget_bounded": 1
+                <= proposed_new_synapses
+                <= max_new_synapses
+                <= 128,
+                "prune_candidates_previously_unapplied": all(
+                    not bool(item.get("applied_to_runtime"))
+                    for item in prune_candidates
+                ),
+                "prune_candidate_hashes_valid": all(
+                    len(value) == 64 for value in prune_candidate_hashes
+                ),
+                "prune_synapse_budget_bounded": 0
+                <= proposed_prune_synapses
+                <= max_prune_synapses
+                <= 128,
+                "checkpoint_write_absent": not bool(
+                    policy.get("writes_checkpoint")
+                ),
+                "replay_execution_absent": not bool(policy.get("runs_replay")),
+                "plasticity_absent": not bool(policy.get("applies_plasticity")),
+                "training_absent": not bool(policy.get("trains_runtime_model")),
+                "resize_absent": not bool(policy.get("resizes_network")),
+                "fact_promotion_absent": not bool(policy.get("promotes_fact")),
+                "action_absent": not bool(policy.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    policy.get("cognition_substrate_claimed")
+                ),
+            }
+            accepted = all(required.values())
+            duplicate = False
+            if accepted:
+                state = self._normalized_state()
+                existing_hashes = {
+                    str(
+                        item.get(
+                            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                        )
+                        or ""
+                    )
+                    for item in state[
+                        "autonomous_snn_language_thought_structural_plasticity_events"
+                    ]
+                }
+                duplicate = event_hash in existing_hashes
+                if not duplicate:
+                    state[
+                        "autonomous_snn_language_thought_structural_plasticity_events"
+                    ].appendleft(deepcopy(event))
+                    state[
+                        "total_autonomous_snn_language_thought_structural_plasticity_count"
+                    ] = (
+                        int(
+                            state.get(
+                                "total_autonomous_snn_language_thought_structural_plasticity_count",
+                                0,
+                            )
+                            or 0
+                        )
+                        + 1
+                    )
+                    state[
+                        "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                    ] = event["recorded_at"]
+                    self._store_state(state)
+                    self._runtime_state.mark_dirty_without_revision()
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "structural_plasticity_executor"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "structural_plasticity_executor.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "execute_autonomous_snn_language_thought_structural_plasticity"
+                ),
+                "available": bool(preflight),
+                "ready": accepted,
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                    event_hash
+                ),
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": False,
+                "executable": True,
+                "calls_endpoint": False,
+                "records_ledger_event": accepted and not duplicate,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": accepted,
+                "decodes_text": accepted,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "structural_plasticity_applied": accepted,
+                "resizes_network": False,
+                "adds_neurons": accepted and proposed_new_neurons > 0,
+                "adds_synapses": accepted and proposed_new_synapses > 0,
+                "prunes_network": accepted and proposed_prune_synapses > 0,
+                "mutates_runtime_state": accepted and not duplicate,
+                "literal_text_returned": accepted,
+                "generated_text_returned": accepted,
+                "before": {"state_revision": before_revision},
+                "after": self._runtime_state.mutation_summary(),
+                "autonomous_snn_language_thought_structural_plasticity_event": (
+                    event if accepted else None
+                ),
+                "ledger_summary": self.snapshot(limit=0)["summary"],
+                "promotion_gate": {
+                    "status": (
+                        "autonomous_snn_language_thought_structural_plasticity_recorded"
+                        if accepted and not duplicate
+                        else (
+                            "duplicate_autonomous_snn_language_thought_structural_plasticity_already_recorded"
+                            if accepted
+                            else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_executor_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review": (
+                        accepted
+                    ),
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_structural_plasticity_event_review"
+                        if accepted
+                        else "collect_snn_language_thought_structural_plasticity_execution_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_structural_plasticity_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_structural_plasticity_executor: Mapping[str, Any],
+        expected_state_revision: int,
+        review_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Review a recorded bounded SNN thought structural-plasticity event."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(
+                autonomous_snn_language_thought_structural_plasticity_executor
+                or {}
+            )
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(
+                    executor.get(
+                        "autonomous_snn_language_thought_structural_plasticity_event"
+                    )
+                )
+                if isinstance(
+                    executor.get(
+                        "autonomous_snn_language_thought_structural_plasticity_event"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            policy = dict(review_policy or {})
+            max_growth_candidates = min(
+                64,
+                max(1, int(policy.get("max_growth_candidates", 64) or 64)),
+            )
+            max_prune_candidates = min(
+                64,
+                max(0, int(policy.get("max_prune_candidates", 64) or 64)),
+            )
+            max_new_neurons = min(
+                32,
+                max(0, int(policy.get("max_new_neurons", 32) or 32)),
+            )
+            max_new_synapses = min(
+                128,
+                max(1, int(policy.get("max_new_synapses", 128) or 128)),
+            )
+            max_prune_synapses = min(
+                128,
+                max(0, int(policy.get("max_prune_synapses", 128) or 128)),
+            )
+            event_hash = str(
+                event.get(
+                    "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                )
+                or ""
+            )
+            executor_event_hash = str(
+                executor.get(
+                    "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                )
+                or ""
+            )
+            event_revision = int(event.get("state_revision", -1) or -1)
+            growth_candidates = [
+                dict(item)
+                for item in list(event.get("growth_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            prune_candidates = [
+                dict(item)
+                for item in list(event.get("prune_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            preflight_hash = str(
+                event.get("thought_structural_plasticity_preflight_hash") or ""
+            )
+            design_hash = str(
+                event.get("thought_structural_plasticity_design_hash") or ""
+            )
+            consolidation_event_review_hash = str(
+                event.get("consolidation_event_review_hash") or ""
+            )
+            consolidation_event_hash = str(
+                event.get("autonomous_snn_language_thought_consolidation_event_hash")
+                or ""
+            )
+            memory_trace_hash = str(event.get("memory_trace_hash") or "")
+            memory_event_hash = str(
+                event.get("autonomous_snn_language_thought_memory_event_hash") or ""
+            )
+            proposed_new_neurons = int(
+                event.get("proposed_new_neuron_count", 0) or 0
+            )
+            proposed_new_synapses = int(
+                event.get("proposed_new_synapse_count", 0) or 0
+            )
+            proposed_prune_synapses = int(
+                event.get("proposed_prune_synapse_count", 0) or 0
+            )
+            event_max_new_neurons = int(event.get("max_new_neurons", 0) or 0)
+            event_max_new_synapses = int(event.get("max_new_synapses", 0) or 0)
+            event_max_prune_synapses = int(
+                event.get("max_prune_synapses", 0) or 0
+            )
+            growth_hashes = [
+                str(item.get("local_learning_target_hash") or "")
+                for item in growth_candidates
+            ]
+            prune_hashes = [
+                str(item.get("source_hash") or "") for item in prune_candidates
+            ]
+            state = self._normalized_state()
+            recorded_event = next(
+                (
+                    deepcopy(dict(item))
+                    for item in list(
+                        state[
+                            "autonomous_snn_language_thought_structural_plasticity_events"
+                        ]
+                    )
+                    if str(
+                        item.get(
+                            "autonomous_snn_language_thought_structural_plasticity_event_hash"
+                        )
+                        or ""
+                    )
+                    == event_hash
+                ),
+                None,
+            )
+            event_recorded_in_ledger = bool(recorded_event) and recorded_event == event
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == "snn_language_autonomous_snn_language_thought_structural_plasticity_executor.v1",
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_structural_plasticity_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                )
+                and not bool(event.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_current_or_previous": event_revision
+                in {before_revision, before_revision - 1},
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_matches_executor": bool(event_hash)
+                and event_hash == executor_event_hash,
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "preflight_hash_available": len(preflight_hash) == 64,
+                "design_hash_available": len(design_hash) == 64,
+                "consolidation_event_review_hash_available": len(
+                    consolidation_event_review_hash
+                )
+                == 64,
+                "consolidation_event_hash_available": len(
+                    consolidation_event_hash
+                )
+                == 64,
+                "memory_trace_hash_available": len(memory_trace_hash) == 64,
+                "memory_event_hash_available": len(memory_event_hash) == 64,
+                "requested_device_available": bool(event.get("requested_device")),
+                "structural_scope_available": bool(event.get("structural_scope")),
+                "structural_route_available": bool(event.get("structural_route")),
+                "growth_candidate_count_bounded": 1
+                <= len(growth_candidates)
+                <= max_growth_candidates
+                and int(event.get("growth_candidate_count", 0) or 0)
+                == len(growth_candidates),
+                "growth_candidates_applied": bool(growth_candidates)
+                and all(
+                    bool(item.get("applied_to_runtime"))
+                    and bool(item.get("applied_in_ledger"))
+                    for item in growth_candidates
+                ),
+                "growth_candidate_hashes_valid": all(
+                    len(value) == 64 for value in growth_hashes
+                ),
+                "growth_neuron_budget_bounded": 0
+                <= proposed_new_neurons
+                <= min(event_max_new_neurons, max_new_neurons)
+                <= 32,
+                "growth_synapse_budget_bounded": 1
+                <= proposed_new_synapses
+                <= min(event_max_new_synapses, max_new_synapses)
+                <= 128,
+                "prune_candidate_count_bounded": len(prune_candidates)
+                <= max_prune_candidates
+                and int(event.get("prune_candidate_count", 0) or 0)
+                == len(prune_candidates),
+                "prune_candidates_applied": all(
+                    bool(item.get("applied_to_runtime"))
+                    and bool(item.get("applied_in_ledger"))
+                    for item in prune_candidates
+                ),
+                "prune_candidate_hashes_valid": all(
+                    len(value) == 64 for value in prune_hashes
+                ),
+                "prune_synapse_budget_bounded": 0
+                <= proposed_prune_synapses
+                <= min(event_max_prune_synapses, max_prune_synapses)
+                <= 128,
+                "structural_plasticity_applied": bool(
+                    event.get("structural_plasticity_applied")
+                )
+                and bool(executor.get("structural_plasticity_applied")),
+                "runtime_state_mutated_by_executor": bool(
+                    event.get("mutates_runtime_state")
+                )
+                and bool(executor.get("mutates_runtime_state")),
+                "checkpoint_write_absent": not bool(event.get("writes_checkpoint"))
+                and not bool(executor.get("writes_checkpoint")),
+                "replay_execution_absent": not bool(event.get("runs_replay"))
+                and not bool(executor.get("runs_replay")),
+                "dense_plasticity_absent": not bool(event.get("applies_plasticity"))
+                and not bool(executor.get("applies_plasticity")),
+                "training_absent": not bool(event.get("trains_runtime_model"))
+                and not bool(executor.get("trains_runtime_model")),
+                "resize_absent": not bool(event.get("resizes_network"))
+                and not bool(executor.get("resizes_network")),
+                "fact_promotion_absent": not bool(event.get("promotes_fact")),
+                "action_absent": not bool(event.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    event.get("cognition_substrate_claimed")
+                ),
+            }
+            ready = all(required.values())
+            review = {
+                "event_recorded_in_ledger": event_recorded_in_ledger,
+                "event_revision": event_revision if event else None,
+                "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                    event_hash
+                ),
+                "thought_structural_plasticity_preflight_hash": preflight_hash,
+                "thought_structural_plasticity_design_hash": design_hash,
+                "consolidation_event_review_hash": (
+                    consolidation_event_review_hash
+                ),
+                "autonomous_snn_language_thought_consolidation_event_hash": (
+                    consolidation_event_hash
+                ),
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_memory_event_hash": (
+                    memory_event_hash
+                ),
+                "structural_scope": str(event.get("structural_scope") or ""),
+                "structural_route": str(event.get("structural_route") or ""),
+                "requested_device": str(event.get("requested_device") or ""),
+                "growth_candidate_count": len(growth_candidates) if ready else 0,
+                "growth_candidates": growth_candidates if ready else [],
+                "prune_candidate_count": len(prune_candidates) if ready else 0,
+                "prune_candidates": prune_candidates if ready else [],
+                "proposed_new_neuron_count": proposed_new_neurons,
+                "proposed_new_synapse_count": proposed_new_synapses,
+                "proposed_prune_synapse_count": proposed_prune_synapses,
+                "max_new_neurons": event_max_new_neurons,
+                "max_new_synapses": event_max_new_synapses,
+                "max_prune_synapses": event_max_prune_synapses,
+                "operator_approval_required": False,
+                "structural_plasticity_applied": bool(
+                    event.get("structural_plasticity_applied")
+                )
+                and ready,
+                "runtime_state_mutated": bool(event.get("mutates_runtime_state"))
+                and ready,
+                "checkpoint_allowed": False,
+                "replay_allowed": False,
+                "plasticity_allowed": False,
+                "training_allowed": False,
+                "resize_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "cognition_substrate_claimed": False,
+                "review_policy": {
+                    "max_growth_candidates": max_growth_candidates,
+                    "max_prune_candidates": max_prune_candidates,
+                    "max_new_neurons": max_new_neurons,
+                    "max_new_synapses": max_new_synapses,
+                    "max_prune_synapses": max_prune_synapses,
+                },
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "structural_plasticity_event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_snn_language_thought_structural_plasticity_event_review": (
+                        review
+                    ),
+                }
+            )
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "structural_plasticity_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "structural_plasticity_event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_structural_plasticity_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "runs_recalibration": False,
+                "runs_calibration_update": False,
+                "writes_checkpoint": False,
+                "generates_text": ready,
+                "decodes_text": ready,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "structural_plasticity_applied": ready,
+                "resizes_network": False,
+                "adds_neurons": ready and proposed_new_neurons > 0,
+                "adds_synapses": ready and proposed_new_synapses > 0,
+                "prunes_network": ready and proposed_prune_synapses > 0,
+                "mutates_runtime_state": False,
+                "literal_text_returned": ready,
+                "generated_text_returned": ready,
+                "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                    event_hash
+                ),
+                "memory_trace_hash": memory_trace_hash,
+                "autonomous_snn_language_thought_structural_plasticity_event_review": (
+                    review
+                ),
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_capacity_mutation_design"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_structural_plasticity_event_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_capacity_mutation_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_capacity_mutation_design"
+                        if ready
+                        else "collect_snn_language_thought_structural_plasticity_event_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_capacity_mutation_design(
+        self,
+        *,
+        autonomous_snn_language_thought_structural_plasticity_event_review: Mapping[str, Any],
+        capacity_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded thought-driven capacity mutation without resizing tensors."""
+
+        review_artifact = dict(
+            autonomous_snn_language_thought_structural_plasticity_event_review
+            or {}
+        )
+        gate = (
+            review_artifact.get("promotion_gate")
+            if isinstance(review_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        review = (
+            dict(
+                review_artifact.get(
+                    "autonomous_snn_language_thought_structural_plasticity_event_review"
+                )
+            )
+            if isinstance(
+                review_artifact.get(
+                    "autonomous_snn_language_thought_structural_plasticity_event_review"
+                ),
+                Mapping,
+            )
+            else {}
+        )
+        policy = dict(capacity_policy or {})
+        mutation_scope = str(
+            policy.get("mutation_scope") or "thought_driven_sparse_capacity"
+        ).strip()
+        mutation_route = str(
+            policy.get("mutation_route")
+            or "reviewed_structural_plasticity_to_capacity_resize"
+        ).strip()
+        allowed_scopes = {
+            "thought_driven_sparse_capacity",
+            "thought_driven_dense_readout_capacity",
+            "thought_driven_hybrid_capacity",
+        }
+        allowed_routes = {
+            "reviewed_structural_plasticity_to_capacity_resize",
+            "reviewed_structural_plasticity_to_sparse_budget",
+            "reviewed_structural_plasticity_to_dense_relayout",
+        }
+        if mutation_scope not in allowed_scopes:
+            mutation_scope = "thought_driven_sparse_capacity"
+        if mutation_route not in allowed_routes:
+            mutation_route = "reviewed_structural_plasticity_to_capacity_resize"
+        current_neuron_capacity = min(
+            1_000_000,
+            max(1, int(policy.get("current_neuron_capacity", 64) or 64)),
+        )
+        current_sparse_synapse_budget = min(
+            16_000_000,
+            max(1, int(policy.get("current_sparse_synapse_budget", 256) or 256)),
+        )
+        current_dense_rows = min(
+            1_000_000,
+            max(1, int(policy.get("current_dense_rows", current_neuron_capacity) or current_neuron_capacity)),
+        )
+        current_dense_cols = min(
+            1_000_000,
+            max(1, int(policy.get("current_dense_cols", current_neuron_capacity) or current_neuron_capacity)),
+        )
+        max_capacity_growth_factor = min(
+            4.0,
+            max(1.0, float(policy.get("max_capacity_growth_factor", 2.0) or 2.0)),
+        )
+        proposed_new_neurons = max(
+            0, int(review.get("proposed_new_neuron_count", 0) or 0)
+        )
+        proposed_new_synapses = max(
+            0, int(review.get("proposed_new_synapse_count", 0) or 0)
+        )
+        proposed_prune_synapses = max(
+            0, int(review.get("proposed_prune_synapse_count", 0) or 0)
+        )
+        target_neuron_capacity = min(
+            int(current_neuron_capacity * max_capacity_growth_factor),
+            current_neuron_capacity + proposed_new_neurons,
+        )
+        target_sparse_synapse_budget = min(
+            int(current_sparse_synapse_budget * max_capacity_growth_factor),
+            current_sparse_synapse_budget + proposed_new_synapses,
+        )
+        target_dense_rows = max(current_dense_rows, target_neuron_capacity)
+        target_dense_cols = max(current_dense_cols, target_neuron_capacity)
+        preserved_dense_rows = min(current_dense_rows, target_dense_rows)
+        preserved_dense_cols = min(current_dense_cols, target_dense_cols)
+        structural_event_review_hash = str(review_artifact.get("review_hash") or "")
+        structural_event_hash = str(
+            review.get(
+                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+            )
+            or ""
+        )
+        structural_preflight_hash = str(
+            review.get("thought_structural_plasticity_preflight_hash") or ""
+        )
+        structural_design_hash = str(
+            review.get("thought_structural_plasticity_design_hash") or ""
+        )
+        consolidation_event_hash = str(
+            review.get("autonomous_snn_language_thought_consolidation_event_hash")
+            or ""
+        )
+        memory_trace_hash = str(review.get("memory_trace_hash") or "")
+        memory_event_hash = str(
+            review.get("autonomous_snn_language_thought_memory_event_hash") or ""
+        )
+        growth_candidates = [
+            dict(item)
+            for item in list(review.get("growth_candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        prune_candidates = [
+            dict(item)
+            for item in list(review.get("prune_candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        capacity_design_material = {
+            "mutation_scope": mutation_scope,
+            "mutation_route": mutation_route,
+            "structural_event_review_hash": structural_event_review_hash,
+            "structural_event_hash": structural_event_hash,
+            "structural_preflight_hash": structural_preflight_hash,
+            "structural_design_hash": structural_design_hash,
+            "consolidation_event_hash": consolidation_event_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "memory_event_hash": memory_event_hash,
+            "current_neuron_capacity": current_neuron_capacity,
+            "target_neuron_capacity": target_neuron_capacity,
+            "current_sparse_synapse_budget": current_sparse_synapse_budget,
+            "target_sparse_synapse_budget": target_sparse_synapse_budget,
+            "current_dense_shape": [current_dense_rows, current_dense_cols],
+            "target_dense_shape": [target_dense_rows, target_dense_cols],
+            "preserved_dense_shape": [
+                preserved_dense_rows,
+                preserved_dense_cols,
+            ],
+            "proposed_new_neurons": proposed_new_neurons,
+            "proposed_new_synapses": proposed_new_synapses,
+            "proposed_prune_synapses": proposed_prune_synapses,
+        }
+        capacity_design_hash = self._sha256_json(capacity_design_material)
+        required = {
+            "structural_event_review_available": review_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_structural_plasticity_event_review.v1",
+            "structural_event_review_ready": bool(review_artifact.get("accepted"))
+            and bool(review_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_capacity_mutation_design"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                review_artifact.get("requires_operator_approval")
+            )
+            and not bool(review.get("operator_approval_required")),
+            "review_hash_available": len(structural_event_review_hash) == 64,
+            "structural_event_hash_available": len(structural_event_hash) == 64,
+            "structural_preflight_hash_available": len(structural_preflight_hash)
+            == 64,
+            "structural_design_hash_available": len(structural_design_hash) == 64,
+            "consolidation_event_hash_available": len(consolidation_event_hash)
+            == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "memory_event_hash_available": len(memory_event_hash) == 64,
+            "structural_plasticity_reviewed": bool(
+                review.get("structural_plasticity_applied")
+            ),
+            "growth_candidates_available": bool(growth_candidates),
+            "growth_candidates_applied": all(
+                bool(item.get("applied_to_runtime"))
+                and bool(item.get("applied_in_ledger"))
+                for item in growth_candidates
+            ),
+            "capacity_growth_requested": target_neuron_capacity
+            > current_neuron_capacity
+            or target_sparse_synapse_budget > current_sparse_synapse_budget,
+            "target_neuron_capacity_bounded": current_neuron_capacity
+            <= target_neuron_capacity
+            <= int(current_neuron_capacity * max_capacity_growth_factor),
+            "target_sparse_synapse_budget_bounded": current_sparse_synapse_budget
+            <= target_sparse_synapse_budget
+            <= int(current_sparse_synapse_budget * max_capacity_growth_factor),
+            "dense_shape_preserves_existing_window": preserved_dense_rows
+            == current_dense_rows
+            and preserved_dense_cols == current_dense_cols,
+            "cuda_relayout_required": True,
+            "checkpoint_required": True,
+            "runtime_mutation_absent": not bool(
+                review_artifact.get("mutates_runtime_state")
+            ),
+            "checkpoint_write_absent": not bool(
+                review_artifact.get("writes_checkpoint")
+            ),
+            "replay_execution_absent": not bool(review_artifact.get("runs_replay")),
+            "plasticity_absent": not bool(review_artifact.get("applies_plasticity")),
+            "training_absent": not bool(
+                review_artifact.get("trains_runtime_model")
+            ),
+            "resize_absent": not bool(review_artifact.get("resizes_network")),
+            "fact_promotion_absent": not bool(review.get("fact_promotion_allowed")),
+            "action_absent": not bool(review.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                review.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        design = {
+            "mutation_scope": mutation_scope,
+            "mutation_route": mutation_route,
+            "thought_capacity_mutation_design_hash": capacity_design_hash,
+            "structural_event_review_hash": structural_event_review_hash,
+            "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                structural_event_hash
+            ),
+            "thought_structural_plasticity_preflight_hash": (
+                structural_preflight_hash
+            ),
+            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "autonomous_snn_language_thought_consolidation_event_hash": (
+                consolidation_event_hash
+            ),
+            "memory_trace_hash": memory_trace_hash,
+            "autonomous_snn_language_thought_memory_event_hash": memory_event_hash,
+            "current_neuron_capacity": current_neuron_capacity,
+            "target_neuron_capacity": target_neuron_capacity,
+            "current_sparse_synapse_budget": current_sparse_synapse_budget,
+            "target_sparse_synapse_budget": target_sparse_synapse_budget,
+            "current_dense_shape": [current_dense_rows, current_dense_cols],
+            "target_dense_shape": [target_dense_rows, target_dense_cols],
+            "preserved_dense_shape": [preserved_dense_rows, preserved_dense_cols],
+            "zero_initialized_new_rows": max(0, target_dense_rows - current_dense_rows),
+            "zero_initialized_new_cols": max(0, target_dense_cols - current_dense_cols),
+            "proposed_new_neuron_count": proposed_new_neurons,
+            "proposed_new_synapse_count": proposed_new_synapses,
+            "proposed_prune_synapse_count": proposed_prune_synapses,
+            "growth_candidate_count": len(growth_candidates) if ready else 0,
+            "growth_candidates": growth_candidates if ready else [],
+            "prune_candidate_count": len(prune_candidates) if ready else 0,
+            "prune_candidates": prune_candidates if ready else [],
+            "max_capacity_growth_factor": float(max_capacity_growth_factor),
+            "requires_cuda_relayout": True,
+            "requires_checkpoint": True,
+            "requires_restore_validation": True,
+            "operator_approval_required": False,
+            "capacity_mutation_designed": ready,
+            "resize_allowed": False,
+            "growth_allowed": False,
+            "prune_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_"
+                "capacity_mutation_design"
+            ),
+            "surface": (
+                "snn_language_autonomous_snn_language_thought_"
+                "capacity_mutation_design.v1"
+            ),
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_capacity_mutation_design"
+            ),
+            "available": bool(review_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "thought_capacity_mutation_design_hash": capacity_design_hash,
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": False,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_synapses": False,
+            "prunes_network": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_capacity_mutation_design": design,
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_capacity_mutation_preflight"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_capacity_mutation_design_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_capacity_mutation_preflight": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_capacity_mutation_preflight"
+                    if ready
+                    else "collect_snn_language_thought_capacity_mutation_design_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
+    def autonomous_snn_language_thought_capacity_mutation_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_capacity_mutation_design: Mapping[str, Any],
+        expected_state_revision: int,
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+        device_evidence: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Preflight thought-driven capacity mutation without resizing tensors."""
+
+        before_revision = int(self._runtime_state.state_revision)
+        design_artifact = dict(
+            autonomous_snn_language_thought_capacity_mutation_design or {}
+        )
+        gate = (
+            design_artifact.get("promotion_gate")
+            if isinstance(design_artifact.get("promotion_gate"), Mapping)
+            else {}
+        )
+        body = (
+            design_artifact.get(
+                "autonomous_snn_language_thought_capacity_mutation_design"
+            )
+            if isinstance(
+                design_artifact.get(
+                    "autonomous_snn_language_thought_capacity_mutation_design"
+                ),
+                Mapping,
+            )
+            else {}
+        )
+        checkpoint = dict(checkpoint_transaction or {})
+        device = dict(device_evidence or {})
+        capabilities = dict(executor_capabilities or {})
+        design_hash = str(
+            design_artifact.get("thought_capacity_mutation_design_hash")
+            or body.get("thought_capacity_mutation_design_hash")
+            or ""
+        )
+        structural_event_review_hash = str(
+            body.get("structural_event_review_hash") or ""
+        )
+        structural_event_hash = str(
+            body.get(
+                "autonomous_snn_language_thought_structural_plasticity_event_hash"
+            )
+            or ""
+        )
+        structural_preflight_hash = str(
+            body.get("thought_structural_plasticity_preflight_hash") or ""
+        )
+        structural_design_hash = str(
+            body.get("thought_structural_plasticity_design_hash") or ""
+        )
+        memory_trace_hash = str(body.get("memory_trace_hash") or "")
+        current_neuron_capacity = int(body.get("current_neuron_capacity", 0) or 0)
+        target_neuron_capacity = int(body.get("target_neuron_capacity", 0) or 0)
+        current_sparse_synapse_budget = int(
+            body.get("current_sparse_synapse_budget", 0) or 0
+        )
+        target_sparse_synapse_budget = int(
+            body.get("target_sparse_synapse_budget", 0) or 0
+        )
+        current_dense_shape = [
+            int(value)
+            for value in list(body.get("current_dense_shape") or [])[:2]
+            if isinstance(value, (int, float)) and int(value) > 0
+        ]
+        target_dense_shape = [
+            int(value)
+            for value in list(body.get("target_dense_shape") or [])[:2]
+            if isinstance(value, (int, float)) and int(value) > 0
+        ]
+        preserved_dense_shape = [
+            int(value)
+            for value in list(body.get("preserved_dense_shape") or [])[:2]
+            if isinstance(value, (int, float)) and int(value) > 0
+        ]
+        growth_candidates = [
+            dict(item)
+            for item in list(body.get("growth_candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        prune_candidates = [
+            dict(item)
+            for item in list(body.get("prune_candidates") or [])
+            if isinstance(item, Mapping)
+        ]
+        requested_device = str(
+            device.get("device")
+            or device.get("tensor_device")
+            or device.get("cuda_device")
+            or "cuda:0"
+        )
+        cuda_available = bool(device.get("cuda_available", True))
+        cuda_relayout_verified = bool(
+            device.get("cuda_relayout_verified")
+            or device.get("cuda_relayout_evidence_available")
+            or device.get("cuda_tensor")
+        )
+        checkpoint_saved = bool(
+            checkpoint.get("pre_capacity_mutation_checkpoint_saved")
+            or checkpoint.get("pre_expansion_checkpoint_saved")
+            or checkpoint.get("pre_update_checkpoint_saved")
+            or checkpoint.get("checkpoint_saved")
+        )
+        restore_verified = bool(
+            checkpoint.get("restore_verified")
+            or checkpoint.get("pre_capacity_mutation_checkpoint_restore_verified")
+            or checkpoint.get("pre_expansion_checkpoint_restore_verified")
+            or checkpoint.get("pre_update_checkpoint_restore_verified")
+        )
+        checkpoint_path = str(checkpoint.get("checkpoint_path") or "")
+        snapshot_id = str(checkpoint.get("snapshot_id") or "")
+        executor_ready = bool(
+            capabilities.get(
+                "autonomous_snn_language_thought_capacity_mutation_executor"
+            )
+        )
+        preflight = {
+            "mutation_scope": str(body.get("mutation_scope") or ""),
+            "mutation_route": str(body.get("mutation_route") or ""),
+            "thought_capacity_mutation_design_hash": design_hash,
+            "structural_event_review_hash": structural_event_review_hash,
+            "autonomous_snn_language_thought_structural_plasticity_event_hash": (
+                structural_event_hash
+            ),
+            "thought_structural_plasticity_preflight_hash": (
+                structural_preflight_hash
+            ),
+            "thought_structural_plasticity_design_hash": structural_design_hash,
+            "memory_trace_hash": memory_trace_hash,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "requested_device": requested_device,
+            "cuda_available": cuda_available,
+            "cuda_relayout_verified": cuda_relayout_verified,
+            "executor_ready": executor_ready,
+            "checkpoint_path": checkpoint_path,
+            "snapshot_id": snapshot_id,
+            "checkpoint_saved": checkpoint_saved,
+            "restore_verified": restore_verified,
+            "current_neuron_capacity": current_neuron_capacity,
+            "target_neuron_capacity": target_neuron_capacity,
+            "current_sparse_synapse_budget": current_sparse_synapse_budget,
+            "target_sparse_synapse_budget": target_sparse_synapse_budget,
+            "current_dense_shape": current_dense_shape,
+            "target_dense_shape": target_dense_shape,
+            "preserved_dense_shape": preserved_dense_shape,
+            "zero_initialized_new_rows": int(
+                body.get("zero_initialized_new_rows", 0) or 0
+            ),
+            "zero_initialized_new_cols": int(
+                body.get("zero_initialized_new_cols", 0) or 0
+            ),
+            "growth_candidate_count": len(growth_candidates),
+            "growth_candidates": growth_candidates,
+            "prune_candidate_count": len(prune_candidates),
+            "prune_candidates": prune_candidates,
+            "operator_approval_required": False,
+            "execution_allowed": False,
+            "resize_allowed": False,
+            "growth_allowed": False,
+            "prune_allowed": False,
+            "replay_allowed": False,
+            "plasticity_allowed": False,
+            "training_allowed": False,
+            "checkpoint_allowed": False,
+            "fact_promotion_allowed": False,
+            "action_allowed": False,
+            "cognition_substrate_claimed": False,
+        }
+        preflight_hash = self._sha256_json(
+            {
+                key: value
+                for key, value in preflight.items()
+                if key != "preflight_hash"
+            }
+        )
+        preflight["preflight_hash"] = preflight_hash
+        required = {
+            "capacity_mutation_design_available": design_artifact.get("surface")
+            == "snn_language_autonomous_snn_language_thought_capacity_mutation_design.v1",
+            "capacity_mutation_design_ready": bool(design_artifact.get("accepted"))
+            and bool(design_artifact.get("ready"))
+            and bool(
+                gate.get(
+                    "eligible_for_autonomous_snn_language_thought_capacity_mutation_preflight"
+                )
+            ),
+            "operator_approval_not_required": not bool(
+                design_artifact.get("requires_operator_approval")
+            )
+            and not bool(body.get("operator_approval_required")),
+            "expected_revision_current": int(expected_state_revision)
+            == before_revision,
+            "design_hash_available": len(design_hash) == 64,
+            "structural_event_review_hash_available": len(
+                structural_event_review_hash
+            )
+            == 64,
+            "structural_event_hash_available": len(structural_event_hash) == 64,
+            "structural_preflight_hash_available": len(structural_preflight_hash)
+            == 64,
+            "structural_design_hash_available": len(structural_design_hash) == 64,
+            "memory_trace_hash_available": len(memory_trace_hash) == 64,
+            "device_evidence_available": bool(device),
+            "cuda_relayout_verified": cuda_available
+            and cuda_relayout_verified
+            and requested_device.startswith("cuda"),
+            "checkpoint_transaction_available": bool(checkpoint),
+            "checkpoint_path_available": bool(checkpoint_path.strip()),
+            "checkpoint_saved": checkpoint_saved,
+            "restore_verified": restore_verified,
+            "executor_capability_available": executor_ready,
+            "target_neuron_capacity_grows": target_neuron_capacity
+            > current_neuron_capacity
+            >= 1,
+            "target_sparse_synapse_budget_grows": target_sparse_synapse_budget
+            > current_sparse_synapse_budget
+            >= 1,
+            "dense_shapes_available": len(current_dense_shape) == 2
+            and len(target_dense_shape) == 2
+            and len(preserved_dense_shape) == 2,
+            "target_dense_shape_grows": len(target_dense_shape) == 2
+            and len(current_dense_shape) == 2
+            and target_dense_shape[0] >= current_dense_shape[0]
+            and target_dense_shape[1] >= current_dense_shape[1],
+            "preserved_dense_window_matches_current": len(preserved_dense_shape) == 2
+            and len(current_dense_shape) == 2
+            and preserved_dense_shape == current_dense_shape,
+            "zero_fill_region_available": int(
+                body.get("zero_initialized_new_rows", 0) or 0
+            )
+            >= 0
+            and int(body.get("zero_initialized_new_cols", 0) or 0) >= 0,
+            "growth_candidates_available": bool(growth_candidates),
+            "growth_candidates_applied": all(
+                bool(item.get("applied_to_runtime"))
+                and bool(item.get("applied_in_ledger"))
+                for item in growth_candidates
+            ),
+            "execution_still_blocked": not bool(preflight["execution_allowed"]),
+            "runtime_mutation_absent": not bool(
+                design_artifact.get("mutates_runtime_state")
+            ),
+            "checkpoint_write_absent": not bool(
+                design_artifact.get("writes_checkpoint")
+            ),
+            "replay_execution_absent": not bool(design_artifact.get("runs_replay")),
+            "plasticity_absent": not bool(design_artifact.get("applies_plasticity")),
+            "training_absent": not bool(
+                design_artifact.get("trains_runtime_model")
+            ),
+            "resize_absent": not bool(design_artifact.get("resizes_network")),
+            "fact_promotion_absent": not bool(body.get("fact_promotion_allowed")),
+            "action_absent": not bool(body.get("action_allowed")),
+            "cognition_substrate_not_claimed": not bool(
+                body.get("cognition_substrate_claimed")
+            ),
+        }
+        ready = all(required.values())
+        return {
+            "artifact_kind": (
+                "terminus_snn_language_autonomous_snn_language_thought_"
+                "capacity_mutation_preflight"
+            ),
+            "surface": (
+                "snn_language_autonomous_snn_language_thought_"
+                "capacity_mutation_preflight.v1"
+            ),
+            "source": (
+                "service.snn_language_readout_ledger."
+                "autonomous_snn_language_thought_capacity_mutation_preflight"
+            ),
+            "available": bool(design_artifact),
+            "ready": ready,
+            "accepted": ready,
+            "preflight_hash": preflight_hash,
+            "observed_state_revision": before_revision,
+            "expected_state_revision": int(expected_state_revision),
+            "requires_operator_approval": False,
+            "owned_by_marulho": True,
+            "external_dependency": False,
+            "loads_external_checkpoint": False,
+            "advisory": True,
+            "executable": True,
+            "calls_endpoint": False,
+            "records_ledger_event": False,
+            "runs_replay": False,
+            "runs_live_replay": False,
+            "runs_recalibration": False,
+            "runs_calibration_update": False,
+            "writes_checkpoint": False,
+            "generates_text": ready,
+            "decodes_text": ready,
+            "freeform_language_generation": False,
+            "trains_runtime_model": False,
+            "applies_plasticity": False,
+            "resizes_network": False,
+            "adds_neurons": False,
+            "adds_synapses": False,
+            "prunes_network": False,
+            "mutates_runtime_state": False,
+            "literal_text_returned": ready,
+            "generated_text_returned": ready,
+            "autonomous_snn_language_thought_capacity_mutation_preflight": (
+                preflight
+                if ready
+                else {**preflight, "growth_candidates": [], "prune_candidates": []}
+            ),
+            "promotion_gate": {
+                "status": (
+                    "ready_for_autonomous_snn_language_thought_capacity_mutation_executor"
+                    if ready
+                    else "blocked_missing_autonomous_snn_language_thought_capacity_mutation_preflight_evidence"
+                ),
+                "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor": ready,
+                "eligible_for_language_generation": False,
+                "eligible_for_dense_readout_training": False,
+                "eligible_for_replay_memory": False,
+                "eligible_for_live_replay": False,
+                "eligible_for_plasticity_application": False,
+                "eligible_for_freeform_language_generation": False,
+                "eligible_for_cognition_substrate": False,
+                "eligible_for_fact_promotion": False,
+                "eligible_for_action": False,
+                "next_gate": (
+                    "autonomous_snn_language_thought_capacity_mutation_executor"
+                    if ready
+                    else "collect_snn_language_thought_capacity_mutation_preflight_evidence"
+                ),
+                "required_evidence": required,
+            },
+        }
+
     def emission_review_replay_evaluation_policy(
         self,
         *,
@@ -26369,6 +32384,19 @@ class SNNLanguageReadoutEvidenceLedger:
         raw_autonomous_snn_language_decoding_events = list(
             state.get("autonomous_snn_language_decoding_events") or []
         )
+        raw_autonomous_snn_language_thought_surface_events = list(
+            state.get("autonomous_snn_language_thought_surface_events") or []
+        )
+        raw_autonomous_snn_language_thought_memory_events = list(
+            state.get("autonomous_snn_language_thought_memory_events") or []
+        )
+        raw_autonomous_snn_language_thought_consolidation_events = list(
+            state.get("autonomous_snn_language_thought_consolidation_events") or []
+        )
+        raw_autonomous_snn_language_thought_structural_plasticity_events = list(
+            state.get("autonomous_snn_language_thought_structural_plasticity_events")
+            or []
+        )
         events = deque(
             (deepcopy(dict(item)) for item in raw_events if isinstance(item, Mapping)),
             maxlen=self._limit,
@@ -26513,6 +32541,38 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             maxlen=self._limit,
         )
+        autonomous_snn_language_thought_surface_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_snn_language_thought_surface_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_snn_language_thought_memory_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_snn_language_thought_memory_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_snn_language_thought_consolidation_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_snn_language_thought_consolidation_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
+        autonomous_snn_language_thought_structural_plasticity_events = deque(
+            (
+                deepcopy(dict(item))
+                for item in raw_autonomous_snn_language_thought_structural_plasticity_events
+                if isinstance(item, Mapping)
+            ),
+            maxlen=self._limit,
+        )
         current_text_surface_commit = (
             deepcopy(dict(state.get("current_text_surface_commit")))
             if isinstance(state.get("current_text_surface_commit"), Mapping)
@@ -26568,6 +32628,18 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "autonomous_snn_language_decoding_events": (
                 autonomous_snn_language_decoding_events
+            ),
+            "autonomous_snn_language_thought_surface_events": (
+                autonomous_snn_language_thought_surface_events
+            ),
+            "autonomous_snn_language_thought_memory_events": (
+                autonomous_snn_language_thought_memory_events
+            ),
+            "autonomous_snn_language_thought_consolidation_events": (
+                autonomous_snn_language_thought_consolidation_events
+            ),
+            "autonomous_snn_language_thought_structural_plasticity_events": (
+                autonomous_snn_language_thought_structural_plasticity_events
             ),
             "current_text_surface_commit": current_text_surface_commit,
             "current_text_surface_materialization": (
@@ -26696,6 +32768,36 @@ class SNNLanguageReadoutEvidenceLedger:
                 )
                 or 0
             ),
+            "total_autonomous_snn_language_thought_surface_count": int(
+                state.get(
+                    "total_autonomous_snn_language_thought_surface_count",
+                    len(autonomous_snn_language_thought_surface_events),
+                )
+                or 0
+            ),
+            "total_autonomous_snn_language_thought_memory_count": int(
+                state.get(
+                    "total_autonomous_snn_language_thought_memory_count",
+                    len(autonomous_snn_language_thought_memory_events),
+                )
+                or 0
+            ),
+            "total_autonomous_snn_language_thought_consolidation_count": int(
+                state.get(
+                    "total_autonomous_snn_language_thought_consolidation_count",
+                    len(autonomous_snn_language_thought_consolidation_events),
+                )
+                or 0
+            ),
+            "total_autonomous_snn_language_thought_structural_plasticity_count": int(
+                state.get(
+                    "total_autonomous_snn_language_thought_structural_plasticity_count",
+                    len(
+                        autonomous_snn_language_thought_structural_plasticity_events
+                    ),
+                )
+                or 0
+            ),
             "last_recorded_at": state.get("last_recorded_at"),
             "last_rollout_recorded_at": state.get("last_rollout_recorded_at"),
             "last_emission_reviewed_at": state.get("last_emission_reviewed_at"),
@@ -26743,6 +32845,20 @@ class SNNLanguageReadoutEvidenceLedger:
             ),
             "last_autonomous_snn_language_generated_at": state.get(
                 "last_autonomous_snn_language_generated_at"
+            ),
+            "last_autonomous_snn_language_thought_surface_recorded_at": state.get(
+                "last_autonomous_snn_language_thought_surface_recorded_at"
+            ),
+            "last_autonomous_snn_language_thought_memory_recorded_at": state.get(
+                "last_autonomous_snn_language_thought_memory_recorded_at"
+            ),
+            "last_autonomous_snn_language_thought_consolidated_at": state.get(
+                "last_autonomous_snn_language_thought_consolidated_at"
+            ),
+            "last_autonomous_snn_language_thought_structural_plasticity_applied_at": (
+                state.get(
+                    "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+                )
             ),
         }
 
@@ -26870,6 +32986,38 @@ class SNNLanguageReadoutEvidenceLedger:
                 normalized.get("autonomous_snn_language_decoding_events") or []
             )[: self._limit]
         ]
+        state["autonomous_snn_language_thought_surface_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_snn_language_thought_surface_events")
+                or []
+            )[: self._limit]
+        ]
+        state["autonomous_snn_language_thought_memory_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get("autonomous_snn_language_thought_memory_events")
+                or []
+            )[: self._limit]
+        ]
+        state["autonomous_snn_language_thought_consolidation_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get(
+                    "autonomous_snn_language_thought_consolidation_events"
+                )
+                or []
+            )[: self._limit]
+        ]
+        state["autonomous_snn_language_thought_structural_plasticity_events"] = [
+            deepcopy(item)
+            for item in list(
+                normalized.get(
+                    "autonomous_snn_language_thought_structural_plasticity_events"
+                )
+                or []
+            )[: self._limit]
+        ]
         state["current_text_surface_commit"] = deepcopy(
             dict(normalized.get("current_text_surface_commit") or {})
         )
@@ -26957,6 +33105,36 @@ class SNNLanguageReadoutEvidenceLedger:
             )
             or 0
         )
+        state["total_autonomous_snn_language_thought_surface_count"] = int(
+            normalized.get(
+                "total_autonomous_snn_language_thought_surface_count",
+                0,
+            )
+            or 0
+        )
+        state["total_autonomous_snn_language_thought_memory_count"] = int(
+            normalized.get(
+                "total_autonomous_snn_language_thought_memory_count",
+                0,
+            )
+            or 0
+        )
+        state["total_autonomous_snn_language_thought_consolidation_count"] = int(
+            normalized.get(
+                "total_autonomous_snn_language_thought_consolidation_count",
+                0,
+            )
+            or 0
+        )
+        state[
+            "total_autonomous_snn_language_thought_structural_plasticity_count"
+        ] = int(
+            normalized.get(
+                "total_autonomous_snn_language_thought_structural_plasticity_count",
+                0,
+            )
+            or 0
+        )
         state["last_recorded_at"] = normalized.get("last_recorded_at")
         state["last_rollout_recorded_at"] = normalized.get("last_rollout_recorded_at")
         state["last_emission_reviewed_at"] = normalized.get("last_emission_reviewed_at")
@@ -27004,6 +33182,20 @@ class SNNLanguageReadoutEvidenceLedger:
         )
         state["last_autonomous_snn_language_generated_at"] = normalized.get(
             "last_autonomous_snn_language_generated_at"
+        )
+        state["last_autonomous_snn_language_thought_surface_recorded_at"] = (
+            normalized.get("last_autonomous_snn_language_thought_surface_recorded_at")
+        )
+        state["last_autonomous_snn_language_thought_memory_recorded_at"] = (
+            normalized.get("last_autonomous_snn_language_thought_memory_recorded_at")
+        )
+        state["last_autonomous_snn_language_thought_consolidated_at"] = (
+            normalized.get("last_autonomous_snn_language_thought_consolidated_at")
+        )
+        state[
+            "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
+        ] = normalized.get(
+            "last_autonomous_snn_language_thought_structural_plasticity_applied_at"
         )
 
     @staticmethod

@@ -87,6 +87,24 @@ from .schemas import (
     SNNLanguageAutonomousSNNLanguageDecodingExecutorRequest,
     SNNLanguageAutonomousSNNLanguageDecodingEventReviewRequest,
     SNNLanguageAutonomousSNNLanguageDecodingPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtConsolidationDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtConsolidationEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtConsolidationExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtConsolidationPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtMemoryDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtMemoryExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtMemoryEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtMemoryPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtSurfaceDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtSurfaceExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtSurfaceEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtSurfacePreflightRequest,
     SNNLanguageAutonomousSNNLanguageGenerationExecutorRequest,
     SNNLanguageAutonomousSNNLanguageGenerationEventReviewRequest,
     SNNLanguageAutonomousSNNLanguageGenerationPreflightRequest,
@@ -1650,6 +1668,223 @@ def create_app(
             ),
             expected_state_revision=request.expected_state_revision,
             review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-design")
+    def terminus_snn_language_autonomous_snn_language_thought_surface_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtSurfaceDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_surface_design(
+            autonomous_snn_language_decoding_event_review=(
+                request.autonomous_snn_language_decoding_event_review
+            ),
+            thought_policy=request.thought_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_surface_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtSurfacePreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_surface_preflight(
+            autonomous_snn_language_thought_surface_design=(
+                request.autonomous_snn_language_thought_surface_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_surface_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtSurfaceExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_surface_executor(
+            autonomous_snn_language_thought_surface_preflight=(
+                request.autonomous_snn_language_thought_surface_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            execution_policy=request.execution_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_surface_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtSurfaceEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_surface_event_review(
+            autonomous_snn_language_thought_surface_executor=(
+                request.autonomous_snn_language_thought_surface_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-design")
+    def terminus_snn_language_autonomous_snn_language_thought_memory_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtMemoryDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_memory_design(
+            autonomous_snn_language_thought_surface_event_review=(
+                request.autonomous_snn_language_thought_surface_event_review
+            ),
+            memory_policy=request.memory_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_memory_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtMemoryPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_memory_preflight(
+            autonomous_snn_language_thought_memory_design=(
+                request.autonomous_snn_language_thought_memory_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_memory_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtMemoryExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_memory_executor(
+            autonomous_snn_language_thought_memory_preflight=(
+                request.autonomous_snn_language_thought_memory_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            execution_policy=request.execution_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_memory_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtMemoryEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_memory_event_review(
+            autonomous_snn_language_thought_memory_executor=(
+                request.autonomous_snn_language_thought_memory_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-design")
+    def terminus_snn_language_autonomous_snn_language_thought_consolidation_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtConsolidationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_consolidation_design(
+            autonomous_snn_language_thought_memory_event_review=(
+                request.autonomous_snn_language_thought_memory_event_review
+            ),
+            consolidation_policy=request.consolidation_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_consolidation_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtConsolidationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_consolidation_preflight(
+            autonomous_snn_language_thought_consolidation_design=(
+                request.autonomous_snn_language_thought_consolidation_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_consolidation_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtConsolidationExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_consolidation_executor(
+            autonomous_snn_language_thought_consolidation_preflight=(
+                request.autonomous_snn_language_thought_consolidation_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            execution_policy=request.execution_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_consolidation_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtConsolidationEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_consolidation_event_review(
+            autonomous_snn_language_thought_consolidation_executor=(
+                request.autonomous_snn_language_thought_consolidation_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-design")
+    def terminus_snn_language_autonomous_snn_language_thought_structural_plasticity_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_design(
+            autonomous_snn_language_thought_consolidation_event_review=(
+                request.autonomous_snn_language_thought_consolidation_event_review
+            ),
+            structural_policy=request.structural_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_structural_plasticity_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_preflight(
+            autonomous_snn_language_thought_structural_plasticity_design=(
+                request.autonomous_snn_language_thought_structural_plasticity_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_structural_plasticity_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_executor(
+            autonomous_snn_language_thought_structural_plasticity_preflight=(
+                request.autonomous_snn_language_thought_structural_plasticity_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            execution_policy=request.execution_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_structural_plasticity_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_structural_plasticity_event_review(
+            autonomous_snn_language_thought_structural_plasticity_executor=(
+                request.autonomous_snn_language_thought_structural_plasticity_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+            review_policy=request.review_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-design")
+    def terminus_snn_language_autonomous_snn_language_thought_capacity_mutation_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_design(
+            autonomous_snn_language_thought_structural_plasticity_event_review=(
+                request.autonomous_snn_language_thought_structural_plasticity_event_review
+            ),
+            capacity_policy=request.capacity_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_capacity_mutation_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_preflight(
+            autonomous_snn_language_thought_capacity_mutation_design=(
+                request.autonomous_snn_language_thought_capacity_mutation_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_transaction=request.checkpoint_transaction,
+            device_evidence=request.device_evidence,
+            executor_capabilities=request.executor_capabilities,
         )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/rehearsal-evaluation")

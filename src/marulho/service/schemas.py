@@ -963,6 +963,151 @@ class SNNLanguageAutonomousSNNLanguageDecodingEventReviewRequest(BaseModel):
     review_policy: dict[str, Any] | None = None
 
 
+class SNNLanguageAutonomousSNNLanguageThoughtSurfaceDesignRequest(BaseModel):
+    autonomous_snn_language_decoding_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    thought_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtSurfacePreflightRequest(BaseModel):
+    autonomous_snn_language_thought_surface_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtSurfaceExecutorRequest(BaseModel):
+    autonomous_snn_language_thought_surface_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtSurfaceEventReviewRequest(BaseModel):
+    autonomous_snn_language_thought_surface_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtMemoryDesignRequest(BaseModel):
+    autonomous_snn_language_thought_surface_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    memory_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtMemoryPreflightRequest(BaseModel):
+    autonomous_snn_language_thought_memory_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtMemoryExecutorRequest(BaseModel):
+    autonomous_snn_language_thought_memory_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtMemoryEventReviewRequest(BaseModel):
+    autonomous_snn_language_thought_memory_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtConsolidationDesignRequest(BaseModel):
+    autonomous_snn_language_thought_memory_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    consolidation_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtConsolidationPreflightRequest(BaseModel):
+    autonomous_snn_language_thought_consolidation_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtConsolidationExecutorRequest(BaseModel):
+    autonomous_snn_language_thought_consolidation_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtConsolidationEventReviewRequest(BaseModel):
+    autonomous_snn_language_thought_consolidation_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityDesignRequest(BaseModel):
+    autonomous_snn_language_thought_consolidation_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    structural_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityPreflightRequest(BaseModel):
+    autonomous_snn_language_thought_structural_plasticity_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityExecutorRequest(BaseModel):
+    autonomous_snn_language_thought_structural_plasticity_preflight: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    execution_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityEventReviewRequest(BaseModel):
+    autonomous_snn_language_thought_structural_plasticity_executor: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    review_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationDesignRequest(BaseModel):
+    autonomous_snn_language_thought_structural_plasticity_event_review: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    capacity_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationPreflightRequest(BaseModel):
+    autonomous_snn_language_thought_capacity_mutation_design: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_transaction: dict[str, Any] | None = None
+    device_evidence: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
 class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)
