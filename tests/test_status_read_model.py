@@ -3618,7 +3618,10 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
                 "language_neuron_count": 128,
                 "sparse_edge_budget": 512,
                 "outgoing_fanout_budget": 32,
+                "dynamic_capacity_enabled": True,
                 "capacity_expansion_count": 1,
+                "resizes_network": True,
+                "adds_neurons": True,
             },
             "sparse_transition_weights": weights,
             "synapse_provenance_by_key": provenance,
@@ -3641,7 +3644,10 @@ class StatusReadModelPayloadCompatibilityTests(unittest.TestCase):
         self.assertEqual(evidence["configured_sparse_edge_budget"], 512)
         self.assertEqual(evidence["configured_outgoing_fanout_budget"], 32)
         self.assertEqual(evidence["language_capacity"]["capacity_expansion_count"], 1)
-        self.assertFalse(evidence["language_capacity"]["dynamic_capacity_enabled"])
+        self.assertTrue(evidence["dynamic_capacity_enabled"])
+        self.assertTrue(evidence["language_capacity"]["dynamic_capacity_enabled"])
+        self.assertTrue(evidence["language_capacity"]["resizes_network"])
+        self.assertTrue(evidence["language_capacity"]["adds_neurons"])
         self.assertEqual(evidence["sparse_transition_weight_count"], 256)
         self.assertEqual(evidence["active_language_neuron_count"], 32)
         self.assertEqual(evidence["sparse_edge_budget_occupancy"], 0.5)

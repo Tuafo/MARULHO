@@ -107,7 +107,14 @@ class SpikeLanguageNeuronAdapter:
 
 
 def build_spike_language_neuron_adapter(decoder_probe: Mapping[str, Any]) -> dict[str, Any]:
-    return SpikeLanguageNeuronAdapter().evaluate(decoder_probe)
+    sparsity = (
+        decoder_probe.get("sparsity_evidence")
+        if isinstance(decoder_probe.get("sparsity_evidence"), Mapping)
+        else {}
+    )
+    return SpikeLanguageNeuronAdapter(
+        neuron_count=max(64, int(sparsity.get("code_dim", 64) or 64))
+    ).evaluate(decoder_probe)
 
 
 def build_snn_language_readout_trajectory_evidence(
@@ -357,14 +364,23 @@ def run_spike_language_trainer_dry_run(
     *,
     learning_rate: float = 0.08,
     epochs: int = 2,
+    language_neuron_count: int | None = None,
 ) -> dict[str, Any]:
     """Run an isolated local-learning dry run without returning trained weights."""
 
     device_report = dict(device_evidence or {})
     device = _safe_tensor_device(str(device_report.get("device") or device_report.get("tensor_device") or "cpu"))
-    train_patterns = _language_training_patterns(training_readout_slot_batches, device_report)
-    validation_patterns = _language_training_patterns(validation_readout_slot_batches, device_report)
-    neuron_count = 64
+    neuron_count = max(64, int(language_neuron_count or 64))
+    dynamic_device_report = {
+        **device_report,
+        "code_dim": neuron_count,
+    }
+    train_patterns = _language_training_patterns(
+        training_readout_slot_batches, dynamic_device_report
+    )
+    validation_patterns = _language_training_patterns(
+        validation_readout_slot_batches, dynamic_device_report
+    )
     weights = torch.zeros((neuron_count, neuron_count), device=device)
     lr = max(0.0, min(float(learning_rate), 1.0))
     epoch_count = max(1, min(int(epochs), 8))
@@ -383,7 +399,11 @@ def run_spike_language_trainer_dry_run(
         logits = pre @ weights
         active_count = max(1, min(len(target_indices), 8))
         prediction_indices = set(torch.topk(logits, k=active_count).indices.detach().cpu().tolist())
-        target_set = {int(value) % neuron_count for value in target_indices}
+        target_set = {
+            int(value)
+            for value in target_indices
+            if 0 <= int(value) < neuron_count
+        }
         hit_count = len(prediction_indices.intersection(target_set))
         validation_reports.append(
             {
@@ -413,6 +433,7 @@ def run_spike_language_trainer_dry_run(
         "trains_runtime_model": False,
         "returns_trained_weights": False,
         "mutates_runtime_state": False,
+        "language_neuron_count": neuron_count,
         "device_evidence": {
             "requested_device": str(device_report.get("device") or device_report.get("tensor_device") or "unknown"),
             "tensor_device": str(weights.device),
@@ -555,16 +576,25 @@ def predict_spike_language_sequence(
     epochs: int = 2,
     top_k: int = 8,
     persistent_transition_weights: Mapping[str, Any] | None = None,
+    language_neuron_count: int | None = None,
 ) -> dict[str, Any]:
     """Predict the next sparse spike-code indices without decoding text."""
 
     device_report = dict(device_evidence or {})
     device = _safe_tensor_device(str(device_report.get("device") or device_report.get("tensor_device") or "cpu"))
-    train_patterns = _language_training_patterns(training_readout_slot_batches, device_report)
+    neuron_count = _resolved_language_neuron_count(
+        language_neuron_count,
+        persistent_transition_weights,
+    )
+    train_patterns = _language_training_patterns(
+        training_readout_slot_batches,
+        {**device_report, "code_dim": neuron_count},
+    )
     current_probe = build_spike_language_decoder_probe(
         {
             "readout_slots": [dict(slot) for slot in current_readout_slots if isinstance(slot, Mapping)],
             "device_evidence": device_report,
+            "code_dim": neuron_count,
         }
     )
     current_sparse = (
@@ -577,7 +607,6 @@ def predict_spike_language_sequence(
         for value in list(current_sparse.get("active_indices") or [])
         if isinstance(value, int)
     ]
-    neuron_count = 64
     weights = _train_sequence_transition_weights(
         train_patterns,
         neuron_count,
@@ -670,6 +699,7 @@ def predict_spike_language_sequence(
         "trains_runtime_model": False,
         "returns_trained_weights": False,
         "mutates_runtime_state": False,
+        "language_neuron_count": neuron_count,
         "device_evidence": {
             "requested_device": str(device_report.get("device") or device_report.get("tensor_device") or "unknown"),
             "tensor_device": str(weights.device),
@@ -1212,7 +1242,13 @@ def rollout_snn_language_readout_candidate(
     persistent_weights_hash = _sha256_json(dict(persistent_weights))
     device_report = dict(device_evidence or report.get("device_evidence") or {})
     device = _safe_tensor_device(str(device_report.get("device") or device_report.get("tensor_device") or "cpu"))
-    memory_tensor = _persistent_transition_weight_tensor(persistent_weights, 64, device)
+    neuron_count = _resolved_language_neuron_count(
+        int(report.get("language_neuron_count", 64) or 64),
+        persistent_weights,
+    )
+    memory_tensor = _persistent_transition_weight_tensor(
+        persistent_weights, neuron_count, device
+    )
     try:
         raw_rollout_steps = int(rollout_steps)
     except (TypeError, ValueError):
@@ -1249,7 +1285,7 @@ def rollout_snn_language_readout_candidate(
     current_indices = [
         int(value)
         for value in list(current_sparse.get("active_indices") or [])
-        if isinstance(value, int) and 0 <= int(value) < 64
+        if isinstance(value, int) and 0 <= int(value) < neuron_count
     ][:16]
     vocabulary_slots = [dict(slot) for slot in readout_vocabulary_slots if isinstance(slot, Mapping)][:32]
     vocabulary_count = len(vocabulary_slots)
@@ -1263,13 +1299,15 @@ def rollout_snn_language_readout_candidate(
             {
                 "readout_slots": [slot],
                 "device_evidence": device_report,
+                "code_dim": neuron_count,
             }
         )
         sparse = probe.get("sparse_code_evidence") if isinstance(probe.get("sparse_code_evidence"), Mapping) else {}
         active = [
-            int(value) % 64
+            int(value)
             for value in list(sparse.get("active_indices") or [])
             if isinstance(value, int)
+            and 0 <= int(value) < neuron_count
         ]
         folded_active = sorted({int(value) % 32 for value in active})
         vocabulary_candidates.append(
@@ -1282,7 +1320,7 @@ def rollout_snn_language_readout_candidate(
             }
         )
 
-    vector = _indices_to_vector(current_indices, 64, device)
+    vector = _indices_to_vector(current_indices, neuron_count, device)
     rollout_trace: list[dict[str, Any]] = []
     visited_hashes: set[str] = set()
     for step_index in range(requested_steps):
@@ -1343,7 +1381,9 @@ def rollout_snn_language_readout_candidate(
             }
         )
         visited_hashes.add(active_hash)
-        vector = _indices_to_vector(predicted_indices, 64, device)
+        vector = _indices_to_vector(
+            predicted_indices, neuron_count, device
+        )
 
     evaluation = dict(transition_memory_evaluation or {})
     evaluation_summary = (
@@ -1484,6 +1524,7 @@ def rollout_snn_language_readout_candidate(
         "returns_trained_weights": False,
         "applies_plasticity": False,
         "mutates_runtime_state": False,
+        "language_neuron_count": neuron_count,
         "rollout": {
             "step_count": len(rollout_trace),
             "requested_steps": requested_steps,
@@ -1626,6 +1667,10 @@ def evaluate_snn_language_readout_rollout_replay(
         else {}
     )
     device_report = dict(device_evidence or candidate_device)
+    neuron_count = max(
+        64,
+        int(candidate.get("language_neuron_count", 64) or 64),
+    )
     rollout_labels = [str(value) for value in list(rollout.get("labels") or []) if str(value)][:limit]
     replay_targets: list[dict[str, Any]] = []
     trace_hashes_valid = True
@@ -1633,7 +1678,8 @@ def evaluate_snn_language_readout_rollout_replay(
         sparse_indices = [
                 int(value)
                 for value in list(step.get("predicted_sparse_indices") or [])
-                if isinstance(value, int) and 0 <= int(value) < 64
+                if isinstance(value, int)
+                and 0 <= int(value) < neuron_count
         ][:16]
         active_indices_hash = str(step.get("active_indices_hash") or "")
         active_hash_valid = active_indices_hash == _sha256_json(sparse_indices)
@@ -1733,6 +1779,7 @@ def evaluate_snn_language_readout_rollout_replay(
         "returns_trained_weights": False,
         "applies_plasticity": False,
         "mutates_runtime_state": False,
+        "language_neuron_count": neuron_count,
         "recorded_in_ledger": False,
         "eligible_for_replay_priority": False,
         "eligible_for_replay_memory": False,
@@ -2048,10 +2095,15 @@ def evaluate_spike_language_sequence_mismatch(
     report = dict(prediction_report)
     prediction = report.get("prediction") if isinstance(report.get("prediction"), Mapping) else {}
     device_report = dict(device_evidence or report.get("device_evidence") or {})
+    neuron_count = max(
+        64,
+        int(report.get("language_neuron_count", 64) or 64),
+    )
     observed_probe = build_spike_language_decoder_probe(
         {
             "readout_slots": [dict(slot) for slot in observed_readout_slots if isinstance(slot, Mapping)],
             "device_evidence": device_report,
+            "code_dim": neuron_count,
         }
     )
     observed_sparse = (
@@ -2060,14 +2112,14 @@ def evaluate_spike_language_sequence_mismatch(
         else {}
     )
     predicted_indices = {
-        int(value) % 64
+        int(value)
         for value in list(prediction.get("predicted_sparse_indices") or [])
-        if isinstance(value, int)
+        if isinstance(value, int) and 0 <= int(value) < neuron_count
     }
     observed_indices = {
-        int(value) % 64
+        int(value)
         for value in list(observed_sparse.get("active_indices") or [])
-        if isinstance(value, int)
+        if isinstance(value, int) and 0 <= int(value) < neuron_count
     }
     matched = predicted_indices.intersection(observed_indices)
     union = predicted_indices.union(observed_indices)
@@ -2090,6 +2142,7 @@ def evaluate_spike_language_sequence_mismatch(
         "trains_runtime_model": False,
         "returns_trained_weights": False,
         "mutates_runtime_state": False,
+        "language_neuron_count": neuron_count,
         "prediction_surface": report.get("surface"),
         "device_evidence": {
             "requested_device": str(device_report.get("device") or device_report.get("tensor_device") or "unknown"),
@@ -3160,15 +3213,21 @@ def build_snn_language_transition_memory_regeneration_proposal(
         and bool(evidence_hash)
         and replay.get("mismatch_hash") == mismatch_hash
     )
+    neuron_count = max(
+        64,
+        int(mismatch.get("language_neuron_count", 64) or 64),
+    )
     predicted_only = [
         int(value)
         for value in list(delta.get("predicted_only_indices") or [])
-        if isinstance(value, int) and 0 <= int(value) < 64
+        if isinstance(value, int)
+        and 0 <= int(value) < neuron_count
     ]
     observed_only = [
         int(value)
         for value in list(delta.get("observed_only_indices") or [])
-        if isinstance(value, int) and 0 <= int(value) < 64
+        if isinstance(value, int)
+        and 0 <= int(value) < neuron_count
     ]
     candidates = []
     for pre_index in predicted_only:
@@ -3198,6 +3257,7 @@ def build_snn_language_transition_memory_regeneration_proposal(
         "trains_runtime_model": False,
         "applies_plasticity": False,
         "mutates_runtime_state": False,
+        "language_neuron_count": neuron_count,
         "transition_memory_surface": state.get("surface"),
         "mismatch_surface": mismatch.get("surface"),
         "replay_evidence": {
@@ -3259,6 +3319,7 @@ def _language_training_patterns(
             {
                 "readout_slots": readout_slots,
                 "device_evidence": device_report,
+                "code_dim": int(device_report.get("code_dim", 64) or 64),
             }
         )
         sparse_code = (
@@ -3302,7 +3363,9 @@ def _train_sequence_transition_weights(
 def _indices_to_vector(indices: Sequence[int], neuron_count: int, device: torch.device) -> torch.Tensor:
     vector = torch.zeros(neuron_count, device=device)
     for index in indices:
-        vector[int(index) % neuron_count] = 1.0
+        resolved = int(index)
+        if 0 <= resolved < neuron_count:
+            vector[resolved] = 1.0
     total = vector.sum()
     if total > 0:
         vector = vector / total
@@ -3318,12 +3381,31 @@ def _persistent_transition_weight_tensor(
     for key, value in dict(persistent_transition_weights or {}).items():
         try:
             raw_pre, raw_post = str(key).split(":", maxsplit=1)
-            pre_index = int(raw_pre) % neuron_count
-            post_index = int(raw_post) % neuron_count
+            pre_index = int(raw_pre)
+            post_index = int(raw_post)
+            if not (
+                0 <= pre_index < neuron_count
+                and 0 <= post_index < neuron_count
+            ):
+                continue
             weights[pre_index, post_index] += float(value)
         except (TypeError, ValueError):
             continue
     return weights
+
+
+def _resolved_language_neuron_count(
+    configured: int | None,
+    persistent_transition_weights: Mapping[str, Any] | None,
+) -> int:
+    resolved = max(64, int(configured or 64))
+    for key in dict(persistent_transition_weights or {}):
+        try:
+            raw_pre, raw_post = str(key).split(":", maxsplit=1)
+            resolved = max(resolved, int(raw_pre) + 1, int(raw_post) + 1)
+        except (TypeError, ValueError):
+            continue
+    return resolved
 
 
 def _safe_tensor_device(device: str) -> torch.device:

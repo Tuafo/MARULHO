@@ -92,7 +92,22 @@ from .schemas import (
     SNNLanguageAutonomousSNNLanguageThoughtConsolidationExecutorRequest,
     SNNLanguageAutonomousSNNLanguageThoughtConsolidationPreflightRequest,
     SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationExecutorRequest,
     SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningContinuationDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningEventReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningPreflightRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronMaturationOutcomeReviewRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningDesignRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningExecutorRequest,
+    SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningPreflightRequest,
     SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityDesignRequest,
     SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityExecutorRequest,
     SNNLanguageAutonomousSNNLanguageThoughtStructuralPlasticityEventReviewRequest,
@@ -1885,6 +1900,183 @@ def create_app(
             checkpoint_transaction=request.checkpoint_transaction,
             device_evidence=request.device_evidence,
             executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_capacity_mutation_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_executor(
+            autonomous_snn_language_thought_capacity_mutation_preflight=(
+                request.autonomous_snn_language_thought_capacity_mutation_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+            requested_device=request.requested_device,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
+            autonomous_snn_language_thought_capacity_mutation_executor=(
+                request.autonomous_snn_language_thought_capacity_mutation_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-design")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design(
+            autonomous_snn_language_thought_capacity_mutation_event_review=(
+                request.autonomous_snn_language_thought_capacity_mutation_event_review
+            ),
+            integration_policy=request.integration_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+            autonomous_snn_language_thought_newborn_neuron_integration_design=(
+                request.autonomous_snn_language_thought_newborn_neuron_integration_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            live_spike_evidence=request.live_spike_evidence,
+            checkpoint_transaction=request.checkpoint_transaction,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
+                request.autonomous_snn_language_thought_newborn_neuron_integration_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+                request.autonomous_snn_language_thought_newborn_neuron_integration_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-design")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+            autonomous_snn_language_thought_newborn_neuron_integration_event_review=(
+                request.autonomous_snn_language_thought_newborn_neuron_integration_event_review
+            ),
+            learning_policy=request.learning_policy,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+                request.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            critical_period_activity_evidence=(
+                request.critical_period_activity_evidence
+            ),
+            checkpoint_transaction=request.checkpoint_transaction,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+                request.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-event-review")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningEventReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor=(
+                request.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor
+            ),
+            expected_state_revision=request.expected_state_revision,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-continuation-design")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningContinuationDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=(
+                request.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review
+            )
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-maturation-outcome-review")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronMaturationOutcomeReviewRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=(
+                request.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review
+            )
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-synapse-pruning-design")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_design(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningDesignRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_design(
+            autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review=(
+                request.autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review
+            )
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-synapse-pruning-preflight")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningPreflightRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+            autonomous_snn_language_thought_newborn_synapse_pruning_design=(
+                request.autonomous_snn_language_thought_newborn_synapse_pruning_design
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_transaction=request.checkpoint_transaction,
+            executor_capabilities=request.executor_capabilities,
+        )
+
+    @app.post("/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-synapse-pruning-executor")
+    def terminus_snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_executor(
+        request: SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningExecutorRequest,
+    ) -> dict[str, Any]:
+        return runtime.snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_executor(
+            autonomous_snn_language_thought_newborn_synapse_pruning_preflight=(
+                request.autonomous_snn_language_thought_newborn_synapse_pruning_preflight
+            ),
+            expected_state_revision=request.expected_state_revision,
+            checkpoint_path=request.checkpoint_path,
         )
 
     @app.post("/terminus/snn-language-sequence/readout-ledger/rehearsal-evaluation")

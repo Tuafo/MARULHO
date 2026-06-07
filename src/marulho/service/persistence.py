@@ -258,16 +258,21 @@ class RuntimePersistence:
                 default=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
                 minimum=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
             ),
-            "dynamic_capacity_enabled": False,
+            "dynamic_capacity_enabled": bool(
+                raw.get("dynamic_capacity_enabled")
+            ),
             "capacity_expansion_count": cls._positive_capacity_int(
                 raw.get("capacity_expansion_count"),
                 default=0,
                 minimum=0,
             ),
-            "resizes_network": False,
-            "adds_neurons": False,
-            "adds_layers": False,
-            "writes_checkpoint": False,
+            "resizes_network": bool(raw.get("resizes_network")),
+            "adds_neurons": bool(raw.get("adds_neurons")),
+            "adds_layers": bool(raw.get("adds_layers")),
+            "writes_checkpoint": bool(raw.get("writes_checkpoint")),
+            "last_capacity_mutation": deepcopy(
+                raw.get("last_capacity_mutation")
+            ),
         }
 
     @classmethod

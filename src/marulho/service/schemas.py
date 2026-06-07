@@ -1108,6 +1108,151 @@ class SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationPreflightRequest(Ba
     executor_capabilities: dict[str, Any] | None = None
 
 
+class SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationExecutorRequest(BaseModel):
+    autonomous_snn_language_thought_capacity_mutation_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1, max_length=4096)
+    requested_device: str | None = Field(None, min_length=1, max_length=80)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtCapacityMutationEventReviewRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_capacity_mutation_executor: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationDesignRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_capacity_mutation_event_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    integration_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationPreflightRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_integration_design: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    live_spike_evidence: dict[str, Any] = Field(..., min_length=1)
+    checkpoint_transaction: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationExecutorRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_integration_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1, max_length=4096)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronIntegrationEventReviewRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_integration_executor: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningDesignRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_integration_event_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    learning_policy: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningPreflightRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    critical_period_activity_evidence: dict[str, Any] = Field(
+        ..., min_length=1
+    )
+    checkpoint_transaction: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningExecutorRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1, max_length=4096)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningEventReviewRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronCriticalPeriodLearningContinuationDesignRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornNeuronMaturationOutcomeReviewRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningDesignRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningPreflightRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_synapse_pruning_design: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_transaction: dict[str, Any] | None = None
+    executor_capabilities: dict[str, Any] | None = None
+
+
+class SNNLanguageAutonomousSNNLanguageThoughtNewbornSynapsePruningExecutorRequest(
+    BaseModel
+):
+    autonomous_snn_language_thought_newborn_synapse_pruning_preflight: dict[
+        str, Any
+    ] = Field(..., min_length=1)
+    expected_state_revision: int = Field(..., ge=0)
+    checkpoint_path: str | None = Field(None, min_length=1, max_length=4096)
+
+
 class SNNLanguageReadoutEmissionReplayContextReviewRequest(BaseModel):
     emission_replay_evaluation_design: dict[str, Any] = Field(..., min_length=1)
     prediction_report: dict[str, Any] = Field(..., min_length=1)

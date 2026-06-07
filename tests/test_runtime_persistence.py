@@ -175,6 +175,86 @@ def _runtime_persistence(
 
 
 class RuntimePersistenceTests(unittest.TestCase):
+    def test_critical_period_learning_state_survives_checkpoint_normalization(
+        self,
+    ) -> None:
+        developmental = {
+            "learning_cycle_count": 2,
+            "by_synapse": {
+                "4:64": {
+                    "critical_period_age_cycles": 2,
+                    "critical_period_cycles_remaining": 62,
+                    "active_cycle_count": 2,
+                    "inactive_cycle_count": 0,
+                    "current_maturation_state": "critical_period",
+                    "critical_period_learning_application_hash": "a" * 64,
+                }
+            },
+            "last_learning_cycle": {
+                "newborn_neuron_critical_period_learning_event_hash": "b"
+                * 64,
+                "after_state_revision": 4,
+            },
+        }
+
+        checkpoint_state = (
+            RuntimePersistence._snn_language_plasticity_checkpoint_state(
+                {
+                    "sparse_transition_weights": {"4:64": 0.01625},
+                    "thought_newborn_neuron_critical_period_learning": (
+                        developmental
+                    ),
+                }
+            )
+        )
+
+        self.assertEqual(
+            checkpoint_state[
+                "thought_newborn_neuron_critical_period_learning"
+            ],
+            developmental,
+        )
+        self.assertEqual(
+            checkpoint_state["sparse_transition_weights"]["4:64"],
+            0.01625,
+        )
+
+    def test_language_capacity_checkpoint_preserves_dynamic_mutation_truth(
+        self,
+    ) -> None:
+        event = {
+            "capacity_mutation_event_hash": "a" * 64,
+            "target_neuron_capacity": 66,
+        }
+
+        capacity = RuntimePersistence._snn_language_capacity_checkpoint_state(
+            {
+                "language_capacity": {
+                    "language_neuron_count": 66,
+                    "sparse_edge_budget": 258,
+                    "outgoing_fanout_budget": 16,
+                    "dynamic_capacity_enabled": True,
+                    "capacity_expansion_count": 1,
+                    "resizes_network": True,
+                    "adds_neurons": True,
+                    "adds_layers": False,
+                    "writes_checkpoint": True,
+                    "last_capacity_mutation": event,
+                }
+            }
+        )
+
+        self.assertEqual(capacity["language_neuron_count"], 66)
+        self.assertEqual(capacity["sparse_edge_budget"], 258)
+        self.assertEqual(capacity["outgoing_fanout_budget"], 16)
+        self.assertTrue(capacity["dynamic_capacity_enabled"])
+        self.assertEqual(capacity["capacity_expansion_count"], 1)
+        self.assertTrue(capacity["resizes_network"])
+        self.assertTrue(capacity["adds_neurons"])
+        self.assertFalse(capacity["adds_layers"])
+        self.assertTrue(capacity["writes_checkpoint"])
+        self.assertEqual(capacity["last_capacity_mutation"], event)
+
     def test_persist_trace_is_owned_by_runtime_persistence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

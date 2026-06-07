@@ -2097,10 +2097,16 @@ class SNNLanguageReadoutEvidenceLedger:
                 and bool(gate.get("eligible_for_dense_label_calibration_update_executor")),
                 "expected_revision_current": int(expected_state_revision) == before_revision,
                 "preflight_revision_current": int(
-                    preflight.get("observed_state_revision", -1) or -1
+                    preflight.get("observed_state_revision", -1)
+                    if preflight.get("observed_state_revision") is not None
+                    else -1
                 )
                 == before_revision
-                and int(preflight.get("expected_state_revision", -1) or -1)
+                and int(
+                    preflight.get("expected_state_revision", -1)
+                    if preflight.get("expected_state_revision") is not None
+                    else -1
+                )
                 == before_revision,
                 "confirmation": bool(confirmation),
                 "operator_id_available": bool(str(operator_id or "").strip()),
@@ -27477,6 +27483,4391 @@ class SNNLanguageReadoutEvidenceLedger:
             },
         }
 
+    def autonomous_snn_language_thought_capacity_mutation_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_capacity_mutation_executor: Mapping[
+            str, Any
+        ],
+        plasticity_runtime_state: Mapping[str, Any],
+        expected_state_revision: int,
+    ) -> dict[str, Any]:
+        """Review committed thought-capacity growth against live runtime state."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(
+                autonomous_snn_language_thought_capacity_mutation_executor or {}
+            )
+            runtime = dict(plasticity_runtime_state or {})
+            gate = (
+                executor.get("promotion_gate")
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(
+                    executor.get(
+                        "autonomous_snn_language_thought_capacity_mutation_event"
+                    )
+                )
+                if isinstance(
+                    executor.get(
+                        "autonomous_snn_language_thought_capacity_mutation_event"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            checkpoint = (
+                dict(executor.get("checkpoint_transaction"))
+                if isinstance(executor.get("checkpoint_transaction"), Mapping)
+                else {}
+            )
+            runtime_capacity = (
+                dict(runtime.get("language_capacity"))
+                if isinstance(runtime.get("language_capacity"), Mapping)
+                else {}
+            )
+            runtime_tensor = (
+                dict(runtime.get("dense_readout_tensor"))
+                if isinstance(runtime.get("dense_readout_tensor"), Mapping)
+                else {}
+            )
+            runtime_last_event = (
+                dict(runtime.get("last_thought_capacity_mutation"))
+                if isinstance(
+                    runtime.get("last_thought_capacity_mutation"), Mapping
+                )
+                else {}
+            )
+            event_hash = str(
+                event.get("capacity_mutation_event_hash") or ""
+            )
+            recomputed_event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "capacity_mutation_event_hash"
+                }
+            )
+            before_event_revision = int(
+                event.get("before_state_revision", -1)
+                if event.get("before_state_revision") is not None
+                else -1
+            )
+            after_event_revision = int(
+                event.get("after_state_revision", -1)
+                if event.get("after_state_revision") is not None
+                else -1
+            )
+            current_neurons = int(
+                event.get("current_neuron_capacity", 0) or 0
+            )
+            target_neurons = int(
+                event.get("target_neuron_capacity", 0) or 0
+            )
+            current_sparse_budget = int(
+                event.get("current_sparse_synapse_budget", 0) or 0
+            )
+            target_sparse_budget = int(
+                event.get("target_sparse_synapse_budget", 0) or 0
+            )
+            current_shape = [
+                int(value)
+                for value in list(event.get("current_dense_shape") or [])[:2]
+                if isinstance(value, (int, float))
+            ]
+            target_shape = [
+                int(value)
+                for value in list(event.get("target_dense_shape") or [])[:2]
+                if isinstance(value, (int, float))
+            ]
+            preserved_shape = [
+                int(value)
+                for value in list(event.get("preserved_dense_shape") or [])[:2]
+                if isinstance(value, (int, float))
+            ]
+            runtime_shape = [
+                int(value)
+                for value in list(runtime_tensor.get("shape") or [])[:2]
+                if isinstance(value, (int, float))
+            ]
+            growth_candidates = [
+                dict(item)
+                for item in list(event.get("growth_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            published_checkpoint_path = str(
+                checkpoint.get("committed_checkpoint_path") or ""
+            )
+            event_committed_checkpoint_path = str(
+                event.get("committed_checkpoint_path") or ""
+            )
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "capacity_mutation_executor.v1"
+                ),
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(executor.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "capacity_mutation_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                ),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_is_adjacent": after_event_revision
+                == before_event_revision + 1
+                and after_event_revision == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_recomputed_match": bool(event_hash)
+                and event_hash == recomputed_event_hash,
+                "preflight_hash_available": len(
+                    str(event.get("preflight_hash") or "")
+                )
+                == 64,
+                "design_hash_available": len(
+                    str(
+                        event.get("thought_capacity_mutation_design_hash")
+                        or ""
+                    )
+                )
+                == 64,
+                "structural_event_review_hash_available": len(
+                    str(event.get("structural_event_review_hash") or "")
+                )
+                == 64,
+                "memory_trace_hash_available": len(
+                    str(event.get("memory_trace_hash") or "")
+                )
+                == 64,
+                "checkpoint_pre_mutation_saved": bool(
+                    checkpoint.get("pre_capacity_mutation_checkpoint_saved")
+                ),
+                "checkpoint_pre_mutation_restore_verified": bool(
+                    checkpoint.get("restore_verified")
+                ),
+                "checkpoint_post_mutation_saved": bool(
+                    checkpoint.get("post_capacity_mutation_checkpoint_saved")
+                ),
+                "checkpoint_post_mutation_restore_verified": bool(
+                    checkpoint.get(
+                        "post_capacity_mutation_checkpoint_restore_verified"
+                    )
+                ),
+                "committed_checkpoint_available": bool(
+                    published_checkpoint_path.strip()
+                )
+                and bool(
+                    event_committed_checkpoint_path.strip()
+                ),
+                "runtime_surface_available": runtime.get("surface")
+                == "snn_language_plasticity_runtime_state.v1",
+                "runtime_event_matches_executor": bool(runtime_last_event)
+                and runtime_last_event == event,
+                "runtime_checkpoint_matches_commit": bool(
+                    event_committed_checkpoint_path
+                )
+                and str(runtime.get("last_checkpoint_path") or "")
+                == event_committed_checkpoint_path,
+                "runtime_dynamic_capacity_enabled": bool(
+                    runtime_capacity.get("dynamic_capacity_enabled")
+                ),
+                "runtime_capacity_matches_target": int(
+                    runtime_capacity.get("language_neuron_count", 0) or 0
+                )
+                == target_neurons
+                and target_neurons > current_neurons >= 1,
+                "runtime_sparse_budget_matches_target": int(
+                    runtime_capacity.get("sparse_edge_budget", 0) or 0
+                )
+                == target_sparse_budget
+                and target_sparse_budget > current_sparse_budget >= 1,
+                "runtime_expansion_recorded": int(
+                    runtime_capacity.get("capacity_expansion_count", 0) or 0
+                )
+                >= 1
+                and int(runtime.get("thought_capacity_mutation_count", 0) or 0)
+                >= 1,
+                "runtime_tensor_available": bool(
+                    runtime_tensor.get("available")
+                ),
+                "runtime_tensor_shape_matches_target": runtime_shape
+                == target_shape
+                == [target_neurons, target_neurons],
+                "runtime_tensor_device_matches_event": str(
+                    runtime_tensor.get("device") or ""
+                )
+                == str(event.get("actual_device") or ""),
+                "runtime_tensor_cuda_flag_matches_event": bool(
+                    runtime_tensor.get("is_cuda")
+                )
+                == bool(event.get("tensor_is_cuda")),
+                "preserved_window_matches_current": preserved_shape
+                == current_shape,
+                "new_region_zero_initialized": bool(
+                    event.get("new_region_zero_initialized")
+                )
+                and int(event.get("new_region_nonzero_count", -1)) == 0,
+                "growth_candidates_available": bool(growth_candidates),
+                "capacity_growth_recorded": int(
+                    event.get("added_neuron_capacity", 0) or 0
+                )
+                == target_neurons - current_neurons
+                > 0,
+                "sparse_budget_growth_recorded": int(
+                    event.get("added_sparse_synapse_budget", 0) or 0
+                )
+                == target_sparse_budget - current_sparse_budget
+                > 0,
+                "network_resize_applied": bool(
+                    executor.get("resizes_network")
+                )
+                and bool(executor.get("adds_neurons")),
+                "sparse_synapses_not_added": not bool(
+                    executor.get("adds_synapses")
+                ),
+                "pruning_not_applied": not bool(
+                    executor.get("prunes_network")
+                ),
+                "replay_execution_absent": not bool(
+                    executor.get("runs_replay")
+                )
+                and not bool(event.get("replay_executed")),
+                "training_absent": not bool(
+                    executor.get("trains_runtime_model")
+                )
+                and not bool(event.get("training_executed")),
+                "plasticity_absent": not bool(
+                    executor.get("applies_plasticity")
+                )
+                and not bool(event.get("plasticity_applied")),
+                "fact_promotion_absent": not bool(
+                    executor.get("promotes_fact")
+                ),
+                "action_absent": not bool(executor.get("executes_action")),
+                "cognition_substrate_not_claimed": not bool(
+                    executor.get("cognition_substrate_claimed")
+                ),
+            }
+            ready = all(required.values())
+            review = {
+                "capacity_mutation_event_hash": event_hash,
+                "preflight_hash": str(event.get("preflight_hash") or ""),
+                "thought_capacity_mutation_design_hash": str(
+                    event.get("thought_capacity_mutation_design_hash") or ""
+                ),
+                "structural_event_review_hash": str(
+                    event.get("structural_event_review_hash") or ""
+                ),
+                "memory_trace_hash": str(event.get("memory_trace_hash") or ""),
+                "before_state_revision": before_event_revision,
+                "after_state_revision": after_event_revision,
+                "checkpoint_path": str(event.get("checkpoint_path") or ""),
+                "committed_checkpoint_path": event_committed_checkpoint_path,
+                "published_checkpoint_path": published_checkpoint_path,
+                "requested_device": str(event.get("requested_device") or ""),
+                "actual_device": str(event.get("actual_device") or ""),
+                "tensor_is_cuda": bool(event.get("tensor_is_cuda")),
+                "current_neuron_capacity": current_neurons,
+                "target_neuron_capacity": target_neurons,
+                "added_neuron_capacity": int(
+                    event.get("added_neuron_capacity", 0) or 0
+                ),
+                "current_sparse_synapse_budget": current_sparse_budget,
+                "target_sparse_synapse_budget": target_sparse_budget,
+                "added_sparse_synapse_budget": int(
+                    event.get("added_sparse_synapse_budget", 0) or 0
+                ),
+                "current_dense_shape": current_shape,
+                "target_dense_shape": target_shape,
+                "preserved_dense_shape": preserved_shape,
+                "preserved_source": str(
+                    event.get("preserved_source") or ""
+                ),
+                "preserved_nonzero_weight_count": int(
+                    event.get("preserved_nonzero_weight_count", 0) or 0
+                ),
+                "new_region_nonzero_count": int(
+                    event.get("new_region_nonzero_count", 0) or 0
+                ),
+                "new_region_zero_initialized": bool(
+                    event.get("new_region_zero_initialized")
+                )
+                and ready,
+                "growth_candidate_count": (
+                    len(growth_candidates) if ready else 0
+                ),
+                "growth_candidates": growth_candidates if ready else [],
+                "runtime_event_matches_executor": bool(
+                    runtime_last_event == event
+                ),
+                "runtime_capacity_matches_target": bool(
+                    required["runtime_capacity_matches_target"]
+                ),
+                "runtime_tensor_matches_target": bool(
+                    required["runtime_tensor_shape_matches_target"]
+                    and required["runtime_tensor_device_matches_event"]
+                ),
+                "newborn_neuron_slots_untrained": ready,
+                "newborn_neuron_slots_inactive": ready,
+                "operator_approval_required": False,
+                "replay_allowed": False,
+                "training_allowed": False,
+                "plasticity_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "cognition_substrate_claimed": False,
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "capacity_mutation_event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "autonomous_snn_language_thought_capacity_mutation_event_review": (
+                        review
+                    ),
+                }
+            )
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "capacity_mutation_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "capacity_mutation_event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_capacity_mutation_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "capacity_mutation_event_hash": event_hash,
+                "autonomous_snn_language_thought_capacity_mutation_event_review": (
+                    review
+                ),
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_design"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_"
+                        "capacity_mutation_event_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_design"
+                        if ready
+                        else "collect_snn_language_thought_"
+                        "capacity_mutation_event_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_integration_design(
+        self,
+        *,
+        autonomous_snn_language_thought_capacity_mutation_event_review: Mapping[
+            str, Any
+        ],
+        integration_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design activity-gated maturation for zero-filled newborn neuron slots."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_capacity_mutation_event_review
+                or {}
+            )
+            review = (
+                dict(
+                    artifact.get(
+                        "autonomous_snn_language_thought_capacity_mutation_event_review"
+                    )
+                )
+                if isinstance(
+                    artifact.get(
+                        "autonomous_snn_language_thought_capacity_mutation_event_review"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            gate = (
+                artifact.get("promotion_gate")
+                if isinstance(artifact.get("promotion_gate"), Mapping)
+                else {}
+            )
+            policy = dict(integration_policy or {})
+            max_newborn_neurons = min(
+                32,
+                max(1, int(policy.get("max_newborn_neurons", 8) or 8)),
+            )
+            max_seed_synapses_per_newborn = min(
+                8,
+                max(
+                    1,
+                    int(
+                        policy.get("max_seed_synapses_per_newborn", 2)
+                        or 2
+                    ),
+                ),
+            )
+            critical_period_cycles = min(
+                4096,
+                max(
+                    8,
+                    int(policy.get("critical_period_cycles", 128) or 128),
+                ),
+            )
+            required_coactivation_events = min(
+                256,
+                max(
+                    2,
+                    int(
+                        policy.get("required_coactivation_events", 4)
+                        or 4
+                    ),
+                ),
+            )
+            inactivity_prune_cycles = min(
+                16384,
+                max(
+                    critical_period_cycles,
+                    int(
+                        policy.get(
+                            "inactivity_prune_cycles",
+                            critical_period_cycles * 2,
+                        )
+                        or critical_period_cycles * 2
+                    ),
+                ),
+            )
+            max_initial_weight = min(
+                0.25,
+                max(
+                    0.001,
+                    float(policy.get("max_initial_weight", 0.05) or 0.05),
+                ),
+            )
+            target_firing_rate_hz = min(
+                50.0,
+                max(
+                    0.1,
+                    float(
+                        policy.get("target_firing_rate_hz", 5.0) or 5.0
+                    ),
+                ),
+            )
+            max_firing_rate_hz = min(
+                100.0,
+                max(
+                    target_firing_rate_hz,
+                    float(
+                        policy.get("max_firing_rate_hz", 20.0) or 20.0
+                    ),
+                ),
+            )
+            current_neurons = int(
+                review.get("current_neuron_capacity", 0) or 0
+            )
+            target_neurons = int(
+                review.get("target_neuron_capacity", 0) or 0
+            )
+            newborn_indices = list(range(current_neurons, target_neurons))
+            growth_candidates = [
+                dict(item)
+                for item in list(review.get("growth_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            bounded_newborn_indices = newborn_indices[:max_newborn_neurons]
+            capacity_review_hash = str(artifact.get("review_hash") or "")
+            mutation_event_hash = str(
+                review.get("capacity_mutation_event_hash")
+                or artifact.get("capacity_mutation_event_hash")
+                or ""
+            )
+            integration_candidates: list[dict[str, Any]] = []
+            for offset, newborn_index in enumerate(bounded_newborn_indices):
+                source_candidate = (
+                    growth_candidates[offset]
+                    if offset < len(growth_candidates)
+                    else {}
+                )
+                source_candidate_hash = (
+                    self._sha256_json(source_candidate)
+                    if source_candidate
+                    else ""
+                )
+                candidate_material = {
+                    "newborn_neuron_index": newborn_index,
+                    "newborn_offset": offset,
+                    "source_growth_candidate_id": str(
+                        source_candidate.get("growth_candidate_id") or ""
+                    ),
+                    "source_candidate_hash": source_candidate_hash,
+                    "local_learning_target_hash": str(
+                        source_candidate.get("local_learning_target_hash")
+                        or ""
+                    ),
+                    "generated_token_hash": str(
+                        source_candidate.get("generated_token_hash") or ""
+                    ),
+                    "spike_projection_hash": str(
+                        source_candidate.get("spike_projection_hash") or ""
+                    ),
+                    "active_neuron_hash": str(
+                        source_candidate.get("active_neuron_hash") or ""
+                    ),
+                    "membrane_state_hash": str(
+                        source_candidate.get("membrane_state_hash") or ""
+                    ),
+                    "source_resolution_mode": (
+                        "activity_hash_to_live_spike_population"
+                    ),
+                    "source_neuron_index": None,
+                    "target_neuron_index": newborn_index,
+                    "initialization_mode": "zero_weight_activity_gated",
+                    "proposed_initial_weight": 0.0,
+                    "max_initial_weight": max_initial_weight,
+                    "max_seed_synapses": max_seed_synapses_per_newborn,
+                    "critical_period_cycles": critical_period_cycles,
+                    "required_coactivation_events": required_coactivation_events,
+                    "inactivity_prune_cycles": inactivity_prune_cycles,
+                    "target_firing_rate_hz": target_firing_rate_hz,
+                    "max_firing_rate_hz": max_firing_rate_hz,
+                    "requested_device": str(
+                        review.get("requested_device") or ""
+                    ),
+                    "actual_device": str(review.get("actual_device") or ""),
+                    "tensor_is_cuda": bool(review.get("tensor_is_cuda")),
+                }
+                integration_candidates.append(
+                    {
+                        "integration_candidate_id": (
+                            f"snn-thought-newborn:{mutation_event_hash[:12]}:"
+                            f"{newborn_index}"
+                        ),
+                        **candidate_material,
+                        "integration_candidate_hash": self._sha256_json(
+                            candidate_material
+                        ),
+                        "connection_applied": False,
+                        "weight_applied": False,
+                        "newborn_active": False,
+                        "newborn_trained": False,
+                        "critical_period_started": False,
+                    }
+                )
+            design_material = {
+                "capacity_mutation_event_review_hash": capacity_review_hash,
+                "capacity_mutation_event_hash": mutation_event_hash,
+                "preflight_hash": str(review.get("preflight_hash") or ""),
+                "thought_capacity_mutation_design_hash": str(
+                    review.get("thought_capacity_mutation_design_hash") or ""
+                ),
+                "structural_event_review_hash": str(
+                    review.get("structural_event_review_hash") or ""
+                ),
+                "memory_trace_hash": str(
+                    review.get("memory_trace_hash") or ""
+                ),
+                "current_neuron_capacity": current_neurons,
+                "target_neuron_capacity": target_neurons,
+                "newborn_neuron_indices": bounded_newborn_indices,
+                "integration_candidates": integration_candidates,
+                "max_newborn_neurons": max_newborn_neurons,
+                "max_seed_synapses_per_newborn": (
+                    max_seed_synapses_per_newborn
+                ),
+                "critical_period_cycles": critical_period_cycles,
+                "required_coactivation_events": required_coactivation_events,
+                "inactivity_prune_cycles": inactivity_prune_cycles,
+                "max_initial_weight": max_initial_weight,
+                "target_firing_rate_hz": target_firing_rate_hz,
+                "max_firing_rate_hz": max_firing_rate_hz,
+            }
+            design_hash = self._sha256_json(design_material)
+            required = {
+                "capacity_mutation_event_review_surface_available": (
+                    artifact.get("surface")
+                    == (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "capacity_mutation_event_review.v1"
+                    )
+                ),
+                "capacity_mutation_event_review_ready": bool(
+                    artifact.get("accepted")
+                )
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_design"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                ),
+                "review_hash_available": len(capacity_review_hash) == 64,
+                "mutation_event_hash_available": len(mutation_event_hash) == 64,
+                "lineage_hashes_available": all(
+                    len(str(value or "")) == 64
+                    for value in (
+                        review.get("preflight_hash"),
+                        review.get("thought_capacity_mutation_design_hash"),
+                        review.get("structural_event_review_hash"),
+                        review.get("memory_trace_hash"),
+                    )
+                ),
+                "newborn_range_available": bool(newborn_indices)
+                and target_neurons > current_neurons >= 1,
+                "newborn_range_matches_capacity_growth": len(newborn_indices)
+                == int(review.get("added_neuron_capacity", 0) or 0),
+                "newborn_count_within_policy": 1
+                <= len(newborn_indices)
+                <= max_newborn_neurons,
+                "newborn_slots_zero_initialized": bool(
+                    review.get("new_region_zero_initialized")
+                )
+                and int(review.get("new_region_nonzero_count", -1)) == 0,
+                "newborn_slots_inactive": bool(
+                    review.get("newborn_neuron_slots_inactive")
+                ),
+                "newborn_slots_untrained": bool(
+                    review.get("newborn_neuron_slots_untrained")
+                ),
+                "growth_provenance_covers_newborn_slots": len(
+                    growth_candidates
+                )
+                >= len(newborn_indices),
+                "integration_candidate_count_matches_newborn_count": len(
+                    integration_candidates
+                )
+                == len(newborn_indices),
+                "integration_candidate_hashes_valid": bool(
+                    integration_candidates
+                )
+                and all(
+                    len(
+                        str(
+                            item.get("integration_candidate_hash") or ""
+                        )
+                    )
+                    == 64
+                    for item in integration_candidates
+                ),
+                "source_candidate_hashes_valid": bool(
+                    integration_candidates
+                )
+                and all(
+                    len(str(item.get("source_candidate_hash") or "")) == 64
+                    for item in integration_candidates
+                ),
+                "candidate_targets_are_exact_newborn_range": [
+                    int(item.get("target_neuron_index", -1))
+                    for item in integration_candidates
+                ]
+                == newborn_indices,
+                "candidate_weights_zero_and_bounded": all(
+                    float(item.get("proposed_initial_weight", -1.0)) == 0.0
+                    and 0.0
+                    < float(item.get("max_initial_weight", 0.0) or 0.0)
+                    <= 0.25
+                    for item in integration_candidates
+                ),
+                "critical_period_policy_bounded": 8
+                <= critical_period_cycles
+                <= inactivity_prune_cycles
+                <= 16384,
+                "coactivation_policy_bounded": 2
+                <= required_coactivation_events
+                <= 256,
+                "homeostatic_rate_policy_bounded": 0.1
+                <= target_firing_rate_hz
+                <= max_firing_rate_hz
+                <= 100.0,
+                "device_binding_available": bool(
+                    str(review.get("actual_device") or "")
+                ),
+                "review_did_not_mutate_runtime": not bool(
+                    artifact.get("mutates_runtime_state")
+                ),
+            }
+            ready = all(required.values())
+            design = {
+                **design_material,
+                "newborn_neuron_count": len(newborn_indices) if ready else 0,
+                "newborn_neuron_indices": (
+                    newborn_indices if ready else []
+                ),
+                "integration_candidate_count": (
+                    len(integration_candidates) if ready else 0
+                ),
+                "integration_candidates": (
+                    integration_candidates if ready else []
+                ),
+                "integration_mode": (
+                    "activity_gated_critical_period_homeostatic"
+                ),
+                "source_indices_resolved": False,
+                "connections_applied": False,
+                "weights_applied": False,
+                "critical_period_started": False,
+                "newborn_neurons_active": False,
+                "newborn_neurons_trained": False,
+                "integration_designed": ready,
+                "operator_approval_required": False,
+                "replay_allowed": False,
+                "training_allowed": False,
+                "plasticity_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "cognition_substrate_claimed": False,
+            }
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_design"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_design.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_design"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "thought_newborn_neuron_integration_design_hash": design_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision == after_revision,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "integration_design": design,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_preflight"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_design_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_preflight": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_preflight"
+                        if ready
+                        else "collect_snn_language_thought_"
+                        "newborn_neuron_integration_design_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_integration_design: Mapping[
+            str, Any
+        ],
+        expected_state_revision: int,
+        live_spike_evidence: Mapping[str, Any],
+        plasticity_runtime_state: Mapping[str, Any],
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Resolve mature source neurons from hash-bound live spike evidence."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_neuron_integration_design
+                or {}
+            )
+            design = (
+                dict(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_design"
+                    )
+                )
+                if isinstance(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_design"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            gate = (
+                artifact.get("promotion_gate")
+                if isinstance(artifact.get("promotion_gate"), Mapping)
+                else {}
+            )
+            spike_evidence = dict(live_spike_evidence or {})
+            runtime = dict(plasticity_runtime_state or {})
+            checkpoint = dict(checkpoint_transaction or {})
+            capabilities = dict(executor_capabilities or {})
+            runtime_capacity = (
+                dict(runtime.get("language_capacity"))
+                if isinstance(runtime.get("language_capacity"), Mapping)
+                else {}
+            )
+            runtime_tensor = (
+                dict(runtime.get("dense_readout_tensor"))
+                if isinstance(runtime.get("dense_readout_tensor"), Mapping)
+                else {}
+            )
+            current_neurons = int(
+                design.get("current_neuron_capacity", 0) or 0
+            )
+            target_neurons = int(
+                design.get("target_neuron_capacity", 0) or 0
+            )
+            newborn_indices = [
+                int(value)
+                for value in list(design.get("newborn_neuron_indices") or [])
+                if isinstance(value, (int, float))
+            ]
+            design_candidates = [
+                dict(item)
+                for item in list(design.get("integration_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            observation_rows = [
+                dict(item)
+                for item in list(
+                    spike_evidence.get("candidate_observations") or []
+                )
+                if isinstance(item, Mapping)
+            ]
+            observation_by_candidate = {
+                str(item.get("integration_candidate_id") or ""): item
+                for item in observation_rows
+                if str(item.get("integration_candidate_id") or "")
+            }
+            sparse_weights = (
+                dict(runtime.get("sparse_transition_weights"))
+                if isinstance(runtime.get("sparse_transition_weights"), Mapping)
+                else {}
+            )
+            resolved_candidates: list[dict[str, Any]] = []
+            candidate_checks: list[dict[str, bool]] = []
+            for candidate in design_candidates:
+                candidate_id = str(
+                    candidate.get("integration_candidate_id") or ""
+                )
+                observation = observation_by_candidate.get(candidate_id, {})
+                raw_active_indices = list(
+                    observation.get("active_neuron_indices") or []
+                )
+                active_indices = sorted(
+                    {
+                        int(value)
+                        for value in raw_active_indices
+                        if isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                    }
+                )
+                active_hash = self._sha256_json(active_indices)
+                expected_active_hash = str(
+                    candidate.get("active_neuron_hash") or ""
+                )
+                source_activity = [
+                    dict(item)
+                    for item in list(
+                        observation.get("source_activity") or []
+                    )
+                    if isinstance(item, Mapping)
+                ]
+                parsed_sources: list[tuple[int, int, float]] = []
+                for source in source_activity:
+                    try:
+                        source_index = int(source.get("neuron_index"))
+                        coactivation_count = int(
+                            source.get("coactivation_event_count", 0) or 0
+                        )
+                        firing_rate_hz = float(
+                            source.get("firing_rate_hz", 0.0) or 0.0
+                        )
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        source_index in active_indices
+                        and 0 <= source_index < current_neurons
+                    ):
+                        parsed_sources.append(
+                            (
+                                source_index,
+                                coactivation_count,
+                                firing_rate_hz,
+                            )
+                        )
+                parsed_sources.sort(key=lambda item: (-item[1], item[0]))
+                selected_source = (
+                    parsed_sources[0] if parsed_sources else (-1, 0, 0.0)
+                )
+                source_index, coactivation_count, firing_rate_hz = (
+                    selected_source
+                )
+                target_index = int(
+                    candidate.get("target_neuron_index", -1) or -1
+                )
+                required_coactivation = int(
+                    candidate.get("required_coactivation_events", 0) or 0
+                )
+                max_firing_rate_hz = float(
+                    candidate.get("max_firing_rate_hz", 0.0) or 0.0
+                )
+                synapse_key = f"{source_index}:{target_index}"
+                checks = {
+                    "observation_available": bool(observation),
+                    "active_indices_canonical": active_indices
+                    == [
+                        int(value)
+                        for value in raw_active_indices
+                        if isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                    ],
+                    "active_population_nonempty": bool(active_indices),
+                    "active_population_indices_in_mature_range": bool(
+                        active_indices
+                    )
+                    and all(0 <= value < current_neurons for value in active_indices),
+                    "active_population_hash_matches_lineage": bool(
+                        expected_active_hash
+                    )
+                    and active_hash == expected_active_hash
+                    and str(observation.get("active_neuron_hash") or "")
+                    == expected_active_hash,
+                    "spike_projection_hash_matches_lineage": str(
+                        observation.get("spike_projection_hash") or ""
+                    )
+                    == str(candidate.get("spike_projection_hash") or ""),
+                    "membrane_state_hash_matches_lineage": str(
+                        observation.get("membrane_state_hash") or ""
+                    )
+                    == str(candidate.get("membrane_state_hash") or ""),
+                    "candidate_device_matches_window": str(
+                        observation.get("device") or ""
+                    )
+                    == str(spike_evidence.get("device") or ""),
+                    "candidate_cuda_flag_matches_window": bool(
+                        observation.get("tensor_is_cuda")
+                    )
+                    == bool(spike_evidence.get("tensor_is_cuda")),
+                    "mature_source_resolved": 0
+                    <= source_index
+                    < current_neurons,
+                    "source_is_active": source_index in active_indices,
+                    "source_is_not_newborn": source_index
+                    not in newborn_indices,
+                    "target_is_newborn": target_index in newborn_indices,
+                    "coactivation_threshold_satisfied": coactivation_count
+                    >= required_coactivation
+                    >= 2,
+                    "source_firing_rate_homeostatic": 0.0
+                    < firing_rate_hz
+                    <= max_firing_rate_hz
+                    <= 100.0,
+                    "candidate_edge_absent_from_runtime": synapse_key
+                    not in sparse_weights,
+                    "candidate_still_unapplied": not bool(
+                        candidate.get("connection_applied")
+                    )
+                    and not bool(candidate.get("weight_applied"))
+                    and float(
+                        candidate.get("proposed_initial_weight", -1.0)
+                    )
+                    == 0.0,
+                }
+                candidate_checks.append(checks)
+                resolution_material = {
+                    "integration_candidate_id": candidate_id,
+                    "integration_candidate_hash": str(
+                        candidate.get("integration_candidate_hash") or ""
+                    ),
+                    "source_candidate_hash": str(
+                        candidate.get("source_candidate_hash") or ""
+                    ),
+                    "source_neuron_index": source_index,
+                    "target_neuron_index": target_index,
+                    "synapse": synapse_key,
+                    "active_neuron_indices": active_indices,
+                    "active_neuron_hash": active_hash,
+                    "spike_projection_hash": str(
+                        observation.get("spike_projection_hash") or ""
+                    ),
+                    "membrane_state_hash": str(
+                        observation.get("membrane_state_hash") or ""
+                    ),
+                    "coactivation_event_count": coactivation_count,
+                    "source_firing_rate_hz": firing_rate_hz,
+                    "target_firing_rate_hz": float(
+                        candidate.get("target_firing_rate_hz", 0.0) or 0.0
+                    ),
+                    "max_firing_rate_hz": max_firing_rate_hz,
+                    "critical_period_cycles": int(
+                        candidate.get("critical_period_cycles", 0) or 0
+                    ),
+                    "inactivity_prune_cycles": int(
+                        candidate.get("inactivity_prune_cycles", 0) or 0
+                    ),
+                    "max_seed_synapses": int(
+                        candidate.get("max_seed_synapses", 0) or 0
+                    ),
+                    "max_initial_weight": float(
+                        candidate.get("max_initial_weight", 0.0) or 0.0
+                    ),
+                    "requested_device": str(
+                        candidate.get("requested_device") or ""
+                    ),
+                    "actual_device": str(
+                        observation.get("device") or ""
+                    ),
+                    "tensor_is_cuda": bool(
+                        observation.get("tensor_is_cuda")
+                    ),
+                }
+                resolved_candidates.append(
+                    {
+                        **resolution_material,
+                        "source_resolution_hash": self._sha256_json(
+                            resolution_material
+                        ),
+                        "connection_applied": False,
+                        "weight_applied": False,
+                        "critical_period_started": False,
+                    }
+                )
+            design_hash = str(
+                artifact.get(
+                    "thought_newborn_neuron_integration_design_hash"
+                )
+                or ""
+            )
+            runtime_shape = [
+                int(value)
+                for value in list(runtime_tensor.get("shape") or [])[:2]
+                if isinstance(value, (int, float))
+            ]
+            expected_device = str(design.get("actual_device") or "")
+            observed_device = str(spike_evidence.get("device") or "")
+            recomputed_observation_window_hash = self._sha256_json(
+                {
+                    "surface": spike_evidence.get("surface"),
+                    "state_revision": spike_evidence.get("state_revision"),
+                    "observation_window_id": spike_evidence.get(
+                        "observation_window_id"
+                    ),
+                    "device": observed_device,
+                    "tensor_is_cuda": bool(
+                        spike_evidence.get("tensor_is_cuda")
+                    ),
+                    "candidate_observations": observation_rows,
+                }
+            )
+            preflight_material = {
+                "thought_newborn_neuron_integration_design_hash": design_hash,
+                "capacity_mutation_event_hash": str(
+                    design.get("capacity_mutation_event_hash") or ""
+                ),
+                "observation_window_id": str(
+                    spike_evidence.get("observation_window_id") or ""
+                ),
+                "observation_window_hash": str(
+                    spike_evidence.get("observation_window_hash") or ""
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "current_neuron_capacity": current_neurons,
+                "target_neuron_capacity": target_neurons,
+                "newborn_neuron_indices": newborn_indices,
+                "resolved_integration_candidates": resolved_candidates,
+                "checkpoint_path": str(
+                    checkpoint.get("checkpoint_path") or ""
+                ),
+                "snapshot_id": str(checkpoint.get("snapshot_id") or ""),
+                "device": observed_device,
+                "tensor_is_cuda": bool(
+                    spike_evidence.get("tensor_is_cuda")
+                ),
+            }
+            preflight_hash = self._sha256_json(preflight_material)
+            required = {
+                "integration_design_surface_available": artifact.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_design.v1"
+                ),
+                "integration_design_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_preflight"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                ),
+                "design_hash_available": len(design_hash) == 64,
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "live_spike_surface_available": spike_evidence.get("surface")
+                == "snn_language_live_spike_population_evidence.v1",
+                "observation_revision_current": int(
+                    spike_evidence.get("state_revision", -1)
+                    if spike_evidence.get("state_revision") is not None
+                    else -1
+                )
+                == before_revision,
+                "observation_window_bound": bool(
+                    str(spike_evidence.get("observation_window_id") or "")
+                )
+                and len(
+                    str(spike_evidence.get("observation_window_hash") or "")
+                )
+                == 64,
+                "observation_window_hash_recomputed_match": str(
+                    spike_evidence.get("observation_window_hash") or ""
+                )
+                == recomputed_observation_window_hash,
+                "runtime_surface_available": runtime.get("surface")
+                == "snn_language_plasticity_runtime_state.v1",
+                "runtime_capacity_matches_design": int(
+                    runtime_capacity.get("language_neuron_count", 0) or 0
+                )
+                == target_neurons
+                and target_neurons > current_neurons >= 1,
+                "runtime_tensor_matches_design": bool(
+                    runtime_tensor.get("available")
+                )
+                and runtime_shape == [target_neurons, target_neurons],
+                "runtime_device_matches_design": str(
+                    runtime_tensor.get("device") or ""
+                )
+                == expected_device
+                == observed_device,
+                "runtime_cuda_flag_matches_observation": bool(
+                    runtime_tensor.get("is_cuda")
+                )
+                == bool(spike_evidence.get("tensor_is_cuda")),
+                "candidate_observation_count_matches_design": len(
+                    observation_rows
+                )
+                == len(design_candidates)
+                == len(newborn_indices)
+                > 0,
+                "candidate_ids_unique": len(observation_by_candidate)
+                == len(observation_rows),
+                "all_candidate_sources_resolved": bool(candidate_checks)
+                and all(all(checks.values()) for checks in candidate_checks),
+                "resolved_candidate_hashes_valid": bool(resolved_candidates)
+                and all(
+                    len(str(item.get("source_resolution_hash") or "")) == 64
+                    for item in resolved_candidates
+                ),
+                "resolved_sources_are_mature": all(
+                    0
+                    <= int(item.get("source_neuron_index", -1))
+                    < current_neurons
+                    for item in resolved_candidates
+                ),
+                "resolved_targets_cover_newborn_range": [
+                    int(item.get("target_neuron_index", -1))
+                    for item in resolved_candidates
+                ]
+                == newborn_indices,
+                "checkpoint_path_available": bool(
+                    str(checkpoint.get("checkpoint_path") or "").strip()
+                ),
+                "checkpoint_snapshot_available": bool(
+                    str(checkpoint.get("snapshot_id") or "").strip()
+                ),
+                "checkpoint_saved": bool(
+                    checkpoint.get(
+                        "pre_integration_checkpoint_saved"
+                    )
+                ),
+                "checkpoint_restore_verified": bool(
+                    checkpoint.get(
+                        "pre_integration_checkpoint_restore_verified"
+                    )
+                ),
+                "executor_capability_available": bool(
+                    capabilities.get(
+                        "autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_executor"
+                    )
+                ),
+                "runtime_mutation_absent": not bool(
+                    artifact.get("mutates_runtime_state")
+                ),
+            }
+            ready = all(required.values())
+            preflight = {
+                **preflight_material,
+                "resolved_candidate_count": (
+                    len(resolved_candidates) if ready else 0
+                ),
+                "resolved_integration_candidates": (
+                    resolved_candidates if ready else []
+                ),
+                "source_indices_resolved": ready,
+                "connections_applied": False,
+                "weights_applied": False,
+                "critical_period_started": False,
+                "execution_allowed": ready,
+                "checkpoint_write_allowed": False,
+                "plasticity_allowed": False,
+                "training_allowed": False,
+                "replay_allowed": False,
+                "operator_approval_required": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+                "cognition_substrate_claimed": False,
+            }
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_preflight"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_preflight.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_preflight"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "preflight_hash": preflight_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": ready,
+                "calls_endpoint": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "runs_live_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "freeform_language_generation": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision == after_revision,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "integration_preflight": preflight,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_executor"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_preflight_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_executor": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_live_replay": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_freeform_language_generation": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_executor"
+                        if ready
+                        else "collect_hash_bound_live_spike_population_"
+                        "and_checkpoint_evidence"
+                    ),
+                    "required_evidence": required,
+                    "candidate_evidence": candidate_checks,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_integration_executor: Mapping[
+            str, Any
+        ],
+        plasticity_runtime_state: Mapping[str, Any],
+        expected_state_revision: int,
+    ) -> dict[str, Any]:
+        """Review committed newborn integration against sparse and dense state."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(
+                autonomous_snn_language_thought_newborn_neuron_integration_executor
+                or {}
+            )
+            runtime = dict(plasticity_runtime_state or {})
+            gate = (
+                dict(executor.get("promotion_gate"))
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(
+                    executor.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_event"
+                    )
+                )
+                if isinstance(
+                    executor.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_event"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            checkpoint = (
+                dict(executor.get("checkpoint_transaction"))
+                if isinstance(executor.get("checkpoint_transaction"), Mapping)
+                else {}
+            )
+            runtime_capacity = (
+                dict(runtime.get("language_capacity"))
+                if isinstance(runtime.get("language_capacity"), Mapping)
+                else {}
+            )
+            runtime_tensor = (
+                dict(runtime.get("dense_readout_tensor"))
+                if isinstance(runtime.get("dense_readout_tensor"), Mapping)
+                else {}
+            )
+            runtime_last_event = (
+                dict(runtime.get("last_thought_newborn_neuron_integration"))
+                if isinstance(
+                    runtime.get("last_thought_newborn_neuron_integration"),
+                    Mapping,
+                )
+                else {}
+            )
+            sparse_weights = dict(
+                runtime.get("sparse_transition_weights") or {}
+            )
+            provenance = dict(runtime.get("synapse_provenance_by_key") or {})
+            dense_samples = {
+                str(item.get("synapse") or ""): dict(item)
+                for item in list(
+                    runtime.get("newborn_integration_dense_samples") or []
+                )
+                if isinstance(item, Mapping)
+                and str(item.get("synapse") or "")
+            }
+            integrated_synapses = [
+                dict(item)
+                for item in list(event.get("integrated_synapses") or [])
+                if isinstance(item, Mapping)
+            ]
+            event_hash = str(
+                event.get("newborn_neuron_integration_event_hash") or ""
+            )
+            recomputed_event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "newborn_neuron_integration_event_hash"
+                }
+            )
+            before_event_revision = int(
+                event.get("before_state_revision", -1)
+                if event.get("before_state_revision") is not None
+                else -1
+            )
+            after_event_revision = int(
+                event.get("after_state_revision", -1)
+                if event.get("after_state_revision") is not None
+                else -1
+            )
+            target_capacity = int(
+                event.get("target_neuron_capacity", 0) or 0
+            )
+            newborn_indices = [
+                int(value)
+                for value in list(event.get("newborn_neuron_indices") or [])
+                if isinstance(value, (int, float))
+            ]
+            synapse_checks: list[dict[str, Any]] = []
+            for item in integrated_synapses:
+                source_index = int(
+                    item.get("source_neuron_index", -1)
+                    if item.get("source_neuron_index") is not None
+                    else -1
+                )
+                target_index = int(
+                    item.get("target_neuron_index", -1)
+                    if item.get("target_neuron_index") is not None
+                    else -1
+                )
+                synapse = str(item.get("synapse") or "")
+                seed_weight = float(item.get("seed_weight", 0.0) or 0.0)
+                max_initial_weight = float(
+                    item.get("max_initial_weight", 0.0) or 0.0
+                )
+                item_hash = str(
+                    item.get("newborn_integration_synapse_hash") or ""
+                )
+                recomputed_item_hash = self._sha256_json(
+                    {
+                        key: value
+                        for key, value in item.items()
+                        if key != "newborn_integration_synapse_hash"
+                    }
+                )
+                sparse_weight = sparse_weights.get(synapse)
+                sample = dense_samples.get(synapse, {})
+                provenance_item = (
+                    dict(provenance.get(synapse))
+                    if isinstance(provenance.get(synapse), Mapping)
+                    else {}
+                )
+                provenance_matches = bool(provenance_item) and all(
+                    provenance_item.get(key) == value
+                    for key, value in item.items()
+                )
+                checks = {
+                    "canonical_synapse_key": synapse
+                    == f"{source_index}:{target_index}",
+                    "source_is_mature": 0
+                    <= source_index
+                    < min(newborn_indices or [target_capacity]),
+                    "target_is_newborn": target_index in newborn_indices,
+                    "seed_weight_bounded": 0.0
+                    < seed_weight
+                    <= max_initial_weight
+                    <= _MAX_READOUT_SYNAPSE_ABS_WEIGHT,
+                    "synapse_hash_available": len(item_hash) == 64,
+                    "synapse_hash_recomputed_match": bool(item_hash)
+                    and item_hash == recomputed_item_hash,
+                    "sparse_weight_matches_event": isinstance(
+                        sparse_weight, (int, float)
+                    )
+                    and math.isclose(
+                        float(sparse_weight),
+                        seed_weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "dense_sample_matches_event": bool(sample)
+                    and int(sample.get("source_neuron_index", -1))
+                    == source_index
+                    and int(sample.get("target_neuron_index", -1))
+                    == target_index
+                    and math.isclose(
+                        float(sample.get("weight", float("nan"))),
+                        seed_weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "provenance_type_matches": provenance_item.get(
+                        "provenance_type"
+                    )
+                    == "newborn_neuron_integration",
+                    "provenance_preflight_matches": str(
+                        provenance_item.get("preflight_hash") or ""
+                    )
+                    == str(event.get("preflight_hash") or ""),
+                    "provenance_matches_event": provenance_matches,
+                    "connection_recorded": bool(
+                        item.get("connection_applied")
+                    )
+                    and bool(item.get("weight_applied")),
+                    "critical_period_started": bool(
+                        item.get("critical_period_started")
+                    )
+                    and int(item.get("critical_period_cycles", 0) or 0) > 0,
+                }
+                synapse_checks.append(
+                    {
+                        "synapse": synapse,
+                        "source_neuron_index": source_index,
+                        "target_neuron_index": target_index,
+                        "seed_weight": seed_weight,
+                        "checks": checks,
+                        "verified": all(checks.values()),
+                    }
+                )
+
+            published_checkpoint_path = str(
+                checkpoint.get("committed_checkpoint_path") or ""
+            )
+            staged_committed_checkpoint_path = str(
+                checkpoint.get("staged_committed_checkpoint_path")
+                or published_checkpoint_path
+            )
+            event_committed_checkpoint_path = str(
+                event.get("committed_checkpoint_path") or ""
+            )
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_executor.v1"
+                ),
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(executor.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                ),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_is_adjacent": after_event_revision
+                == before_event_revision + 1
+                and after_event_revision == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_recomputed_match": bool(event_hash)
+                and event_hash == recomputed_event_hash,
+                "preflight_hash_available": len(
+                    str(event.get("preflight_hash") or "")
+                )
+                == 64,
+                "design_hash_available": len(
+                    str(
+                        event.get(
+                            "thought_newborn_neuron_integration_design_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "capacity_event_hash_available": len(
+                    str(event.get("capacity_mutation_event_hash") or "")
+                )
+                == 64,
+                "observation_window_hash_available": len(
+                    str(event.get("observation_window_hash") or "")
+                )
+                == 64,
+                "integrated_synapses_available": bool(integrated_synapses)
+                and len(integrated_synapses)
+                == int(event.get("integrated_synapse_count", 0) or 0),
+                "integrated_synapses_unique": len(
+                    {item.get("synapse") for item in integrated_synapses}
+                )
+                == len(integrated_synapses),
+                "all_integrated_synapses_verified": bool(synapse_checks)
+                and all(item["verified"] for item in synapse_checks),
+                "checkpoint_pre_integration_saved": bool(
+                    checkpoint.get("pre_integration_checkpoint_saved")
+                ),
+                "checkpoint_pre_integration_restore_verified": bool(
+                    checkpoint.get("restore_verified")
+                ),
+                "checkpoint_post_integration_saved": bool(
+                    checkpoint.get("post_integration_checkpoint_saved")
+                ),
+                "checkpoint_post_integration_restore_verified": bool(
+                    checkpoint.get(
+                        "post_integration_checkpoint_restore_verified"
+                    )
+                ),
+                "committed_checkpoint_matches_event": bool(
+                    published_checkpoint_path
+                )
+                and bool(staged_committed_checkpoint_path)
+                and staged_committed_checkpoint_path
+                == event_committed_checkpoint_path,
+                "runtime_surface_available": runtime.get("surface")
+                == "snn_language_plasticity_runtime_state.v1",
+                "runtime_event_matches_executor": bool(runtime_last_event)
+                and runtime_last_event == event,
+                "runtime_checkpoint_matches_commit": bool(
+                    event_committed_checkpoint_path
+                )
+                and str(runtime.get("last_checkpoint_path") or "")
+                == event_committed_checkpoint_path,
+                "runtime_capacity_unchanged": int(
+                    runtime_capacity.get("language_neuron_count", 0) or 0
+                )
+                == target_capacity
+                and target_capacity > 0,
+                "runtime_tensor_shape_matches_capacity": list(
+                    runtime_tensor.get("shape") or []
+                )
+                == [target_capacity, target_capacity],
+                "runtime_tensor_device_matches_event": str(
+                    runtime_tensor.get("device") or ""
+                )
+                == str(event.get("actual_device") or ""),
+                "runtime_tensor_cuda_flag_matches_event": bool(
+                    runtime_tensor.get("is_cuda")
+                )
+                == bool(event.get("tensor_is_cuda")),
+                "critical_period_recorded": bool(
+                    event.get("critical_period_started")
+                ),
+                "network_not_resized": not bool(
+                    executor.get("resizes_network")
+                )
+                and not bool(executor.get("adds_neurons")),
+                "synapse_addition_recorded": bool(
+                    executor.get("adds_synapses")
+                )
+                and bool(executor.get("applies_plasticity")),
+                "pruning_not_applied": not bool(
+                    executor.get("prunes_network")
+                ),
+                "replay_absent": not bool(executor.get("runs_replay"))
+                and not bool(event.get("replay_executed")),
+                "training_absent": not bool(
+                    executor.get("trains_runtime_model")
+                )
+                and not bool(event.get("training_executed")),
+                "language_generation_absent": not bool(
+                    executor.get("generates_text")
+                )
+                and not bool(executor.get("decodes_text")),
+            }
+            ready = all(required.values())
+            review = {
+                "newborn_neuron_integration_event_hash": event_hash,
+                "preflight_hash": str(event.get("preflight_hash") or ""),
+                "thought_newborn_neuron_integration_design_hash": str(
+                    event.get(
+                        "thought_newborn_neuron_integration_design_hash"
+                    )
+                    or ""
+                ),
+                "capacity_mutation_event_hash": str(
+                    event.get("capacity_mutation_event_hash") or ""
+                ),
+                "observation_window_id": str(
+                    event.get("observation_window_id") or ""
+                ),
+                "observation_window_hash": str(
+                    event.get("observation_window_hash") or ""
+                ),
+                "before_state_revision": before_event_revision,
+                "after_state_revision": after_event_revision,
+                "committed_checkpoint_path": (
+                    event_committed_checkpoint_path
+                ),
+                "actual_device": str(event.get("actual_device") or ""),
+                "tensor_is_cuda": bool(event.get("tensor_is_cuda")),
+                "current_neuron_capacity": int(
+                    event.get("current_neuron_capacity", 0) or 0
+                ),
+                "target_neuron_capacity": target_capacity,
+                "newborn_neuron_indices": newborn_indices,
+                "integrated_synapse_count": (
+                    len(integrated_synapses) if ready else 0
+                ),
+                "verified_integrated_synapses": (
+                    deepcopy(integrated_synapses) if ready else []
+                ),
+                "synapse_evidence": synapse_checks,
+                "sparse_dense_provenance_consistent": bool(
+                    required["all_integrated_synapses_verified"]
+                ),
+                "critical_period_started": bool(
+                    required["critical_period_recorded"] and ready
+                ),
+                "operator_approval_required": False,
+                "learning_applied": False,
+                "maturation_decided": False,
+                "pruning_applied": False,
+                "language_generation_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "review": review,
+                }
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "integration_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "newborn_neuron_integration_event_hash": event_hash,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "integration_event_review": review,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_design"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_"
+                        "thought_newborn_neuron_integration_event_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_design": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                        if ready
+                        else "collect_sparse_dense_provenance_and_"
+                        "checkpoint_integration_evidence"
+                    ),
+                    "required_evidence": required,
+                    "synapse_evidence": synapse_checks,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_integration_event_review: Mapping[
+            str, Any
+        ],
+        learning_policy: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Design bounded local learning for verified newborn synapses."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_neuron_integration_event_review
+                or {}
+            )
+            review = (
+                dict(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_event_review"
+                    )
+                )
+                if isinstance(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_event_review"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            gate = (
+                dict(artifact.get("promotion_gate"))
+                if isinstance(artifact.get("promotion_gate"), Mapping)
+                else {}
+            )
+            policy = dict(learning_policy or {})
+            max_learning_rate = min(
+                0.02,
+                max(
+                    0.0001,
+                    float(policy.get("max_learning_rate", 0.005) or 0.005),
+                ),
+            )
+            depression_ratio = min(
+                1.0,
+                max(
+                    0.1,
+                    float(policy.get("depression_ratio", 0.5) or 0.5),
+                ),
+            )
+            min_survival_activity_ratio = min(
+                1.0,
+                max(
+                    0.05,
+                    float(
+                        policy.get("min_survival_activity_ratio", 0.25)
+                        or 0.25
+                    ),
+                ),
+            )
+            homeostatic_tolerance_ratio = min(
+                1.0,
+                max(
+                    0.1,
+                    float(
+                        policy.get("homeostatic_tolerance_ratio", 0.5)
+                        or 0.5
+                    ),
+                ),
+            )
+            stdp_window_ms = min(
+                100.0,
+                max(
+                    1.0,
+                    float(policy.get("stdp_window_ms", 20.0) or 20.0),
+                ),
+            )
+            verified_synapses = [
+                dict(item)
+                for item in list(
+                    review.get("verified_integrated_synapses") or []
+                )
+                if isinstance(item, Mapping)
+            ]
+            learning_candidates: list[dict[str, Any]] = []
+            for item in verified_synapses:
+                critical_period_cycles = max(
+                    1,
+                    int(item.get("critical_period_cycles", 0) or 0),
+                )
+                inactivity_prune_cycles = max(
+                    critical_period_cycles,
+                    int(item.get("inactivity_prune_cycles", 0) or 0),
+                )
+                target_firing_rate_hz = max(
+                    0.1,
+                    float(item.get("target_firing_rate_hz", 0.0) or 0.0),
+                )
+                seed_weight = float(item.get("seed_weight", 0.0) or 0.0)
+                max_weight = min(
+                    _MAX_READOUT_SYNAPSE_ABS_WEIGHT,
+                    max(
+                        seed_weight,
+                        float(item.get("max_initial_weight", 0.0) or 0.0),
+                    ),
+                )
+                candidate = {
+                    "synapse": str(item.get("synapse") or ""),
+                    "source_neuron_index": int(
+                        item.get("source_neuron_index", -1)
+                    ),
+                    "target_neuron_index": int(
+                        item.get("target_neuron_index", -1)
+                    ),
+                    "newborn_integration_synapse_hash": str(
+                        item.get("newborn_integration_synapse_hash") or ""
+                    ),
+                    "initial_weight": seed_weight,
+                    "current_weight": seed_weight,
+                    "min_weight": 0.0,
+                    "max_weight": max_weight,
+                    "max_learning_rate": max_learning_rate,
+                    "depression_ratio": depression_ratio,
+                    "stdp_window_ms": stdp_window_ms,
+                    "target_firing_rate_hz": target_firing_rate_hz,
+                    "homeostatic_min_firing_rate_hz": max(
+                        0.0,
+                        target_firing_rate_hz
+                        * (1.0 - homeostatic_tolerance_ratio),
+                    ),
+                    "homeostatic_max_firing_rate_hz": (
+                        target_firing_rate_hz
+                        * (1.0 + homeostatic_tolerance_ratio)
+                    ),
+                    "critical_period_cycles": critical_period_cycles,
+                    "critical_period_age_cycles": 0,
+                    "critical_period_cycles_remaining": (
+                        critical_period_cycles
+                    ),
+                    "minimum_survival_active_cycles": max(
+                        1,
+                        math.ceil(
+                            critical_period_cycles
+                            * min_survival_activity_ratio
+                        ),
+                    ),
+                    "inactivity_prune_cycles": inactivity_prune_cycles,
+                    "learning_rule": (
+                        "local_pre_post_timing_with_homeostatic_scaling"
+                    ),
+                    "survival_rule": (
+                        "activity_and_prediction_contribution_competition"
+                    ),
+                    "maturation_states": [
+                        "critical_period",
+                        "mature",
+                        "prune_eligible",
+                    ],
+                    "current_maturation_state": "critical_period",
+                    "weight_update_applied": False,
+                    "maturation_decided": False,
+                    "pruning_applied": False,
+                }
+                candidate["critical_period_learning_candidate_hash"] = (
+                    self._sha256_json(candidate)
+                )
+                learning_candidates.append(candidate)
+
+            required = {
+                "integration_review_surface_available": artifact.get(
+                    "surface"
+                )
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_integration_event_review.v1"
+                ),
+                "integration_review_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_design"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                )
+                and not bool(review.get("operator_approval_required")),
+                "integration_review_hash_available": len(
+                    str(artifact.get("review_hash") or "")
+                )
+                == 64,
+                "integration_event_hash_available": len(
+                    str(
+                        review.get(
+                            "newborn_neuron_integration_event_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "integration_state_consistent": bool(
+                    review.get("sparse_dense_provenance_consistent")
+                ),
+                "critical_period_started": bool(
+                    review.get("critical_period_started")
+                ),
+                "verified_synapses_available": bool(verified_synapses)
+                and len(verified_synapses)
+                == int(review.get("integrated_synapse_count", 0) or 0),
+                "learning_candidates_complete": bool(learning_candidates)
+                and len(learning_candidates) == len(verified_synapses),
+                "candidate_hashes_available": all(
+                    len(
+                        str(
+                            item.get(
+                                "critical_period_learning_candidate_hash"
+                            )
+                            or ""
+                        )
+                    )
+                    == 64
+                    for item in learning_candidates
+                ),
+                "learning_rate_bounded": 0.0001
+                <= max_learning_rate
+                <= 0.02,
+                "depression_ratio_bounded": 0.1
+                <= depression_ratio
+                <= 1.0,
+                "survival_ratio_bounded": 0.05
+                <= min_survival_activity_ratio
+                <= 1.0,
+                "homeostatic_tolerance_bounded": 0.1
+                <= homeostatic_tolerance_ratio
+                <= 1.0,
+                "stdp_window_bounded": 1.0 <= stdp_window_ms <= 100.0,
+            }
+            ready = all(required.values())
+            design = {
+                "newborn_neuron_integration_event_review_hash": str(
+                    artifact.get("review_hash") or ""
+                ),
+                "newborn_neuron_integration_event_hash": str(
+                    review.get("newborn_neuron_integration_event_hash") or ""
+                ),
+                "capacity_mutation_event_hash": str(
+                    review.get("capacity_mutation_event_hash") or ""
+                ),
+                "observation_window_id": str(
+                    review.get("observation_window_id") or ""
+                ),
+                "observation_window_hash": str(
+                    review.get("observation_window_hash") or ""
+                ),
+                "state_revision": int(
+                    review.get("after_state_revision", -1)
+                    if review.get("after_state_revision") is not None
+                    else -1
+                ),
+                "actual_device": str(review.get("actual_device") or ""),
+                "tensor_is_cuda": bool(review.get("tensor_is_cuda")),
+                "newborn_neuron_indices": deepcopy(
+                    list(review.get("newborn_neuron_indices") or [])
+                ),
+                "learning_rule": (
+                    "local_pre_post_timing_with_homeostatic_scaling"
+                ),
+                "survival_rule": (
+                    "activity_and_prediction_contribution_competition"
+                ),
+                "max_learning_rate": max_learning_rate,
+                "depression_ratio": depression_ratio,
+                "min_survival_activity_ratio": (
+                    min_survival_activity_ratio
+                ),
+                "homeostatic_tolerance_ratio": (
+                    homeostatic_tolerance_ratio
+                ),
+                "stdp_window_ms": stdp_window_ms,
+                "learning_candidate_count": (
+                    len(learning_candidates) if ready else 0
+                ),
+                "learning_candidates": (
+                    learning_candidates if ready else []
+                ),
+                "evidence_required_per_cycle": [
+                    "canonical_pre_post_spike_times",
+                    "newborn_firing_rate",
+                    "prediction_error_before_after",
+                    "current_sparse_dense_weight",
+                    "current_synapse_provenance",
+                    "cuda_tensor_device",
+                ],
+                "operator_approval_required": False,
+                "learning_applied": False,
+                "maturation_decided": False,
+                "pruning_applied": False,
+                "language_generation_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+            }
+            design_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_design.v1"
+                    ),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "design": design,
+                }
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_design"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_design.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_design"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "thought_newborn_neuron_critical_period_learning_design_hash": (
+                    design_hash
+                ),
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "critical_period_learning_design": design,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "neuron_critical_period_learning_preflight"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_"
+                        "thought_newborn_neuron_critical_period_design_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "neuron_critical_period_learning_preflight": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_dense_readout_training": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_preflight"
+                        if ready
+                        else "collect_verified_newborn_integration_evidence"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design: Mapping[
+            str, Any
+        ],
+        expected_state_revision: int,
+        critical_period_activity_evidence: Mapping[str, Any],
+        plasticity_runtime_state: Mapping[str, Any],
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Resolve one bounded newborn learning cycle from canonical spike timing."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design
+                or {}
+            )
+            design = (
+                dict(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                    )
+                )
+                if isinstance(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            gate = (
+                dict(artifact.get("promotion_gate"))
+                if isinstance(artifact.get("promotion_gate"), Mapping)
+                else {}
+            )
+            evidence = dict(critical_period_activity_evidence or {})
+            runtime = dict(plasticity_runtime_state or {})
+            checkpoint = dict(checkpoint_transaction or {})
+            capabilities = dict(executor_capabilities or {})
+            sparse_weights = dict(
+                runtime.get("sparse_transition_weights") or {}
+            )
+            provenance = dict(runtime.get("synapse_provenance_by_key") or {})
+            dense_samples = {
+                str(item.get("synapse") or ""): dict(item)
+                for item in list(
+                    runtime.get("newborn_integration_dense_samples") or []
+                )
+                if isinstance(item, Mapping)
+                and str(item.get("synapse") or "")
+            }
+            design_candidates = [
+                dict(item)
+                for item in list(design.get("learning_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            observations = [
+                dict(item)
+                for item in list(evidence.get("candidate_observations") or [])
+                if isinstance(item, Mapping)
+            ]
+            observation_by_synapse = {
+                str(item.get("synapse") or ""): item
+                for item in observations
+                if str(item.get("synapse") or "")
+            }
+            canonical_observations: list[dict[str, Any]] = []
+            for item in sorted(
+                observations,
+                key=lambda value: str(value.get("synapse") or ""),
+            ):
+                pre_times = sorted(
+                    {
+                        float(value)
+                        for value in list(
+                            item.get("pre_spike_times_ms") or []
+                        )
+                    }
+                )
+                post_times = sorted(
+                    {
+                        float(value)
+                        for value in list(
+                            item.get("post_spike_times_ms") or []
+                        )
+                    }
+                )
+                material = {
+                    "synapse": str(item.get("synapse") or ""),
+                    "critical_period_learning_candidate_hash": str(
+                        item.get(
+                            "critical_period_learning_candidate_hash"
+                        )
+                        or ""
+                    ),
+                    "cycle_index": int(
+                        item.get("cycle_index", 0) or 0
+                    ),
+                    "pre_spike_times_ms": pre_times,
+                    "post_spike_times_ms": post_times,
+                    "newborn_firing_rate_hz": float(
+                        item.get("newborn_firing_rate_hz", 0.0) or 0.0
+                    ),
+                    "prediction_error": float(
+                        item.get("prediction_error", 0.0) or 0.0
+                    ),
+                    "device": str(item.get("device") or ""),
+                    "tensor_is_cuda": bool(item.get("tensor_is_cuda")),
+                }
+                canonical_observations.append(
+                    {
+                        **material,
+                        "candidate_activity_hash": self._sha256_json(
+                            material
+                        ),
+                        "provided_candidate_activity_hash": str(
+                            item.get("candidate_activity_hash") or ""
+                        ),
+                    }
+                )
+            canonical_window_material = {
+                "surface": str(evidence.get("surface") or ""),
+                "state_revision": int(
+                    evidence.get("state_revision", -1)
+                    if evidence.get("state_revision") is not None
+                    else -1
+                ),
+                "observation_window_id": str(
+                    evidence.get("observation_window_id") or ""
+                ),
+                "device": str(evidence.get("device") or ""),
+                "tensor_is_cuda": bool(evidence.get("tensor_is_cuda")),
+                "candidate_observations": [
+                    {
+                        key: value
+                        for key, value in item.items()
+                        if key
+                        not in {
+                            "candidate_activity_hash",
+                            "provided_candidate_activity_hash",
+                        }
+                    }
+                    for item in canonical_observations
+                ],
+            }
+            recomputed_window_hash = self._sha256_json(
+                canonical_window_material
+            )
+            provided_window_hash = str(
+                evidence.get("observation_window_hash") or ""
+            )
+            resolved_cycles: list[dict[str, Any]] = []
+            candidate_checks: list[dict[str, Any]] = []
+            canonical_by_synapse = {
+                item["synapse"]: item for item in canonical_observations
+            }
+            for candidate in design_candidates:
+                synapse = str(candidate.get("synapse") or "")
+                observation = observation_by_synapse.get(synapse, {})
+                canonical_observation = canonical_by_synapse.get(
+                    synapse, {}
+                )
+                candidate_hash = str(
+                    candidate.get(
+                        "critical_period_learning_candidate_hash"
+                    )
+                    or ""
+                )
+                recomputed_candidate_hash = self._sha256_json(
+                    {
+                        key: value
+                        for key, value in candidate.items()
+                        if key
+                        != "critical_period_learning_candidate_hash"
+                    }
+                )
+                current_weight = sparse_weights.get(synapse)
+                dense_sample = dense_samples.get(synapse, {})
+                provenance_item = (
+                    dict(provenance.get(synapse))
+                    if isinstance(provenance.get(synapse), Mapping)
+                    else {}
+                )
+                pre_times = list(
+                    canonical_observation.get("pre_spike_times_ms") or []
+                )
+                post_times = list(
+                    canonical_observation.get("post_spike_times_ms") or []
+                )
+                stdp_window_ms = float(
+                    candidate.get("stdp_window_ms", 0.0) or 0.0
+                )
+                causal_pairs = 0
+                anti_causal_pairs = 0
+                for pre_time in pre_times:
+                    for post_time in post_times:
+                        delta_time = float(post_time) - float(pre_time)
+                        if 0.0 < delta_time <= stdp_window_ms:
+                            causal_pairs += 1
+                        elif -stdp_window_ms <= delta_time < 0.0:
+                            anti_causal_pairs += 1
+                pair_count = causal_pairs + anti_causal_pairs
+                learning_rate = float(
+                    candidate.get("max_learning_rate", 0.0) or 0.0
+                )
+                depression_ratio = float(
+                    candidate.get("depression_ratio", 0.0) or 0.0
+                )
+                raw_delta = (
+                    learning_rate
+                    * (
+                        float(causal_pairs)
+                        - depression_ratio * float(anti_causal_pairs)
+                    )
+                    / float(max(1, pair_count))
+                )
+                firing_rate = float(
+                    canonical_observation.get(
+                        "newborn_firing_rate_hz", 0.0
+                    )
+                    or 0.0
+                )
+                homeostatic_min = float(
+                    candidate.get(
+                        "homeostatic_min_firing_rate_hz", 0.0
+                    )
+                    or 0.0
+                )
+                homeostatic_max = float(
+                    candidate.get(
+                        "homeostatic_max_firing_rate_hz", 0.0
+                    )
+                    or 0.0
+                )
+                if firing_rate > homeostatic_max:
+                    bounded_delta = min(0.0, raw_delta) - learning_rate
+                elif firing_rate < homeostatic_min and causal_pairs > 0:
+                    bounded_delta = max(0.0, raw_delta)
+                else:
+                    bounded_delta = raw_delta
+                bounded_delta = max(
+                    -learning_rate,
+                    min(learning_rate, bounded_delta),
+                )
+                numeric_current_weight = (
+                    float(current_weight)
+                    if isinstance(current_weight, (int, float))
+                    else float("nan")
+                )
+                proposed_weight = max(
+                    float(candidate.get("min_weight", 0.0) or 0.0),
+                    min(
+                        float(candidate.get("max_weight", 0.0) or 0.0),
+                        numeric_current_weight + bounded_delta,
+                    ),
+                )
+                cycle_index = int(
+                    canonical_observation.get("cycle_index", 0) or 0
+                )
+                expected_cycle_index = (
+                    int(
+                        candidate.get(
+                            "critical_period_age_cycles", 0
+                        )
+                        or 0
+                    )
+                    + 1
+                )
+                checks = {
+                    "observation_available": bool(observation),
+                    "candidate_hash_available": len(candidate_hash) == 64,
+                    "candidate_hash_recomputed_match": bool(candidate_hash)
+                    and candidate_hash == recomputed_candidate_hash,
+                    "observation_candidate_hash_matches": str(
+                        canonical_observation.get(
+                            "critical_period_learning_candidate_hash"
+                        )
+                        or ""
+                    )
+                    == candidate_hash,
+                    "candidate_activity_hash_matches": str(
+                        canonical_observation.get(
+                            "provided_candidate_activity_hash"
+                        )
+                        or ""
+                    )
+                    == str(
+                        canonical_observation.get(
+                            "candidate_activity_hash"
+                        )
+                        or ""
+                    ),
+                    "cycle_index_is_next": cycle_index
+                    == expected_cycle_index,
+                    "critical_period_open": int(
+                        candidate.get(
+                            "critical_period_cycles_remaining", 0
+                        )
+                        or 0
+                    )
+                    > 0,
+                    "spike_times_canonical": list(
+                        observation.get("pre_spike_times_ms") or []
+                    )
+                    == pre_times
+                    and list(
+                        observation.get("post_spike_times_ms") or []
+                    )
+                    == post_times,
+                    "runtime_sparse_weight_matches": isinstance(
+                        current_weight, (int, float)
+                    )
+                    and math.isclose(
+                        float(current_weight),
+                        float(
+                            candidate.get(
+                                "current_weight",
+                                candidate.get("initial_weight", 0.0),
+                            )
+                            or 0.0
+                        ),
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "runtime_dense_weight_matches": bool(dense_sample)
+                    and math.isclose(
+                        float(dense_sample.get("weight", float("nan"))),
+                        numeric_current_weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "runtime_provenance_matches": provenance_item.get(
+                        "provenance_type"
+                    )
+                    == "newborn_neuron_integration"
+                    and str(
+                        provenance_item.get(
+                            "newborn_integration_synapse_hash"
+                        )
+                        or ""
+                    )
+                    == str(
+                        candidate.get(
+                            "newborn_integration_synapse_hash"
+                        )
+                        or ""
+                    ),
+                    "device_matches_design": str(
+                        canonical_observation.get("device") or ""
+                    )
+                    == str(design.get("actual_device") or "")
+                    and bool(
+                        canonical_observation.get("tensor_is_cuda")
+                    )
+                    == bool(design.get("tensor_is_cuda")),
+                    "firing_rate_nonnegative": firing_rate >= 0.0,
+                    "prediction_error_nonnegative": float(
+                        canonical_observation.get(
+                            "prediction_error", -1.0
+                        )
+                    )
+                    >= 0.0,
+                    "delta_bounded": abs(bounded_delta)
+                    <= learning_rate + 1e-12,
+                    "proposed_weight_bounded": float(
+                        candidate.get("min_weight", 0.0) or 0.0
+                    )
+                    <= proposed_weight
+                    <= float(candidate.get("max_weight", 0.0) or 0.0),
+                }
+                candidate_checks.append(
+                    {
+                        "synapse": synapse,
+                        "checks": checks,
+                        "verified": all(checks.values()),
+                    }
+                )
+                if all(checks.values()):
+                    resolved = {
+                        **deepcopy(candidate),
+                        "cycle_index": cycle_index,
+                        "pre_spike_count": len(pre_times),
+                        "post_spike_count": len(post_times),
+                        "causal_pair_count": causal_pairs,
+                        "anti_causal_pair_count": anti_causal_pairs,
+                        "active_cycle": bool(pre_times and post_times),
+                        "newborn_firing_rate_hz": firing_rate,
+                        "prediction_error": float(
+                            canonical_observation.get(
+                                "prediction_error", 0.0
+                            )
+                            or 0.0
+                        ),
+                        "current_weight": numeric_current_weight,
+                        "proposed_weight_delta": bounded_delta,
+                        "proposed_weight": proposed_weight,
+                        "candidate_activity_hash": str(
+                            canonical_observation.get(
+                                "candidate_activity_hash"
+                            )
+                            or ""
+                        ),
+                        "weight_update_applied": False,
+                        "critical_period_age_advanced": False,
+                        "maturation_decided": False,
+                        "pruning_applied": False,
+                    }
+                    resolved[
+                        "critical_period_learning_cycle_hash"
+                    ] = self._sha256_json(resolved)
+                    resolved_cycles.append(resolved)
+
+            runtime_tensor = (
+                dict(runtime.get("dense_readout_tensor"))
+                if isinstance(runtime.get("dense_readout_tensor"), Mapping)
+                else {}
+            )
+            required = {
+                "design_surface_available": artifact.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_design.v1"
+                ),
+                "design_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_preflight"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                )
+                and not bool(design.get("operator_approval_required")),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "expected_revision_matches_design": int(
+                    design.get("state_revision", -1)
+                    if design.get("state_revision") is not None
+                    else -1
+                )
+                == int(expected_state_revision),
+                "activity_surface_available": evidence.get("surface")
+                == "snn_language_newborn_critical_period_activity.v1",
+                "activity_revision_matches": int(
+                    evidence.get("state_revision", -1)
+                    if evidence.get("state_revision") is not None
+                    else -1
+                )
+                == int(expected_state_revision),
+                "activity_window_id_available": bool(
+                    str(evidence.get("observation_window_id") or "").strip()
+                ),
+                "activity_window_hash_matches": len(
+                    provided_window_hash
+                )
+                == 64
+                and provided_window_hash == recomputed_window_hash,
+                "activity_candidate_count_matches": bool(design_candidates)
+                and len(canonical_observations)
+                == len(design_candidates),
+                "all_learning_cycles_resolved": bool(resolved_cycles)
+                and len(resolved_cycles) == len(design_candidates)
+                and all(item["verified"] for item in candidate_checks),
+                "runtime_surface_available": runtime.get("surface")
+                == "snn_language_plasticity_runtime_state.v1",
+                "runtime_tensor_available": bool(
+                    runtime_tensor.get("available")
+                ),
+                "runtime_device_matches_design": str(
+                    runtime_tensor.get("device") or ""
+                )
+                == str(design.get("actual_device") or ""),
+                "runtime_cuda_flag_matches_design": bool(
+                    runtime_tensor.get("is_cuda")
+                )
+                == bool(design.get("tensor_is_cuda")),
+                "checkpoint_saved": bool(
+                    checkpoint.get("pre_learning_checkpoint_saved")
+                ),
+                "checkpoint_restore_verified": bool(
+                    checkpoint.get(
+                        "pre_learning_checkpoint_restore_verified"
+                    )
+                ),
+                "executor_capability_available": bool(
+                    capabilities.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_executor"
+                    )
+                ),
+                "no_external_checkpoint": not bool(
+                    artifact.get("loads_external_checkpoint")
+                ),
+                "no_replay": not bool(artifact.get("runs_replay")),
+                "no_prior_learning_application": not bool(
+                    artifact.get("applies_plasticity")
+                ),
+            }
+            ready = all(required.values())
+            preflight = {
+                "thought_newborn_neuron_critical_period_learning_design_hash": str(
+                    artifact.get(
+                        "thought_newborn_neuron_critical_period_learning_"
+                        "design_hash"
+                    )
+                    or ""
+                ),
+                "newborn_neuron_integration_event_hash": str(
+                    design.get("newborn_neuron_integration_event_hash") or ""
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "observation_window_id": str(
+                    evidence.get("observation_window_id") or ""
+                ),
+                "observation_window_hash": provided_window_hash,
+                "actual_device": str(design.get("actual_device") or ""),
+                "tensor_is_cuda": bool(design.get("tensor_is_cuda")),
+                "checkpoint_path": str(
+                    checkpoint.get("checkpoint_path") or ""
+                ),
+                "resolved_cycle_count": (
+                    len(resolved_cycles) if ready else 0
+                ),
+                "resolved_learning_cycles": (
+                    resolved_cycles if ready else []
+                ),
+                "weight_updates_applied": False,
+                "critical_period_age_advanced": False,
+                "maturation_decided": False,
+                "pruning_applied": False,
+                "operator_approval_required": False,
+            }
+            preflight_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_preflight.v1"
+                    ),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "candidate_evidence": candidate_checks,
+                    "preflight": preflight,
+                }
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_preflight"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_preflight.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_preflight"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "preflight_hash": preflight_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": ready,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "critical_period_learning_preflight": preflight,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "neuron_critical_period_learning_executor"
+                        if ready
+                        else "blocked_missing_autonomous_snn_language_"
+                        "thought_newborn_neuron_critical_period_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "neuron_critical_period_learning_executor": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_executor"
+                        if ready
+                        else "collect_canonical_newborn_spike_timing_"
+                        "and_checkpoint_evidence"
+                    ),
+                    "required_evidence": required,
+                    "candidate_evidence": candidate_checks,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor: Mapping[
+            str, Any
+        ],
+        plasticity_runtime_state: Mapping[str, Any],
+        expected_state_revision: int,
+    ) -> dict[str, Any]:
+        """Review one committed developmental learning cycle."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            executor = dict(
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor
+                or {}
+            )
+            runtime = dict(plasticity_runtime_state or {})
+            gate = (
+                dict(executor.get("promotion_gate"))
+                if isinstance(executor.get("promotion_gate"), Mapping)
+                else {}
+            )
+            event = (
+                dict(
+                    executor.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_event"
+                    )
+                )
+                if isinstance(
+                    executor.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_event"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            checkpoint = (
+                dict(executor.get("checkpoint_transaction"))
+                if isinstance(executor.get("checkpoint_transaction"), Mapping)
+                else {}
+            )
+            runtime_last_event = (
+                dict(
+                    runtime.get(
+                        "last_thought_newborn_neuron_"
+                        "critical_period_learning"
+                    )
+                )
+                if isinstance(
+                    runtime.get(
+                        "last_thought_newborn_neuron_"
+                        "critical_period_learning"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            sparse_weights = dict(
+                runtime.get("sparse_transition_weights") or {}
+            )
+            provenance = dict(runtime.get("synapse_provenance_by_key") or {})
+            developmental_by_synapse = dict(
+                runtime.get(
+                    "newborn_neuron_critical_period_state_by_synapse"
+                )
+                or {}
+            )
+            dense_samples = {
+                str(item.get("synapse") or ""): dict(item)
+                for item in list(
+                    runtime.get(
+                        "critical_period_learning_dense_samples"
+                    )
+                    or []
+                )
+                if isinstance(item, Mapping)
+                and str(item.get("synapse") or "")
+            }
+            applied_cycles = [
+                dict(item)
+                for item in list(event.get("applied_learning_cycles") or [])
+                if isinstance(item, Mapping)
+            ]
+            event_hash = str(
+                event.get(
+                    "newborn_neuron_critical_period_learning_event_hash"
+                )
+                or ""
+            )
+            recomputed_event_hash = self._sha256_json(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key
+                    != "newborn_neuron_critical_period_learning_event_hash"
+                }
+            )
+            cycle_evidence: list[dict[str, Any]] = []
+            for item in applied_cycles:
+                synapse = str(item.get("synapse") or "")
+                source_index = int(
+                    item.get("source_neuron_index", -1)
+                    if item.get("source_neuron_index") is not None
+                    else -1
+                )
+                target_index = int(
+                    item.get("target_neuron_index", -1)
+                    if item.get("target_neuron_index") is not None
+                    else -1
+                )
+                applied_weight = float(
+                    item.get("applied_weight", 0.0) or 0.0
+                )
+                application_hash = str(
+                    item.get(
+                        "critical_period_learning_application_hash"
+                    )
+                    or ""
+                )
+                recomputed_application_hash = self._sha256_json(
+                    {
+                        key: value
+                        for key, value in item.items()
+                        if key
+                        != "critical_period_learning_application_hash"
+                    }
+                )
+                sparse_weight = sparse_weights.get(synapse)
+                dense_sample = dense_samples.get(synapse, {})
+                developmental = (
+                    dict(developmental_by_synapse.get(synapse))
+                    if isinstance(
+                        developmental_by_synapse.get(synapse), Mapping
+                    )
+                    else {}
+                )
+                provenance_item = (
+                    dict(provenance.get(synapse))
+                    if isinstance(provenance.get(synapse), Mapping)
+                    else {}
+                )
+                checks = {
+                    "canonical_synapse": synapse
+                    == f"{source_index}:{target_index}",
+                    "application_hash_available": len(application_hash)
+                    == 64,
+                    "application_hash_recomputed_match": bool(
+                        application_hash
+                    )
+                    and application_hash == recomputed_application_hash,
+                    "cycle_hash_available": len(
+                        str(
+                            item.get(
+                                "critical_period_learning_cycle_hash"
+                            )
+                            or ""
+                        )
+                    )
+                    == 64,
+                    "activity_hash_available": len(
+                        str(item.get("candidate_activity_hash") or "")
+                    )
+                    == 64,
+                    "sparse_weight_matches": isinstance(
+                        sparse_weight, (int, float)
+                    )
+                    and math.isclose(
+                        float(sparse_weight),
+                        applied_weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "dense_weight_matches": bool(dense_sample)
+                    and int(
+                        dense_sample.get("source_neuron_index", -1)
+                    )
+                    == source_index
+                    and int(
+                        dense_sample.get("target_neuron_index", -1)
+                    )
+                    == target_index
+                    and math.isclose(
+                        float(
+                            dense_sample.get("weight", float("nan"))
+                        ),
+                        applied_weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "developmental_state_matches": bool(developmental)
+                    and developmental == item,
+                    "provenance_type_preserved": provenance_item.get(
+                        "provenance_type"
+                    )
+                    == "newborn_neuron_integration",
+                    "provenance_weight_matches": math.isclose(
+                        float(
+                            provenance_item.get(
+                                "current_weight", float("nan")
+                            )
+                        ),
+                        applied_weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "provenance_age_matches": int(
+                        provenance_item.get(
+                            "critical_period_age_cycles", -1
+                        )
+                    )
+                    == int(item.get("critical_period_age_cycles", -2)),
+                    "provenance_state_matches": str(
+                        provenance_item.get(
+                            "current_maturation_state", ""
+                        )
+                    )
+                    == str(item.get("current_maturation_state") or ""),
+                    "provenance_application_hash_matches": str(
+                        provenance_item.get(
+                            "last_critical_period_learning_"
+                            "application_hash"
+                        )
+                        or ""
+                    )
+                    == application_hash,
+                    "provenance_history_contains_application": (
+                        application_hash
+                        in list(
+                            provenance_item.get(
+                                "critical_period_learning_history"
+                            )
+                            or []
+                        )
+                    ),
+                    "age_and_remaining_consistent": int(
+                        item.get("critical_period_age_cycles", -1)
+                    )
+                    + int(
+                        item.get(
+                            "critical_period_cycles_remaining", -1
+                        )
+                    )
+                    == int(item.get("critical_period_cycles", -2)),
+                    "maturation_state_valid": str(
+                        item.get("current_maturation_state") or ""
+                    )
+                    in {"critical_period", "mature", "prune_eligible"},
+                    "learning_applied": bool(
+                        item.get("weight_update_applied")
+                    )
+                    and bool(
+                        item.get("critical_period_age_advanced")
+                    ),
+                    "pruning_not_applied": not bool(
+                        item.get("pruning_applied")
+                    ),
+                }
+                cycle_evidence.append(
+                    {
+                        "synapse": synapse,
+                        "cycle_index": int(
+                            item.get("cycle_index", 0) or 0
+                        ),
+                        "current_maturation_state": str(
+                            item.get("current_maturation_state") or ""
+                        ),
+                        "checks": checks,
+                        "verified": all(checks.values()),
+                    }
+                )
+            before_event_revision = int(
+                event.get("before_state_revision", -1)
+                if event.get("before_state_revision") is not None
+                else -1
+            )
+            after_event_revision = int(
+                event.get("after_state_revision", -1)
+                if event.get("after_state_revision") is not None
+                else -1
+            )
+            published_checkpoint_path = str(
+                checkpoint.get("committed_checkpoint_path") or ""
+            )
+            staged_checkpoint_path = str(
+                checkpoint.get("staged_committed_checkpoint_path")
+                or published_checkpoint_path
+            )
+            event_checkpoint_path = str(
+                event.get("committed_checkpoint_path") or ""
+            )
+            mature_count = sum(
+                item.get("current_maturation_state") == "mature"
+                for item in applied_cycles
+            )
+            prune_eligible_count = sum(
+                item.get("current_maturation_state") == "prune_eligible"
+                for item in applied_cycles
+            )
+            critical_period_count = sum(
+                item.get("current_maturation_state") == "critical_period"
+                for item in applied_cycles
+            )
+            required = {
+                "executor_surface_available": executor.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_executor.v1"
+                ),
+                "executor_accepted": bool(executor.get("accepted"))
+                and bool(executor.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_event_review"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    executor.get("requires_operator_approval")
+                ),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision,
+                "event_revision_is_adjacent": after_event_revision
+                == before_event_revision + 1
+                and after_event_revision == before_revision,
+                "event_hash_available": len(event_hash) == 64,
+                "event_hash_recomputed_match": bool(event_hash)
+                and event_hash == recomputed_event_hash,
+                "preflight_hash_available": len(
+                    str(event.get("preflight_hash") or "")
+                )
+                == 64,
+                "design_hash_available": len(
+                    str(
+                        event.get(
+                            "thought_newborn_neuron_critical_period_"
+                            "learning_design_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "integration_event_hash_available": len(
+                    str(
+                        event.get(
+                            "newborn_neuron_integration_event_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "observation_window_hash_available": len(
+                    str(event.get("observation_window_hash") or "")
+                )
+                == 64,
+                "applied_cycles_available": bool(applied_cycles)
+                and len(applied_cycles)
+                == int(event.get("applied_cycle_count", 0) or 0),
+                "all_applied_cycles_verified": bool(cycle_evidence)
+                and all(item["verified"] for item in cycle_evidence),
+                "event_state_counts_match": mature_count
+                == int(event.get("mature_synapse_count", -1))
+                and prune_eligible_count
+                == int(event.get("prune_eligible_synapse_count", -1))
+                and critical_period_count
+                == int(event.get("critical_period_synapse_count", -1)),
+                "runtime_surface_available": runtime.get("surface")
+                == "snn_language_plasticity_runtime_state.v1",
+                "runtime_event_matches_executor": bool(runtime_last_event)
+                and runtime_last_event == event,
+                "runtime_cycle_count_recorded": int(
+                    runtime.get(
+                        "thought_newborn_neuron_"
+                        "critical_period_learning_cycle_count",
+                        0,
+                    )
+                    or 0
+                )
+                >= 1,
+                "runtime_checkpoint_matches_event": str(
+                    runtime.get("last_checkpoint_path") or ""
+                )
+                == event_checkpoint_path,
+                "checkpoint_pre_learning_saved": bool(
+                    checkpoint.get("pre_learning_checkpoint_saved")
+                ),
+                "checkpoint_pre_learning_restore_verified": bool(
+                    checkpoint.get("restore_verified")
+                ),
+                "checkpoint_post_learning_saved": bool(
+                    checkpoint.get("post_learning_checkpoint_saved")
+                ),
+                "checkpoint_post_learning_restore_verified": bool(
+                    checkpoint.get(
+                        "post_learning_checkpoint_restore_verified"
+                    )
+                ),
+                "checkpoint_commit_matches_event": bool(
+                    published_checkpoint_path
+                )
+                and bool(staged_checkpoint_path)
+                and staged_checkpoint_path == event_checkpoint_path,
+                "plasticity_recorded": bool(
+                    executor.get("applies_plasticity")
+                )
+                and bool(event.get("plasticity_applied")),
+                "network_not_resized": not bool(
+                    executor.get("resizes_network")
+                )
+                and not bool(executor.get("adds_neurons")),
+                "topology_not_changed": not bool(
+                    executor.get("adds_synapses")
+                )
+                and not bool(executor.get("prunes_network"))
+                and not bool(event.get("pruning_applied")),
+                "replay_absent": not bool(executor.get("runs_replay"))
+                and not bool(event.get("replay_executed")),
+                "static_training_absent": not bool(
+                    executor.get("trains_runtime_model")
+                )
+                and not bool(event.get("training_executed")),
+            }
+            ready = all(required.values())
+            verified_cycles = (
+                deepcopy(applied_cycles) if ready else []
+            )
+            review = {
+                "newborn_neuron_critical_period_learning_event_hash": (
+                    event_hash
+                ),
+                "preflight_hash": str(event.get("preflight_hash") or ""),
+                "thought_newborn_neuron_critical_period_learning_design_hash": str(
+                    event.get(
+                        "thought_newborn_neuron_critical_period_"
+                        "learning_design_hash"
+                    )
+                    or ""
+                ),
+                "newborn_neuron_integration_event_hash": str(
+                    event.get("newborn_neuron_integration_event_hash") or ""
+                ),
+                "observation_window_id": str(
+                    event.get("observation_window_id") or ""
+                ),
+                "observation_window_hash": str(
+                    event.get("observation_window_hash") or ""
+                ),
+                "before_state_revision": before_event_revision,
+                "after_state_revision": after_event_revision,
+                "actual_device": str(event.get("actual_device") or ""),
+                "tensor_is_cuda": bool(event.get("tensor_is_cuda")),
+                "verified_cycle_count": len(verified_cycles),
+                "verified_applied_learning_cycles": verified_cycles,
+                "critical_period_synapse_count": (
+                    critical_period_count if ready else 0
+                ),
+                "mature_synapse_count": mature_count if ready else 0,
+                "prune_eligible_synapse_count": (
+                    prune_eligible_count if ready else 0
+                ),
+                "sparse_dense_developmental_provenance_consistent": bool(
+                    required["all_applied_cycles_verified"]
+                ),
+                "operator_approval_required": False,
+                "next_cycle_applied": False,
+                "pruning_applied": False,
+                "language_generation_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+            }
+            review_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_"
+                        "event_review.v1"
+                    ),
+                    "expected_state_revision": int(expected_state_revision),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "review": review,
+                }
+            )
+            continuation_ready = ready and critical_period_count > 0
+            outcome_ready = ready and (
+                mature_count > 0 or prune_eligible_count > 0
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_event_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_event_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_event_review"
+                ),
+                "available": bool(executor),
+                "ready": ready,
+                "accepted": ready,
+                "review_hash": review_hash,
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "newborn_neuron_critical_period_learning_event_hash": (
+                    event_hash
+                ),
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "critical_period_learning_event_review": review,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "neuron_critical_period_learning_continuation_design"
+                        if continuation_ready
+                        else (
+                            "ready_for_autonomous_snn_language_thought_"
+                            "newborn_neuron_maturation_outcome_review"
+                            if outcome_ready
+                            else "blocked_missing_autonomous_snn_language_"
+                            "thought_newborn_neuron_critical_period_"
+                            "learning_event_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "neuron_critical_period_learning_continuation_design": (
+                        continuation_ready
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "neuron_maturation_outcome_review": outcome_ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_continuation_design"
+                        if continuation_ready
+                        else (
+                            "autonomous_snn_language_thought_newborn_neuron_"
+                            "maturation_outcome_review"
+                            if outcome_ready
+                            else "collect_sparse_dense_developmental_"
+                            "provenance_and_checkpoint_evidence"
+                        )
+                    ),
+                    "required_evidence": required,
+                    "cycle_evidence": cycle_evidence,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review: Mapping[
+            str, Any
+        ],
+    ) -> dict[str, Any]:
+        """Reconstruct the next developmental cycle from reviewed live state."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review
+                or {}
+            )
+            review = (
+                dict(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_event_review"
+                    )
+                )
+                if isinstance(
+                    artifact.get(
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_event_review"
+                    ),
+                    Mapping,
+                )
+                else {}
+            )
+            gate = (
+                dict(artifact.get("promotion_gate"))
+                if isinstance(artifact.get("promotion_gate"), Mapping)
+                else {}
+            )
+            verified_cycles = [
+                dict(item)
+                for item in list(
+                    review.get("verified_applied_learning_cycles") or []
+                )
+                if isinstance(item, Mapping)
+            ]
+            continuing_cycles = [
+                item
+                for item in verified_cycles
+                if item.get("current_maturation_state")
+                == "critical_period"
+                and int(
+                    item.get("critical_period_cycles_remaining", 0) or 0
+                )
+                > 0
+            ]
+            learning_candidates: list[dict[str, Any]] = []
+            for item in continuing_cycles:
+                candidate = {
+                    "synapse": str(item.get("synapse") or ""),
+                    "source_neuron_index": int(
+                        item.get("source_neuron_index", -1)
+                    ),
+                    "target_neuron_index": int(
+                        item.get("target_neuron_index", -1)
+                    ),
+                    "newborn_integration_synapse_hash": str(
+                        item.get("newborn_integration_synapse_hash") or ""
+                    ),
+                    "parent_critical_period_learning_application_hash": str(
+                        item.get(
+                            "critical_period_learning_application_hash"
+                        )
+                        or ""
+                    ),
+                    "initial_weight": float(
+                        item.get("applied_weight", 0.0) or 0.0
+                    ),
+                    "current_weight": float(
+                        item.get("applied_weight", 0.0) or 0.0
+                    ),
+                    "min_weight": float(
+                        item.get("min_weight", 0.0) or 0.0
+                    ),
+                    "max_weight": float(
+                        item.get("max_weight", 0.0) or 0.0
+                    ),
+                    "max_learning_rate": float(
+                        item.get("max_learning_rate", 0.0) or 0.0
+                    ),
+                    "depression_ratio": float(
+                        item.get("depression_ratio", 0.0) or 0.0
+                    ),
+                    "stdp_window_ms": float(
+                        item.get("stdp_window_ms", 0.0) or 0.0
+                    ),
+                    "target_firing_rate_hz": float(
+                        item.get("target_firing_rate_hz", 0.0) or 0.0
+                    ),
+                    "homeostatic_min_firing_rate_hz": float(
+                        item.get(
+                            "homeostatic_min_firing_rate_hz", 0.0
+                        )
+                        or 0.0
+                    ),
+                    "homeostatic_max_firing_rate_hz": float(
+                        item.get(
+                            "homeostatic_max_firing_rate_hz", 0.0
+                        )
+                        or 0.0
+                    ),
+                    "critical_period_cycles": int(
+                        item.get("critical_period_cycles", 0) or 0
+                    ),
+                    "critical_period_age_cycles": int(
+                        item.get("critical_period_age_cycles", 0) or 0
+                    ),
+                    "critical_period_cycles_remaining": int(
+                        item.get(
+                            "critical_period_cycles_remaining", 0
+                        )
+                        or 0
+                    ),
+                    "minimum_survival_active_cycles": int(
+                        item.get(
+                            "minimum_survival_active_cycles", 0
+                        )
+                        or 0
+                    ),
+                    "active_cycle_count": int(
+                        item.get("active_cycle_count", 0) or 0
+                    ),
+                    "inactive_cycle_count": int(
+                        item.get("inactive_cycle_count", 0) or 0
+                    ),
+                    "inactivity_prune_cycles": int(
+                        item.get("inactivity_prune_cycles", 0) or 0
+                    ),
+                    "learning_rule": str(
+                        item.get("learning_rule") or ""
+                    ),
+                    "survival_rule": str(
+                        item.get("survival_rule") or ""
+                    ),
+                    "maturation_states": deepcopy(
+                        list(item.get("maturation_states") or [])
+                    ),
+                    "current_maturation_state": "critical_period",
+                    "weight_update_applied": False,
+                    "maturation_decided": False,
+                    "pruning_applied": False,
+                }
+                candidate[
+                    "critical_period_learning_candidate_hash"
+                ] = self._sha256_json(candidate)
+                learning_candidates.append(candidate)
+            required = {
+                "event_review_surface_available": artifact.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_event_review.v1"
+                ),
+                "event_review_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_"
+                        "continuation_design"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                )
+                and not bool(review.get("operator_approval_required")),
+                "event_review_hash_available": len(
+                    str(artifact.get("review_hash") or "")
+                )
+                == 64,
+                "learning_event_hash_available": len(
+                    str(
+                        review.get(
+                            "newborn_neuron_critical_period_learning_"
+                            "event_hash"
+                        )
+                        or ""
+                    )
+                )
+                == 64,
+                "developmental_state_consistent": bool(
+                    review.get(
+                        "sparse_dense_developmental_provenance_consistent"
+                    )
+                ),
+                "continuing_cycles_available": bool(continuing_cycles),
+                "learning_candidates_complete": bool(learning_candidates)
+                and len(learning_candidates) == len(continuing_cycles),
+                "candidate_policy_complete": all(
+                    float(item.get("max_learning_rate", 0.0) or 0.0)
+                    > 0.0
+                    and float(item.get("stdp_window_ms", 0.0) or 0.0)
+                    > 0.0
+                    and int(
+                        item.get(
+                            "critical_period_cycles_remaining", 0
+                        )
+                        or 0
+                    )
+                    > 0
+                    for item in learning_candidates
+                ),
+                "candidate_hashes_available": all(
+                    len(
+                        str(
+                            item.get(
+                                "critical_period_learning_candidate_hash"
+                            )
+                            or ""
+                        )
+                    )
+                    == 64
+                    for item in learning_candidates
+                ),
+            }
+            ready = all(required.values())
+            design = {
+                "newborn_neuron_critical_period_learning_event_review_hash": str(
+                    artifact.get("review_hash") or ""
+                ),
+                "newborn_neuron_critical_period_learning_event_hash": str(
+                    review.get(
+                        "newborn_neuron_critical_period_learning_event_hash"
+                    )
+                    or ""
+                ),
+                "newborn_neuron_integration_event_hash": str(
+                    review.get("newborn_neuron_integration_event_hash") or ""
+                ),
+                "state_revision": int(
+                    review.get("after_state_revision", -1)
+                    if review.get("after_state_revision") is not None
+                    else -1
+                ),
+                "actual_device": str(review.get("actual_device") or ""),
+                "tensor_is_cuda": bool(review.get("tensor_is_cuda")),
+                "continuation": True,
+                "learning_candidate_count": (
+                    len(learning_candidates) if ready else 0
+                ),
+                "learning_candidates": (
+                    learning_candidates if ready else []
+                ),
+                "operator_approval_required": False,
+                "learning_applied": False,
+                "maturation_decided": False,
+                "pruning_applied": False,
+                "language_generation_allowed": False,
+                "fact_promotion_allowed": False,
+                "action_allowed": False,
+            }
+            design_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_design.v1"
+                    ),
+                    "continuation": True,
+                    "ready": ready,
+                    "required_evidence": required,
+                    "design": design,
+                }
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_"
+                    "continuation_design"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_design.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_continuation_design"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "thought_newborn_neuron_critical_period_learning_design_hash": (
+                    design_hash
+                ),
+                "requires_operator_approval": False,
+                "owned_by_marulho": True,
+                "external_dependency": False,
+                "loads_external_checkpoint": False,
+                "advisory": True,
+                "executable": False,
+                "records_ledger_event": False,
+                "runs_replay": False,
+                "writes_checkpoint": False,
+                "generates_text": False,
+                "decodes_text": False,
+                "trains_runtime_model": False,
+                "applies_plasticity": False,
+                "resizes_network": False,
+                "adds_neurons": False,
+                "adds_synapses": False,
+                "prunes_network": False,
+                "mutates_runtime_state": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "critical_period_learning_design": design,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "neuron_critical_period_learning_preflight"
+                        if ready
+                        else "blocked_missing_reviewed_critical_period_"
+                        "continuation_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "neuron_critical_period_learning_preflight": ready,
+                    "eligible_for_language_generation": False,
+                    "eligible_for_replay_memory": False,
+                    "eligible_for_plasticity_application": False,
+                    "eligible_for_cognition_substrate": False,
+                    "eligible_for_fact_promotion": False,
+                    "eligible_for_action": False,
+                    "next_gate": (
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_preflight"
+                        if ready
+                        else "collect_reviewed_open_critical_period_state"
+                    ),
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review: Mapping[
+            str, Any
+        ],
+    ) -> dict[str, Any]:
+        """Separate reviewed terminal synapses into retained and prune candidates."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review
+                or {}
+            )
+            review = dict(
+                artifact.get(
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_event_review"
+                )
+                or {}
+            )
+            gate = dict(artifact.get("promotion_gate") or {})
+            cycles = [
+                dict(item)
+                for item in list(
+                    review.get("verified_applied_learning_cycles") or []
+                )
+                if isinstance(item, Mapping)
+            ]
+            terminal = [
+                item
+                for item in cycles
+                if str(item.get("current_maturation_state") or "")
+                in {"mature", "prune_eligible"}
+                and bool(item.get("maturation_decided"))
+                and int(item.get("critical_period_cycles_remaining", -1)) == 0
+            ]
+            retained = [
+                deepcopy(item)
+                for item in terminal
+                if item.get("current_maturation_state") == "mature"
+            ]
+            prune_candidates: list[dict[str, Any]] = []
+            for item in terminal:
+                if item.get("current_maturation_state") != "prune_eligible":
+                    continue
+                candidate = {
+                    "synapse": str(item.get("synapse") or ""),
+                    "source_neuron_index": int(
+                        item.get("source_neuron_index", -1)
+                    ),
+                    "target_neuron_index": int(
+                        item.get("target_neuron_index", -1)
+                    ),
+                    "current_weight": float(
+                        item.get("applied_weight", 0.0) or 0.0
+                    ),
+                    "critical_period_age_cycles": int(
+                        item.get("critical_period_age_cycles", 0) or 0
+                    ),
+                    "critical_period_cycles": int(
+                        item.get("critical_period_cycles", 0) or 0
+                    ),
+                    "active_cycle_count": int(
+                        item.get("active_cycle_count", 0) or 0
+                    ),
+                    "inactive_cycle_count": int(
+                        item.get("inactive_cycle_count", 0) or 0
+                    ),
+                    "minimum_survival_active_cycles": int(
+                        item.get("minimum_survival_active_cycles", 0) or 0
+                    ),
+                    "critical_period_learning_application_hash": str(
+                        item.get(
+                            "critical_period_learning_application_hash"
+                        )
+                        or ""
+                    ),
+                    "newborn_integration_synapse_hash": str(
+                        item.get("newborn_integration_synapse_hash") or ""
+                    ),
+                    "terminal_maturation_state": "prune_eligible",
+                    "pruning_applied": False,
+                }
+                candidate["newborn_synapse_pruning_candidate_hash"] = (
+                    self._sha256_json(candidate)
+                )
+                prune_candidates.append(candidate)
+            required = {
+                "event_review_surface_available": artifact.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_critical_period_learning_event_review.v1"
+                ),
+                "event_review_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_maturation_outcome_review"
+                    )
+                ),
+                "event_review_hash_available": len(
+                    str(artifact.get("review_hash") or "")
+                )
+                == 64,
+                "terminal_cycles_available": bool(terminal),
+                "all_terminal_cycles_closed": bool(terminal)
+                and len(terminal)
+                == int(review.get("mature_synapse_count", 0) or 0)
+                + int(
+                    review.get("prune_eligible_synapse_count", 0) or 0
+                ),
+                "developmental_state_consistent": bool(
+                    review.get(
+                        "sparse_dense_developmental_provenance_consistent"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                )
+                and not bool(review.get("operator_approval_required")),
+            }
+            ready = all(required.values())
+            outcome = {
+                "critical_period_learning_event_review_hash": str(
+                    artifact.get("review_hash") or ""
+                ),
+                "newborn_neuron_critical_period_learning_event_hash": str(
+                    review.get(
+                        "newborn_neuron_critical_period_learning_event_hash"
+                    )
+                    or ""
+                ),
+                "state_revision": int(
+                    review.get("after_state_revision", -1)
+                ),
+                "actual_device": str(review.get("actual_device") or ""),
+                "tensor_is_cuda": bool(review.get("tensor_is_cuda")),
+                "terminal_synapse_count": len(terminal) if ready else 0,
+                "retained_mature_synapse_count": (
+                    len(retained) if ready else 0
+                ),
+                "retained_mature_synapses": retained if ready else [],
+                "prune_candidate_count": (
+                    len(prune_candidates) if ready else 0
+                ),
+                "prune_candidates": prune_candidates if ready else [],
+                "operator_approval_required": False,
+                "pruning_applied": False,
+            }
+            outcome_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_maturation_outcome_review.v1"
+                    ),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "outcome": outcome,
+                }
+            )
+            prune_ready = ready and bool(prune_candidates)
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_maturation_outcome_review"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_maturation_outcome_review.v1"
+                ),
+                "source": (
+                    "service.snn_language_readout_ledger."
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "maturation_outcome_review"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "maturation_outcome_review_hash": outcome_hash,
+                "requires_operator_approval": False,
+                "advisory": True,
+                "executable": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "applies_plasticity": False,
+                "prunes_network": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "autonomous_snn_language_thought_newborn_neuron_"
+                "maturation_outcome_review": outcome,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "synapse_pruning_design"
+                        if prune_ready
+                        else (
+                            "mature_newborn_synapses_retained"
+                            if ready
+                            else "blocked_missing_terminal_maturation_evidence"
+                        )
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "synapse_pruning_design": prune_ready,
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_synapse_pruning_design(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review: Mapping[
+            str, Any
+        ],
+    ) -> dict[str, Any]:
+        """Design exact synapse removals from reviewed developmental outcomes."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review
+                or {}
+            )
+            outcome = dict(
+                artifact.get(
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "maturation_outcome_review"
+                )
+                or {}
+            )
+            gate = dict(artifact.get("promotion_gate") or {})
+            candidates = [
+                deepcopy(dict(item))
+                for item in list(outcome.get("prune_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            required = {
+                "outcome_review_surface_available": artifact.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_neuron_maturation_outcome_review.v1"
+                ),
+                "outcome_review_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_synapse_pruning_design"
+                    )
+                ),
+                "outcome_review_hash_available": len(
+                    str(
+                        artifact.get("maturation_outcome_review_hash") or ""
+                    )
+                )
+                == 64,
+                "prune_candidates_available": bool(candidates),
+                "all_candidates_terminal": all(
+                    item.get("terminal_maturation_state")
+                    == "prune_eligible"
+                    and not bool(item.get("pruning_applied"))
+                    and len(
+                        str(
+                            item.get(
+                                "newborn_synapse_pruning_candidate_hash"
+                            )
+                            or ""
+                        )
+                    )
+                    == 64
+                    for item in candidates
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                )
+                and not bool(outcome.get("operator_approval_required")),
+            }
+            ready = all(required.values())
+            design = {
+                "maturation_outcome_review_hash": str(
+                    artifact.get("maturation_outcome_review_hash") or ""
+                ),
+                "critical_period_learning_event_review_hash": str(
+                    outcome.get(
+                        "critical_period_learning_event_review_hash"
+                    )
+                    or ""
+                ),
+                "state_revision": int(outcome.get("state_revision", -1)),
+                "actual_device": str(outcome.get("actual_device") or ""),
+                "tensor_is_cuda": bool(outcome.get("tensor_is_cuda")),
+                "prune_candidate_count": len(candidates) if ready else 0,
+                "prune_candidates": candidates if ready else [],
+                "mutation_scope": "newborn_synapses_only",
+                "neuron_capacity_reduction_allowed": False,
+                "operator_approval_required": False,
+                "pruning_applied": False,
+            }
+            design_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_synapse_pruning_design.v1"
+                    ),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "design": design,
+                }
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_synapse_pruning_design"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_synapse_pruning_design.v1"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "newborn_synapse_pruning_design_hash": design_hash,
+                "requires_operator_approval": False,
+                "advisory": True,
+                "executable": False,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "prunes_network": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "autonomous_snn_language_thought_newborn_synapse_"
+                "pruning_design": design,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "synapse_pruning_preflight"
+                        if ready
+                        else "blocked_missing_reviewed_prune_candidates"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "synapse_pruning_preflight": ready,
+                    "required_evidence": required,
+                },
+            }
+
+    def autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+        self,
+        *,
+        autonomous_snn_language_thought_newborn_synapse_pruning_design: Mapping[
+            str, Any
+        ],
+        expected_state_revision: int,
+        plasticity_runtime_state: Mapping[str, Any],
+        checkpoint_transaction: Mapping[str, Any] | None = None,
+        executor_capabilities: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Revalidate sparse, dense, developmental, and provenance state."""
+
+        with self._lock:
+            before_revision = int(self._runtime_state.state_revision)
+            artifact = dict(
+                autonomous_snn_language_thought_newborn_synapse_pruning_design
+                or {}
+            )
+            design = dict(
+                artifact.get(
+                    "autonomous_snn_language_thought_newborn_synapse_"
+                    "pruning_design"
+                )
+                or {}
+            )
+            gate = dict(artifact.get("promotion_gate") or {})
+            runtime = dict(plasticity_runtime_state or {})
+            checkpoint = dict(checkpoint_transaction or {})
+            capabilities = dict(executor_capabilities or {})
+            sparse = dict(runtime.get("sparse_transition_weights") or {})
+            provenance = dict(runtime.get("synapse_provenance_by_key") or {})
+            developmental = dict(
+                runtime.get(
+                    "newborn_neuron_critical_period_state_by_synapse"
+                )
+                or {}
+            )
+            dense_samples = {
+                str(item.get("synapse") or ""): dict(item)
+                for item in list(
+                    runtime.get("critical_period_learning_dense_samples")
+                    or []
+                )
+                if isinstance(item, Mapping)
+            }
+            candidates = [
+                dict(item)
+                for item in list(design.get("prune_candidates") or [])
+                if isinstance(item, Mapping)
+            ]
+            checks: list[dict[str, Any]] = []
+            for item in candidates:
+                synapse = str(item.get("synapse") or "")
+                source_index = int(item.get("source_neuron_index", -1))
+                target_index = int(item.get("target_neuron_index", -1))
+                weight = float(item.get("current_weight", 0.0) or 0.0)
+                live_development = dict(developmental.get(synapse) or {})
+                live_provenance = dict(provenance.get(synapse) or {})
+                dense = dense_samples.get(synapse, {})
+                item_checks = {
+                    "canonical_synapse": synapse
+                    == f"{source_index}:{target_index}",
+                    "sparse_edge_exists": synapse in sparse,
+                    "sparse_weight_matches": synapse in sparse
+                    and math.isclose(
+                        float(sparse[synapse]),
+                        weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "dense_weight_matches": bool(dense)
+                    and math.isclose(
+                        float(dense.get("weight", float("nan"))),
+                        weight,
+                        rel_tol=1e-7,
+                        abs_tol=1e-9,
+                    ),
+                    "developmental_state_terminal": (
+                        live_development.get("current_maturation_state")
+                        == "prune_eligible"
+                        and bool(live_development.get("maturation_decided"))
+                        and int(
+                            live_development.get(
+                                "critical_period_cycles_remaining", -1
+                            )
+                        )
+                        == 0
+                    ),
+                    "developmental_application_matches": str(
+                        live_development.get(
+                            "critical_period_learning_application_hash"
+                        )
+                        or ""
+                    )
+                    == str(
+                        item.get(
+                            "critical_period_learning_application_hash"
+                        )
+                        or ""
+                    ),
+                    "provenance_is_newborn": live_provenance.get(
+                        "provenance_type"
+                    )
+                    == "newborn_neuron_integration",
+                    "provenance_state_terminal": live_provenance.get(
+                        "current_maturation_state"
+                    )
+                    == "prune_eligible",
+                    "candidate_not_preapplied": not bool(
+                        item.get("pruning_applied")
+                    ),
+                }
+                checks.append(
+                    {
+                        "synapse": synapse,
+                        "checks": item_checks,
+                        "verified": all(item_checks.values()),
+                    }
+                )
+            required = {
+                "design_surface_available": artifact.get("surface")
+                == (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_synapse_pruning_design.v1"
+                ),
+                "design_ready": bool(artifact.get("accepted"))
+                and bool(artifact.get("ready"))
+                and bool(
+                    gate.get(
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_synapse_pruning_preflight"
+                    )
+                ),
+                "expected_revision_current": int(expected_state_revision)
+                == before_revision
+                == int(design.get("state_revision", -1)),
+                "design_hash_available": len(
+                    str(artifact.get("newborn_synapse_pruning_design_hash") or "")
+                )
+                == 64,
+                "runtime_surface_available": runtime.get("surface")
+                == "snn_language_plasticity_runtime_state.v1",
+                "candidates_available": bool(candidates),
+                "all_candidates_verified": bool(checks)
+                and all(item["verified"] for item in checks),
+                "checkpoint_saved": bool(
+                    checkpoint.get("pre_pruning_checkpoint_saved")
+                ),
+                "checkpoint_restore_verified": bool(
+                    checkpoint.get(
+                        "pre_pruning_checkpoint_restore_verified"
+                    )
+                ),
+                "executor_capability_available": bool(
+                    capabilities.get(
+                        "autonomous_snn_language_thought_newborn_"
+                        "synapse_pruning_executor"
+                    )
+                ),
+                "operator_approval_not_required": not bool(
+                    artifact.get("requires_operator_approval")
+                )
+                and not bool(design.get("operator_approval_required")),
+            }
+            ready = all(required.values())
+            preflight = {
+                "newborn_synapse_pruning_design_hash": str(
+                    artifact.get("newborn_synapse_pruning_design_hash") or ""
+                ),
+                "maturation_outcome_review_hash": str(
+                    design.get("maturation_outcome_review_hash") or ""
+                ),
+                "expected_state_revision": int(expected_state_revision),
+                "checkpoint_path": str(
+                    checkpoint.get("checkpoint_path") or ""
+                ),
+                "actual_device": str(design.get("actual_device") or ""),
+                "tensor_is_cuda": bool(design.get("tensor_is_cuda")),
+                "resolved_prune_count": len(candidates) if ready else 0,
+                "resolved_prune_candidates": candidates if ready else [],
+                "operator_approval_required": False,
+                "pruning_applied": False,
+            }
+            preflight_hash = self._sha256_json(
+                {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_synapse_pruning_preflight.v1"
+                    ),
+                    "ready": ready,
+                    "required_evidence": required,
+                    "candidate_evidence": checks,
+                    "preflight": preflight,
+                }
+            )
+            after_revision = int(self._runtime_state.state_revision)
+            return {
+                "artifact_kind": (
+                    "terminus_snn_language_autonomous_snn_language_thought_"
+                    "newborn_synapse_pruning_preflight"
+                ),
+                "surface": (
+                    "snn_language_autonomous_snn_language_thought_"
+                    "newborn_synapse_pruning_preflight.v1"
+                ),
+                "available": bool(artifact),
+                "ready": ready,
+                "accepted": ready,
+                "preflight_hash": preflight_hash,
+                "requires_operator_approval": False,
+                "advisory": True,
+                "executable": ready,
+                "mutates_runtime_state": False,
+                "writes_checkpoint": False,
+                "prunes_network": False,
+                "state_revision_unchanged": before_revision
+                == after_revision,
+                "autonomous_snn_language_thought_newborn_synapse_"
+                "pruning_preflight": preflight,
+                "promotion_gate": {
+                    "status": (
+                        "ready_for_autonomous_snn_language_thought_newborn_"
+                        "synapse_pruning_executor"
+                        if ready
+                        else "blocked_missing_live_terminal_synapse_evidence"
+                    ),
+                    "eligible_for_autonomous_snn_language_thought_newborn_"
+                    "synapse_pruning_executor": ready,
+                    "required_evidence": required,
+                    "candidate_evidence": checks,
+                },
+            }
+
     def emission_review_replay_evaluation_policy(
         self,
         *,
@@ -31488,6 +35879,10 @@ class SNNLanguageReadoutEvidenceLedger:
         restore_validation_not_mismatched = bool(
             not restore_validation_available or restore_summary_matches
         )
+        language_capacity = self._language_capacity_state(runtime)
+        language_neuron_count = int(
+            language_capacity["language_neuron_count"]
+        )
         raw_weights = dict(runtime.get("sparse_transition_weights") or {})
         weights: dict[str, float] = {}
         finite_weight_keys: set[str] = set()
@@ -31507,10 +35902,19 @@ class SNNLanguageReadoutEvidenceLedger:
                 finite_weight_keys.add(key_text)
                 if abs(weight) <= _MAX_READOUT_SYNAPSE_ABS_WEIGHT:
                     bounded_weight_keys.add(key_text)
-            if self._canonical_synapse_key(key_text):
+            if self._canonical_synapse_key(
+                key_text,
+                language_neuron_count=language_neuron_count,
+            ):
                 canonical_weight_keys.add(key_text)
             pre_index, post_index = self._split_synapse_key(key_text)
-            if self._valid_language_index(pre_index) and self._valid_language_index(post_index):
+            if self._valid_language_index(
+                pre_index,
+                language_neuron_count=language_neuron_count,
+            ) and self._valid_language_index(
+                post_index,
+                language_neuron_count=language_neuron_count,
+            ):
                 in_range_weight_keys.add(key_text)
         provenance_by_key = {
             str(key): dict(value)
@@ -31612,7 +36016,10 @@ class SNNLanguageReadoutEvidenceLedger:
                     and readout_hash == self._ledger_event_material_hash(ledger_event)
                 )
             )
-            canonical_key = self._canonical_synapse_key(key)
+            canonical_key = self._canonical_synapse_key(
+                key,
+                language_neuron_count=language_neuron_count,
+            )
             source_pre_indices = [
                 int(value)
                 for value in list(provenance.get("source_pre_indices") or [])
@@ -31632,7 +36039,10 @@ class SNNLanguageReadoutEvidenceLedger:
             weight = weights.get(key)
             weight_finite = bool(weight is not None and math.isfinite(float(weight)))
             source_indices_in_range = all(
-                self._valid_language_index(value)
+                self._valid_language_index(
+                    value,
+                    language_neuron_count=language_neuron_count,
+                )
                 for value in source_pre_indices + source_post_indices + source_active_indices
             )
             source_indices_match_synapse = (
@@ -31660,8 +36070,14 @@ class SNNLanguageReadoutEvidenceLedger:
                 ),
                 "canonical_synapse_key": canonical_key,
                 "synapse_indices_in_range": bool(
-                    self._valid_language_index(pre_index)
-                    and self._valid_language_index(post_index)
+                    self._valid_language_index(
+                        pre_index,
+                        language_neuron_count=language_neuron_count,
+                    )
+                    and self._valid_language_index(
+                        post_index,
+                        language_neuron_count=language_neuron_count,
+                    )
                 ),
                 "pre_index": pre_index,
                 "post_index": post_index,
@@ -33242,11 +37658,22 @@ class SNNLanguageReadoutEvidenceLedger:
         return int(parts[0]), int(parts[1])
 
     @classmethod
-    def _canonical_synapse_key(cls, key: str) -> bool:
+    def _canonical_synapse_key(
+        cls,
+        key: str,
+        *,
+        language_neuron_count: int = _LANGUAGE_NEURON_COUNT,
+    ) -> bool:
         pre_index, post_index = cls._split_synapse_key(key)
         return (
-            cls._valid_language_index(pre_index)
-            and cls._valid_language_index(post_index)
+            cls._valid_language_index(
+                pre_index,
+                language_neuron_count=language_neuron_count,
+            )
+            and cls._valid_language_index(
+                post_index,
+                language_neuron_count=language_neuron_count,
+            )
             and str(key) == f"{pre_index}:{post_index}"
         )
 
@@ -33279,11 +37706,20 @@ class SNNLanguageReadoutEvidenceLedger:
                 default=_MAX_OUTGOING_FANOUT,
                 minimum=_MAX_OUTGOING_FANOUT,
             ),
-            "dynamic_capacity_enabled": False,
+            "dynamic_capacity_enabled": bool(
+                raw.get("dynamic_capacity_enabled")
+            ),
             "capacity_expansion_count": cls._positive_capacity_int(
                 raw.get("capacity_expansion_count"),
                 default=0,
                 minimum=0,
+            ),
+            "resizes_network": bool(raw.get("resizes_network")),
+            "adds_neurons": bool(raw.get("adds_neurons")),
+            "adds_layers": bool(raw.get("adds_layers")),
+            "writes_checkpoint": bool(raw.get("writes_checkpoint")),
+            "last_capacity_mutation": deepcopy(
+                raw.get("last_capacity_mutation")
             ),
         }
 
@@ -33301,8 +37737,15 @@ class SNNLanguageReadoutEvidenceLedger:
         return max(int(minimum), normalized)
 
     @staticmethod
-    def _valid_language_index(value: int | None) -> bool:
-        return isinstance(value, int) and 0 <= int(value) < _LANGUAGE_NEURON_COUNT
+    def _valid_language_index(
+        value: int | None,
+        *,
+        language_neuron_count: int = _LANGUAGE_NEURON_COUNT,
+    ) -> bool:
+        return (
+            isinstance(value, int)
+            and 0 <= int(value) < max(_LANGUAGE_NEURON_COUNT, int(language_neuron_count))
+        )
 
 
 __all__ = ["SNNLanguageReadoutEvidenceLedger"]

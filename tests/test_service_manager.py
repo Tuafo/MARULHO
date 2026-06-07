@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 from functools import partial
@@ -34,6 +35,7 @@ from marulho.service.operator_interaction import (
     REQUEST_FEED_ENCODING_MODE,
 )
 from marulho.service.manager import MarulhoServiceManager
+from marulho.service.persistence import RuntimePersistence
 from marulho.service.runtime_sources import RuntimeSources, _BrainSourceRuntime, _SensorySourceRuntime
 from marulho.service.terminus_sensory import SensoryEpisode
 from marulho.training.checkpointing import save_trainer_checkpoint
@@ -260,6 +262,613 @@ class ServiceManagerBootstrapTests(unittest.TestCase):
 
 
 class ServiceManagerCheckpointTests(unittest.TestCase):
+    def test_snn_language_checkpoint_snapshot_compares_normalized_tensor_state(
+        self,
+    ) -> None:
+        expected = {
+            "dense_readout_weights": torch.eye(2, dtype=torch.float32),
+            "language_capacity": {
+                "language_neuron_count": 66,
+                "sparse_edge_budget": 258,
+                "outgoing_fanout_budget": 16,
+                "dynamic_capacity_enabled": True,
+                "capacity_expansion_count": 1,
+                "resizes_network": True,
+                "adds_neurons": True,
+                "writes_checkpoint": True,
+            },
+        }
+        saved = RuntimePersistence._snn_language_plasticity_checkpoint_state(
+            expected
+        )
+        metadata = {
+            "state_revision": 3,
+            "service_state": {"snn_language_plasticity": saved},
+        }
+
+        with patch(
+            "marulho.service.manager.load_trainer_checkpoint",
+            return_value=(object(), metadata),
+        ):
+            verified = (
+                MarulhoServiceManager._verify_snn_language_checkpoint_snapshot(
+                    Path("checkpoint.pt"),
+                    expected,
+                    3,
+                )
+            )
+
+        self.assertTrue(verified)
+
+    def test_manager_executes_checkpoint_backed_thought_capacity_growth(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            manager = _build_manager(
+                root,
+                test_case="service_manager_thought_capacity_growth",
+            )
+            try:
+                revision = int(manager._runtime_state.state_revision)
+                preflight = {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "capacity_mutation_preflight.v1"
+                    ),
+                    "accepted": True,
+                    "ready": True,
+                    "preflight_hash": "a" * 64,
+                    "requires_operator_approval": False,
+                    "loads_external_checkpoint": False,
+                    "runs_replay": False,
+                    "trains_runtime_model": False,
+                    "autonomous_snn_language_thought_capacity_mutation_preflight": {
+                        "thought_capacity_mutation_design_hash": "b" * 64,
+                        "structural_event_review_hash": "c" * 64,
+                        "memory_trace_hash": "d" * 64,
+                        "expected_state_revision": revision,
+                        "requested_device": "cpu",
+                        "cuda_relayout_verified": True,
+                        "executor_ready": True,
+                        "checkpoint_saved": True,
+                        "restore_verified": True,
+                        "current_neuron_capacity": 64,
+                        "target_neuron_capacity": 66,
+                        "current_sparse_synapse_budget": 256,
+                        "target_sparse_synapse_budget": 258,
+                        "current_dense_shape": [64, 64],
+                        "target_dense_shape": [66, 66],
+                        "preserved_dense_shape": [64, 64],
+                        "zero_initialized_new_rows": 2,
+                        "zero_initialized_new_cols": 2,
+                        "growth_candidate_count": 1,
+                        "growth_candidates": [
+                            {
+                                "candidate_id": "growth-manager-1",
+                                "applied_to_runtime": True,
+                            }
+                        ],
+                        "prune_candidates": [],
+                        "operator_approval_required": False,
+                        "execution_allowed": False,
+                    },
+                    "promotion_gate": {
+                        "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor": True,
+                        "required_evidence": {
+                            "cuda_relayout_verified": True,
+                            "checkpoint_saved": True,
+                            "restore_verified": True,
+                            "executor_capability_available": True,
+                        },
+                    },
+                }
+
+                result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_capacity_mutation_executor(
+                    autonomous_snn_language_thought_capacity_mutation_preflight=preflight,
+                    expected_state_revision=revision,
+                    checkpoint_path=str(root / "thought-capacity.pt"),
+                    requested_device="cpu",
+                )
+                review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
+                    autonomous_snn_language_thought_capacity_mutation_executor=result,
+                    expected_state_revision=revision + 1,
+                )
+                runtime = (
+                    manager.runtime_facade.snn_language_plasticity_runtime_state()
+                )
+
+                self.assertTrue(result["accepted"])
+                self.assertTrue(result["checkpoint_transaction"]["restore_verified"])
+                self.assertEqual(runtime["dense_readout_tensor"]["shape"], [66, 66])
+                self.assertEqual(runtime["language_neuron_count"], 66)
+                self.assertTrue(
+                    runtime["language_capacity"]["dynamic_capacity_enabled"]
+                )
+                self.assertEqual(manager._runtime_state.state_revision, revision + 1)
+                self.assertTrue(review["accepted"])
+                self.assertEqual(
+                    review["surface"],
+                    "snn_language_autonomous_snn_language_thought_capacity_mutation_event_review.v1",
+                )
+                self.assertFalse(review["requires_operator_approval"])
+                self.assertFalse(review["mutates_runtime_state"])
+                self.assertFalse(review["writes_checkpoint"])
+                self.assertTrue(
+                    review["promotion_gate"][
+                        "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_design"
+                    ]
+                )
+                tampered_executor = deepcopy(result)
+                tampered_executor[
+                    "autonomous_snn_language_thought_capacity_mutation_event"
+                ]["added_neuron_capacity"] = 3
+                tampered_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_capacity_mutation_event_review(
+                    autonomous_snn_language_thought_capacity_mutation_executor=(
+                        tampered_executor
+                    ),
+                    expected_state_revision=revision + 1,
+                )
+                self.assertFalse(tampered_review["accepted"])
+                self.assertFalse(
+                    tampered_review["promotion_gate"]["required_evidence"][
+                        "event_hash_recomputed_match"
+                    ]
+                )
+                self.assertFalse(
+                    tampered_review["promotion_gate"]["required_evidence"][
+                        "runtime_event_matches_executor"
+                    ]
+                )
+                integration_preflight = {
+                    "surface": (
+                        "snn_language_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_preflight.v1"
+                    ),
+                    "accepted": True,
+                    "ready": True,
+                    "preflight_hash": "p" * 64,
+                    "requires_operator_approval": False,
+                    "loads_external_checkpoint": False,
+                    "runs_replay": False,
+                    "trains_runtime_model": False,
+                    "autonomous_snn_language_thought_newborn_neuron_integration_preflight": {
+                        "thought_newborn_neuron_integration_design_hash": "n"
+                        * 64,
+                        "capacity_mutation_event_hash": result[
+                            "autonomous_snn_language_thought_capacity_mutation_event"
+                        ]["capacity_mutation_event_hash"],
+                        "observation_window_id": "manager-window-1",
+                        "observation_window_hash": "o" * 64,
+                        "expected_state_revision": revision + 1,
+                        "current_neuron_capacity": 64,
+                        "target_neuron_capacity": 66,
+                        "newborn_neuron_indices": [64, 65],
+                        "resolved_candidate_count": 2,
+                        "resolved_integration_candidates": [
+                            {
+                                "integration_candidate_id": "manager-newborn-64",
+                                "integration_candidate_hash": "i" * 64,
+                                "source_candidate_hash": "s" * 64,
+                                "source_resolution_hash": "r" * 64,
+                                "source_neuron_index": 4,
+                                "target_neuron_index": 64,
+                                "synapse": "4:64",
+                                "active_neuron_hash": "a" * 64,
+                                "spike_projection_hash": "b" * 64,
+                                "membrane_state_hash": "c" * 64,
+                                "coactivation_event_count": 7,
+                                "source_firing_rate_hz": 8.0,
+                                "target_firing_rate_hz": 4.0,
+                                "max_firing_rate_hz": 16.0,
+                                "critical_period_cycles": 64,
+                                "inactivity_prune_cycles": 128,
+                                "max_seed_synapses": 2,
+                                "max_initial_weight": 0.04,
+                            },
+                            {
+                                "integration_candidate_id": "manager-newborn-65",
+                                "integration_candidate_hash": "j" * 64,
+                                "source_candidate_hash": "t" * 64,
+                                "source_resolution_hash": "q" * 64,
+                                "source_neuron_index": 5,
+                                "target_neuron_index": 65,
+                                "synapse": "5:65",
+                                "active_neuron_hash": "d" * 64,
+                                "spike_projection_hash": "e" * 64,
+                                "membrane_state_hash": "f" * 64,
+                                "coactivation_event_count": 8,
+                                "source_firing_rate_hz": 9.0,
+                                "target_firing_rate_hz": 4.0,
+                                "max_firing_rate_hz": 16.0,
+                                "critical_period_cycles": 64,
+                                "inactivity_prune_cycles": 128,
+                                "max_seed_synapses": 2,
+                                "max_initial_weight": 0.04,
+                            },
+                        ],
+                        "source_indices_resolved": True,
+                        "operator_approval_required": False,
+                    },
+                    "promotion_gate": {
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_integration_executor": True,
+                        "required_evidence": {
+                            "all_candidate_sources_resolved": True,
+                            "checkpoint_saved": True,
+                            "checkpoint_restore_verified": True,
+                            "executor_capability_available": True,
+                        },
+                    },
+                }
+                integration_result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor(
+                    autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
+                        integration_preflight
+                    ),
+                    expected_state_revision=revision + 1,
+                    checkpoint_path=str(root / "newborn-integration.pt"),
+                )
+                integrated_runtime = (
+                    manager.runtime_facade.snn_language_plasticity_runtime_state()
+                )
+                integration_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+                    autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+                        integration_result
+                    ),
+                    expected_state_revision=revision + 2,
+                )
+
+                self.assertTrue(integration_result["accepted"])
+                self.assertTrue(
+                    integration_result["checkpoint_transaction"][
+                        "post_integration_checkpoint_restore_verified"
+                    ]
+                )
+                self.assertEqual(
+                    integrated_runtime["sparse_transition_weights"]["4:64"],
+                    0.01,
+                )
+                self.assertEqual(
+                    integrated_runtime["sparse_transition_weights"]["5:65"],
+                    0.01,
+                )
+                self.assertEqual(
+                    integrated_runtime[
+                        "thought_newborn_neuron_integration_count"
+                    ],
+                    1,
+                )
+                self.assertEqual(
+                    manager._runtime_state.state_revision,
+                    revision + 2,
+                )
+                self.assertTrue(
+                    integration_review["accepted"],
+                    integration_review["promotion_gate"],
+                )
+                self.assertFalse(
+                    integration_review["requires_operator_approval"]
+                )
+                self.assertTrue(
+                    integration_review[
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "integration_event_review"
+                    ]["sparse_dense_provenance_consistent"]
+                )
+                self.assertTrue(
+                    integration_review["promotion_gate"][
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_design"
+                    ]
+                )
+                learning_design = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+                    autonomous_snn_language_thought_newborn_neuron_integration_event_review=(
+                        integration_review
+                    )
+                )
+                learning_candidates = learning_design[
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_design"
+                ]["learning_candidates"]
+                activity_rows = []
+                for candidate in learning_candidates:
+                    activity_material = {
+                        "synapse": candidate["synapse"],
+                        "critical_period_learning_candidate_hash": candidate[
+                            "critical_period_learning_candidate_hash"
+                        ],
+                        "cycle_index": 1,
+                        "pre_spike_times_ms": [1.0, 10.0],
+                        "post_spike_times_ms": [5.0, 12.0],
+                        "newborn_firing_rate_hz": 4.0,
+                        "prediction_error": 0.2,
+                        "device": candidate.get("actual_device", "cpu"),
+                        "tensor_is_cuda": bool(
+                            candidate.get("tensor_is_cuda")
+                        ),
+                    }
+                    activity_rows.append(
+                        {
+                            **activity_material,
+                            "candidate_activity_hash": (
+                                manager._snn_language_readout_ledger._sha256_json(
+                                    activity_material
+                                )
+                            ),
+                        }
+                    )
+                activity_window_material = {
+                    "surface": (
+                        "snn_language_newborn_critical_period_activity.v1"
+                    ),
+                    "state_revision": revision + 2,
+                    "observation_window_id": "manager-critical-window-1",
+                    "device": learning_design[
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                    ]["actual_device"],
+                    "tensor_is_cuda": learning_design[
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                    ]["tensor_is_cuda"],
+                    "candidate_observations": [
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key != "candidate_activity_hash"
+                        }
+                        for row in sorted(
+                            activity_rows,
+                            key=lambda item: item["synapse"],
+                        )
+                    ],
+                }
+                activity_evidence = {
+                    **activity_window_material,
+                    "candidate_observations": activity_rows,
+                    "observation_window_hash": (
+                        manager._snn_language_readout_ledger._sha256_json(
+                            activity_window_material
+                        )
+                    ),
+                }
+                learning_preflight = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+                        learning_design
+                    ),
+                    expected_state_revision=revision + 2,
+                    critical_period_activity_evidence=activity_evidence,
+                    checkpoint_transaction={
+                        "checkpoint_path": str(
+                            root / "critical-period-learning.pt"
+                        ),
+                        "pre_learning_checkpoint_saved": True,
+                        "pre_learning_checkpoint_restore_verified": True,
+                    },
+                    executor_capabilities={
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_executor": True
+                    },
+                )
+                learning_result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+                        learning_preflight
+                    ),
+                    expected_state_revision=revision + 2,
+                    checkpoint_path=str(
+                        root / "critical-period-learning.pt"
+                    ),
+                )
+                learned_runtime = (
+                    manager.runtime_facade.snn_language_plasticity_runtime_state()
+                )
+
+                self.assertTrue(learning_design["accepted"])
+                self.assertTrue(learning_preflight["accepted"])
+                self.assertTrue(learning_result["accepted"])
+                self.assertAlmostEqual(
+                    learned_runtime["sparse_transition_weights"]["4:64"],
+                    0.013125,
+                )
+                self.assertAlmostEqual(
+                    learned_runtime["sparse_transition_weights"]["5:65"],
+                    0.013125,
+                )
+                self.assertEqual(
+                    learned_runtime[
+                        "thought_newborn_neuron_critical_period_"
+                        "learning_cycle_count"
+                    ],
+                    1,
+                )
+                self.assertEqual(
+                    manager._runtime_state.state_revision,
+                    revision + 3,
+                )
+                learning_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor=(
+                        learning_result
+                    ),
+                    expected_state_revision=revision + 3,
+                )
+                tampered_learning_result = deepcopy(learning_result)
+                tampered_learning_result[
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_event"
+                ]["applied_learning_cycles"][0]["applied_weight"] = 0.5
+                tampered_learning_review = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor=(
+                        tampered_learning_result
+                    ),
+                    expected_state_revision=revision + 3,
+                )
+                continuation_design = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=(
+                        learning_review
+                    )
+                )
+                continuation_candidates = continuation_design[
+                    "autonomous_snn_language_thought_newborn_neuron_"
+                    "critical_period_learning_design"
+                ]["learning_candidates"]
+                continuation_activity_rows = []
+                for candidate in continuation_candidates:
+                    activity_material = {
+                        "synapse": candidate["synapse"],
+                        "critical_period_learning_candidate_hash": candidate[
+                            "critical_period_learning_candidate_hash"
+                        ],
+                        "cycle_index": 2,
+                        "pre_spike_times_ms": [1.0, 10.0],
+                        "post_spike_times_ms": [5.0, 12.0],
+                        "newborn_firing_rate_hz": 4.0,
+                        "prediction_error": 0.18,
+                        "device": continuation_design[
+                            "autonomous_snn_language_thought_newborn_neuron_"
+                            "critical_period_learning_design"
+                        ]["actual_device"],
+                        "tensor_is_cuda": continuation_design[
+                            "autonomous_snn_language_thought_newborn_neuron_"
+                            "critical_period_learning_design"
+                        ]["tensor_is_cuda"],
+                    }
+                    continuation_activity_rows.append(
+                        {
+                            **activity_material,
+                            "candidate_activity_hash": (
+                                manager._snn_language_readout_ledger._sha256_json(
+                                    activity_material
+                                )
+                            ),
+                        }
+                    )
+                continuation_window_material = {
+                    "surface": (
+                        "snn_language_newborn_critical_period_activity.v1"
+                    ),
+                    "state_revision": revision + 3,
+                    "observation_window_id": "manager-critical-window-2",
+                    "device": continuation_design[
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                    ]["actual_device"],
+                    "tensor_is_cuda": continuation_design[
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_design"
+                    ]["tensor_is_cuda"],
+                    "candidate_observations": [
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key != "candidate_activity_hash"
+                        }
+                        for row in sorted(
+                            continuation_activity_rows,
+                            key=lambda item: item["synapse"],
+                        )
+                    ],
+                }
+                continuation_activity_evidence = {
+                    **continuation_window_material,
+                    "candidate_observations": continuation_activity_rows,
+                    "observation_window_hash": (
+                        manager._snn_language_readout_ledger._sha256_json(
+                            continuation_window_material
+                        )
+                    ),
+                }
+                continuation_preflight = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+                        continuation_design
+                    ),
+                    expected_state_revision=revision + 3,
+                    critical_period_activity_evidence=(
+                        continuation_activity_evidence
+                    ),
+                    checkpoint_transaction={
+                        "checkpoint_path": str(
+                            root / "critical-period-learning-2.pt"
+                        ),
+                        "pre_learning_checkpoint_saved": True,
+                        "pre_learning_checkpoint_restore_verified": True,
+                    },
+                    executor_capabilities={
+                        "autonomous_snn_language_thought_newborn_neuron_"
+                        "critical_period_learning_executor": True
+                    },
+                )
+                continuation_result = manager.runtime_facade.snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor(
+                    autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+                        continuation_preflight
+                    ),
+                    expected_state_revision=revision + 3,
+                    checkpoint_path=str(
+                        root / "critical-period-learning-2.pt"
+                    ),
+                )
+                continued_runtime = (
+                    manager.runtime_facade.snn_language_plasticity_runtime_state()
+                )
+
+                self.assertTrue(learning_review["accepted"])
+                self.assertFalse(tampered_learning_review["accepted"])
+                self.assertFalse(
+                    tampered_learning_review["promotion_gate"][
+                        "required_evidence"
+                    ]["event_hash_recomputed_match"]
+                )
+                self.assertFalse(
+                    tampered_learning_review["promotion_gate"][
+                        "required_evidence"
+                    ]["runtime_event_matches_executor"]
+                )
+                self.assertTrue(
+                    learning_review["promotion_gate"][
+                        "eligible_for_autonomous_snn_language_thought_"
+                        "newborn_neuron_critical_period_learning_"
+                        "continuation_design"
+                    ]
+                )
+                self.assertTrue(continuation_design["accepted"])
+                self.assertEqual(
+                    continuation_candidates[0][
+                        "critical_period_age_cycles"
+                    ],
+                    1,
+                )
+                self.assertEqual(
+                    continuation_candidates[0][
+                        "critical_period_cycles_remaining"
+                    ],
+                    63,
+                )
+                self.assertTrue(continuation_preflight["accepted"])
+                self.assertTrue(continuation_result["accepted"])
+                self.assertAlmostEqual(
+                    continued_runtime["sparse_transition_weights"]["4:64"],
+                    0.01625,
+                )
+                self.assertEqual(
+                    continued_runtime[
+                        "newborn_neuron_critical_period_"
+                        "state_by_synapse"
+                    ]["4:64"]["critical_period_age_cycles"],
+                    2,
+                )
+                self.assertEqual(
+                    continued_runtime[
+                        "newborn_neuron_critical_period_"
+                        "state_by_synapse"
+                    ]["4:64"]["active_cycle_count"],
+                    2,
+                )
+                self.assertEqual(
+                    manager._runtime_state.state_revision,
+                    revision + 4,
+                )
+            finally:
+                manager.close()
+
     def test_feed_defers_due_deep_sleep_maintenance_for_request_latency(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

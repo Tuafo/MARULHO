@@ -922,7 +922,7 @@ class StatusReadModel:
         }
 
     def _snn_language_capacity_pressure(self) -> dict[str, Any]:
-        """Summarize fixed language-neuron capacity pressure without resizing."""
+        """Summarize current language-neuron capacity pressure without resizing."""
 
         state = (
             self._language_plasticity_state_fn()
@@ -1029,7 +1029,9 @@ class StatusReadModel:
                 capacity_state["present"]
                 and capacity_state["raw_surface"] == _SNN_LANGUAGE_CAPACITY_SURFACE
             ),
-            "dynamic_capacity_enabled": False,
+            "dynamic_capacity_enabled": bool(
+                capacity_state["dynamic_capacity_enabled"]
+            ),
             "current_language_neuron_count": current_language_neuron_count,
             "configured_sparse_edge_budget": configured_sparse_edge_budget,
             "configured_outgoing_fanout_budget": configured_outgoing_fanout_budget,
@@ -1688,15 +1690,21 @@ class StatusReadModel:
                 default=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
                 minimum=_SNN_LANGUAGE_OUTGOING_FANOUT_BUDGET,
             ),
-            "dynamic_capacity_enabled": False,
+            "dynamic_capacity_enabled": bool(
+                raw.get("dynamic_capacity_enabled")
+            ),
             "capacity_expansion_count": cls._positive_capacity_int(
                 raw.get("capacity_expansion_count"),
                 default=0,
                 minimum=0,
             ),
-            "resizes_network": False,
-            "adds_neurons": False,
-            "adds_layers": False,
+            "resizes_network": bool(raw.get("resizes_network")),
+            "adds_neurons": bool(raw.get("adds_neurons")),
+            "adds_layers": bool(raw.get("adds_layers")),
+            "writes_checkpoint": bool(raw.get("writes_checkpoint")),
+            "last_capacity_mutation": deepcopy(
+                raw.get("last_capacity_mutation")
+            ),
         }
 
     @staticmethod
@@ -3398,6 +3406,7 @@ class StatusReadModel:
         device_evidence: Mapping[str, Any] | None = None,
         learning_rate: float = 0.08,
         epochs: int = 2,
+        language_neuron_count: int | None = None,
     ) -> dict[str, Any]:
         """Run isolated local SNN language trainer evidence without runtime updates."""
 
@@ -3420,6 +3429,7 @@ class StatusReadModel:
                 device_report,
                 learning_rate=learning_rate,
                 epochs=epochs,
+                language_neuron_count=language_neuron_count,
             )
 
         return self._read_snapshot(
@@ -3457,6 +3467,7 @@ class StatusReadModel:
         epochs: int = 2,
         top_k: int = 8,
         persistent_transition_weights: Mapping[str, Any] | None = None,
+        language_neuron_count: int | None = None,
     ) -> dict[str, Any]:
         """Predict sparse next-code evidence without decoding text."""
 
@@ -3481,6 +3492,7 @@ class StatusReadModel:
                 epochs=epochs,
                 top_k=top_k,
                 persistent_transition_weights=persistent_transition_weights,
+                language_neuron_count=language_neuron_count,
             )
 
         return self._read_snapshot(

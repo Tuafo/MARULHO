@@ -22,6 +22,128 @@ def _sha256_json(value: object) -> str:
     ).hexdigest()
 
 
+def _terminal_newborn_learning_review() -> dict[str, object]:
+    cycle = {
+        "synapse": "4:64",
+        "source_neuron_index": 4,
+        "target_neuron_index": 64,
+        "applied_weight": 0.01,
+        "critical_period_age_cycles": 64,
+        "critical_period_cycles": 64,
+        "critical_period_cycles_remaining": 0,
+        "active_cycle_count": 0,
+        "inactive_cycle_count": 64,
+        "minimum_survival_active_cycles": 16,
+        "critical_period_learning_application_hash": "l" * 64,
+        "newborn_integration_synapse_hash": "i" * 64,
+        "current_maturation_state": "prune_eligible",
+        "maturation_decided": True,
+        "pruning_applied": False,
+    }
+    return {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_"
+            "critical_period_learning_event_review.v1"
+        ),
+        "accepted": True,
+        "ready": True,
+        "review_hash": "r" * 64,
+        "requires_operator_approval": False,
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_event_review": {
+            "newborn_neuron_critical_period_learning_event_hash": "e" * 64,
+            "after_state_revision": 0,
+            "actual_device": "cpu",
+            "tensor_is_cuda": False,
+            "verified_applied_learning_cycles": [cycle],
+            "mature_synapse_count": 0,
+            "prune_eligible_synapse_count": 1,
+            "sparse_dense_developmental_provenance_consistent": True,
+            "operator_approval_required": False,
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+            "maturation_outcome_review": True
+        },
+    }
+
+
+def test_terminal_newborn_outcome_builds_verified_synapse_pruning_preflight() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: {},
+    )
+    outcome = ledger.autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review(
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review=(
+            _terminal_newborn_learning_review()
+        )
+    )
+    design = ledger.autonomous_snn_language_thought_newborn_synapse_pruning_design(
+        autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review=outcome
+    )
+    candidate = design[
+        "autonomous_snn_language_thought_newborn_synapse_pruning_design"
+    ]["prune_candidates"][0]
+    application_hash = candidate[
+        "critical_period_learning_application_hash"
+    ]
+    runtime = {
+        "surface": "snn_language_plasticity_runtime_state.v1",
+        "sparse_transition_weights": {"4:64": 0.01},
+        "synapse_provenance_by_key": {
+            "4:64": {
+                "provenance_type": "newborn_neuron_integration",
+                "current_maturation_state": "prune_eligible",
+            }
+        },
+        "newborn_neuron_critical_period_state_by_synapse": {
+            "4:64": {
+                "critical_period_cycles_remaining": 0,
+                "current_maturation_state": "prune_eligible",
+                "maturation_decided": True,
+                "critical_period_learning_application_hash": (
+                    application_hash
+                ),
+            }
+        },
+        "critical_period_learning_dense_samples": [
+            {
+                "synapse": "4:64",
+                "source_neuron_index": 4,
+                "target_neuron_index": 64,
+                "weight": 0.01,
+            }
+        ],
+    }
+    preflight = ledger.autonomous_snn_language_thought_newborn_synapse_pruning_preflight(
+        autonomous_snn_language_thought_newborn_synapse_pruning_design=design,
+        expected_state_revision=0,
+        plasticity_runtime_state=runtime,
+        checkpoint_transaction={
+            "pre_pruning_checkpoint_saved": True,
+            "pre_pruning_checkpoint_restore_verified": True,
+            "checkpoint_path": "memory://prune",
+        },
+        executor_capabilities={
+            "autonomous_snn_language_thought_newborn_"
+            "synapse_pruning_executor": True
+        },
+    )
+
+    assert outcome["accepted"] is True
+    assert outcome[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "maturation_outcome_review"
+    ]["retained_mature_synapse_count"] == 0
+    assert design["accepted"] is True
+    assert preflight["accepted"] is True
+    assert preflight["mutates_runtime_state"] is False
+    assert runtime_state.state_revision == 0
+
+
 def _language_capacity(
     *,
     language_neuron_count: int = 64,
@@ -9088,6 +9210,714 @@ def test_readout_ledger_autonomous_confidence_use_preflight_audits_candidates_wi
     ] is False
 
 
+def test_readout_ledger_designs_activity_gated_newborn_neuron_integration_without_mutation() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger_state: dict[str, object] = {}
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: ledger_state,
+    )
+    hashes = {
+        name: _sha256_json(name)
+        for name in (
+            "review",
+            "event",
+            "preflight",
+            "design",
+            "structural",
+            "memory",
+            "target-0",
+            "target-1",
+            "token-0",
+            "token-1",
+            "projection-0",
+            "projection-1",
+            "active-0",
+            "active-1",
+            "membrane-0",
+            "membrane-1",
+        )
+    }
+    growth_candidates = [
+        {
+            "growth_candidate_id": f"growth-{index}",
+            "local_learning_target_hash": hashes[f"target-{index}"],
+            "generated_token_hash": hashes[f"token-{index}"],
+            "spike_projection_hash": hashes[f"projection-{index}"],
+            "active_neuron_hash": hashes[f"active-{index}"],
+            "membrane_state_hash": hashes[f"membrane-{index}"],
+            "proposed_new_neuron_count": 1,
+            "proposed_new_synapse_count": 1,
+            "applied_to_runtime": True,
+            "applied_in_ledger": True,
+        }
+        for index in range(2)
+    ]
+    capacity_review = {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_"
+            "capacity_mutation_event_review.v1"
+        ),
+        "ready": True,
+        "accepted": True,
+        "review_hash": hashes["review"],
+        "requires_operator_approval": False,
+        "mutates_runtime_state": False,
+        "capacity_mutation_event_hash": hashes["event"],
+        "autonomous_snn_language_thought_capacity_mutation_event_review": {
+            "capacity_mutation_event_hash": hashes["event"],
+            "preflight_hash": hashes["preflight"],
+            "thought_capacity_mutation_design_hash": hashes["design"],
+            "structural_event_review_hash": hashes["structural"],
+            "memory_trace_hash": hashes["memory"],
+            "requested_device": "cuda:0",
+            "actual_device": "cuda:0",
+            "tensor_is_cuda": True,
+            "current_neuron_capacity": 64,
+            "target_neuron_capacity": 66,
+            "added_neuron_capacity": 2,
+            "new_region_nonzero_count": 0,
+            "new_region_zero_initialized": True,
+            "growth_candidate_count": 2,
+            "growth_candidates": growth_candidates,
+            "newborn_neuron_slots_untrained": True,
+            "newborn_neuron_slots_inactive": True,
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_design": True
+        },
+    }
+    before = runtime_state.snapshot()
+
+    design = (
+        ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+            autonomous_snn_language_thought_capacity_mutation_event_review=(
+                capacity_review
+            ),
+            integration_policy={
+                "max_newborn_neurons": 2,
+                "max_seed_synapses_per_newborn": 2,
+                "critical_period_cycles": 64,
+                "required_coactivation_events": 4,
+                "inactivity_prune_cycles": 128,
+                "max_initial_weight": 0.04,
+                "target_firing_rate_hz": 4.0,
+                "max_firing_rate_hz": 16.0,
+            },
+        )
+    )
+    repeat = (
+        ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+            autonomous_snn_language_thought_capacity_mutation_event_review=(
+                capacity_review
+            ),
+            integration_policy={
+                "max_newborn_neurons": 2,
+                "max_seed_synapses_per_newborn": 2,
+                "critical_period_cycles": 64,
+                "required_coactivation_events": 4,
+                "inactivity_prune_cycles": 128,
+                "max_initial_weight": 0.04,
+                "target_firing_rate_hz": 4.0,
+                "max_firing_rate_hz": 16.0,
+            },
+        )
+    )
+    blocked_review = deepcopy(capacity_review)
+    blocked_review["accepted"] = False
+    blocked = (
+        ledger.autonomous_snn_language_thought_newborn_neuron_integration_design(
+            autonomous_snn_language_thought_capacity_mutation_event_review=(
+                blocked_review
+            )
+        )
+    )
+    after = runtime_state.snapshot()
+
+    assert before == after
+    assert design == repeat
+    assert design["surface"] == (
+        "snn_language_autonomous_snn_language_thought_"
+        "newborn_neuron_integration_design.v1"
+    )
+    assert design["accepted"] is True
+    assert design["ready"] is True
+    assert design["requires_operator_approval"] is False
+    assert design["mutates_runtime_state"] is False
+    assert design["adds_neurons"] is False
+    assert design["adds_synapses"] is False
+    assert design["applies_plasticity"] is False
+    assert design["trains_runtime_model"] is False
+    assert design["writes_checkpoint"] is False
+    assert design["generates_text"] is False
+    assert len(
+        design["thought_newborn_neuron_integration_design_hash"]
+    ) == 64
+    body = design[
+        "autonomous_snn_language_thought_newborn_neuron_integration_design"
+    ]
+    assert body["newborn_neuron_indices"] == [64, 65]
+    assert body["newborn_neuron_count"] == 2
+    assert body["integration_candidate_count"] == 2
+    assert body["integration_mode"] == (
+        "activity_gated_critical_period_homeostatic"
+    )
+    assert body["critical_period_cycles"] == 64
+    assert body["inactivity_prune_cycles"] == 128
+    assert body["source_indices_resolved"] is False
+    assert body["connections_applied"] is False
+    assert body["weights_applied"] is False
+    assert body["critical_period_started"] is False
+    assert body["newborn_neurons_active"] is False
+    assert body["newborn_neurons_trained"] is False
+    assert [
+        candidate["target_neuron_index"]
+        for candidate in body["integration_candidates"]
+    ] == [64, 65]
+    assert all(
+        candidate["source_neuron_index"] is None
+        and candidate["source_resolution_mode"]
+        == "activity_hash_to_live_spike_population"
+        and candidate["initialization_mode"]
+        == "zero_weight_activity_gated"
+        and candidate["proposed_initial_weight"] == 0.0
+        and candidate["max_initial_weight"] == 0.04
+        and candidate["connection_applied"] is False
+        and candidate["newborn_active"] is False
+        and len(candidate["integration_candidate_hash"]) == 64
+        and len(candidate["source_candidate_hash"]) == 64
+        for candidate in body["integration_candidates"]
+    )
+    assert design["promotion_gate"][
+        "eligible_for_autonomous_snn_language_thought_"
+        "newborn_neuron_integration_preflight"
+    ] is True
+    assert blocked["accepted"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "capacity_mutation_event_review_ready"
+    ] is False
+    assert blocked[
+        "autonomous_snn_language_thought_newborn_neuron_integration_design"
+    ]["integration_candidates"] == []
+
+
+def test_readout_ledger_preflights_hash_bound_live_newborn_sources_without_mutation() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: {},
+    )
+    active_populations = [[1, 4, 7], [2, 5, 8]]
+    design_candidates = []
+    for offset, active_indices in enumerate(active_populations):
+        candidate_material = {
+            "newborn_neuron_index": 64 + offset,
+            "newborn_offset": offset,
+            "source_growth_candidate_id": f"growth-{offset}",
+            "source_candidate_hash": _sha256_json(
+                {"growth_candidate_id": f"growth-{offset}"}
+            ),
+            "local_learning_target_hash": _sha256_json(f"target-{offset}"),
+            "generated_token_hash": _sha256_json(f"token-{offset}"),
+            "spike_projection_hash": _sha256_json(f"projection-{offset}"),
+            "active_neuron_hash": _sha256_json(active_indices),
+            "membrane_state_hash": _sha256_json(f"membrane-{offset}"),
+            "source_resolution_mode": "activity_hash_to_live_spike_population",
+            "source_neuron_index": None,
+            "target_neuron_index": 64 + offset,
+            "initialization_mode": "zero_weight_activity_gated",
+            "proposed_initial_weight": 0.0,
+            "max_initial_weight": 0.04,
+            "max_seed_synapses": 2,
+            "critical_period_cycles": 64,
+            "required_coactivation_events": 4,
+            "inactivity_prune_cycles": 128,
+            "target_firing_rate_hz": 4.0,
+            "max_firing_rate_hz": 16.0,
+            "requested_device": "cuda:0",
+            "actual_device": "cuda:0",
+            "tensor_is_cuda": True,
+        }
+        design_candidates.append(
+            {
+                "integration_candidate_id": f"newborn-{64 + offset}",
+                **candidate_material,
+                "integration_candidate_hash": _sha256_json(candidate_material),
+                "connection_applied": False,
+                "weight_applied": False,
+                "newborn_active": False,
+                "newborn_trained": False,
+                "critical_period_started": False,
+            }
+        )
+    design = {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_design.v1"
+        ),
+        "ready": True,
+        "accepted": True,
+        "requires_operator_approval": False,
+        "mutates_runtime_state": False,
+        "thought_newborn_neuron_integration_design_hash": _sha256_json(
+            "newborn-design"
+        ),
+        "autonomous_snn_language_thought_newborn_neuron_integration_design": {
+            "capacity_mutation_event_hash": _sha256_json("capacity-event"),
+            "current_neuron_capacity": 64,
+            "target_neuron_capacity": 66,
+            "newborn_neuron_indices": [64, 65],
+            "integration_candidates": design_candidates,
+            "actual_device": "cuda:0",
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_preflight": True
+        },
+    }
+    live_spike_evidence = {
+        "surface": "snn_language_live_spike_population_evidence.v1",
+        "state_revision": runtime_state.state_revision,
+        "observation_window_id": "window-newborn-1",
+        "device": "cuda:0",
+        "tensor_is_cuda": True,
+        "candidate_observations": [
+            {
+                "integration_candidate_id": candidate[
+                    "integration_candidate_id"
+                ],
+                "active_neuron_indices": active_indices,
+                "active_neuron_hash": _sha256_json(active_indices),
+                "spike_projection_hash": candidate["spike_projection_hash"],
+                "membrane_state_hash": candidate["membrane_state_hash"],
+                "device": "cuda:0",
+                "tensor_is_cuda": True,
+                "source_activity": [
+                    {
+                        "neuron_index": active_indices[0],
+                        "coactivation_event_count": 5,
+                        "firing_rate_hz": 6.0,
+                    },
+                    {
+                        "neuron_index": active_indices[1],
+                        "coactivation_event_count": 7,
+                        "firing_rate_hz": 8.0,
+                    },
+                ],
+            }
+            for candidate, active_indices in zip(
+                design_candidates, active_populations, strict=True
+            )
+        ],
+    }
+    live_spike_evidence["observation_window_hash"] = _sha256_json(
+        {
+            "surface": live_spike_evidence["surface"],
+            "state_revision": live_spike_evidence["state_revision"],
+            "observation_window_id": live_spike_evidence[
+                "observation_window_id"
+            ],
+            "device": live_spike_evidence["device"],
+            "tensor_is_cuda": live_spike_evidence["tensor_is_cuda"],
+            "candidate_observations": live_spike_evidence[
+                "candidate_observations"
+            ],
+        }
+    )
+    runtime = {
+        "surface": "snn_language_plasticity_runtime_state.v1",
+        "language_capacity": {
+            "language_neuron_count": 66,
+            "sparse_edge_budget": 258,
+            "dynamic_capacity_enabled": True,
+        },
+        "dense_readout_tensor": {
+            "available": True,
+            "shape": [66, 66],
+            "device": "cuda:0",
+            "is_cuda": True,
+        },
+        "sparse_transition_weights": {},
+    }
+    checkpoint = {
+        "checkpoint_path": "memory://before-newborn-integration",
+        "snapshot_id": "newborn-integration-snapshot",
+        "pre_integration_checkpoint_saved": True,
+        "pre_integration_checkpoint_restore_verified": True,
+    }
+    capabilities = {
+        "autonomous_snn_language_thought_"
+        "newborn_neuron_integration_executor": True
+    }
+    before = runtime_state.snapshot()
+
+    preflight = ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+        autonomous_snn_language_thought_newborn_neuron_integration_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        live_spike_evidence=live_spike_evidence,
+        plasticity_runtime_state=runtime,
+        checkpoint_transaction=checkpoint,
+        executor_capabilities=capabilities,
+    )
+    repeat = ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+        autonomous_snn_language_thought_newborn_neuron_integration_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        live_spike_evidence=live_spike_evidence,
+        plasticity_runtime_state=runtime,
+        checkpoint_transaction=checkpoint,
+        executor_capabilities=capabilities,
+    )
+    tampered_evidence = deepcopy(live_spike_evidence)
+    tampered_evidence["candidate_observations"][0][
+        "active_neuron_indices"
+    ] = [1, 4, 9]
+    blocked = ledger.autonomous_snn_language_thought_newborn_neuron_integration_preflight(
+        autonomous_snn_language_thought_newborn_neuron_integration_design=design,
+        expected_state_revision=runtime_state.state_revision,
+        live_spike_evidence=tampered_evidence,
+        plasticity_runtime_state=runtime,
+        checkpoint_transaction=checkpoint,
+        executor_capabilities=capabilities,
+    )
+    after = runtime_state.snapshot()
+
+    assert before == after
+    assert preflight == repeat
+    assert preflight["surface"] == (
+        "snn_language_autonomous_snn_language_thought_"
+        "newborn_neuron_integration_preflight.v1"
+    )
+    assert preflight["ready"] is True
+    assert preflight["accepted"] is True
+    assert preflight["requires_operator_approval"] is False
+    assert preflight["executable"] is True
+    assert preflight["mutates_runtime_state"] is False
+    assert preflight["adds_synapses"] is False
+    assert preflight["applies_plasticity"] is False
+    assert preflight["writes_checkpoint"] is False
+    assert len(preflight["preflight_hash"]) == 64
+    body = preflight[
+        "autonomous_snn_language_thought_newborn_neuron_integration_preflight"
+    ]
+    assert body["resolved_candidate_count"] == 2
+    assert body["source_indices_resolved"] is True
+    assert body["connections_applied"] is False
+    assert body["weights_applied"] is False
+    assert body["critical_period_started"] is False
+    assert [
+        item["source_neuron_index"]
+        for item in body["resolved_integration_candidates"]
+    ] == [4, 5]
+    assert [
+        item["target_neuron_index"]
+        for item in body["resolved_integration_candidates"]
+    ] == [64, 65]
+    assert all(
+        len(item["source_resolution_hash"]) == 64
+        and item["connection_applied"] is False
+        and item["weight_applied"] is False
+        for item in body["resolved_integration_candidates"]
+    )
+    assert preflight["promotion_gate"][
+        "eligible_for_autonomous_snn_language_thought_"
+        "newborn_neuron_integration_executor"
+    ] is True
+    assert blocked["ready"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "all_candidate_sources_resolved"
+    ] is False
+    assert blocked["promotion_gate"]["candidate_evidence"][0][
+        "active_population_hash_matches_lineage"
+    ] is False
+    assert blocked[
+        "autonomous_snn_language_thought_newborn_neuron_integration_preflight"
+    ]["resolved_integration_candidates"] == []
+
+
+def test_readout_ledger_reviews_newborn_integration_sparse_dense_and_provenance() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    runtime_state.mark_mutated()
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: {},
+    )
+    integrated_synapse = {
+        "synapse": "4:64",
+        "source_neuron_index": 4,
+        "target_neuron_index": 64,
+        "seed_weight": 0.01,
+        "max_initial_weight": 0.04,
+        "coactivation_event_count": 7,
+        "source_firing_rate_hz": 8.0,
+        "target_firing_rate_hz": 4.0,
+        "critical_period_cycles": 64,
+        "inactivity_prune_cycles": 128,
+        "max_seed_synapses": 2,
+        "integration_candidate_id": "newborn-64",
+        "integration_candidate_hash": "i" * 64,
+        "source_candidate_hash": "s" * 64,
+        "source_resolution_hash": "r" * 64,
+        "active_neuron_hash": "a" * 64,
+        "spike_projection_hash": "b" * 64,
+        "membrane_state_hash": "m" * 64,
+        "actual_device": "cpu",
+        "tensor_is_cuda": False,
+        "connection_applied": True,
+        "weight_applied": True,
+        "critical_period_started": True,
+    }
+    integrated_synapse["newborn_integration_synapse_hash"] = _sha256_json(
+        integrated_synapse
+    )
+    event = {
+        "completed_at": "2026-06-06T00:00:00+00:00",
+        "before_state_revision": 0,
+        "after_state_revision": 1,
+        "preflight_hash": "p" * 64,
+        "thought_newborn_neuron_integration_design_hash": "d" * 64,
+        "capacity_mutation_event_hash": "c" * 64,
+        "observation_window_id": "window-1",
+        "observation_window_hash": "o" * 64,
+        "checkpoint_path": "memory://pre-integration",
+        "committed_checkpoint_path": "memory://committed-integration",
+        "actual_device": "cpu",
+        "tensor_is_cuda": False,
+        "current_neuron_capacity": 64,
+        "target_neuron_capacity": 66,
+        "newborn_neuron_indices": [64, 65],
+        "integrated_synapse_count": 1,
+        "integrated_synapses": [integrated_synapse],
+        "critical_period_started": True,
+        "replay_executed": False,
+        "training_executed": False,
+        "plasticity_applied": True,
+    }
+    event["newborn_neuron_integration_event_hash"] = _sha256_json(event)
+    executor = {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_executor.v1"
+        ),
+        "accepted": True,
+        "ready": True,
+        "requires_operator_approval": False,
+        "runs_replay": False,
+        "trains_runtime_model": False,
+        "generates_text": False,
+        "decodes_text": False,
+        "applies_plasticity": True,
+        "resizes_network": False,
+        "adds_neurons": False,
+        "adds_synapses": True,
+        "prunes_network": False,
+        "checkpoint_transaction": {
+            "pre_integration_checkpoint_saved": True,
+            "restore_verified": True,
+            "post_integration_checkpoint_saved": True,
+            "post_integration_checkpoint_restore_verified": True,
+            "committed_checkpoint_path": "memory://committed-integration",
+        },
+        "autonomous_snn_language_thought_newborn_neuron_integration_event": (
+            event
+        ),
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_event_review": True
+        },
+    }
+    runtime = {
+        "surface": "snn_language_plasticity_runtime_state.v1",
+        "language_capacity": {"language_neuron_count": 66},
+        "dense_readout_tensor": {
+            "available": True,
+            "shape": [66, 66],
+            "device": "cpu",
+            "is_cuda": False,
+        },
+        "sparse_transition_weights": {"4:64": 0.01},
+        "synapse_provenance_by_key": {
+            "4:64": {
+                "provenance_type": "newborn_neuron_integration",
+                "preflight_hash": "p" * 64,
+                **integrated_synapse,
+            }
+        },
+        "newborn_integration_dense_samples": [
+            {
+                "synapse": "4:64",
+                "source_neuron_index": 4,
+                "target_neuron_index": 64,
+                "weight": 0.01,
+            }
+        ],
+        "last_thought_newborn_neuron_integration": event,
+        "last_checkpoint_path": "memory://committed-integration",
+    }
+    before = runtime_state.snapshot()
+
+    review = ledger.autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+        autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+            executor
+        ),
+        plasticity_runtime_state=runtime,
+        expected_state_revision=1,
+    )
+    learning_design = ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design(
+        autonomous_snn_language_thought_newborn_neuron_integration_event_review=(
+            review
+        ),
+        learning_policy={
+            "max_learning_rate": 0.005,
+            "depression_ratio": 0.5,
+            "min_survival_activity_ratio": 0.25,
+            "homeostatic_tolerance_ratio": 0.5,
+        },
+    )
+    learning_candidate = learning_design[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_design"
+    ]["learning_candidates"][0]
+    activity_material = {
+        "synapse": "4:64",
+        "critical_period_learning_candidate_hash": learning_candidate[
+            "critical_period_learning_candidate_hash"
+        ],
+        "cycle_index": 1,
+        "pre_spike_times_ms": [1.0, 10.0],
+        "post_spike_times_ms": [5.0, 12.0],
+        "newborn_firing_rate_hz": 4.0,
+        "prediction_error": 0.2,
+        "device": "cpu",
+        "tensor_is_cuda": False,
+    }
+    activity_evidence = {
+        "surface": "snn_language_newborn_critical_period_activity.v1",
+        "state_revision": 1,
+        "observation_window_id": "critical-period-window-1",
+        "device": "cpu",
+        "tensor_is_cuda": False,
+        "candidate_observations": [
+            {
+                **activity_material,
+                "candidate_activity_hash": _sha256_json(
+                    activity_material
+                ),
+            }
+        ],
+    }
+    activity_evidence["observation_window_hash"] = _sha256_json(
+        {
+            "surface": activity_evidence["surface"],
+            "state_revision": activity_evidence["state_revision"],
+            "observation_window_id": activity_evidence[
+                "observation_window_id"
+            ],
+            "device": activity_evidence["device"],
+            "tensor_is_cuda": activity_evidence["tensor_is_cuda"],
+            "candidate_observations": [activity_material],
+        }
+    )
+    learning_preflight = ledger.autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight(
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design=(
+            learning_design
+        ),
+        expected_state_revision=1,
+        critical_period_activity_evidence=activity_evidence,
+        plasticity_runtime_state=runtime,
+        checkpoint_transaction={
+            "checkpoint_path": "memory://pre-learning",
+            "pre_learning_checkpoint_saved": True,
+            "pre_learning_checkpoint_restore_verified": True,
+        },
+        executor_capabilities={
+            "autonomous_snn_language_thought_newborn_neuron_"
+            "critical_period_learning_executor": True
+        },
+    )
+    tampered_runtime = deepcopy(runtime)
+    tampered_runtime["newborn_integration_dense_samples"][0]["weight"] = 0.02
+    blocked = ledger.autonomous_snn_language_thought_newborn_neuron_integration_event_review(
+        autonomous_snn_language_thought_newborn_neuron_integration_executor=(
+            executor
+        ),
+        plasticity_runtime_state=tampered_runtime,
+        expected_state_revision=1,
+    )
+    after = runtime_state.snapshot()
+
+    assert before == after
+    assert review["accepted"] is True
+    assert review["ready"] is True
+    assert review["state_revision_unchanged"] is True
+    assert review["requires_operator_approval"] is False
+    assert review["mutates_runtime_state"] is False
+    assert review["writes_checkpoint"] is False
+    assert review["applies_plasticity"] is False
+    assert len(review["review_hash"]) == 64
+    body = review[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "integration_event_review"
+    ]
+    assert body["integrated_synapse_count"] == 1
+    assert body["sparse_dense_provenance_consistent"] is True
+    assert body["critical_period_started"] is True
+    assert review["promotion_gate"][
+        "eligible_for_autonomous_snn_language_thought_"
+        "newborn_neuron_critical_period_learning_design"
+    ] is True
+    assert learning_design["accepted"] is True
+    assert learning_design["requires_operator_approval"] is False
+    assert learning_design["mutates_runtime_state"] is False
+    assert learning_design["applies_plasticity"] is False
+    assert learning_design["state_revision_unchanged"] is True
+    learning_body = learning_design[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_design"
+    ]
+    assert learning_body["learning_candidate_count"] == 1
+    assert learning_body["learning_candidates"][0]["learning_rule"] == (
+        "local_pre_post_timing_with_homeostatic_scaling"
+    )
+    assert learning_body["learning_candidates"][0][
+        "minimum_survival_active_cycles"
+    ] == 16
+    assert learning_design["promotion_gate"][
+        "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_preflight"
+    ] is True
+    assert learning_preflight["accepted"] is True
+    assert learning_preflight["requires_operator_approval"] is False
+    assert learning_preflight["mutates_runtime_state"] is False
+    preflight_body = learning_preflight[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_preflight"
+    ]
+    assert preflight_body["resolved_cycle_count"] == 1
+    resolved_cycle = preflight_body["resolved_learning_cycles"][0]
+    assert resolved_cycle["causal_pair_count"] == 3
+    assert resolved_cycle["anti_causal_pair_count"] == 1
+    assert resolved_cycle["proposed_weight_delta"] == 0.003125
+    assert abs(resolved_cycle["proposed_weight"] - 0.013125) < 1e-12
+    assert learning_preflight["promotion_gate"][
+        "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_executor"
+    ] is True
+    assert blocked["accepted"] is False
+    assert blocked["promotion_gate"]["required_evidence"][
+        "all_integrated_synapses_verified"
+    ] is False
+    assert blocked["promotion_gate"]["synapse_evidence"][0]["checks"][
+        "dense_sample_matches_event"
+    ] is False
+
+
 def test_readout_ledger_emission_review_replay_policy_requires_internal_readout_match() -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -11568,6 +12398,49 @@ def test_readout_plasticity_replay_bridge_blocks_missing_preflight() -> None:
     assert bridge["promotion_gate"]["eligible_for_operator_application_review"] is False
     assert bridge["promotion_gate"]["required_evidence"]["preflight_gate_ready"] is False
     assert bridge["mutates_runtime_state"] is False
+
+
+def test_readout_synapse_provenance_audit_uses_dynamic_neuron_capacity() -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    ledger = SNNLanguageReadoutEvidenceLedger(
+        lock=lock,
+        runtime_state=runtime_state,
+        ledger_state=lambda: {},
+    )
+
+    audit = ledger.synapse_provenance_audit(
+        plasticity_runtime_state={
+            "surface": "snn_language_plasticity_runtime_state.v1",
+            "owned_by_marulho": True,
+            "language_capacity": {
+                "surface": "snn_language_capacity_state.v1",
+                "language_neuron_count": 66,
+                "sparse_edge_budget": 258,
+                "outgoing_fanout_budget": 16,
+                "dynamic_capacity_enabled": True,
+            },
+            "sparse_transition_weights": {"64:65": 0.03},
+            "synapse_provenance_by_key": {
+                "64:65": {
+                    "readout_evidence_hash": "missing-ledger-row",
+                    "prediction_hash": "prediction-dynamic",
+                    "transition_memory_evaluation_hash": "evaluation-dynamic",
+                    "persistent_transition_weights_hash": "weights-dynamic",
+                    "source_pre_indices": [64],
+                    "source_post_indices": [65],
+                    "source_active_indices": [64, 65],
+                }
+            },
+        }
+    )
+
+    row = audit["audited_synapses"][0]
+    assert row["synapse_key"] == "64:65"
+    assert row["canonical_synapse_key"] is True
+    assert row["synapse_indices_in_range"] is True
+    assert row["source_indices_in_range"] is True
+    assert row["source_indices_match_synapse"] is True
 
 
 def test_readout_synapse_provenance_audit_checks_runtime_weights_against_ledger() -> None:

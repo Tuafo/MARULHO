@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from threading import RLock
 
+import pytest
 import torch
 
 from marulho.service.runtime_state import RuntimeState
@@ -141,6 +142,228 @@ def _dense_readout_training_loop_preflight() -> dict[str, object]:
     }
 
 
+def _thought_capacity_mutation_preflight(
+    *,
+    expected_state_revision: int = 0,
+) -> dict[str, object]:
+    return {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_"
+            "capacity_mutation_preflight.v1"
+        ),
+        "accepted": True,
+        "ready": True,
+        "preflight_hash": "a" * 64,
+        "requires_operator_approval": False,
+        "loads_external_checkpoint": False,
+        "runs_replay": False,
+        "trains_runtime_model": False,
+        "autonomous_snn_language_thought_capacity_mutation_preflight": {
+            "thought_capacity_mutation_design_hash": "b" * 64,
+            "structural_event_review_hash": "c" * 64,
+            "memory_trace_hash": "d" * 64,
+            "expected_state_revision": expected_state_revision,
+            "requested_device": "cpu",
+            "cuda_relayout_verified": True,
+            "executor_ready": True,
+            "checkpoint_saved": True,
+            "restore_verified": True,
+            "current_neuron_capacity": 64,
+            "target_neuron_capacity": 66,
+            "current_sparse_synapse_budget": 256,
+            "target_sparse_synapse_budget": 258,
+            "current_dense_shape": [64, 64],
+            "target_dense_shape": [66, 66],
+            "preserved_dense_shape": [64, 64],
+            "zero_initialized_new_rows": 2,
+            "zero_initialized_new_cols": 2,
+            "growth_candidate_count": 2,
+            "growth_candidates": [
+                {"candidate_id": "growth-1", "applied_to_runtime": True},
+                {"candidate_id": "growth-2", "applied_to_runtime": True},
+            ],
+            "prune_candidates": [
+                {"candidate_id": "prune-1", "applied_to_runtime": True}
+            ],
+            "operator_approval_required": False,
+            "execution_allowed": False,
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_capacity_mutation_executor": True,
+            "required_evidence": {
+                "cuda_relayout_verified": True,
+                "checkpoint_saved": True,
+                "restore_verified": True,
+                "executor_capability_available": True,
+            },
+        },
+    }
+
+
+def _thought_newborn_neuron_integration_preflight(
+    *,
+    expected_state_revision: int = 0,
+) -> dict[str, object]:
+    candidates = [
+        {
+            "integration_candidate_id": f"newborn-{target}",
+            "integration_candidate_hash": chr(97 + offset) * 64,
+            "source_candidate_hash": chr(99 + offset) * 64,
+            "source_resolution_hash": chr(101 + offset) * 64,
+            "source_neuron_index": source,
+            "target_neuron_index": target,
+            "synapse": f"{source}:{target}",
+            "active_neuron_hash": chr(103 + offset) * 64,
+            "spike_projection_hash": chr(105 + offset) * 64,
+            "membrane_state_hash": chr(107 + offset) * 64,
+            "coactivation_event_count": 7,
+            "source_firing_rate_hz": 8.0,
+            "target_firing_rate_hz": 4.0,
+            "max_firing_rate_hz": 16.0,
+            "critical_period_cycles": 64,
+            "inactivity_prune_cycles": 128,
+            "max_seed_synapses": 2,
+            "max_initial_weight": 0.04,
+            "connection_applied": False,
+            "weight_applied": False,
+            "critical_period_started": False,
+        }
+        for offset, (source, target) in enumerate(((4, 64), (5, 65)))
+    ]
+    return {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_preflight.v1"
+        ),
+        "accepted": True,
+        "ready": True,
+        "preflight_hash": "p" * 64,
+        "requires_operator_approval": False,
+        "loads_external_checkpoint": False,
+        "runs_replay": False,
+        "trains_runtime_model": False,
+        "autonomous_snn_language_thought_newborn_neuron_integration_preflight": {
+            "thought_newborn_neuron_integration_design_hash": "d" * 64,
+            "capacity_mutation_event_hash": "e" * 64,
+            "observation_window_id": "window-newborn-1",
+            "observation_window_hash": "w" * 64,
+            "expected_state_revision": expected_state_revision,
+            "current_neuron_capacity": 64,
+            "target_neuron_capacity": 66,
+            "newborn_neuron_indices": [64, 65],
+            "resolved_candidate_count": 2,
+            "resolved_integration_candidates": candidates,
+            "source_indices_resolved": True,
+            "operator_approval_required": False,
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_"
+            "newborn_neuron_integration_executor": True,
+            "required_evidence": {
+                "all_candidate_sources_resolved": True,
+                "checkpoint_saved": True,
+                "checkpoint_restore_verified": True,
+                "executor_capability_available": True,
+            },
+        },
+    }
+
+
+def _thought_newborn_neuron_critical_period_learning_preflight(
+    *,
+    expected_state_revision: int = 0,
+) -> dict[str, object]:
+    cycle = {
+        "synapse": "4:64",
+        "source_neuron_index": 4,
+        "target_neuron_index": 64,
+        "newborn_integration_synapse_hash": "i" * 64,
+        "initial_weight": 0.01,
+        "min_weight": 0.0,
+        "max_weight": 0.04,
+        "max_learning_rate": 0.005,
+        "depression_ratio": 0.5,
+        "stdp_window_ms": 20.0,
+        "target_firing_rate_hz": 4.0,
+        "homeostatic_min_firing_rate_hz": 2.0,
+        "homeostatic_max_firing_rate_hz": 6.0,
+        "critical_period_cycles": 64,
+        "critical_period_age_cycles": 0,
+        "critical_period_cycles_remaining": 64,
+        "minimum_survival_active_cycles": 16,
+        "inactivity_prune_cycles": 128,
+        "learning_rule": (
+            "local_pre_post_timing_with_homeostatic_scaling"
+        ),
+        "survival_rule": (
+            "activity_and_prediction_contribution_competition"
+        ),
+        "maturation_states": [
+            "critical_period",
+            "mature",
+            "prune_eligible",
+        ],
+        "current_maturation_state": "critical_period",
+        "critical_period_learning_candidate_hash": "c" * 64,
+        "cycle_index": 1,
+        "pre_spike_count": 2,
+        "post_spike_count": 2,
+        "causal_pair_count": 3,
+        "anti_causal_pair_count": 1,
+        "active_cycle": True,
+        "newborn_firing_rate_hz": 4.0,
+        "prediction_error": 0.2,
+        "current_weight": 0.01,
+        "proposed_weight_delta": 0.003125,
+        "proposed_weight": 0.013125,
+        "candidate_activity_hash": "a" * 64,
+        "weight_update_applied": False,
+        "critical_period_age_advanced": False,
+        "maturation_decided": False,
+        "pruning_applied": False,
+    }
+    cycle["critical_period_learning_cycle_hash"] = (
+        SNNLanguagePlasticityApplicationExecutor._sha256_json(cycle)
+    )
+    return {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_"
+            "critical_period_learning_preflight.v1"
+        ),
+        "accepted": True,
+        "ready": True,
+        "preflight_hash": "p" * 64,
+        "requires_operator_approval": False,
+        "loads_external_checkpoint": False,
+        "runs_replay": False,
+        "trains_runtime_model": False,
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_preflight": {
+            "thought_newborn_neuron_critical_period_learning_design_hash": (
+                "d" * 64
+            ),
+            "newborn_neuron_integration_event_hash": "e" * 64,
+            "expected_state_revision": expected_state_revision,
+            "observation_window_id": "critical-window-1",
+            "observation_window_hash": "o" * 64,
+            "actual_device": "cpu",
+            "tensor_is_cuda": False,
+            "checkpoint_path": "memory://pre-learning",
+            "resolved_cycle_count": 1,
+            "resolved_learning_cycles": [cycle],
+            "weight_updates_applied": False,
+            "critical_period_age_advanced": False,
+            "maturation_decided": False,
+            "pruning_applied": False,
+            "operator_approval_required": False,
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_newborn_neuron_"
+            "critical_period_learning_executor": True
+        },
+    }
+
+
 def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> None:
     lock = RLock()
     runtime_state = RuntimeState(lock=lock)
@@ -183,6 +406,619 @@ def test_snapshot_exposes_read_only_language_capacity_state(tmp_path: Path) -> N
     assert snapshot["dense_readout_layout"]["dense_resize_applied"] is False
     assert snapshot["dense_readout_layout"]["resizes_network"] is False
     assert snapshot["dense_readout_tensor"]["available"] is False
+
+
+def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    existing = torch.zeros((64, 64), dtype=torch.float32)
+    existing[1, 2] = 0.5
+    language_state = {
+        "dense_readout_weights": existing,
+        "sparse_transition_weights": {"1:2": 0.5},
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "thought-capacity.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "thought-capacity.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        publish_committed_checkpoint=lambda path, operation: {
+            "checkpoint_path": str(path),
+            "operation": operation,
+        },
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_capacity_mutation(
+        autonomous_snn_language_thought_capacity_mutation_preflight=(
+            _thought_capacity_mutation_preflight()
+        ),
+        expected_state_revision=0,
+        checkpoint_path=str(tmp_path / "thought-capacity.pt"),
+        requested_device="cpu",
+    )
+    tensor = language_state["dense_readout_weights"]
+    capacity = language_state["language_capacity"]
+    event = result[
+        "autonomous_snn_language_thought_capacity_mutation_event"
+    ]
+    snapshot = executor.snapshot()
+
+    assert result["accepted"] is True
+    assert result["surface"] == (
+        "snn_language_autonomous_snn_language_thought_capacity_mutation_executor.v1"
+    )
+    assert result["requires_operator_approval"] is False
+    assert result["mutates_runtime_state"] is True
+    assert result["writes_checkpoint"] is True
+    assert result["resizes_network"] is True
+    assert result["adds_neurons"] is True
+    assert result["adds_synapses"] is False
+    assert result["prunes_network"] is False
+    assert result["runs_replay"] is False
+    assert result["trains_runtime_model"] is False
+    assert result["applies_plasticity"] is False
+    assert result["checkpoint_transaction"]["restore_verified"] is True
+    assert isinstance(tensor, torch.Tensor)
+    assert list(tensor.shape) == [66, 66]
+    assert str(tensor.device) == "cpu"
+    assert float(tensor[1, 2].item()) == 0.5
+    assert int(torch.count_nonzero(tensor[64:, :]).item()) == 0
+    assert int(torch.count_nonzero(tensor[:64, 64:]).item()) == 0
+    assert capacity["language_neuron_count"] == 66
+    assert capacity["sparse_edge_budget"] == 258
+    assert capacity["outgoing_fanout_budget"] == 16
+    assert capacity["dynamic_capacity_enabled"] is True
+    assert capacity["capacity_expansion_count"] == 1
+    assert capacity["resizes_network"] is True
+    assert capacity["adds_neurons"] is True
+    assert event["added_neuron_capacity"] == 2
+    assert event["added_sparse_synapse_budget"] == 2
+    assert event["new_region_zero_initialized"] is True
+    assert len(event["capacity_mutation_event_hash"]) == 64
+    assert snapshot["language_neuron_count"] == 66
+    assert snapshot["sparse_edge_budget"] == 258
+    assert snapshot["language_capacity"]["dynamic_capacity_enabled"] is True
+    assert snapshot["thought_capacity_mutation_count"] == 1
+    assert runtime_state.state_revision == 1
+
+
+def test_thought_capacity_mutation_blocks_stale_revision_before_checkpoint(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "dense_readout_weights": torch.zeros((64, 64), dtype=torch.float32),
+        "sparse_transition_weights": {},
+    }
+    checkpoint_calls: list[str | None] = []
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "thought-capacity.pt")},
+        checkpoint_path=lambda: tmp_path / "thought-capacity.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_capacity_mutation(
+        autonomous_snn_language_thought_capacity_mutation_preflight=(
+            _thought_capacity_mutation_preflight(expected_state_revision=1)
+        ),
+        expected_state_revision=1,
+        requested_device="cpu",
+    )
+
+    assert result["accepted"] is False
+    assert result["requires_operator_approval"] is False
+    assert result["promotion_gate"]["required_evidence"][
+        "expected_revision_current"
+    ] is False
+    assert checkpoint_calls == []
+    assert list(language_state["dense_readout_weights"].shape) == [64, 64]
+    assert "language_capacity" not in language_state
+    assert runtime_state.state_revision == 0
+
+
+def test_thought_newborn_neuron_integration_adds_checkpointed_seed_edges(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    dense = torch.zeros((66, 66), dtype=torch.float32)
+    dense[1, 2] = 0.5
+    language_state = {
+        "dense_readout_weights": dense,
+        "sparse_transition_weights": {"1:2": 0.5},
+        "language_capacity": {
+            "surface": "snn_language_capacity_state.v1",
+            "language_neuron_count": 66,
+            "sparse_edge_budget": 258,
+            "outgoing_fanout_budget": 16,
+            "dynamic_capacity_enabled": True,
+            "capacity_expansion_count": 1,
+        },
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "newborn-integration.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "newborn-integration.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        publish_committed_checkpoint=lambda path, operation: {
+            "checkpoint_path": str(path),
+            "operation": operation,
+        },
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_integration(
+        autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
+            _thought_newborn_neuron_integration_preflight()
+        ),
+        expected_state_revision=0,
+        checkpoint_path=str(tmp_path / "newborn-integration.pt"),
+    )
+    event = result[
+        "autonomous_snn_language_thought_newborn_neuron_integration_event"
+    ]
+    snapshot = executor.snapshot()
+
+    assert result["accepted"] is True
+    assert result["surface"] == (
+        "snn_language_autonomous_snn_language_thought_"
+        "newborn_neuron_integration_executor.v1"
+    )
+    assert result["requires_operator_approval"] is False
+    assert result["mutates_runtime_state"] is True
+    assert result["writes_checkpoint"] is True
+    assert result["resizes_network"] is False
+    assert result["adds_neurons"] is False
+    assert result["adds_synapses"] is True
+    assert result["applies_plasticity"] is True
+    assert result["runs_replay"] is False
+    assert result["trains_runtime_model"] is False
+    assert result["checkpoint_transaction"]["restore_verified"] is True
+    assert language_state["sparse_transition_weights"]["4:64"] == 0.01
+    assert language_state["sparse_transition_weights"]["5:65"] == 0.01
+    integrated = language_state["dense_readout_weights"]
+    assert isinstance(integrated, torch.Tensor)
+    assert float(integrated[4, 64].item()) == pytest.approx(0.01)
+    assert float(integrated[5, 65].item()) == pytest.approx(0.01)
+    assert float(integrated[1, 2].item()) == 0.5
+    assert event["integrated_synapse_count"] == 2
+    assert event["critical_period_started"] is True
+    assert len(event["newborn_neuron_integration_event_hash"]) == 64
+    assert all(
+        item["connection_applied"] is True
+        and item["weight_applied"] is True
+        and item["critical_period_started"] is True
+        and len(item["newborn_integration_synapse_hash"]) == 64
+        for item in event["integrated_synapses"]
+    )
+    assert language_state["synapse_provenance_by_key"]["4:64"][
+        "provenance_type"
+    ] == "newborn_neuron_integration"
+    assert snapshot["thought_newborn_neuron_integration_count"] == 1
+    assert snapshot["last_thought_newborn_neuron_integration"] == event
+    assert snapshot["newborn_integration_dense_samples"] == [
+        {
+            "synapse": "4:64",
+            "source_neuron_index": 4,
+            "target_neuron_index": 64,
+            "weight": pytest.approx(0.01),
+        },
+        {
+            "synapse": "5:65",
+            "source_neuron_index": 5,
+            "target_neuron_index": 65,
+            "weight": pytest.approx(0.01),
+        },
+    ]
+    assert runtime_state.state_revision == 1
+
+
+def test_thought_newborn_neuron_integration_blocks_stale_revision_before_checkpoint(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    language_state = {
+        "dense_readout_weights": torch.zeros((66, 66), dtype=torch.float32),
+        "sparse_transition_weights": {},
+        "language_capacity": {
+            "language_neuron_count": 66,
+            "sparse_edge_budget": 258,
+            "outgoing_fanout_budget": 16,
+        },
+    }
+    checkpoint_calls: list[str | None] = []
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=lambda path: checkpoint_calls.append(path)
+        or {"path": str(tmp_path / "newborn-integration.pt")},
+        checkpoint_path=lambda: tmp_path / "newborn-integration.pt",
+        verify_checkpoint=lambda path: path.exists(),
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_integration(
+        autonomous_snn_language_thought_newborn_neuron_integration_preflight=(
+            _thought_newborn_neuron_integration_preflight(
+                expected_state_revision=1
+            )
+        ),
+        expected_state_revision=1,
+    )
+
+    assert result["accepted"] is False
+    assert result["requires_operator_approval"] is False
+    assert result["promotion_gate"]["required_evidence"][
+        "expected_revision_current"
+    ] is False
+    assert checkpoint_calls == []
+    assert language_state["sparse_transition_weights"] == {}
+    assert int(torch.count_nonzero(language_state["dense_readout_weights"])) == 0
+    assert runtime_state.state_revision == 0
+
+
+def test_thought_newborn_neuron_critical_period_learning_applies_local_cycle(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    dense = torch.zeros((66, 66), dtype=torch.float32)
+    dense[4, 64] = 0.01
+    language_state = {
+        "dense_readout_weights": dense,
+        "sparse_transition_weights": {"4:64": 0.01},
+        "synapse_provenance_by_key": {
+            "4:64": {
+                "provenance_type": "newborn_neuron_integration",
+                "newborn_integration_synapse_hash": "i" * 64,
+            }
+        },
+        "language_capacity": {
+            "language_neuron_count": 66,
+            "sparse_edge_budget": 258,
+            "outgoing_fanout_budget": 16,
+        },
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "critical-period.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "critical-period.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        publish_committed_checkpoint=lambda path, operation: {
+            "checkpoint_path": str(path),
+            "operation": operation,
+        },
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+            _thought_newborn_neuron_critical_period_learning_preflight()
+        ),
+        expected_state_revision=0,
+        checkpoint_path=str(tmp_path / "critical-period.pt"),
+    )
+    event = result[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_event"
+    ]
+    snapshot = executor.snapshot()
+
+    assert result["accepted"] is True
+    assert result["requires_operator_approval"] is False
+    assert result["mutates_runtime_state"] is True
+    assert result["writes_checkpoint"] is True
+    assert result["applies_plasticity"] is True
+    assert result["adds_synapses"] is False
+    assert result["prunes_network"] is False
+    assert result["checkpoint_transaction"]["restore_verified"] is True
+    assert language_state["sparse_transition_weights"]["4:64"] == pytest.approx(
+        0.013125
+    )
+    assert float(
+        language_state["dense_readout_weights"][4, 64].item()
+    ) == pytest.approx(0.013125)
+    applied = event["applied_learning_cycles"][0]
+    assert applied["cycle_index"] == 1
+    assert applied["critical_period_age_cycles"] == 1
+    assert applied["critical_period_cycles_remaining"] == 63
+    assert applied["active_cycle_count"] == 1
+    assert applied["current_maturation_state"] == "critical_period"
+    assert applied["weight_update_applied"] is True
+    assert applied["maturation_decided"] is False
+    assert event["critical_period_synapse_count"] == 1
+    assert event["mature_synapse_count"] == 0
+    assert event["prune_eligible_synapse_count"] == 0
+    assert snapshot[
+        "thought_newborn_neuron_critical_period_learning_cycle_count"
+    ] == 1
+    assert snapshot[
+        "newborn_neuron_critical_period_state_by_synapse"
+    ]["4:64"]["critical_period_age_cycles"] == 1
+    assert snapshot["critical_period_learning_dense_samples"][0][
+        "weight"
+    ] == pytest.approx(0.013125)
+    assert language_state["synapse_provenance_by_key"]["4:64"][
+        "current_maturation_state"
+    ] == "critical_period"
+    assert runtime_state.state_revision == 1
+
+
+@pytest.mark.parametrize(
+    ("active_cycle", "prior_active_cycles", "expected_state"),
+    (
+        (True, 15, "mature"),
+        (False, 0, "prune_eligible"),
+    ),
+)
+def test_thought_newborn_neuron_critical_period_learning_decides_terminal_state_without_pruning(
+    tmp_path: Path,
+    active_cycle: bool,
+    prior_active_cycles: int,
+    expected_state: str,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    dense = torch.zeros((66, 66), dtype=torch.float32)
+    dense[4, 64] = 0.01
+    language_state = {
+        "dense_readout_weights": dense,
+        "sparse_transition_weights": {"4:64": 0.01},
+        "synapse_provenance_by_key": {
+            "4:64": {
+                "provenance_type": "newborn_neuron_integration",
+                "newborn_integration_synapse_hash": "i" * 64,
+            }
+        },
+        "thought_newborn_neuron_critical_period_learning": {
+            "learning_cycle_count": 63,
+            "by_synapse": {
+                "4:64": {
+                    "critical_period_age_cycles": 63,
+                    "active_cycle_count": prior_active_cycles,
+                    "inactive_cycle_count": 0,
+                    "current_maturation_state": "critical_period",
+                }
+            },
+        },
+        "language_capacity": {
+            "language_neuron_count": 66,
+            "sparse_edge_budget": 258,
+            "outgoing_fanout_budget": 16,
+        },
+    }
+    preflight = (
+        _thought_newborn_neuron_critical_period_learning_preflight()
+    )
+    body = preflight[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_preflight"
+    ]
+    assert isinstance(body, dict)
+    cycle = body["resolved_learning_cycles"][0]
+    assert isinstance(cycle, dict)
+    cycle.update(
+        {
+            "cycle_index": 64,
+            "critical_period_age_cycles": 63,
+            "critical_period_cycles_remaining": 1,
+            "active_cycle": active_cycle,
+            "pre_spike_count": 2 if active_cycle else 0,
+            "post_spike_count": 2 if active_cycle else 0,
+            "causal_pair_count": 3 if active_cycle else 0,
+            "anti_causal_pair_count": 1 if active_cycle else 0,
+            "proposed_weight_delta": (
+                0.003125 if active_cycle else 0.0
+            ),
+            "proposed_weight": 0.013125 if active_cycle else 0.01,
+        }
+    )
+    cycle["critical_period_learning_cycle_hash"] = (
+        SNNLanguagePlasticityApplicationExecutor._sha256_json(
+            {
+                key: value
+                for key, value in cycle.items()
+                if key != "critical_period_learning_cycle_hash"
+            }
+        )
+    )
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / f"{expected_state}.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / f"{expected_state}.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        publish_committed_checkpoint=lambda path, operation: {
+            "checkpoint_path": str(path),
+            "operation": operation,
+        },
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_newborn_neuron_critical_period_learning(
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight=(
+            preflight
+        ),
+        expected_state_revision=0,
+        checkpoint_path=str(tmp_path / f"{expected_state}.pt"),
+    )
+    event = result[
+        "autonomous_snn_language_thought_newborn_neuron_"
+        "critical_period_learning_event"
+    ]
+    applied = event["applied_learning_cycles"][0]
+
+    assert result["accepted"] is True
+    assert applied["critical_period_age_cycles"] == 64
+    assert applied["critical_period_cycles_remaining"] == 0
+    assert applied["maturation_decided"] is True
+    assert applied["current_maturation_state"] == expected_state
+    assert applied["pruning_applied"] is False
+    assert "4:64" in language_state["sparse_transition_weights"]
+    assert result["prunes_network"] is False
+    if expected_state == "mature":
+        assert event["mature_synapse_count"] == 1
+        assert event["prune_eligible_synapse_count"] == 0
+    else:
+        assert event["mature_synapse_count"] == 0
+        assert event["prune_eligible_synapse_count"] == 1
+
+
+def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
+    tmp_path: Path,
+) -> None:
+    lock = RLock()
+    runtime_state = RuntimeState(lock=lock)
+    dense = torch.zeros((66, 66), dtype=torch.float32)
+    dense[4, 64] = 0.01
+    application_hash = "l" * 64
+    language_state = {
+        "dense_readout_weights": dense,
+        "sparse_transition_weights": {"4:64": 0.01},
+        "synapse_provenance_by_key": {
+            "4:64": {
+                "provenance_type": "newborn_neuron_integration",
+                "current_weight": 0.01,
+                "current_maturation_state": "prune_eligible",
+            }
+        },
+        "thought_newborn_neuron_critical_period_learning": {
+            "by_synapse": {
+                "4:64": {
+                    "synapse": "4:64",
+                    "critical_period_cycles_remaining": 0,
+                    "current_maturation_state": "prune_eligible",
+                    "maturation_decided": True,
+                    "critical_period_learning_application_hash": (
+                        application_hash
+                    ),
+                }
+            }
+        },
+        "language_capacity": {
+            "language_neuron_count": 66,
+            "sparse_edge_budget": 258,
+            "outgoing_fanout_budget": 16,
+        },
+    }
+    candidate = {
+        "synapse": "4:64",
+        "source_neuron_index": 4,
+        "target_neuron_index": 64,
+        "current_weight": 0.01,
+        "critical_period_age_cycles": 64,
+        "critical_period_cycles": 64,
+        "active_cycle_count": 0,
+        "inactive_cycle_count": 64,
+        "minimum_survival_active_cycles": 16,
+        "critical_period_learning_application_hash": application_hash,
+        "newborn_integration_synapse_hash": "i" * 64,
+        "terminal_maturation_state": "prune_eligible",
+        "pruning_applied": False,
+    }
+    candidate["newborn_synapse_pruning_candidate_hash"] = (
+        SNNLanguagePlasticityApplicationExecutor._sha256_json(candidate)
+    )
+    preflight = {
+        "surface": (
+            "snn_language_autonomous_snn_language_thought_newborn_"
+            "synapse_pruning_preflight.v1"
+        ),
+        "accepted": True,
+        "ready": True,
+        "preflight_hash": "p" * 64,
+        "requires_operator_approval": False,
+        "autonomous_snn_language_thought_newborn_synapse_"
+        "pruning_preflight": {
+            "newborn_synapse_pruning_design_hash": "d" * 64,
+            "maturation_outcome_review_hash": "r" * 64,
+            "expected_state_revision": 0,
+            "checkpoint_path": str(tmp_path / "prune.pt"),
+            "resolved_prune_count": 1,
+            "resolved_prune_candidates": [candidate],
+            "operator_approval_required": False,
+        },
+        "promotion_gate": {
+            "eligible_for_autonomous_snn_language_thought_newborn_"
+            "synapse_pruning_executor": True
+        },
+    }
+
+    def save_checkpoint(path: str | None) -> dict[str, str]:
+        target = Path(path or tmp_path / "prune.pt")
+        target.write_bytes(b"checkpoint")
+        return {"path": str(target)}
+
+    executor = SNNLanguagePlasticityApplicationExecutor(
+        lock=lock,
+        runtime_state=runtime_state,
+        language_plasticity_state=lambda: language_state,
+        save_checkpoint=save_checkpoint,
+        checkpoint_path=lambda: tmp_path / "prune.pt",
+        verify_checkpoint=lambda path: path.exists(),
+        publish_committed_checkpoint=lambda path, operation: {
+            "checkpoint_path": str(path),
+            "operation": operation,
+        },
+    )
+
+    result = executor.apply_autonomous_snn_language_thought_newborn_synapse_pruning(
+        autonomous_snn_language_thought_newborn_synapse_pruning_preflight=preflight,
+        expected_state_revision=0,
+    )
+
+    assert result["accepted"] is True
+    assert result["prunes_network"] is True
+    assert runtime_state.state_revision == 1
+    assert "4:64" not in language_state["sparse_transition_weights"]
+    assert float(language_state["dense_readout_weights"][4, 64]) == 0.0
+    assert "4:64" not in language_state["synapse_provenance_by_key"]
+    tombstone = language_state["pruned_synapse_provenance_by_key"]["4:64"]
+    assert tombstone["live_synapse"] is False
+    assert tombstone["final_weight"] == pytest.approx(0.01)
+    assert (
+        language_state["language_capacity"]["language_neuron_count"]
+        == 66
+    )
+    snapshot = executor.snapshot()
+    assert snapshot["thought_newborn_synapse_pruning_count"] == 1
+    assert snapshot["thought_newborn_synapse_pruned_count_total"] == 1
 
 
 def test_dense_readout_layout_migration_persists_checkpointed_resize_evidence(

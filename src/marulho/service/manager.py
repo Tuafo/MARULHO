@@ -56,6 +56,7 @@ from marulho.service.snn_language_plasticity_executor import SNNLanguagePlastici
 from marulho.service.snn_language_readout_ledger import SNNLanguageReadoutEvidenceLedger
 from marulho.service.structural_mutation_executor import StructuralMutationExecutor
 from marulho.service.autonomy_planner import AutonomyPlanner
+from marulho.service.developmental_autonomy import DevelopmentalAutonomyScheduler
 from marulho.service.status_runtime import RuntimeStatusCore
 from marulho.service.status_read_model import StatusReadModel
 from marulho.service.source_focus import SourceFocusDependencies, SourceFocusScorer
@@ -302,6 +303,21 @@ class MarulhoServiceManager:
             runtime_state=self._runtime_state,
             ledger_state=lambda: self._snn_language_readout_ledger_state,
         )
+        self._developmental_autonomy = DevelopmentalAutonomyScheduler(
+            lock=self._lock,
+            runtime_state=self._runtime_state,
+            plasticity_snapshot=self._snn_language_plasticity_executor.snapshot,
+            language_plasticity_state=lambda: deepcopy(
+                self._snn_language_plasticity_state
+            ),
+            readout_ledger=self._snn_language_readout_ledger,
+            plasticity_executor=self._snn_language_plasticity_executor,
+            checkpoint_path=lambda: self._checkpoint_path,
+            save_checkpoint=lambda path: self._runtime_persistence.save_checkpoint(
+                path, publish=False
+            ),
+            verify_checkpoint_snapshot=self._verify_snn_language_checkpoint_snapshot,
+        )
         self._runtime_facade = RuntimeFacade(self)
 
     @property
@@ -324,10 +340,61 @@ class MarulhoServiceManager:
             if isinstance(service_state.get("snn_language_plasticity"), Mapping)
             else {}
         )
+        normalized_expected_state = (
+            RuntimePersistence._snn_language_plasticity_checkpoint_state(
+                expected_language_state
+            )
+        )
         return (
-            dict(saved_language_state) == dict(expected_language_state)
+            MarulhoServiceManager._checkpoint_values_equal(
+                saved_language_state,
+                normalized_expected_state,
+            )
             and int(metadata.get("state_revision", -1)) == int(expected_revision)
         )
+
+    @staticmethod
+    def _checkpoint_values_equal(saved: Any, expected: Any) -> bool:
+        if isinstance(saved, torch.Tensor) or isinstance(expected, torch.Tensor):
+            if not isinstance(saved, torch.Tensor) or not isinstance(
+                expected, torch.Tensor
+            ):
+                return False
+            return bool(
+                saved.dtype == expected.dtype
+                and tuple(saved.shape) == tuple(expected.shape)
+                and torch.equal(
+                    saved.detach().cpu(),
+                    expected.detach().cpu(),
+                )
+            )
+        if isinstance(saved, Mapping) or isinstance(expected, Mapping):
+            if not isinstance(saved, Mapping) or not isinstance(expected, Mapping):
+                return False
+            if set(saved) != set(expected):
+                return False
+            return all(
+                MarulhoServiceManager._checkpoint_values_equal(
+                    saved[key],
+                    expected[key],
+                )
+                for key in saved
+            )
+        if isinstance(saved, (list, tuple)) or isinstance(
+            expected, (list, tuple)
+        ):
+            if not isinstance(saved, (list, tuple)) or not isinstance(
+                expected, (list, tuple)
+            ):
+                return False
+            return len(saved) == len(expected) and all(
+                MarulhoServiceManager._checkpoint_values_equal(
+                    saved_item,
+                    expected_item,
+                )
+                for saved_item, expected_item in zip(saved, expected)
+            )
+        return bool(saved == expected)
 
     @staticmethod
     def _verify_concept_store_checkpoint_snapshot(
@@ -1059,6 +1126,13 @@ class MarulhoServiceManager:
 
     def _run_brain_tick_once(self, *args: Any, **kwargs: Any) -> Any:
         return self._runtime_control._run_brain_tick_once(*args, **kwargs)
+
+    def _run_developmental_autonomy_after_tick(
+        self, *args: Any, **kwargs: Any
+    ) -> dict[str, Any]:
+        return self._developmental_autonomy.run_after_tick(
+            *args, **kwargs
+        )
 
     def _provider_query_family_priority_locked(self, *args: Any, **kwargs: Any) -> Any:
         return TerminusAutonomyCore._provider_query_family_priority_locked(self, *args, **kwargs)

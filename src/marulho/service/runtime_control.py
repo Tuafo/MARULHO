@@ -275,6 +275,11 @@ class RuntimeControl(RuntimePrewarmer):
                     )
                     if summary is None:
                         break
+                    summary["developmental_autonomy"] = (
+                        self.dependencies._run_developmental_autonomy_after_tick(
+                            tick_summary=summary
+                        )
+                    )
                     tick_summaries.append(summary)
                     if not bool(summary.get("did_work", False)):
                         break
@@ -409,6 +414,12 @@ class RuntimeControl(RuntimePrewarmer):
                     self._release_active_execution()
                 if result is None:
                     break
+                if isinstance(result, dict):
+                    result["developmental_autonomy"] = (
+                        self.dependencies._run_developmental_autonomy_after_tick(
+                            tick_summary=result
+                        )
+                    )
                 did_work = result.get("did_work", False) if isinstance(result, dict) else False
                 actual_sleep = max(0.001, sleep_interval * 0.1) if did_work else max(0.05, sleep_interval)
             except Exception as exc:

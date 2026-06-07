@@ -2088,6 +2088,174 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                         },
                     )
                 )
+                autonomous_snn_language_thought_capacity_mutation_executor_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-executor",
+                        json={
+                            "autonomous_snn_language_thought_capacity_mutation_preflight": (
+                                autonomous_snn_language_thought_capacity_mutation_preflight_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                            "requested_device": "cpu",
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_capacity_mutation_event_review_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-event-review",
+                        json={
+                            "autonomous_snn_language_thought_capacity_mutation_executor": (
+                                autonomous_snn_language_thought_capacity_mutation_executor_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_integration_design_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-design",
+                        json={
+                            "autonomous_snn_language_thought_capacity_mutation_event_review": (
+                                autonomous_snn_language_thought_capacity_mutation_event_review_response.json()
+                            ),
+                            "integration_policy": {
+                                "max_newborn_neurons": 2,
+                                "max_seed_synapses_per_newborn": 2,
+                                "critical_period_cycles": 64,
+                            },
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_integration_preflight_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-preflight",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_integration_design": (
+                                autonomous_snn_language_thought_newborn_neuron_integration_design_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                            "live_spike_evidence": {
+                                "surface": (
+                                    "snn_language_live_spike_population_evidence.v1"
+                                ),
+                                "state_revision": status_response.json()[
+                                    "state_revision"
+                                ],
+                                "observation_window_id": "blocked-api-window",
+                                "observation_window_hash": "0" * 64,
+                                "device": "cpu",
+                                "tensor_is_cuda": False,
+                                "candidate_observations": [],
+                            },
+                            "checkpoint_transaction": {},
+                            "executor_capabilities": {},
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_integration_executor_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-executor",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_integration_preflight": (
+                                autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_integration_event_review_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-event-review",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_integration_executor": (
+                                autonomous_snn_language_thought_newborn_neuron_integration_executor_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-design",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_integration_event_review": (
+                                autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.json()
+                            )
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-preflight",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design": (
+                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                            "critical_period_activity_evidence": {
+                                "surface": "snn_language_newborn_critical_period_activity.v1",
+                                "state_revision": status_response.json()[
+                                    "state_revision"
+                                ],
+                                "observation_window_id": "blocked-critical-period-api-window",
+                                "observation_window_hash": "0" * 64,
+                                "device": "cpu",
+                                "tensor_is_cuda": False,
+                                "candidate_observations": [],
+                            },
+                            "checkpoint_transaction": {},
+                            "executor_capabilities": {},
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-executor",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight": (
+                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-event-review",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor": (
+                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.json()
+                            ),
+                            "expected_state_revision": status_response.json()[
+                                "state_revision"
+                            ],
+                        },
+                    )
+                )
+                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response = (
+                    client.post(
+                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-continuation-design",
+                        json={
+                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review": (
+                                autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.json()
+                            )
+                        },
+                    )
+                )
             app.state.marulho_manager.close()
 
         self.assertEqual(status_response.status_code, 200)
@@ -2496,6 +2664,50 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             autonomous_snn_language_thought_capacity_mutation_preflight_response.status_code,
             200,
         )
+        self.assertEqual(
+            autonomous_snn_language_thought_capacity_mutation_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_capacity_mutation_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.status_code,
+            200,
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response.status_code,
+            200,
+        )
         status_truth = status_response.json()["runtime_truth"]
         terminus_truth = terminus_response.json()["runtime_truth"]
         capacity_expansion_design = capacity_expansion_response.json()
@@ -2841,6 +3053,39 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         )
         autonomous_snn_language_thought_capacity_mutation_preflight = (
             autonomous_snn_language_thought_capacity_mutation_preflight_response.json()
+        )
+        autonomous_snn_language_thought_capacity_mutation_executor = (
+            autonomous_snn_language_thought_capacity_mutation_executor_response.json()
+        )
+        autonomous_snn_language_thought_capacity_mutation_event_review = (
+            autonomous_snn_language_thought_capacity_mutation_event_review_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_integration_design = (
+            autonomous_snn_language_thought_newborn_neuron_integration_design_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_integration_preflight = (
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_integration_executor = (
+            autonomous_snn_language_thought_newborn_neuron_integration_executor_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_integration_event_review = (
+            autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design = (
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight = (
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor = (
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review = (
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.json()
+        )
+        autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design = (
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response.json()
         )
         self.assertEqual(status_truth["schema_version"], 1)
         self.assertEqual(status_truth["verdict"], "partial")
@@ -8311,6 +8556,294 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             autonomous_snn_language_thought_capacity_mutation_preflight[
                 "promotion_gate"
             ]["eligible_for_action"]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_capacity_mutation_executor["surface"],
+            "snn_language_autonomous_snn_language_thought_capacity_mutation_executor.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor["accepted"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor["ready"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(
+            autonomous_snn_language_thought_capacity_mutation_executor["executable"]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "resizes_network"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "adds_neurons"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "adds_synapses"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "prunes_network"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_executor[
+                "promotion_gate"
+            ][
+                "eligible_for_autonomous_snn_language_thought_capacity_mutation_event_review"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_capacity_mutation_event_review.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "ready"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertTrue(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "advisory"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "executable"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "records_ledger_event"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "writes_checkpoint"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "resizes_network"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_capacity_mutation_event_review[
+                "promotion_gate"
+            ][
+                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_design"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_design[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_design[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_design[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_design[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_design[
+                "promotion_gate"
+            ][
+                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_preflight"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_preflight[
+                "promotion_gate"
+            ][
+                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_executor"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+                "accepted"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_integration_event_review[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_event_review[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_event_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design[
+                "accepted"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight[
+                "accepted"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertEqual(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design[
+                "surface"
+            ],
+            "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design[
+                "accepted"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+                "requires_operator_approval"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+                "mutates_runtime_state"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+                "adds_synapses"
+            ]
+        )
+        self.assertFalse(
+            autonomous_snn_language_thought_newborn_neuron_integration_executor[
+                "promotion_gate"
+            ][
+                "eligible_for_autonomous_snn_language_thought_newborn_neuron_integration_event_review"
+            ]
         )
         self.assertFalse(capacity_compatibility["adds_neurons"])
         self.assertFalse(
@@ -15988,6 +16521,44 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             with TestClient(app) as client:
                 resp = client.post("/terminus/quick-start?preset=nonexistent")
             self.assertEqual(resp.status_code, 422)
+
+    def test_newborn_synapse_pruning_routes_are_registered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(
+                    root,
+                    test_case="service_api_newborn_synapse_pruning_routes",
+                ),
+                trace_dir=root / "traces",
+            )
+            paths = set(app.openapi()["paths"])
+
+        prefix = "/terminus/snn-language-sequence/readout-ledger/"
+        self.assertIn(
+            prefix
+            + "autonomous-snn-language-thought-newborn-neuron-"
+            "maturation-outcome-review",
+            paths,
+        )
+        self.assertIn(
+            prefix
+            + "autonomous-snn-language-thought-newborn-synapse-"
+            "pruning-design",
+            paths,
+        )
+        self.assertIn(
+            prefix
+            + "autonomous-snn-language-thought-newborn-synapse-"
+            "pruning-preflight",
+            paths,
+        )
+        self.assertIn(
+            prefix
+            + "autonomous-snn-language-thought-newborn-synapse-"
+            "pruning-executor",
+            paths,
+        )
 
 
 if __name__ == "__main__":
