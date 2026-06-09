@@ -4,4 +4,6 @@ node_modules
 _archive
 reports
 checkpoints
+graphify-out/
+docs/vault/.obsidian/workspace*.json
 .env

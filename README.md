@@ -129,6 +129,7 @@ For a clean public checkout, generate checkpoints locally before launching the s
 - `CONTEXT.md`: project vocabulary and current domain model.
 - `docs/research-living-brain.md`: research references that inform the architecture.
 - `docs/adr`: architecture decisions and boundaries.
+- `docs/vault`: Obsidian-compatible Markdown knowledge vault with curated maps, concepts, module notes, generated Graphify summaries, and update/validation commands.
 - `TERMINUS_Tutorial.md`: operator workflow notes for the Terminus runtime surface.
 - `tests`: executable behavior expectations.
 

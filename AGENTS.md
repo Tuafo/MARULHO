@@ -11,3 +11,7 @@ Default triage label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`
 ### Domain docs
 
 Single-context layout. See `docs/agents/domain.md`.
+
+### MARULHO-specific grilling
+
+Use `$marulho-grill-with-docs` when stress-testing or implementing MARULHO plans against `CONTEXT.md`, ADRs, `docs/vault/`, Graphify, Runtime Truth, evidence gates, benchmarks, and retired paths.
