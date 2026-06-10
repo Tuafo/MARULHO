@@ -2053,6 +2053,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
                     + delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
                 )
+                manager._brain_runtime._maintain_delayed_consequence_records_locked()
                 cooled_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 cooled_tracking = cooled_runtime["background_source_routing"]["delayed_consequence_tracking"]
                 cooled_record = cooled_tracking["recent_records"][0]
@@ -2065,6 +2066,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
 
                 manager._trainer.token_count += delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
+                manager._brain_runtime._maintain_delayed_consequence_records_locked()
                 retired_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 retired_tracking = retired_runtime["background_source_routing"]["delayed_consequence_tracking"]
 
@@ -7446,6 +7448,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                     delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_START_TOKENS
                     + delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_COOLING_WINDOW_TOKENS
                 )
+                manager._brain_runtime._maintain_delayed_consequence_records_locked()
                 cooled_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 cooled_tracking = cooled_runtime["autonomy"]["delayed_consequence_tracking"]
                 cooled_record = cooled_tracking["recent_records"][0]
@@ -7458,6 +7461,7 @@ class ServiceManagerTerminusRuntimeTests(unittest.TestCase):
                 self.assertGreater(int(cooled_tracking["cooled_record_count_total"]), 0)
 
                 manager._trainer.token_count += delayed_consequence_module.DEFAULT_DELAYED_CONSEQUENCE_RETIREMENT_TOKENS * 2
+                manager._brain_runtime._maintain_delayed_consequence_records_locked()
                 retired_runtime = manager.runtime_facade.status()["terminus_runtime"]
                 retired_tracking = retired_runtime["autonomy"]["delayed_consequence_tracking"]
 

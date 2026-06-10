@@ -136,6 +136,12 @@ class _BrainRuntimeFixtureBase:
         self._snn_replay_artifact_recording_review_tickets: deque[dict[str, object]] = deque()
         self._snn_transition_memory_replay_artifacts: deque[dict[str, object]] = deque()
         self._brain_events: list[dict[str, object]] = []
+        self._delayed_maintenance_calls: dict[str, int] = {
+            "remerge": 0,
+            "split": 0,
+            "compact": 0,
+            "cool": 0,
+        }
 
     def _initialize_runtime_state(self) -> None:
         self._brain_source_index = 0
@@ -236,16 +242,23 @@ class _BrainRuntimeFixtureBase:
             "include_replay_dataset_summary": bool(include_replay_dataset_summary),
         }
 
+    def snn_sleep_plasticity_review_scheduler_runtime(self) -> dict[str, bool]:
+        return {"enabled": False}
+
     def _remerge_converged_delayed_consequence_families_locked(self) -> None:
+        self._delayed_maintenance_calls["remerge"] += 1
         return None
 
     def _split_divergent_delayed_consequence_families_locked(self) -> None:
+        self._delayed_maintenance_calls["split"] += 1
         return None
 
     def _compact_delayed_consequence_records_locked(self) -> None:
+        self._delayed_maintenance_calls["compact"] += 1
         return None
 
     def _cool_delayed_consequence_records_locked(self) -> None:
+        self._delayed_maintenance_calls["cool"] += 1
         return None
 
     def _brain_runtime_active_locked(self) -> bool:
@@ -376,6 +389,25 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(module._brain_tick_count, 1)
         self.assertEqual(module._brain_source_index, 1)
         self.assertEqual(manager._runtime_state.mutated, 2)
+        self.assertEqual(
+            summary["delayed_consequence_maintenance"],
+            {
+                "remerged_records": 0,
+                "split_records": 0,
+                "compacted_records": 0,
+                "cooled_records": 0,
+                "retired_records": 0,
+            },
+        )
+        self.assertEqual(
+            manager._delayed_maintenance_calls,
+            {
+                "remerge": 1,
+                "split": 1,
+                "compact": 1,
+                "cool": 1,
+            },
+        )
         self.assertEqual(grounded["observation_sink"], "subcortex_grounded_source_observation")
         self.assertNotIn("retired_loop_mirrored", grounded)
         self.assertEqual(grounded["metadata"]["observation_sink"], "subcortex_grounded_source_observation")
@@ -407,6 +439,15 @@ class BrainRuntimeSeamTests(unittest.TestCase):
         self.assertEqual(snapshot["text_learning_balance"]["background_tokens_processed"], 8)
         self.assertNotIn("retired_runtime_dependency", snapshot["living_loop"]["subcortex_sleep_pressure"])
         self.assertNotIn("retired_runtime_path", snapshot)
+        self.assertEqual(
+            manager._delayed_maintenance_calls,
+            {
+                "remerge": 0,
+                "split": 0,
+                "compact": 0,
+                "cool": 0,
+            },
+        )
 
 
 if __name__ == "__main__":

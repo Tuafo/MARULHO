@@ -903,6 +903,7 @@ class BrainRuntime:
             source_summary = {"did_work": False, "reason": "no_tokens"}
 
         autonomy_summary = self._run_brain_autonomy_locked()
+        delayed_consequence_maintenance = self._maintain_delayed_consequence_records_locked()
         if source_info is not None and total_trained > 0:
             try:
                 source_runtime = cast(_BrainSourceRuntime, source_info["runtime"])
@@ -936,6 +937,7 @@ class BrainRuntime:
             "source": source_summary,
             "multimodal": multimodal_summary,
             "autonomy": autonomy_summary,
+            "delayed_consequence_maintenance": delayed_consequence_maintenance,
             "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
             "token_delta": int(token_delta),
         }
@@ -959,6 +961,7 @@ class BrainRuntime:
             self._brain_last_tick_completed_at = str(summary["timestamp"])
             self._brain_last_tick_duration_ms = float((time.perf_counter() - tick_started) * 1000.0)
             self._brain_last_tick_token_delta = 0
+            summary["delayed_consequence_maintenance"] = self._maintain_delayed_consequence_records_locked()
             self._record_brain_event_locked(summary)
             return summary
 
@@ -978,6 +981,7 @@ class BrainRuntime:
                 self._start_remote_warm_promotion_locked(trigger="tick")
 
         autonomy_summary = self._run_brain_autonomy_locked()
+        delayed_consequence_maintenance = self._maintain_delayed_consequence_records_locked()
         sensory_summary = self._run_real_sensory_episode_locked()
         multimodal_summary = self._multimodal_runtime_summary_locked() if sensory_summary is not None else None
         did_work = autonomy_summary is not None or sensory_summary is not None
@@ -989,6 +993,7 @@ class BrainRuntime:
             "source": source_summary,
             "multimodal": multimodal_summary,
             "autonomy": autonomy_summary,
+            "delayed_consequence_maintenance": delayed_consequence_maintenance,
             "tick_duration_ms": float((time.perf_counter() - tick_started) * 1000.0),
             "token_delta": int(
                 (0 if autonomy_summary is None else int(autonomy_summary.get("tokens_trained_total", 0) or 0))
@@ -1002,6 +1007,23 @@ class BrainRuntime:
             self._brain_last_work_at = completed_at
         self._record_brain_event_locked(summary)
         return summary
+
+    def _maintain_delayed_consequence_records_locked(self) -> dict[str, Any]:
+        remerge = self._remerge_converged_delayed_consequence_families_locked()
+        split = self._split_divergent_delayed_consequence_families_locked()
+        compaction = self._compact_delayed_consequence_records_locked()
+        cooling = self._cool_delayed_consequence_records_locked()
+        remerge = remerge if isinstance(remerge, Mapping) else {}
+        split = split if isinstance(split, Mapping) else {}
+        compaction = compaction if isinstance(compaction, Mapping) else {}
+        cooling = cooling if isinstance(cooling, Mapping) else {}
+        return {
+            "remerged_records": int(remerge.get("remerged_records", 0) or 0),
+            "split_records": int(split.get("split_records", 0) or 0),
+            "compacted_records": int(compaction.get("compacted_records", 0) or 0),
+            "cooled_records": int(cooling.get("cooled_records", 0) or 0),
+            "retired_records": int(cooling.get("retired_records", 0) or 0),
+        }
 
     def _run_brain_autonomy_locked(self) -> dict[str, Any] | None:
         autonomy = self._brain_config.get("autonomy")
@@ -1157,10 +1179,6 @@ class BrainRuntime:
         }
 
     def _brain_runtime_snapshot_locked(self, *, include_replay_dataset_summary: bool = True) -> dict[str, Any]:
-        self._remerge_converged_delayed_consequence_families_locked()
-        self._split_divergent_delayed_consequence_families_locked()
-        self._compact_delayed_consequence_records_locked()
-        self._cool_delayed_consequence_records_locked()
         autonomy = self._brain_config.get("autonomy")
         exhausted_source_count = sum(1 for runtime in self._brain_source_runtimes if runtime.exhausted)
         background_focus_plan: Mapping[str, Any] | None = None

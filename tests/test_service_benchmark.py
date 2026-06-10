@@ -3,14 +3,22 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI
 
+import marulho.evaluation.service_benchmark as service_benchmark_module
 from marulho.evaluation.service_benchmark import (
     benchmark_service_app,
+    compare_service_benchmark_against_accepted_baseline,
+    compare_service_benchmark_report_files,
+    compare_service_benchmark_reports,
+    create_service_benchmark_accepted_baseline,
     create_tiny_service_benchmark_checkpoint,
+    main as service_benchmark_main,
+    run_service_benchmark_against_accepted_baseline,
     run_service_benchmark,
 )
 
@@ -45,12 +53,37 @@ def _fake_service_app() -> FastAPI:
             },
         }
 
+    def runtime_scope() -> dict[str, Any]:
+        return {
+            "device": {
+                "requested_device": "auto",
+                "env_device": None,
+                "resolved_device": "cpu",
+                "cuda_available": False,
+                "cuda_device_count": 0,
+                "cuda_selected": False,
+            },
+            "cuda_first_runtime": {
+                "enabled_when_available": True,
+                "tensor_device": "cpu",
+                "routing_search_device": "cpu",
+                "routing_backend_cuda_capable": True,
+                "unit_tests_default_cpu": True,
+                "encoder_device_report": {"encoder": "rtf", "device": "cpu"},
+                "subcortex_tensor_devices": {
+                    "competitive": {"device": "cpu"},
+                    "predictive": {"device": "cpu"},
+                },
+            },
+        }
+
     @app.get("/status")
     def status() -> dict[str, Any]:
         return {
             "status": "ok",
             "token_count": 12,
             "runtime_truth": runtime_truth(),
+            "runtime_scope": runtime_scope(),
         }
 
     @app.get("/terminus")
@@ -58,6 +91,7 @@ def _fake_service_app() -> FastAPI:
         return {
             "terminus_runtime": {"configured": True, "running": True},
             "runtime_truth": runtime_truth(),
+            "runtime_scope": runtime_scope(),
         }
 
     @app.post("/feed")
@@ -359,6 +393,391 @@ def _fake_service_app() -> FastAPI:
     return app
 
 
+def _benchmark_report(
+    *,
+    verdict: str = "alive",
+    success: bool = True,
+    hot_p95: float = 100.0,
+    hot_total: float = 240.0,
+    configured: bool = True,
+    tick_tokens: int = 24,
+    hot_names: list[str] | None = None,
+) -> dict[str, Any]:
+    hot_endpoint_names = hot_names or ["feed", "query", "respond"]
+    return {
+        "schema_version": 1,
+        "success": success,
+        "endpoint_timings": [{"name": "status", "success": success, "latency_ms": 1.0}],
+        "endpoint_metabolism_summary": {
+            "setup": {"endpoint_names": ["terminus_configure", "terminus_tick"], "success": True},
+            "hot_path": {
+                "endpoint_names": hot_endpoint_names,
+                "latency_ms_p95": hot_p95,
+                "latency_ms_total": hot_total,
+                "success": True,
+            },
+            "slow_path": {"endpoint_names": ["replay_plan", "replay_dataset_preview"], "success": True},
+            "hot_path_budget": {"within_budget": hot_p95 <= 1000.0 and hot_total <= 3000.0},
+        },
+        "configured_source_summary": {
+            "configured": configured,
+            "source_name": "benchmark_local_source",
+            "source_count": 1 if configured else 0,
+            "tick_tokens_processed": tick_tokens,
+            "not_hot_path": True,
+        },
+        "source_configuration_evidence": {
+            "status": {
+                "configured": configured,
+                "source_count": 1 if configured else 0,
+                "source_names": ["benchmark_local_source"] if configured else [],
+            }
+        },
+        "status_runtime_truth_summary": {
+            "schema_version": 1,
+            "verdict": verdict,
+            "recommended_action": "continue_monitoring" if verdict == "alive" else "configure_terminus_sources",
+        },
+    }
+
+
+def test_service_benchmark_regression_gate_passes_for_configured_alive_run() -> None:
+    comparison = compare_service_benchmark_reports(
+        before_report=_benchmark_report(verdict="partial", hot_p95=120.0, hot_total=260.0),
+        after_report=_benchmark_report(verdict="alive", hot_p95=130.0, hot_total=280.0),
+    )
+
+    assert comparison["status"] == "passed"
+    assert comparison["runtime_truth"]["before"] == "partial"
+    assert comparison["runtime_truth"]["after"] == "alive"
+    assert comparison["checks"]["configured_source_alive"] is True
+    assert comparison["checks"]["setup_not_in_hot_path"] is True
+    assert comparison["claim_boundary"] == "regression_gate_only_no_runtime_mutation_no_cuda_speedup_claim"
+
+
+def test_service_benchmark_regression_gate_fails_on_hot_path_regression() -> None:
+    comparison = compare_service_benchmark_reports(
+        before_report=_benchmark_report(verdict="alive", hot_p95=100.0, hot_total=200.0),
+        after_report=_benchmark_report(verdict="alive", hot_p95=180.0, hot_total=400.0),
+        hot_path_regression_tolerance=0.25,
+    )
+
+    assert comparison["status"] == "failed"
+    assert comparison["checks"]["hot_path_p95_no_relative_regression"] is False
+    assert comparison["checks"]["hot_path_total_no_relative_regression"] is False
+    assert comparison["hot_path"]["allowed_after_p95_ms"] == 125.0
+    assert comparison["hot_path"]["allowed_after_total_ms"] == 250.0
+
+
+def test_service_benchmark_regression_gate_fails_when_setup_leaks_into_hot_path() -> None:
+    comparison = compare_service_benchmark_reports(
+        before_report=_benchmark_report(verdict="alive"),
+        after_report=_benchmark_report(
+            verdict="alive",
+            hot_names=["feed", "query", "respond", "terminus_tick"],
+        ),
+    )
+
+    assert comparison["status"] == "failed"
+    assert comparison["checks"]["setup_not_in_hot_path"] is False
+    assert comparison["endpoint_grouping"]["setup_leaked_into_hot_path"] is True
+
+
+def test_service_benchmark_regression_gate_writes_json_report() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        before_path = root / "before.json"
+        after_path = root / "after.json"
+        output_path = root / "comparison.json"
+        before_path.write_text(json.dumps(_benchmark_report(verdict="partial")), encoding="utf-8")
+        after_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+
+        comparison = compare_service_benchmark_report_files(
+            before_path=before_path,
+            after_path=after_path,
+            output_path=output_path,
+        )
+        loaded = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert loaded == comparison
+    assert comparison["artifact_kind"] == "marulho_service_benchmark_regression_gate"
+
+
+def test_service_benchmark_cli_writes_regression_gate_report(capsys: Any) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        before_path = root / "before.json"
+        after_path = root / "after.json"
+        output_path = root / "comparison.json"
+        before_path.write_text(json.dumps(_benchmark_report(verdict="partial")), encoding="utf-8")
+        after_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+
+        service_benchmark_main(
+            [
+                "--compare-before",
+                str(before_path),
+                "--compare-after",
+                str(after_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+        stdout = capsys.readouterr().out
+        comparison = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert json.loads(stdout)["status"] == "passed"
+    assert comparison["status"] == "passed"
+
+
+def test_service_benchmark_accepts_operator_reviewed_baseline() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        report_path = root / "benchmark.json"
+        baseline_path = root / "accepted-baseline.json"
+        report_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+
+        baseline = create_service_benchmark_accepted_baseline(
+            report_path=report_path,
+            output_path=baseline_path,
+            accepted_by="operator-a",
+            label="local-cpu-smoke",
+            note="Accepted after configured-source smoke run.",
+        )
+        loaded = json.loads(baseline_path.read_text(encoding="utf-8"))
+
+    assert loaded == baseline
+    assert baseline["artifact_kind"] == "marulho_service_benchmark_accepted_baseline"
+    assert baseline["status"] == "accepted"
+    assert baseline["operator_review"]["accepted_by"] == "operator-a"
+    assert baseline["operator_review"]["acceptance_hash_algorithm"] == "sha256_canonical_json"
+    assert baseline["operator_review"]["acceptance_hash"] == service_benchmark_module._sha256_json(
+        baseline["operator_review"]["acceptance_material"]
+    )
+    assert baseline["operator_review"]["acceptance_material"]["accepted_by"] == "operator-a"
+    assert (
+        baseline["operator_review"]["acceptance_material"]["source_report_sha256_canonical_json"]
+        == baseline["source_report"]["sha256_canonical_json"]
+    )
+    assert baseline["label"] == "local-cpu-smoke"
+    assert baseline["source_report"]["runtime_truth_verdict"] == "alive"
+    assert baseline["baseline_id"].startswith("service-benchmark-baseline:")
+    assert baseline["claim_boundary"] == "accepted_baseline_manifest_only_no_runtime_mutation_no_cuda_speedup_claim"
+
+
+def test_service_benchmark_refuses_unreviewed_baseline() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        report_path = root / "benchmark.json"
+        report_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+
+        try:
+            create_service_benchmark_accepted_baseline(
+                report_path=report_path,
+                output_path=root / "accepted-baseline.json",
+                accepted_by="",
+            )
+        except ValueError as exc:
+            message = str(exc)
+        else:  # pragma: no cover - failure branch
+            raise AssertionError("Expected baseline acceptance to require operator identity")
+
+    assert "accepted_by_present" in message
+
+
+def test_service_benchmark_compares_after_run_against_accepted_baseline() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        before_path = root / "before.json"
+        baseline_path = root / "accepted-baseline.json"
+        after_path = root / "after.json"
+        output_path = root / "comparison.json"
+        before_path.write_text(json.dumps(_benchmark_report(verdict="partial", hot_p95=120.0, hot_total=260.0)), encoding="utf-8")
+        after_path.write_text(json.dumps(_benchmark_report(verdict="alive", hot_p95=130.0, hot_total=280.0)), encoding="utf-8")
+        baseline = create_service_benchmark_accepted_baseline(
+            report_path=before_path,
+            output_path=baseline_path,
+            accepted_by="operator-a",
+            label="baseline-a",
+        )
+
+        comparison = compare_service_benchmark_against_accepted_baseline(
+            baseline_path=baseline_path,
+            after_path=after_path,
+            output_path=output_path,
+        )
+        loaded = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert loaded == comparison
+    assert comparison["status"] == "passed"
+    assert comparison["runtime_truth"]["before"] == "partial"
+    assert comparison["runtime_truth"]["after"] == "alive"
+    assert comparison["accepted_baseline"]["baseline_id"] == baseline["baseline_id"]
+    assert comparison["accepted_baseline"]["accepted_by"] == "operator-a"
+    assert comparison["accepted_baseline"]["label"] == "baseline-a"
+    assert comparison["accepted_baseline"]["claim_boundary"] == "accepted_baseline_used_for_report_only_regression_gate"
+
+
+def test_service_benchmark_baseline_compare_rejects_tampered_snapshot() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        report_path = root / "benchmark.json"
+        baseline_path = root / "accepted-baseline.json"
+        after_path = root / "after.json"
+        report_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+        after_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+        baseline = create_service_benchmark_accepted_baseline(
+            report_path=report_path,
+            output_path=baseline_path,
+            accepted_by="operator-a",
+        )
+        baseline["baseline_report_snapshot"]["endpoint_metabolism_summary"]["hot_path"]["latency_ms_p95"] = 1.0
+        baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+
+        try:
+            compare_service_benchmark_against_accepted_baseline(
+                baseline_path=baseline_path,
+                after_path=after_path,
+            )
+        except ValueError as exc:
+            message = str(exc)
+        else:  # pragma: no cover - failure branch
+            raise AssertionError("Expected tampered baseline snapshot to be rejected")
+
+    assert "hash does not match" in message
+
+
+def test_service_benchmark_baseline_compare_rejects_tampered_operator_acceptance() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        report_path = root / "benchmark.json"
+        baseline_path = root / "accepted-baseline.json"
+        after_path = root / "after.json"
+        report_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+        after_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+        baseline = create_service_benchmark_accepted_baseline(
+            report_path=report_path,
+            output_path=baseline_path,
+            accepted_by="operator-a",
+        )
+        baseline["operator_review"]["acceptance_material"]["accepted_by"] = "operator-b"
+        baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+
+        try:
+            compare_service_benchmark_against_accepted_baseline(
+                baseline_path=baseline_path,
+                after_path=after_path,
+            )
+        except ValueError as exc:
+            message = str(exc)
+        else:  # pragma: no cover - failure branch
+            raise AssertionError("Expected tampered operator acceptance to be rejected")
+
+    assert "operator acceptance hash" in message
+
+
+def test_service_benchmark_cli_accepts_baseline_and_compares_against_it(capsys: Any) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        before_path = root / "before.json"
+        after_path = root / "after.json"
+        baseline_path = root / "accepted-baseline.json"
+        comparison_path = root / "comparison.json"
+        before_path.write_text(json.dumps(_benchmark_report(verdict="partial")), encoding="utf-8")
+        after_path.write_text(json.dumps(_benchmark_report(verdict="alive")), encoding="utf-8")
+
+        service_benchmark_main(
+            [
+                "--accept-baseline-from",
+                str(before_path),
+                "--accepted-by",
+                "operator-a",
+                "--baseline-label",
+                "cli-baseline",
+                "--output",
+                str(baseline_path),
+            ]
+        )
+        baseline_stdout = json.loads(capsys.readouterr().out)
+        service_benchmark_main(
+            [
+                "--compare-baseline",
+                str(baseline_path),
+                "--compare-after",
+                str(after_path),
+                "--output",
+                str(comparison_path),
+            ]
+        )
+        comparison_stdout = json.loads(capsys.readouterr().out)
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        comparison = json.loads(comparison_path.read_text(encoding="utf-8"))
+
+    assert baseline_stdout["status"] == "accepted"
+    assert baseline_stdout["baseline_id"] == baseline["baseline_id"]
+    assert comparison_stdout["status"] == "passed"
+    assert comparison["accepted_baseline"]["baseline_id"] == baseline["baseline_id"]
+
+
+def test_service_benchmark_cli_runs_fresh_bundle_against_baseline(capsys: Any, monkeypatch: Any) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        baseline_source_path = root / "baseline-source.json"
+        baseline_path = root / "accepted-baseline.json"
+        bundle_dir = root / "bundle"
+        baseline_source_path.write_text(
+            json.dumps(_benchmark_report(verdict="alive", hot_p95=500.0, hot_total=900.0)),
+            encoding="utf-8",
+        )
+        baseline = create_service_benchmark_accepted_baseline(
+            report_path=baseline_source_path,
+            output_path=baseline_path,
+            accepted_by="operator-a",
+        )
+        after_report = _benchmark_report(verdict="alive", hot_p95=520.0, hot_total=940.0)
+        captured: dict[str, Any] = {}
+
+        def fake_run_service_benchmark(**kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            output_path = Path(kwargs["output_path"])
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = dict(after_report)
+            payload["output_path"] = str(output_path)
+            output_path.write_text(json.dumps(payload), encoding="utf-8")
+            return payload
+
+        monkeypatch.setattr(service_benchmark_module, "run_service_benchmark", fake_run_service_benchmark)
+
+        service_benchmark_main(
+            [
+                "--run-against-baseline",
+                str(baseline_path),
+                "--checkpoint",
+                str(root / "tiny.pt"),
+                "--output",
+                str(bundle_dir),
+                "--configure-local-source",
+                "--local-source-tick-steps",
+                "1",
+            ]
+        )
+        stdout = json.loads(capsys.readouterr().out)
+        summary = json.loads((bundle_dir / "bundle-summary.json").read_text(encoding="utf-8"))
+        comparison = json.loads((bundle_dir / "comparison.json").read_text(encoding="utf-8"))
+        fresh_benchmark_exists = (bundle_dir / "fresh-benchmark.json").exists()
+        comparison_exists = (bundle_dir / "comparison.json").exists()
+
+    assert stdout["status"] == "passed"
+    assert stdout["success"] is True
+    assert fresh_benchmark_exists
+    assert comparison_exists
+    assert summary["artifact_kind"] == "marulho_service_benchmark_baseline_run_bundle"
+    assert summary["accepted_baseline"]["baseline_id"] == baseline["baseline_id"]
+    assert comparison["accepted_baseline"]["baseline_id"] == baseline["baseline_id"]
+    assert captured["configure_local_source"] is True
+    assert captured["local_source_tick_steps"] == 1
+    assert summary["claim_boundary"] == "fresh_benchmark_plus_baseline_compare_slow_path_no_runtime_mutation_no_cuda_speedup_claim"
+
+
 def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
     root = _scratch_root("fake-app")
     try:
@@ -399,6 +818,29 @@ def test_benchmark_service_app_writes_json_shape_for_fake_app() -> None:
             assert record["status_code"] == 200
             assert record["success"] is True
             assert record["latency_ms"] >= 0.0
+        metabolism = result["endpoint_metabolism_summary"]
+        assert metabolism["setup"]["count"] == 0
+        assert metabolism["hot_path"]["endpoint_names"] == ["feed", "query", "respond"]
+        assert metabolism["hot_path"]["count"] == 3
+        assert metabolism["hot_path"]["success"] is True
+        assert metabolism["hot_path"]["latency_ms_p95"] is not None
+        assert metabolism["hot_path_budget"]["within_budget"] is True
+        assert metabolism["hot_path_budget"]["hot_path_protection_role"] == "benchmark_evidence_only_not_runtime_work"
+        assert "replay_dataset_bundle" in metabolism["slow_path"]["endpoint_names"]
+        assert metabolism["uncategorized"]["count"] == 0
+        assert metabolism["semantics"]["setup_endpoints"] == ["terminus_configure", "terminus_tick"]
+        assert metabolism["semantics"]["hot_path_endpoints"] == ["feed", "query", "respond"]
+        assert result["configured_source_summary"] is None
+        device_evidence = result["runtime_device_evidence"]
+        assert device_evidence["semantics"]["claim_boundary"] == "observed_device_placement_only_not_cuda_speedup"
+        assert device_evidence["status"]["summary_role"] == "observed_runtime_device_evidence_not_acceleration_claim"
+        assert device_evidence["status"]["tensor_device"] == "cpu"
+        assert device_evidence["status"]["routing_search_device"] == "cpu"
+        assert device_evidence["status"]["encoder_device"] == "cpu"
+        assert device_evidence["status"]["observed_cuda_execution"] is False
+        assert device_evidence["status"]["cuda_fallback_reason"] == "cuda_not_available"
+        assert device_evidence["status"]["subcortex_device_sections"] == ["competitive", "predictive"]
+        assert device_evidence["terminus"]["resolved_device"] == "cpu"
         assert result["endpoints_by_name"]["export"]["path"] == "/terminus/runtime-traces/export"
         assert result["endpoints_by_name"]["status"]["path"] == "/status"
         assert result["endpoints_by_name"]["terminus"]["path"] == "/terminus"
@@ -465,6 +907,8 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         result = run_service_benchmark(
             checkpoint_path=checkpoint_path,
             output_path=output_path,
+            configure_local_source=True,
+            local_source_tick_steps=1,
             trace_dir=root / "traces",
             web_dist_dir=root / "missing-ui-dist",
             env_root=root,
@@ -494,6 +938,38 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["endpoints_by_name"]["replay_dataset_bundle"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_candidates"]["status_code"] == 200
         assert result["endpoints_by_name"]["replay_dataset_history"]["status_code"] == 200
+        metabolism = result["endpoint_metabolism_summary"]
+        assert metabolism["setup"]["endpoint_names"] == ["terminus_configure", "terminus_tick"]
+        assert metabolism["setup"]["success"] is True
+        assert metabolism["hot_path"]["endpoint_names"] == ["feed", "query", "respond"]
+        assert metabolism["hot_path"]["count"] == 3
+        assert metabolism["hot_path"]["success"] is True
+        assert metabolism["hot_path"]["latency_ms_total"] <= result["total_latency_ms"]
+        assert metabolism["hot_path_budget"]["within_budget"] is True
+        assert metabolism["slow_path"]["count"] == 7
+        assert metabolism["semantics"]["setup_note"].startswith("Configuration and manual tick")
+        assert metabolism["semantics"]["slow_path_note"].startswith("Replay, export, bundle")
+        configured_source = result["configured_source_summary"]
+        assert configured_source["enabled"] is True
+        assert configured_source["configured"] is True
+        assert configured_source["source_name"] == "benchmark_local_source"
+        assert configured_source["source_count"] == 1
+        assert configured_source["tick_steps"] == 1
+        assert configured_source["tick_tokens_processed"] > 0
+        assert configured_source["background_tokens_processed"] > 0
+        assert configured_source["not_hot_path"] is True
+        device_evidence = result["runtime_device_evidence"]
+        assert device_evidence["semantics"]["cuda_claim_requires"].startswith("observed_cuda_execution_true")
+        assert isinstance(device_evidence["status"], dict)
+        assert isinstance(device_evidence["terminus"], dict)
+        assert device_evidence["status"]["summary_role"] == "observed_runtime_device_evidence_not_acceleration_claim"
+        assert device_evidence["status"]["tensor_device"]
+        assert device_evidence["status"]["encoder_device"]
+        assert device_evidence["status"]["observed_cuda_execution"] is (
+            str(device_evidence["status"]["tensor_device"]).startswith("cuda")
+            or str(device_evidence["status"]["routing_search_device"]).startswith("cuda")
+            or str(device_evidence["status"]["encoder_device"]).startswith("cuda")
+        )
         assert isinstance(result["living_loop_benchmark_telemetry"], dict)
         assert isinstance(result["status_runtime_truth_summary"], dict)
         assert result["status_runtime_truth_summary"]["schema_version"] == 1
@@ -501,6 +977,9 @@ def test_run_service_benchmark_completes_with_tiny_checkpoint() -> None:
         assert result["status_runtime_truth_summary"]["recommended_action"]
         assert isinstance(result["source_configuration_evidence"], dict)
         assert "semantics" in result["source_configuration_evidence"]
+        assert result["source_configuration_evidence"]["status"]["configured"] is True
+        assert result["source_configuration_evidence"]["status"]["source_count"] == 1
+        assert result["source_configuration_evidence"]["status"]["source_names"] == ["benchmark_local_source"]
         assert isinstance(result["terminus_runtime_truth_summary"], dict)
         assert result["terminus_runtime_truth_summary"]["verdict"] == result["status_runtime_truth_summary"]["verdict"]
         assert isinstance(result["living_loop_benchmark_telemetry"]["feedback"], dict)

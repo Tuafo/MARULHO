@@ -2961,10 +2961,65 @@ class SNNLanguagePlasticityApplicationExecutor:
                 )
                 else {}
             )
+            capacity_mutation_count = int(
+                capacity_mutation.get("mutation_count", 0) or 0
+            )
+            last_capacity_mutation = deepcopy(
+                capacity_mutation.get("last_mutation")
+            )
+            recent_capacity_mutations = deepcopy(
+                list(capacity_mutation.get("recent_events") or [])
+            )
+            newborn_integration_count = int(
+                newborn_integration.get("integration_count", 0) or 0
+            )
+            last_newborn_integration_event = deepcopy(
+                newborn_integration.get("last_integration")
+            )
+            recent_newborn_integrations = deepcopy(
+                list(newborn_integration.get("recent_events") or [])
+            )
+            critical_period_learning_cycle_count = int(
+                critical_period_learning.get("learning_cycle_count", 0)
+                or 0
+            )
+            last_critical_period_learning = deepcopy(
+                critical_period_learning.get("last_learning_cycle")
+            )
+            recent_critical_period_learning = deepcopy(
+                list(critical_period_learning.get("recent_events") or [])
+            )
+            newborn_synapse_pruning_count = int(
+                newborn_synapse_pruning.get("pruning_count", 0) or 0
+            )
+            newborn_synapse_pruned_count_total = int(
+                newborn_synapse_pruning.get("pruned_synapse_count_total", 0)
+                or 0
+            )
+            last_newborn_synapse_pruning = deepcopy(
+                newborn_synapse_pruning.get("last_pruning")
+            )
+            recent_newborn_synapse_pruning = deepcopy(
+                list(newborn_synapse_pruning.get("recent_events") or [])
+            )
             return {
                 "surface": "snn_language_plasticity_runtime_state.v1",
                 "owned_by_marulho": True,
                 "external_dependency": False,
+                "canonical_field_names": {
+                    "language_capacity_mutation_count": (
+                        "canonical_alias_for_legacy_thought_capacity_mutation_count"
+                    ),
+                    "language_newborn_neuron_integration_count": (
+                        "canonical_alias_for_legacy_thought_newborn_neuron_integration_count"
+                    ),
+                    "language_newborn_neuron_critical_period_learning_cycle_count": (
+                        "canonical_alias_for_legacy_thought_newborn_neuron_critical_period_learning_cycle_count"
+                    ),
+                    "language_newborn_synapse_pruning_count": (
+                        "canonical_alias_for_legacy_thought_newborn_synapse_pruning_count"
+                    ),
+                },
                 "language_capacity": deepcopy(capacity),
                 "dense_readout_layout": deepcopy(dense_layout),
                 "dense_readout_tensor": self._dense_tensor_summary(dense_tensor),
@@ -2986,43 +3041,41 @@ class SNNLanguagePlasticityApplicationExecutor:
                 "synapse_provenance_by_key": deepcopy(dict(state.get("synapse_provenance_by_key") or {})),
                 "last_live_application": deepcopy(live_application.get("last_application")),
                 "recent_live_applications": deepcopy(list(live_application.get("recent_events") or [])),
-                "thought_capacity_mutation_count": int(
-                    capacity_mutation.get("mutation_count", 0) or 0
-                ),
-                "last_thought_capacity_mutation": deepcopy(
-                    capacity_mutation.get("last_mutation")
-                ),
-                "recent_thought_capacity_mutations": deepcopy(
-                    list(capacity_mutation.get("recent_events") or [])
-                ),
-                "thought_newborn_neuron_integration_count": int(
-                    newborn_integration.get("integration_count", 0) or 0
-                ),
-                "last_thought_newborn_neuron_integration": deepcopy(
-                    newborn_integration.get("last_integration")
-                ),
-                "recent_thought_newborn_neuron_integrations": deepcopy(
-                    list(newborn_integration.get("recent_events") or [])
-                ),
+                "language_capacity_mutation_count": capacity_mutation_count,
+                "last_language_capacity_mutation": deepcopy(last_capacity_mutation),
+                "recent_language_capacity_mutations": deepcopy(recent_capacity_mutations),
+                "thought_capacity_mutation_count": capacity_mutation_count,
+                "last_thought_capacity_mutation": deepcopy(last_capacity_mutation),
+                "recent_thought_capacity_mutations": deepcopy(recent_capacity_mutations),
+                "language_newborn_neuron_integration_count": newborn_integration_count,
+                "last_language_newborn_neuron_integration": deepcopy(last_newborn_integration_event),
+                "recent_language_newborn_neuron_integrations": deepcopy(recent_newborn_integrations),
+                "thought_newborn_neuron_integration_count": newborn_integration_count,
+                "last_thought_newborn_neuron_integration": deepcopy(last_newborn_integration_event),
+                "recent_thought_newborn_neuron_integrations": deepcopy(recent_newborn_integrations),
                 "newborn_integration_dense_samples": (
                     self._newborn_integration_dense_samples(
                         dense_tensor,
                         last_newborn_integration,
                     )
                 ),
-                "thought_newborn_neuron_critical_period_learning_cycle_count": int(
-                    critical_period_learning.get(
-                        "learning_cycle_count", 0
-                    )
-                    or 0
+                "language_newborn_neuron_critical_period_learning_cycle_count": (
+                    critical_period_learning_cycle_count
+                ),
+                "last_language_newborn_neuron_critical_period_learning": deepcopy(
+                    last_critical_period_learning
+                ),
+                "recent_language_newborn_neuron_critical_period_learning": deepcopy(
+                    recent_critical_period_learning
+                ),
+                "thought_newborn_neuron_critical_period_learning_cycle_count": (
+                    critical_period_learning_cycle_count
                 ),
                 "last_thought_newborn_neuron_critical_period_learning": deepcopy(
-                    critical_period_learning.get("last_learning_cycle")
+                    last_critical_period_learning
                 ),
                 "recent_thought_newborn_neuron_critical_period_learning": deepcopy(
-                    list(
-                        critical_period_learning.get("recent_events") or []
-                    )
+                    recent_critical_period_learning
                 ),
                 "newborn_neuron_critical_period_state_by_synapse": deepcopy(
                     dict(critical_period_learning.get("by_synapse") or {})
@@ -3044,22 +3097,29 @@ class SNNLanguagePlasticityApplicationExecutor:
                         ),
                     )
                 ),
-                "thought_newborn_synapse_pruning_count": int(
-                    newborn_synapse_pruning.get("pruning_count", 0) or 0
+                "language_newborn_synapse_pruning_count": (
+                    newborn_synapse_pruning_count
                 ),
-                "thought_newborn_synapse_pruned_count_total": int(
-                    newborn_synapse_pruning.get(
-                        "pruned_synapse_count_total", 0
-                    )
-                    or 0
+                "language_newborn_synapse_pruned_count_total": (
+                    newborn_synapse_pruned_count_total
+                ),
+                "last_language_newborn_synapse_pruning": deepcopy(
+                    last_newborn_synapse_pruning
+                ),
+                "recent_language_newborn_synapse_pruning": deepcopy(
+                    recent_newborn_synapse_pruning
+                ),
+                "thought_newborn_synapse_pruning_count": (
+                    newborn_synapse_pruning_count
+                ),
+                "thought_newborn_synapse_pruned_count_total": (
+                    newborn_synapse_pruned_count_total
                 ),
                 "last_thought_newborn_synapse_pruning": deepcopy(
-                    newborn_synapse_pruning.get("last_pruning")
+                    last_newborn_synapse_pruning
                 ),
                 "recent_thought_newborn_synapse_pruning": deepcopy(
-                    list(
-                        newborn_synapse_pruning.get("recent_events") or []
-                    )
+                    recent_newborn_synapse_pruning
                 ),
                 "pruned_synapse_provenance_by_key": deepcopy(
                     dict(

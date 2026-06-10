@@ -8,6 +8,7 @@ unchanged public behavior remains in test_service_manager.py and test_service_ap
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
 import threading
@@ -213,6 +214,7 @@ def _build_read_model(
     language_plasticity_state_fn: Callable[[], dict[str, Any]] | None = None,
     readout_ledger_state_fn: Callable[[], dict[str, Any]] | None = None,
     metadata: dict[str, Any] | None = None,
+    report_root: Path | None = None,
 ) -> tuple[StatusReadModel, MarulhoTrainer, threading.RLock, RuntimeState]:
     cfg = _build_config()
     trainer = MarulhoTrainer(MarulhoModel(cfg), cfg)
@@ -235,6 +237,7 @@ def _build_read_model(
         animation_snapshot_fn=lambda: deepcopy(animation_snapshot),
         language_plasticity_state_fn=language_plasticity_state_fn,
         readout_ledger_state_fn=readout_ledger_state_fn,
+        report_root=report_root,
     )
     return model, trainer, lock, runtime_state
 
@@ -2396,6 +2399,112 @@ class StatusReadModelFreshnessTests(unittest.TestCase):
         # The cached snapshot should now match the fresh one
         cached_result = _run_under_lock_contention(model._lock, model.status)
         self.assertIsNotNone(cached_result)
+
+
+class StatusReadModelBenchmarkEvidenceCurrencyTests(unittest.TestCase):
+    """Runtime Truth reports saved benchmark-evidence currency without running benchmarks."""
+
+    def test_runtime_truth_reports_missing_benchmark_evidence_currency_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "reports"
+            model, _, _, runtime_state = _build_read_model(report_root=root)
+            before_revision = runtime_state.state_revision
+
+            result = model.status()
+
+        currency = result["runtime_truth"]["evidence"]["benchmark_evidence_currency"]
+        self.assertEqual(currency["surface"], "benchmark_evidence_currency.v1")
+        self.assertEqual(currency["artifact_kind"], "terminus_benchmark_evidence_currency")
+        self.assertEqual(currency["status"], "missing")
+        self.assertFalse(currency["current"])
+        self.assertFalse(currency["runs_benchmark"])
+        self.assertFalse(currency["mutates_runtime_state"])
+        self.assertFalse(currency["changes_runtime_truth_verdict"])
+        self.assertEqual(
+            set(currency["missing_reports"]),
+            {"accepted_baseline", "fresh_bundle", "regression_gate"},
+        )
+        self.assertEqual(runtime_state.state_revision, before_revision)
+        self.assertEqual(result["runtime_truth"]["verdict"], "partial")
+
+    def test_runtime_truth_reports_current_benchmark_evidence_currency(self) -> None:
+        fresh_generated_at = datetime.now(timezone.utc).isoformat()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            reports = Path(tmpdir) / "reports"
+            baseline_dir = reports / "service_benchmark_baseline"
+            bundle_dir = reports / "service_benchmark_baseline_fresh_cycle"
+            gate_dir = reports / "service_benchmark_regression_gate"
+            baseline_dir.mkdir(parents=True)
+            bundle_dir.mkdir(parents=True)
+            gate_dir.mkdir(parents=True)
+            (baseline_dir / "accepted-baseline.json").write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "marulho_service_benchmark_accepted_baseline",
+                        "generated_at": fresh_generated_at,
+                        "status": "accepted",
+                        "baseline_id": "service-benchmark-baseline:test",
+                        "operator_review": {"accepted_by": "operator-a"},
+                        "source_report": {
+                            "runtime_truth_verdict": "alive",
+                            "hot_path_p95_ms": 439.258,
+                            "hot_path_total_ms": 818.798,
+                        },
+                        "checks": {"accepted_by_present": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (bundle_dir / "bundle-summary.json").write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "marulho_service_benchmark_baseline_run_bundle",
+                        "generated_at": fresh_generated_at,
+                        "status": "passed",
+                        "success": True,
+                        "accepted_baseline": {
+                            "baseline_id": "service-benchmark-baseline:test",
+                            "baseline_report_hash": "b" * 64,
+                            "after_report_hash": "a" * 64,
+                        },
+                        "runtime_truth": {"before": "alive", "after": "alive", "regressed": False},
+                        "hot_path": {"after_p95_ms": 432.406, "after_total_ms": 739.666},
+                        "checks": {"runtime_truth_no_regression": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (gate_dir / "comparison.json").write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "marulho_service_benchmark_regression_gate",
+                        "generated_at": fresh_generated_at,
+                        "status": "passed",
+                        "runtime_truth": {"before": "alive", "after": "alive", "regressed": False},
+                        "hot_path": {"after_p95_ms": 439.258, "after_total_ms": 818.798},
+                        "checks": {"hot_path_p95_no_relative_regression": True},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            model, _, _, _ = _build_read_model(report_root=reports)
+
+            result = model.status()
+
+        currency = result["runtime_truth"]["evidence"]["benchmark_evidence_currency"]
+        self.assertEqual(currency["status"], "current")
+        self.assertTrue(currency["current"])
+        self.assertEqual(currency["missing_reports"], [])
+        self.assertEqual(currency["stale_reports"], [])
+        self.assertEqual(currency["failed_reports"], [])
+        self.assertEqual(currency["fresh_bundle"]["runtime_truth_verdict"], "alive")
+        self.assertEqual(currency["fresh_bundle"]["hot_path_p95_ms"], 432.406)
+        self.assertEqual(
+            currency["accepted_baseline"]["accepted_baseline_id"],
+            "service-benchmark-baseline:test",
+        )
+        self.assertEqual(currency["regression_gate"]["freshness_status"], "fresh")
+        self.assertEqual(result["runtime_truth"]["verdict"], "partial")
 
 
 class StatusReadModelRuntimeTruthVerdictTests(unittest.TestCase):

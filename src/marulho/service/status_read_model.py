@@ -72,6 +72,13 @@ from marulho.service.runtime_state import RuntimeState
 DEFAULT_BRAIN_TICK_TOKENS = 512
 DEFAULT_LOCK_ACQUIRE_TIMEOUT_SECONDS = 0.15
 DEFAULT_COGNITIVE_SIGNAL_LOCK_TIMEOUT_SECONDS = 0.05
+BENCHMARK_EVIDENCE_FRESH_HOURS = 24.0
+BENCHMARK_EVIDENCE_STALE_HOURS = 72.0
+BENCHMARK_EVIDENCE_ARTIFACT_KINDS = {
+    "marulho_service_benchmark_accepted_baseline",
+    "marulho_service_benchmark_baseline_run_bundle",
+    "marulho_service_benchmark_regression_gate",
+}
 
 
 def _default_architecture_snapshot() -> dict[str, Any]:
@@ -163,6 +170,7 @@ class StatusReadModel:
         due_cycle_bounded_replay_selection_proposal_fn: Callable[[], dict[str, Any]] | None = None,
         language_plasticity_state_fn: Callable[[], dict[str, Any]] | None = None,
         readout_ledger_state_fn: Callable[[], dict[str, Any]] | None = None,
+        report_root: str | Path | None = None,
     ) -> None:
         self._lock = lock
         self._runtime_state = runtime_state
@@ -193,6 +201,7 @@ class StatusReadModel:
         )
         self._language_plasticity_state_fn = language_plasticity_state_fn
         self._readout_ledger_state_fn = readout_ledger_state_fn
+        self._report_root = Path(report_root) if report_root is not None else None
 
         # Cache state — owned by the read model
         self._cached_status: dict[str, Any] | None = None
@@ -410,6 +419,7 @@ class StatusReadModel:
                 else 0
             ),
         }
+
         self_repair_evaluation_surface = build_subcortical_self_repair_evaluation_surface(
             subcortex_spike_health
         )
@@ -849,6 +859,7 @@ class StatusReadModel:
             "eligible_for_plasticity": False,
             "eligible_for_structural_write": False,
         }
+        benchmark_evidence_currency = self._benchmark_evidence_currency()
         return {
             "schema_version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -918,7 +929,200 @@ class StatusReadModel:
                 "snn_due_cycle_bounded_replay_selection_gate": (
                     snn_due_cycle_bounded_replay_selection_gate
                 ),
+                "benchmark_evidence_currency": benchmark_evidence_currency,
             },
+        }
+
+    @staticmethod
+    def _parse_report_datetime(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    @classmethod
+    def _benchmark_evidence_freshness(cls, generated_at: Any) -> dict[str, Any]:
+        generated = cls._parse_report_datetime(generated_at)
+        if generated is None:
+            return {
+                "status": "unknown_timestamp",
+                "age_hours": None,
+                "generated_at": generated_at if isinstance(generated_at, str) else "",
+            }
+        age_hours = max(0.0, (datetime.now(timezone.utc) - generated).total_seconds() / 3600.0)
+        if age_hours <= BENCHMARK_EVIDENCE_FRESH_HOURS:
+            status = "fresh"
+        elif age_hours <= BENCHMARK_EVIDENCE_STALE_HOURS:
+            status = "aging"
+        else:
+            status = "stale"
+        return {
+            "status": status,
+            "age_hours": round(age_hours, 3),
+            "generated_at": generated.isoformat(),
+        }
+
+    @staticmethod
+    def _load_report_json(path: Path) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _latest_benchmark_report_by_kind(self) -> dict[str, dict[str, Any]]:
+        if self._report_root is None or not self._report_root.exists():
+            return {}
+        latest: dict[str, dict[str, Any]] = {}
+        candidate_names = {"accepted-baseline.json", "bundle-summary.json", "comparison.json"}
+        candidates = [
+            path
+            for path in self._report_root.rglob("*.json")
+            if path.name in candidate_names
+        ]
+        candidates.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
+        for path in candidates[:40]:
+            payload = self._load_report_json(path)
+            if payload is None:
+                continue
+            artifact_kind = str(payload.get("artifact_kind", ""))
+            if artifact_kind not in BENCHMARK_EVIDENCE_ARTIFACT_KINDS or artifact_kind in latest:
+                continue
+            latest[artifact_kind] = {"path": path, "payload": payload}
+            if len(latest) == len(BENCHMARK_EVIDENCE_ARTIFACT_KINDS):
+                break
+        return latest
+
+    @staticmethod
+    def _report_failed_checks(payload: Mapping[str, Any]) -> list[str]:
+        checks = payload.get("checks")
+        if not isinstance(checks, Mapping):
+            return []
+        return sorted(str(name) for name, passed in checks.items() if not bool(passed))
+
+    def _benchmark_evidence_currency(self) -> dict[str, Any]:
+        latest = self._latest_benchmark_report_by_kind()
+
+        def summarize(kind: str) -> dict[str, Any]:
+            report = latest.get(kind)
+            if report is None:
+                return {"available": False, "artifact_kind": kind}
+            path = report["path"]
+            payload = report["payload"]
+            freshness = self._benchmark_evidence_freshness(payload.get("generated_at"))
+            summary: dict[str, Any] = {
+                "available": True,
+                "artifact_kind": kind,
+                "path": str(path),
+                "status": payload.get("status", ""),
+                "freshness_status": freshness["status"],
+                "age_hours": freshness["age_hours"],
+                "generated_at": freshness["generated_at"],
+                "failed_checks": self._report_failed_checks(payload),
+            }
+            if kind == "marulho_service_benchmark_baseline_run_bundle":
+                runtime_truth = payload.get("runtime_truth")
+                hot_path = payload.get("hot_path")
+                accepted_baseline = payload.get("accepted_baseline")
+                summary["success"] = bool(payload.get("success"))
+                if isinstance(runtime_truth, Mapping):
+                    summary["runtime_truth_verdict"] = runtime_truth.get("after", "")
+                    summary["runtime_truth_regressed"] = bool(runtime_truth.get("regressed", False))
+                if isinstance(hot_path, Mapping):
+                    summary["hot_path_p95_ms"] = hot_path.get("after_p95_ms")
+                    summary["hot_path_total_ms"] = hot_path.get("after_total_ms")
+                if isinstance(accepted_baseline, Mapping):
+                    summary["accepted_baseline_id"] = accepted_baseline.get("baseline_id", "")
+                    summary["baseline_report_hash"] = accepted_baseline.get("baseline_report_hash", "")
+                    summary["after_report_hash"] = accepted_baseline.get("after_report_hash", "")
+            elif kind == "marulho_service_benchmark_accepted_baseline":
+                source_report = payload.get("source_report")
+                operator_review = payload.get("operator_review")
+                summary["accepted_baseline_id"] = payload.get("baseline_id", "")
+                if isinstance(source_report, Mapping):
+                    summary["runtime_truth_verdict"] = source_report.get("runtime_truth_verdict", "")
+                    summary["hot_path_p95_ms"] = source_report.get("hot_path_p95_ms")
+                    summary["hot_path_total_ms"] = source_report.get("hot_path_total_ms")
+                if isinstance(operator_review, Mapping):
+                    summary["accepted_by"] = operator_review.get("accepted_by", "")
+            elif kind == "marulho_service_benchmark_regression_gate":
+                runtime_truth = payload.get("runtime_truth")
+                hot_path = payload.get("hot_path")
+                if isinstance(runtime_truth, Mapping):
+                    summary["runtime_truth_verdict"] = runtime_truth.get("after", "")
+                    summary["runtime_truth_regressed"] = bool(runtime_truth.get("regressed", False))
+                if isinstance(hot_path, Mapping):
+                    summary["hot_path_p95_ms"] = hot_path.get("after_p95_ms")
+                    summary["hot_path_total_ms"] = hot_path.get("after_total_ms")
+            return summary
+
+        bundle = summarize("marulho_service_benchmark_baseline_run_bundle")
+        baseline = summarize("marulho_service_benchmark_accepted_baseline")
+        regression_gate = summarize("marulho_service_benchmark_regression_gate")
+        reports_by_name = {
+            "accepted_baseline": baseline,
+            "fresh_bundle": bundle,
+            "regression_gate": regression_gate,
+        }
+        missing = [name for name, item in reports_by_name.items() if not bool(item.get("available"))]
+        stale = [
+            name
+            for name, item in reports_by_name.items()
+            if item.get("freshness_status") in {"stale", "unknown_timestamp"}
+        ]
+        failed = [
+            name
+            for name, item in reports_by_name.items()
+            if item.get("status") in {"failed", "unreadable"} or bool(item.get("failed_checks"))
+        ]
+        current = (
+            not missing
+            and not stale
+            and not failed
+            and bool(bundle.get("success"))
+            and not bool(bundle.get("runtime_truth_regressed"))
+        )
+        if current:
+            status = "current"
+            next_operator_action = "continue_monitoring"
+        elif missing:
+            status = "missing"
+            next_operator_action = "run_accepted_baseline_benchmark_bundle"
+        elif stale:
+            status = "stale"
+            next_operator_action = "rerun_accepted_baseline_benchmark_bundle"
+        else:
+            status = "failed"
+            next_operator_action = "inspect_benchmark_evidence_reports"
+        return {
+            "surface": "benchmark_evidence_currency.v1",
+            "artifact_kind": "terminus_benchmark_evidence_currency",
+            "source": "status_read_model.runtime_truth_contract",
+            "advisory": True,
+            "executable": False,
+            "runs_benchmark": False,
+            "mutates_runtime_state": False,
+            "changes_runtime_truth_verdict": False,
+            "report_root": str(self._report_root) if self._report_root is not None else "",
+            "status": status,
+            "current": current,
+            "missing_reports": missing,
+            "stale_reports": stale,
+            "failed_reports": failed,
+            "fresh_hours": BENCHMARK_EVIDENCE_FRESH_HOURS,
+            "stale_after_hours": BENCHMARK_EVIDENCE_STALE_HOURS,
+            "next_operator_action": next_operator_action,
+            "accepted_baseline": baseline,
+            "fresh_bundle": bundle,
+            "regression_gate": regression_gate,
         }
 
     def _snn_language_capacity_pressure(self) -> dict[str, Any]:

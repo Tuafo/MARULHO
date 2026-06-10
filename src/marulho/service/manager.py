@@ -451,6 +451,7 @@ class MarulhoServiceManager:
             ),
             language_plasticity_state_fn=lambda: deepcopy(self._snn_language_plasticity_state),
             readout_ledger_state_fn=lambda: deepcopy(self._snn_language_readout_ledger_state),
+            report_root=((self._env_root or Path.cwd()) / "reports"),
         )
 
     def _build_brain_runtime_dependencies(self) -> BrainRuntimeDependencies:

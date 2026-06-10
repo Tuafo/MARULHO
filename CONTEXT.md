@@ -33,6 +33,9 @@ _Avoid_: treating merge formatting as thought generation
 **Brain Runtime Metrics** — observable counters and quality scores for language-facing runtime output, grounding, topic diversity, SNN alignment, and inference latency. They are telemetry, not proof of liveness, and must be usable without instantiating ThoughtLoop.
 _Avoid_: treating generated text counts as Living Brain evidence by themselves
 
+**Benchmark Evidence Currency** — read-only Runtime Truth evidence about whether saved benchmark reports are present, fresh, stale, failed, or missing. It may summarize accepted baselines, fresh benchmark bundles, and regression gates from report files, but it must not run benchmarks, mutate runtime state, change Runtime Truth verdicts, or claim CUDA/speed capability by itself.
+_Avoid_: treating a fresh report as liveness proof, running benchmark work from status, or hiding stale hot-path evidence
+
 **Subcortex Language Surface** — an evidence-facing translation layer that can express runtime state in language without becoming the cognition substrate. It has two grounded slices: the interaction responder's native-decode surface, and the Cognitive Signal surface that turns prediction error, confidence, neuromodulator pressure, and concept focus into auditable operator text.
 _Avoid_: treating text fluency as liveness, hidden LLM mind, or ungrounded thought generation
 
@@ -105,6 +108,27 @@ _Avoid_: hiding CUDA fallback, applying shadow tensors, accepting empty designs,
 
 **SNN Language Readout Rollout Consolidation Shadow Application Preflight** — a MARULHO-owned, read-only integrity review of a Rollout Consolidation Shadow Delta before any application path exists. It verifies hash identity, bounded local coordinates, normalization, homeostatic decay, CUDA/device truth, rollback-snapshot binding, and topology invariants against server-held transition memory. Missing runtime edges are classified as growth candidates for separate structural review. It does not apply shadow tensors, grow or prune synapses, mutate runtime state, persist weights, execute live replay, or authorize plasticity.
 _Avoid_: bypassing shadow hashes, accepting a rollback snapshot unrelated to the design, mixing functional consolidation with structural growth/pruning, or treating preflight review as application authority
+
+**SNN Language Plasticity Runtime State** — the read-only snapshot of MARULHO-owned sparse language/readout transition memory, dense readout layout, checkpoint-backed application history, and developmental growth/pruning evidence. Canonical snapshot fields use `language_*`/`readout_*` wording. Legacy `thought_*` keys may remain only as compatibility aliases for older endpoint/schema/tests until a planned retirement removes them.
+_Avoid_: treating legacy `thought_*` compatibility names as hidden thought generation, adding new `thought_*` evidence fields, or removing compatibility names without a migration gate.
+
+**SNN Language Surface Canonical API** — the operator-facing `snn-language-surface-*` route family for the surface design/preflight/executor/review chain after SNN language decoding review. It accepts `snn_language_*`/`surface_*` request field names while delegating to the existing reviewed ledger/executor gates. Thought-era public route vocabulary is no longer part of the active API.
+_Avoid_: treating a surface as hidden thought generation, accepting unreviewed decoded language as cognition, or reviving legacy `thought` route names for new callers.
+
+**SNN Language Memory, Consolidation, And Structural Plasticity Canonical API** — the operator-facing `snn-language-memory-*`, `snn-language-consolidation-*`, and `snn-language-structural-plasticity-*` route families for the memory/consolidation/structural-plasticity design/preflight/executor/review chain. They accept `snn_language_*` request field names while delegating to the existing reviewed ledger/executor gates. Thought-era public route vocabulary is no longer part of the active API.
+_Avoid_: treating memory or consolidation route names as thought generation, bypassing review gates, or reviving legacy `thought` route names for new callers.
+
+**SNN Language Capacity Mutation Canonical API** — the operator-facing `snn-language-capacity-mutation-*` route family for the capacity mutation design/preflight/executor/review chain. It accepts `snn_language_*` request field names while delegating to the existing checkpoint-backed ledger/executor gates. Thought-era public route vocabulary is no longer part of the active API.
+_Avoid_: treating route names as a new algorithm, bypassing existing promotion gates, or reviving legacy `thought` route names for new callers.
+
+**SNN Language Newborn Neuron Integration Canonical API** — the operator-facing `snn-language-newborn-neuron-integration-*` route family for the newborn-neuron integration design/preflight/executor/review chain. It accepts `snn_language_*` request field names while delegating to the existing checkpoint-backed developmental ledger/executor gates. Thought-era public route vocabulary is no longer part of the active API.
+_Avoid_: treating canonical route names as maturation proof, bypassing live-spike/checkpoint evidence, or reviving legacy `thought` route names for new callers.
+
+**SNN Language Newborn Neuron Critical-Period Learning Canonical API** — the operator-facing `snn-language-newborn-neuron-critical-period-learning-*` route family for the critical-period design/preflight/executor/review/continuation-design chain. It accepts `snn_language_*` request field names while delegating to the existing checkpoint-backed developmental ledger/executor gates. Thought-era public route vocabulary is no longer part of the active API.
+_Avoid_: treating critical-period learning as free-form thought, bypassing activity/checkpoint evidence, or reviving legacy `thought` route names for new callers.
+
+**SNN Language Newborn Maturation And Pruning Canonical API** — the operator-facing `snn-language-newborn-neuron-maturation-outcome-review` and `snn-language-newborn-synapse-pruning-*` route family for maturation review and pruning design/preflight/executor. It accepts `snn_language_*` request field names while delegating to the existing checkpoint-backed developmental ledger/executor gates. Thought-era public route vocabulary is no longer part of the active API.
+_Avoid_: treating pruning eligibility as deletion, bypassing checkpoint evidence, or reviving legacy `thought` route names for new callers.
 
 **SNN Language Readout Rollout Developmental Plasticity Review** — a MARULHO-owned, read-only structural review of rollout growth candidates produced when consolidation targets missing transition-memory edges. It compares the reviewed rollout design and shadow-application preflight with server-held sparse transition memory, verifies temporal locality and sparse topology budgets, and prepares candidate evidence for later regeneration review. It does not grow synapses, prune synapses, persist weights, issue permits, mutate runtime state, execute replay, or authorize plasticity.
 _Avoid_: treating missing edges as weight updates, creating regeneration permits from rollout evidence directly, mixing pruning with growth review, or bypassing checkpoint-backed regeneration boundaries

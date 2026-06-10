@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from functools import partial
@@ -22,7 +23,12 @@ from marulho.semantics import (
     build_spike_language_decoder_probe,
     predict_spike_language_sequence,
 )
-from marulho.service.api import DEFAULT_WEB_DIST_DIR, create_app
+from marulho.service.api import (
+    DEFAULT_WEB_DIST_DIR,
+    _internal_snn_language_payload,
+    _public_snn_language_payload,
+    create_app,
+)
 from marulho.service.server import build_arg_parser
 from marulho.training.runner_utils import set_seed
 from marulho.training.checkpointing import load_trainer_checkpoint, save_trainer_checkpoint
@@ -97,6 +103,45 @@ class _EchoJsonApiHandler(BaseHTTPRequestHandler):
 
 
 class ServiceApiTerminusRuntimeTests(unittest.TestCase):
+    def test_snn_language_public_payload_uses_readout_vocabulary(self) -> None:
+        internal_payload = {
+            "artifact_kind": "terminus_snn_language_autonomous_snn_language_thought_surface_design",
+            "surface": "snn_language_autonomous_snn_language_thought_surface_design.v1",
+            "autonomous_snn_language_thought_surface_design": {
+                "thought_role": "inner_speech_candidate",
+                "binding_mode": "hash_bound_inner_language",
+                "max_thought_fragments": 1,
+                "thought_surface_hash": "0" * 64,
+            },
+            "promotion_gate": {
+                "eligible_for_autonomous_snn_language_thought_surface_preflight": True,
+                "next_gate": "autonomous_snn_language_thought_surface_preflight",
+            },
+        }
+
+        public_payload = _public_snn_language_payload(internal_payload)
+        public_text = json.dumps(public_payload, sort_keys=True)
+
+        self.assertNotIn("autonomous_snn_language_thought", public_text)
+        self.assertNotIn("snn_language_autonomous_snn_language_thought", public_text)
+        self.assertNotIn("thought_", public_text)
+        self.assertIn("snn_language_readout_surface_design", public_text)
+        self.assertIn("bounded_readout_candidate", public_text)
+        self.assertIn("hash_bound_readout_language", public_text)
+        internalized_payload = _internal_snn_language_payload(public_payload)
+        self.assertEqual(
+            internalized_payload["surface"],
+            "snn_language_autonomous_snn_language_thought_surface_design.v1",
+        )
+        self.assertIn(
+            "autonomous_snn_language_thought_surface_design",
+            internalized_payload,
+        )
+        self.assertEqual(
+            internalized_payload["autonomous_snn_language_thought_surface_design"]["thought_role"],
+            "inner_speech_candidate",
+        )
+
     def test_app_creation_health_status_do_not_eagerly_initialize_cortex(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -112,6 +157,322 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
             self.assertNotIn("cortex", terminus_runtime)
             self.assertNotIn("retired_runtime_path", terminus_runtime)
             self.assertNotIn("retired_runtime_dependency", terminus_runtime["living_loop"]["subcortex_sleep_pressure"])
+
+    def test_snn_language_developmental_canonical_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            app = create_app(
+                _build_checkpoint(
+                    root,
+                    test_case="service_api_snn_language_developmental_routes",
+                ),
+                trace_dir=root / "traces",
+            )
+            with TestClient(app) as client:
+                status_response = client.get("/status")
+                expected_revision = status_response.json()["state_revision"]
+                design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-design",
+                    json={
+                        "snn_language_structural_plasticity_event_review": {
+                            "surface": (
+                                "snn_language_autonomous_snn_language_thought_"
+                                "structural_plasticity_event_review.v1"
+                            ),
+                            "accepted": False,
+                            "ready": False,
+                            "promotion_gate": {
+                                "eligible_for_autonomous_snn_language_thought_"
+                                "capacity_mutation_design": False
+                            },
+                        },
+                        "capacity_policy": {
+                            "mutation_scope": "language_readout_capacity"
+                        },
+                    },
+                )
+                preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-preflight",
+                    json={
+                        "snn_language_capacity_mutation_design": (
+                            design_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                        "checkpoint_transaction": {
+                            "checkpoint_path": (
+                                "memory://language-capacity-preflight"
+                            ),
+                            "snapshot_id": "language-capacity-snapshot",
+                        },
+                        "device_evidence": {
+                            "device": "cpu",
+                            "cuda_available": False,
+                        },
+                        "executor_capabilities": {
+                            "snn_language_capacity_mutation_executor": True
+                        },
+                    },
+                )
+                executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-executor",
+                    json={
+                        "snn_language_capacity_mutation_preflight": (
+                            preflight_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                        "requested_device": "cpu",
+                    },
+                )
+                review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-event-review",
+                    json={
+                        "snn_language_capacity_mutation_executor": (
+                            executor_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                    },
+                )
+                newborn_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
+                    json={
+                        "snn_language_capacity_mutation_event_review": (
+                            review_response.json()
+                        ),
+                        "integration_policy": {
+                            "max_newborn_neurons": 1,
+                            "max_seed_synapses_per_newborn": 1,
+                        },
+                    },
+                )
+                newborn_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-preflight",
+                    json={
+                        "snn_language_newborn_neuron_integration_design": (
+                            newborn_design_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                        "live_spike_evidence": {
+                            "surface": "snn_language_live_spike_population_evidence.v1",
+                            "state_revision": expected_revision,
+                            "observation_window_id": "canonical-newborn-route-window",
+                            "observation_window_hash": "0" * 64,
+                            "device": "cpu",
+                            "tensor_is_cuda": False,
+                            "candidate_observations": [],
+                        },
+                        "checkpoint_transaction": {},
+                        "executor_capabilities": {},
+                    },
+                )
+                newborn_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-executor",
+                    json={
+                        "snn_language_newborn_neuron_integration_preflight": (
+                            newborn_preflight_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                    },
+                )
+                newborn_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-event-review",
+                    json={
+                        "snn_language_newborn_neuron_integration_executor": (
+                            newborn_executor_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                    },
+                )
+                critical_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-design",
+                    json={
+                        "snn_language_newborn_neuron_integration_event_review": (
+                            newborn_review_response.json()
+                        )
+                    },
+                )
+                critical_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-preflight",
+                    json={
+                        "snn_language_newborn_neuron_critical_period_learning_design": (
+                            critical_design_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                        "critical_period_activity_evidence": {
+                            "surface": "snn_language_newborn_critical_period_activity.v1",
+                            "state_revision": expected_revision,
+                            "observation_window_id": "canonical-critical-period-route-window",
+                            "observation_window_hash": "0" * 64,
+                            "device": "cpu",
+                            "tensor_is_cuda": False,
+                            "candidate_observations": [],
+                        },
+                        "checkpoint_transaction": {},
+                        "executor_capabilities": {},
+                    },
+                )
+                critical_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-executor",
+                    json={
+                        "snn_language_newborn_neuron_critical_period_learning_preflight": (
+                            critical_preflight_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                    },
+                )
+                critical_review_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-event-review",
+                    json={
+                        "snn_language_newborn_neuron_critical_period_learning_executor": (
+                            critical_executor_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                    },
+                )
+                critical_continuation_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-continuation-design",
+                    json={
+                        "snn_language_newborn_neuron_critical_period_learning_event_review": (
+                            critical_review_response.json()
+                        )
+                    },
+                )
+                maturation_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-maturation-outcome-review",
+                    json={
+                        "snn_language_newborn_neuron_critical_period_learning_event_review": (
+                            critical_review_response.json()
+                        )
+                    },
+                )
+                pruning_design_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-synapse-pruning-design",
+                    json={
+                        "snn_language_newborn_neuron_maturation_outcome_review": (
+                            maturation_response.json()
+                        )
+                    },
+                )
+                pruning_preflight_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-synapse-pruning-preflight",
+                    json={
+                        "snn_language_newborn_synapse_pruning_design": (
+                            pruning_design_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                        "checkpoint_transaction": {},
+                        "executor_capabilities": {},
+                    },
+                )
+                pruning_executor_response = client.post(
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-synapse-pruning-executor",
+                    json={
+                        "snn_language_newborn_synapse_pruning_preflight": (
+                            pruning_preflight_response.json()
+                        ),
+                        "expected_state_revision": expected_revision,
+                    },
+                )
+            app.state.marulho_manager.close()
+
+            self.assertEqual(design_response.status_code, 200)
+            self.assertEqual(preflight_response.status_code, 200)
+            self.assertEqual(executor_response.status_code, 200)
+            self.assertEqual(review_response.status_code, 200)
+            self.assertEqual(newborn_design_response.status_code, 200)
+            self.assertEqual(newborn_preflight_response.status_code, 200)
+            self.assertEqual(newborn_executor_response.status_code, 200)
+            self.assertEqual(newborn_review_response.status_code, 200)
+            self.assertEqual(critical_design_response.status_code, 200)
+            self.assertEqual(critical_preflight_response.status_code, 200)
+            self.assertEqual(critical_executor_response.status_code, 200)
+            self.assertEqual(critical_review_response.status_code, 200)
+            self.assertEqual(critical_continuation_response.status_code, 200)
+            self.assertEqual(maturation_response.status_code, 200)
+            self.assertEqual(pruning_design_response.status_code, 200)
+            self.assertEqual(pruning_preflight_response.status_code, 200)
+            self.assertEqual(pruning_executor_response.status_code, 200)
+            self.assertEqual(
+                design_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_capacity_mutation_design.v1",
+            )
+            self.assertEqual(
+                preflight_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_capacity_mutation_preflight.v1",
+            )
+            self.assertEqual(
+                executor_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_capacity_mutation_executor.v1",
+            )
+            self.assertEqual(
+                review_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_capacity_mutation_event_review.v1",
+            )
+            self.assertEqual(
+                newborn_design_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_design.v1",
+            )
+            self.assertEqual(
+                newborn_preflight_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_preflight.v1",
+            )
+            self.assertEqual(
+                newborn_executor_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_executor.v1",
+            )
+            self.assertEqual(
+                newborn_review_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_integration_event_review.v1",
+            )
+            self.assertEqual(
+                critical_design_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+            )
+            self.assertEqual(
+                critical_preflight_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight.v1",
+            )
+            self.assertEqual(
+                critical_executor_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor.v1",
+            )
+            self.assertEqual(
+                critical_review_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review.v1",
+            )
+            self.assertEqual(
+                critical_continuation_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design.v1",
+            )
+            self.assertEqual(
+                maturation_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_neuron_maturation_outcome_review.v1",
+            )
+            self.assertEqual(
+                pruning_design_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_design.v1",
+            )
+            self.assertEqual(
+                pruning_preflight_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_preflight.v1",
+            )
+            self.assertEqual(
+                pruning_executor_response.json()["surface"],
+                "snn_language_autonomous_snn_language_thought_newborn_synapse_pruning_executor.v1",
+            )
+            self.assertFalse(design_response.json()["mutates_runtime_state"])
+            self.assertFalse(preflight_response.json()["mutates_runtime_state"])
+            self.assertFalse(executor_response.json()["mutates_runtime_state"])
+            self.assertFalse(review_response.json()["mutates_runtime_state"])
+            self.assertFalse(newborn_design_response.json()["mutates_runtime_state"])
+            self.assertFalse(newborn_preflight_response.json()["mutates_runtime_state"])
+            self.assertFalse(newborn_review_response.json()["mutates_runtime_state"])
+            self.assertFalse(critical_design_response.json()["mutates_runtime_state"])
+            self.assertFalse(critical_preflight_response.json()["mutates_runtime_state"])
+            self.assertFalse(critical_review_response.json()["mutates_runtime_state"])
+            self.assertFalse(critical_continuation_response.json()["mutates_runtime_state"])
+            self.assertFalse(maturation_response.json()["mutates_runtime_state"])
+            self.assertFalse(pruning_design_response.json()["mutates_runtime_state"])
+            self.assertFalse(pruning_preflight_response.json()["mutates_runtime_state"])
 
     def test_status_and_terminus_endpoints_expose_runtime_truth_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1767,12 +2128,12 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     },
                 )
                 autonomous_snn_language_thought_surface_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-design",
                     json={
                         "autonomous_snn_language_decoding_event_review": (
                             autonomous_snn_language_decoding_event_review_response.json()
                         ),
-                        "thought_policy": {
+                        "surface_policy": {
                             "thought_role": "inner_speech_candidate",
                             "binding_mode": "hash_bound_inner_language",
                             "max_thought_fragments": 1,
@@ -1783,9 +2144,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_surface_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-preflight",
                         json={
-                            "autonomous_snn_language_thought_surface_design": (
+                            "snn_language_surface_design": (
                                 autonomous_snn_language_thought_surface_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1803,9 +2164,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_surface_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-executor",
                         json={
-                            "autonomous_snn_language_thought_surface_preflight": (
+                            "snn_language_surface_preflight": (
                                 autonomous_snn_language_thought_surface_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1816,9 +2177,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_surface_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-surface-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-surface-event-review",
                         json={
-                            "autonomous_snn_language_thought_surface_executor": (
+                            "snn_language_surface_executor": (
                                 autonomous_snn_language_thought_surface_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1833,9 +2194,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     )
                 )
                 autonomous_snn_language_thought_memory_design_response = client.post(
-                    "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-design",
+                    "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-design",
                     json={
-                        "autonomous_snn_language_thought_surface_event_review": (
+                        "snn_language_surface_event_review": (
                             autonomous_snn_language_thought_surface_event_review_response.json()
                         ),
                         "memory_policy": {
@@ -1849,9 +2210,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_memory_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-preflight",
                         json={
-                            "autonomous_snn_language_thought_memory_design": (
+                            "snn_language_memory_design": (
                                 autonomous_snn_language_thought_memory_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1869,9 +2230,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_memory_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-executor",
                         json={
-                            "autonomous_snn_language_thought_memory_preflight": (
+                            "snn_language_memory_preflight": (
                                 autonomous_snn_language_thought_memory_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1882,9 +2243,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_memory_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-memory-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-memory-event-review",
                         json={
-                            "autonomous_snn_language_thought_memory_executor": (
+                            "snn_language_memory_executor": (
                                 autonomous_snn_language_thought_memory_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1900,9 +2261,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_consolidation_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-design",
                         json={
-                            "autonomous_snn_language_thought_memory_event_review": (
+                            "snn_language_memory_event_review": (
                                 autonomous_snn_language_thought_memory_event_review_response.json()
                             ),
                             "consolidation_policy": {
@@ -1918,9 +2279,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_consolidation_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-preflight",
                         json={
-                            "autonomous_snn_language_thought_consolidation_design": (
+                            "snn_language_consolidation_design": (
                                 autonomous_snn_language_thought_consolidation_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1938,9 +2299,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_consolidation_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-executor",
                         json={
-                            "autonomous_snn_language_thought_consolidation_preflight": (
+                            "snn_language_consolidation_preflight": (
                                 autonomous_snn_language_thought_consolidation_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1951,9 +2312,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_consolidation_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-consolidation-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-consolidation-event-review",
                         json={
-                            "autonomous_snn_language_thought_consolidation_executor": (
+                            "snn_language_consolidation_executor": (
                                 autonomous_snn_language_thought_consolidation_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -1970,9 +2331,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_structural_plasticity_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-design",
                         json={
-                            "autonomous_snn_language_thought_consolidation_event_review": (
+                            "snn_language_consolidation_event_review": (
                                 autonomous_snn_language_thought_consolidation_event_review_response.json()
                             ),
                             "structural_policy": {
@@ -1989,9 +2350,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_structural_plasticity_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-preflight",
                         json={
-                            "autonomous_snn_language_thought_structural_plasticity_design": (
+                            "snn_language_structural_plasticity_design": (
                                 autonomous_snn_language_thought_structural_plasticity_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2009,9 +2370,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_structural_plasticity_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-executor",
                         json={
-                            "autonomous_snn_language_thought_structural_plasticity_preflight": (
+                            "snn_language_structural_plasticity_preflight": (
                                 autonomous_snn_language_thought_structural_plasticity_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2022,9 +2383,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_structural_plasticity_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-structural-plasticity-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-structural-plasticity-event-review",
                         json={
-                            "autonomous_snn_language_thought_structural_plasticity_executor": (
+                            "snn_language_structural_plasticity_executor": (
                                 autonomous_snn_language_thought_structural_plasticity_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2042,9 +2403,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_capacity_mutation_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-design",
                         json={
-                            "autonomous_snn_language_thought_structural_plasticity_event_review": (
+                            "snn_language_structural_plasticity_event_review": (
                                 autonomous_snn_language_thought_structural_plasticity_event_review_response.json()
                             ),
                             "capacity_policy": {
@@ -2061,9 +2422,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_capacity_mutation_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-preflight",
                         json={
-                            "autonomous_snn_language_thought_capacity_mutation_design": (
+                            "snn_language_capacity_mutation_design": (
                                 autonomous_snn_language_thought_capacity_mutation_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2090,9 +2451,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_capacity_mutation_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-executor",
                         json={
-                            "autonomous_snn_language_thought_capacity_mutation_preflight": (
+                            "snn_language_capacity_mutation_preflight": (
                                 autonomous_snn_language_thought_capacity_mutation_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2104,9 +2465,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_capacity_mutation_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-capacity-mutation-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-capacity-mutation-event-review",
                         json={
-                            "autonomous_snn_language_thought_capacity_mutation_executor": (
+                            "snn_language_capacity_mutation_executor": (
                                 autonomous_snn_language_thought_capacity_mutation_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2117,9 +2478,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_integration_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-design",
                         json={
-                            "autonomous_snn_language_thought_capacity_mutation_event_review": (
+                            "snn_language_capacity_mutation_event_review": (
                                 autonomous_snn_language_thought_capacity_mutation_event_review_response.json()
                             ),
                             "integration_policy": {
@@ -2132,9 +2493,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_integration_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-preflight",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_integration_design": (
+                            "snn_language_newborn_neuron_integration_design": (
                                 autonomous_snn_language_thought_newborn_neuron_integration_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2160,9 +2521,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_integration_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-executor",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_integration_preflight": (
+                            "snn_language_newborn_neuron_integration_preflight": (
                                 autonomous_snn_language_thought_newborn_neuron_integration_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2173,9 +2534,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_integration_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-integration-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-integration-event-review",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_integration_executor": (
+                            "snn_language_newborn_neuron_integration_executor": (
                                 autonomous_snn_language_thought_newborn_neuron_integration_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2186,9 +2547,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-design",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_integration_event_review": (
+                            "snn_language_newborn_neuron_integration_event_review": (
                                 autonomous_snn_language_thought_newborn_neuron_integration_event_review_response.json()
                             )
                         },
@@ -2196,9 +2557,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-preflight",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-preflight",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design": (
+                            "snn_language_newborn_neuron_critical_period_learning_design": (
                                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_design_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2222,9 +2583,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-executor",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-executor",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight": (
+                            "snn_language_newborn_neuron_critical_period_learning_preflight": (
                                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_preflight_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2235,9 +2596,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-event-review",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-event-review",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor": (
+                            "snn_language_newborn_neuron_critical_period_learning_executor": (
                                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_executor_response.json()
                             ),
                             "expected_state_revision": status_response.json()[
@@ -2248,9 +2609,9 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 )
                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_continuation_design_response = (
                     client.post(
-                        "/terminus/snn-language-sequence/readout-ledger/autonomous-snn-language-thought-newborn-neuron-critical-period-learning-continuation-design",
+                        "/terminus/snn-language-sequence/readout-ledger/snn-language-newborn-neuron-critical-period-learning-continuation-design",
                         json={
-                            "autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review": (
+                            "snn_language_newborn_neuron_critical_period_learning_event_review": (
                                 autonomous_snn_language_thought_newborn_neuron_critical_period_learning_event_review_response.json()
                             )
                         },
@@ -13714,6 +14075,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
     def test_validation_report_endpoints_list_and_read_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            fresh_generated_at = datetime.now(timezone.utc).isoformat()
+            stale_generated_at = (datetime.now(timezone.utc) - timedelta(hours=96)).isoformat()
             report_dir = root / "reports" / "phase15"
             report_dir.mkdir(parents=True)
             report_path = report_dir / "phase15.json"
@@ -13729,7 +14092,199 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            regression_dir = root / "reports" / "service_benchmark_regression_gate"
+            regression_dir.mkdir(parents=True)
+            regression_path = regression_dir / "comparison.json"
+            regression_path.write_text(
+                json.dumps(
+                    {
+                        "artifact_kind": "marulho_service_benchmark_regression_gate",
+                        "status": "passed",
+                        "generated_at": fresh_generated_at,
+                        "runtime_truth": {
+                            "before": "alive",
+                            "after": "alive",
+                            "regressed": False,
+                        },
+                        "hot_path": {
+                            "after_p95_ms": 439.258,
+                            "after_total_ms": 818.798,
+                            "allowed_after_p95_ms": 549.072,
+                            "allowed_after_total_ms": 1023.497,
+                            "regression_tolerance": 0.25,
+                        },
+                        "endpoint_grouping": {
+                            "setup_leaked_into_hot_path": False,
+                            "slow_path_leaked_into_hot_path": False,
+                        },
+                        "configured_source": {
+                            "source_name": "benchmark_local_source",
+                            "tick_tokens_processed": 24,
+                        },
+                        "accepted_baseline": {
+                            "baseline_id": "service-benchmark-baseline:abc123",
+                            "label": "configured-source-cpu",
+                            "accepted_by": "operator-a",
+                            "baseline_path": "reports/service_benchmark_baseline/accepted-baseline.json",
+                        },
+                        "checks": {
+                            "runtime_truth_no_regression": True,
+                            "configured_source_alive": True,
+                            "hot_path_p95_no_relative_regression": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
             readme_path.write_text("# Phase 15\n", encoding="utf-8")
+            baseline_dir = root / "reports" / "service_benchmark_baseline"
+            baseline_dir.mkdir(parents=True)
+            baseline_snapshot = {
+                "benchmark": "marulho_service_endpoint_latency",
+                "success": True,
+                "endpoint_metabolism_summary": {
+                    "hot_path": {
+                        "latency_ms_p95": 439.258,
+                        "latency_ms_total": 818.798,
+                    }
+                },
+            }
+            baseline_hash = _sha256_json(baseline_snapshot)
+            acceptance_material = {
+                "baseline_id": "service-benchmark-baseline:abc123",
+                "label": "configured-source-cpu",
+                "accepted_by": "operator-a",
+                "note": "accepted baseline for local regression checks",
+                "accepted_at": fresh_generated_at,
+                "source_report_sha256_canonical_json": baseline_hash,
+                "source_report_generated_at": "",
+                "runtime_truth_verdict": "alive",
+                "hot_path_p95_ms": 439.258,
+                "hot_path_total_ms": 818.798,
+            }
+            acceptance_hash = _sha256_json(acceptance_material)
+            (baseline_dir / "accepted-baseline.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_kind": "marulho_service_benchmark_accepted_baseline",
+                        "generated_at": fresh_generated_at,
+                        "status": "accepted",
+                        "baseline_id": "service-benchmark-baseline:abc123",
+                        "label": "configured-source-cpu",
+                        "operator_review": {
+                            "accepted_by": "operator-a",
+                            "note": "accepted baseline for local regression checks",
+                            "accepted_at": fresh_generated_at,
+                            "acceptance_material": acceptance_material,
+                            "acceptance_hash": acceptance_hash,
+                            "acceptance_hash_algorithm": "sha256_canonical_json",
+                        },
+                        "checks": {
+                            "accepted_by_present": True,
+                            "benchmark_success": True,
+                            "runtime_truth_known": True,
+                            "hot_path_p95_available": True,
+                            "hot_path_total_available": True,
+                        },
+                        "source_report": {
+                            "path": "reports/service_benchmark_cycle_configured/service-benchmark.json",
+                            "sha256_canonical_json": baseline_hash,
+                            "runtime_truth_verdict": "alive",
+                            "hot_path_p95_ms": 439.258,
+                            "hot_path_total_ms": 818.798,
+                        },
+                        "baseline_report_snapshot": baseline_snapshot,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            tampered_dir = root / "reports" / "service_benchmark_baseline_tampered"
+            tampered_dir.mkdir(parents=True)
+            (tampered_dir / "accepted-baseline.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_kind": "marulho_service_benchmark_accepted_baseline",
+                        "generated_at": stale_generated_at,
+                        "status": "accepted",
+                        "baseline_id": "service-benchmark-baseline:tampered",
+                        "label": "tampered",
+                        "operator_review": {
+                            "accepted_by": "operator-a",
+                            "acceptance_material": {
+                                **acceptance_material,
+                                "baseline_id": "service-benchmark-baseline:tampered",
+                            },
+                            "acceptance_hash": acceptance_hash,
+                            "acceptance_hash_algorithm": "sha256_canonical_json",
+                        },
+                        "checks": {"accepted_by_present": True},
+                        "source_report": {
+                            "path": "reports/service_benchmark_cycle_configured/service-benchmark.json",
+                            "sha256_canonical_json": baseline_hash,
+                            "runtime_truth_verdict": "alive",
+                            "hot_path_p95_ms": 439.258,
+                            "hot_path_total_ms": 818.798,
+                        },
+                        "baseline_report_snapshot": {
+                            **baseline_snapshot,
+                            "success": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            bundle_dir = root / "reports" / "service_benchmark_baseline_fresh_cycle"
+            bundle_dir.mkdir(parents=True)
+            (bundle_dir / "bundle-summary.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_kind": "marulho_service_benchmark_baseline_run_bundle",
+                        "generated_at": fresh_generated_at,
+                        "status": "passed",
+                        "success": True,
+                        "paths": {
+                            "bundle_dir": "reports/service_benchmark_baseline_fresh_cycle",
+                            "benchmark": "reports/service_benchmark_baseline_fresh_cycle/fresh-benchmark.json",
+                            "comparison": "reports/service_benchmark_baseline_fresh_cycle/comparison.json",
+                            "baseline": "reports/service_benchmark_baseline/accepted-baseline.json",
+                        },
+                        "accepted_baseline": {
+                            "baseline_id": "service-benchmark-baseline:abc123",
+                            "label": "configured-source-cpu",
+                            "accepted_by": "operator-a",
+                            "baseline_report_hash": baseline_hash,
+                            "after_report_hash": "f" * 64,
+                        },
+                        "runtime_truth": {
+                            "before": "alive",
+                            "after": "alive",
+                            "regressed": False,
+                        },
+                        "hot_path": {
+                            "after_p95_ms": 432.406,
+                            "after_total_ms": 739.666,
+                            "allowed_after_p95_ms": 549.072,
+                            "allowed_after_total_ms": 1023.497,
+                            "regression_tolerance": 0.25,
+                        },
+                        "configured_source": {
+                            "source_name": "benchmark_local_source",
+                            "tick_tokens_processed": 24,
+                            "source_count": 1,
+                        },
+                        "checks": {
+                            "runtime_truth_no_regression": True,
+                            "configured_source_alive": True,
+                            "hot_path_p95_no_relative_regression": True,
+                        },
+                        "claim_boundary": "fresh_benchmark_plus_baseline_compare_slow_path_no_runtime_mutation_no_cuda_speedup_claim",
+                    }
+                ),
+                encoding="utf-8",
+            )
             app = create_app(
                 _build_checkpoint(root, test_case="service_api_validation_reports"),
                 trace_dir=root / "traces",
@@ -13743,7 +14298,98 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
         self.assertEqual(list_response.status_code, 200)
         listed = list_response.json()
         self.assertEqual(listed["phase_status"]["phase15"]["status"], "ready_for_bounded_level_5_experiment")
-        self.assertEqual(listed["reports"][0]["readme_path"], "phase15/README.md")
+        regression_summary = next(
+            item
+            for item in listed["reports"]
+            if item["artifact_kind"] == "marulho_service_benchmark_regression_gate"
+        )
+        self.assertEqual(regression_summary["status"], "passed")
+        self.assertEqual(regression_summary["runtime_truth_verdict"], "alive")
+        self.assertEqual(regression_summary["runtime_truth_before"], "alive")
+        self.assertFalse(regression_summary["runtime_truth_regressed"])
+        self.assertEqual(regression_summary["hot_path_p95_ms"], 439.258)
+        self.assertEqual(regression_summary["hot_path_allowed_p95_ms"], 549.072)
+        self.assertEqual(regression_summary["configured_source"], "benchmark_local_source")
+        self.assertEqual(regression_summary["configured_source_tick_tokens"], 24)
+        self.assertEqual(regression_summary["accepted_baseline_id"], "service-benchmark-baseline:abc123")
+        self.assertEqual(regression_summary["accepted_baseline_label"], "configured-source-cpu")
+        self.assertEqual(regression_summary["accepted_baseline_by"], "operator-a")
+        self.assertEqual(regression_summary["evidence_freshness_status"], "fresh")
+        self.assertLessEqual(regression_summary["evidence_age_hours"], 1.0)
+        self.assertEqual(regression_summary["failed_checks"], [])
+        baseline_summary = next(
+            item
+            for item in listed["reports"]
+            if item["artifact_kind"] == "marulho_service_benchmark_accepted_baseline"
+            and item.get("accepted_baseline_id") == "service-benchmark-baseline:abc123"
+        )
+        self.assertEqual(baseline_summary["status"], "accepted")
+        self.assertEqual(baseline_summary["accepted_baseline_id"], "service-benchmark-baseline:abc123")
+        self.assertEqual(baseline_summary["accepted_baseline_label"], "configured-source-cpu")
+        self.assertEqual(baseline_summary["accepted_baseline_by"], "operator-a")
+        self.assertEqual(baseline_summary["baseline_report_hash"], baseline_hash)
+        self.assertEqual(baseline_summary["baseline_snapshot_hash"], baseline_hash)
+        self.assertTrue(baseline_summary["baseline_hash_match"])
+        self.assertEqual(baseline_summary["baseline_integrity_status"], "verified")
+        self.assertEqual(baseline_summary["acceptance_hash"], acceptance_hash)
+        self.assertEqual(baseline_summary["acceptance_material_hash"], acceptance_hash)
+        self.assertTrue(baseline_summary["acceptance_hash_match"])
+        self.assertEqual(baseline_summary["acceptance_integrity_status"], "verified")
+        self.assertEqual(baseline_summary["evidence_freshness_status"], "fresh")
+        self.assertLessEqual(baseline_summary["evidence_age_hours"], 1.0)
+        self.assertIn("--run-against-baseline", baseline_summary["baseline_operator_action_hint"])
+        self.assertEqual(len(baseline_summary["baseline_operator_action_commands"]), 1)
+        self.assertIn("--run-against-baseline", baseline_summary["baseline_operator_action_commands"][0])
+        self.assertEqual(baseline_summary["runtime_truth_verdict"], "alive")
+        self.assertEqual(baseline_summary["hot_path_p95_ms"], 439.258)
+        self.assertEqual(baseline_summary["hot_path_total_ms"], 818.798)
+        self.assertEqual(baseline_summary["failed_checks"], [])
+        tampered_summary = next(
+            item
+            for item in listed["reports"]
+            if item.get("accepted_baseline_id") == "service-benchmark-baseline:tampered"
+        )
+        self.assertEqual(tampered_summary["baseline_integrity_status"], "failed")
+        self.assertFalse(tampered_summary["baseline_hash_match"])
+        self.assertEqual(tampered_summary["acceptance_integrity_status"], "failed")
+        self.assertFalse(tampered_summary["acceptance_hash_match"])
+        self.assertEqual(tampered_summary["evidence_freshness_status"], "stale")
+        self.assertGreaterEqual(tampered_summary["evidence_age_hours"], 96.0)
+        self.assertIn("baseline_snapshot_hash_match", tampered_summary["failed_checks"])
+        self.assertIn("baseline_acceptance_hash_match", tampered_summary["failed_checks"])
+        self.assertIn("hash mismatch", tampered_summary["baseline_operator_action_hint"])
+        self.assertEqual(len(tampered_summary["baseline_operator_action_commands"]), 2)
+        self.assertIn("--accept-baseline-from", tampered_summary["baseline_operator_action_commands"][1])
+        bundle_summary = next(
+            item
+            for item in listed["reports"]
+            if item["artifact_kind"] == "marulho_service_benchmark_baseline_run_bundle"
+        )
+        self.assertEqual(bundle_summary["status"], "passed")
+        self.assertTrue(bundle_summary["success"])
+        self.assertTrue(bundle_summary["passed"])
+        self.assertEqual(bundle_summary["runtime_truth_verdict"], "alive")
+        self.assertFalse(bundle_summary["runtime_truth_regressed"])
+        self.assertEqual(bundle_summary["hot_path_p95_ms"], 432.406)
+        self.assertEqual(bundle_summary["hot_path_allowed_total_ms"], 1023.497)
+        self.assertEqual(bundle_summary["configured_source"], "benchmark_local_source")
+        self.assertEqual(bundle_summary["configured_source_tick_tokens"], 24)
+        self.assertEqual(bundle_summary["accepted_baseline_id"], "service-benchmark-baseline:abc123")
+        self.assertEqual(bundle_summary["baseline_report_hash"], baseline_hash)
+        self.assertEqual(bundle_summary["after_report_hash"], "f" * 64)
+        self.assertEqual(bundle_summary["evidence_freshness_status"], "fresh")
+        self.assertLessEqual(bundle_summary["evidence_age_hours"], 1.0)
+        self.assertEqual(
+            bundle_summary["fresh_benchmark_path"],
+            "reports/service_benchmark_baseline_fresh_cycle/fresh-benchmark.json",
+        )
+        self.assertEqual(bundle_summary["failed_checks"], [])
+        phase_summary = next(
+            item
+            for item in listed["reports"]
+            if item["artifact_kind"] == "terminus_bounded_self_improvement_readiness"
+        )
+        self.assertEqual(phase_summary["readme_path"], "phase15/README.md")
         self.assertEqual(read_response.status_code, 200)
         self.assertEqual(read_response.json()["media_type"], "text/markdown")
         self.assertIn("Phase 15", read_response.json()["content"])
@@ -16451,6 +17097,8 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
                     self.assertTrue(data["terminus_runtime"]["autonomy"]["enabled"])
                     self.assertEqual(data["terminus_runtime"]["autonomy"]["candidate_bank"][0]["catalog_mode"], "semantic_registry")
                     manager = app.state.marulho_manager
+                    self.assertEqual(manager._trainer.config.memory_capacity, 1000)
+                    self.assertEqual(manager._trainer.model.memory_store.capacity, 1000)
                     self.assertTrue(manager._trainer.config.enable_context_layer)
                     self.assertTrue(manager._trainer.config.enable_binding_layer)
                     self.assertNotIn("curriculum", data["terminus_runtime"])
@@ -16536,27 +17184,19 @@ class ServiceApiTerminusRuntimeTests(unittest.TestCase):
 
         prefix = "/terminus/snn-language-sequence/readout-ledger/"
         self.assertIn(
-            prefix
-            + "autonomous-snn-language-thought-newborn-neuron-"
-            "maturation-outcome-review",
+            prefix + "snn-language-newborn-neuron-maturation-outcome-review",
             paths,
         )
         self.assertIn(
-            prefix
-            + "autonomous-snn-language-thought-newborn-synapse-"
-            "pruning-design",
+            prefix + "snn-language-newborn-synapse-pruning-design",
             paths,
         )
         self.assertIn(
-            prefix
-            + "autonomous-snn-language-thought-newborn-synapse-"
-            "pruning-preflight",
+            prefix + "snn-language-newborn-synapse-pruning-preflight",
             paths,
         )
         self.assertIn(
-            prefix
-            + "autonomous-snn-language-thought-newborn-synapse-"
-            "pruning-executor",
+            prefix + "snn-language-newborn-synapse-pruning-executor",
             paths,
         )
 

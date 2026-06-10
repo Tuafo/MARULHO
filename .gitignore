@@ -6,4 +6,5 @@ reports
 checkpoints
 graphify-out/
 docs/vault/.obsidian/workspace*.json
+docs/goals/
 .env

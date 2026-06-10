@@ -488,7 +488,19 @@ def test_thought_capacity_mutation_grows_tensor_and_dynamic_capacity(
     assert snapshot["language_neuron_count"] == 66
     assert snapshot["sparse_edge_budget"] == 258
     assert snapshot["language_capacity"]["dynamic_capacity_enabled"] is True
+    assert snapshot["language_capacity_mutation_count"] == 1
     assert snapshot["thought_capacity_mutation_count"] == 1
+    assert (
+        snapshot["last_language_capacity_mutation"]
+        == snapshot["last_thought_capacity_mutation"]
+    )
+    assert (
+        snapshot["recent_language_capacity_mutations"]
+        == snapshot["recent_thought_capacity_mutations"]
+    )
+    assert snapshot["canonical_field_names"][
+        "language_capacity_mutation_count"
+    ] == "canonical_alias_for_legacy_thought_capacity_mutation_count"
     assert runtime_state.state_revision == 1
 
 
@@ -1017,8 +1029,18 @@ def test_thought_newborn_synapse_pruning_removes_edge_and_preserves_tombstone(
         == 66
     )
     snapshot = executor.snapshot()
+    assert snapshot["language_newborn_synapse_pruning_count"] == 1
+    assert snapshot["language_newborn_synapse_pruned_count_total"] == 1
     assert snapshot["thought_newborn_synapse_pruning_count"] == 1
     assert snapshot["thought_newborn_synapse_pruned_count_total"] == 1
+    assert (
+        snapshot["last_language_newborn_synapse_pruning"]
+        == snapshot["last_thought_newborn_synapse_pruning"]
+    )
+    assert (
+        snapshot["recent_language_newborn_synapse_pruning"]
+        == snapshot["recent_thought_newborn_synapse_pruning"]
+    )
 
 
 def test_dense_readout_layout_migration_persists_checkpointed_resize_evidence(
